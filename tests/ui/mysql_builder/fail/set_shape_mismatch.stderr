@@ -1,0 +1,29 @@
+error[E0277]: the trait bound `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, (std::string::String,)>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, (u64,)>` is not satisfied
+  --> tests/ui/mysql_builder/fail/set_shape_mismatch.rs:20:23
+   |
+20 |     let _ = ids.union(names);
+   |                 ----- ^^^^^ unsatisfied trait bound
+   |                 |
+   |                 required by a bound introduced by this call
+   |
+help: the trait `IntoSelectQuery<'_, Schema, (u64,)>` is not implemented for `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, (std::string::String,)>`
+      but trait `IntoSelectQuery<'_, Schema, (std::string::String,)>` is implemented for it
+  --> mysql/src/builder/select.rs
+   |
+   | / impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
+   | | where
+   | |     State: private::Completed,
+   | |______________________________^
+   = help: for that trait implementation, expected `std::string::String`, found `u64`
+note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
+  --> mysql/src/builder/select.rs
+   |
+   |             other: impl IntoSelectQuery<'a, S, R>,
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
+...
+   |     set_operation!(union, drizzle_core::Token::UNION, false);
+   |     --------------------------------------------------------
+   |     |              |
+   |     |              required by a bound in this associated function
+   |     in this macro invocation
+   = note: this error originates in the macro `set_operation` (in Nightly builds, run with -Z macro-backtrace for more info)

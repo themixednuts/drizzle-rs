@@ -24,7 +24,8 @@
     feature = "rusqlite",
     feature = "turso",
     feature = "libsql",
-    feature = "postgres"
+    feature = "postgres",
+    feature = "mysql"
 ))]
 mod parity_util {
     use std::collections::BTreeMap;
@@ -185,7 +186,7 @@ mod sqlite_parity {
 
         let macro_snapshot = match SqliteParitySchema::new().to_snapshot() {
             Snapshot::Sqlite(s) => s,
-            Snapshot::Postgres(_) => panic!("expected a SQLite snapshot"),
+            Snapshot::Postgres(_) | Snapshot::MySQL(_) => panic!("expected a SQLite snapshot"),
         };
 
         let parsed = SchemaParser::parse(include_str!("parser_parity.rs"));
@@ -200,7 +201,7 @@ mod sqlite_parity {
             None,
         ) {
             Snapshot::Sqlite(s) => s,
-            Snapshot::Postgres(_) => panic!("expected a SQLite snapshot"),
+            Snapshot::Postgres(_) | Snapshot::MySQL(_) => panic!("expected a SQLite snapshot"),
         };
 
         super::parity_util::assert_entity_parity(
@@ -398,7 +399,7 @@ mod postgres_parity {
 
         let macro_snapshot = match PostgresParitySchema::new().to_snapshot() {
             Snapshot::Postgres(s) => s,
-            Snapshot::Sqlite(_) => panic!("expected a Postgres snapshot"),
+            Snapshot::Sqlite(_) | Snapshot::MySQL(_) => panic!("expected a Postgres snapshot"),
         };
 
         let parsed = SchemaParser::parse(include_str!("parser_parity.rs"));
@@ -413,7 +414,7 @@ mod postgres_parity {
             None,
         ) {
             Snapshot::Postgres(s) => s,
-            Snapshot::Sqlite(_) => panic!("expected a Postgres snapshot"),
+            Snapshot::Sqlite(_) | Snapshot::MySQL(_) => panic!("expected a Postgres snapshot"),
         };
 
         super::parity_util::assert_entity_parity(
@@ -551,5 +552,229 @@ mod postgres_parity {
             )),
             "renamed PG FK target not resolved"
         );
+    }
+}
+
+// =============================================================================
+// MySQL fixture + test
+// =============================================================================
+
+#[cfg(feature = "mysql")]
+mod mysql_parity {
+    use drizzle::mysql::prelude::*;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, MySQLEnum)]
+    pub enum AccountState {
+        #[default]
+        Pending,
+        Active,
+        Suspended,
+    }
+
+    #[MySQLTable(
+        DATABASE = "parity_db",
+        NAME = "mysql_parity_tenants",
+        ENGINE = "InnoDB",
+        DEFAULT_CHARSET = "utf8mb4",
+        COLLATE = "utf8mb4_0900_ai_ci",
+        COMMENT = "tenant records"
+    )]
+    pub struct Tenants {
+        #[column(NAME = "tenant_key", PRIMARY, AUTO_INCREMENT)]
+        pub id: u64,
+        #[column(VARCHAR(255), UNIQUE)]
+        pub slug: String,
+    }
+
+    #[MySQLTable(
+        DATABASE = "parity_db",
+        NAME = "mysql_parity_accounts",
+        ENGINE = "InnoDB",
+        DEFAULT_CHARSET = "utf8mb4",
+        COLLATE = "utf8mb4_0900_ai_ci",
+        UNIQUE(columns(label, state), name = "accounts_label_state_key"),
+        CHECK(name = "accounts_login_count_check", expr = "login_count >= 0")
+    )]
+    pub struct Accounts {
+        #[column(PRIMARY, AUTO_INCREMENT)]
+        pub id: u64,
+        #[column(REFERENCES = Tenants::id, ON_DELETE = CASCADE, ON_UPDATE = RESTRICT)]
+        pub tenant_id: u64,
+        #[column(ENUM, CHARSET = "utf8mb4", COLLATE = "utf8mb4_bin")]
+        pub state: AccountState,
+        #[column(SET("reader", "writer", "admin"))]
+        pub roles: String,
+        /// Rust API documentation, not MySQL schema metadata.
+        #[column(VARCHAR(255))]
+        pub label: String,
+        #[column(COMMENT = "stored in the schema")]
+        pub note: String,
+        #[column(DEFAULT = 0, CHECK = "login_count >= 0")]
+        pub login_count: u32,
+        #[column(
+            TIMESTAMP,
+            DEFAULT_SQL = "CURRENT_TIMESTAMP",
+            ON_UPDATE = "CURRENT_TIMESTAMP"
+        )]
+        pub updated_at: String,
+        #[column(generated(STORED, "CHAR_LENGTH(label)"))]
+        pub label_length: u32,
+    }
+
+    #[MySQLIndex(unique, using = "HASH", algorithm = "INPLACE", lock = "NONE")]
+    pub struct AccountsLabelIndex(Accounts::label);
+
+    #[MySQLView(
+        DATABASE = "parity_db",
+        NAME = "active_account_labels",
+        DEFINITION = "SELECT id, label FROM mysql_parity_accounts WHERE login_count > 0",
+        ALGORITHM = "MERGE",
+        SQL_SECURITY = "INVOKER",
+        CHECK_OPTION
+    )]
+    pub struct ActiveAccountLabels {
+        pub id: u64,
+        pub label: String,
+    }
+
+    #[derive(MySQLSchema)]
+    pub struct MySqlParitySchema {
+        pub tenants: Tenants,
+        pub accounts: Accounts,
+        pub accounts_label_index: AccountsLabelIndex,
+        pub active_account_labels: ActiveAccountLabels,
+    }
+
+    #[test]
+    fn mysql_producer_parity() {
+        use drizzle::migrations::mysql::{
+            GeneratedType, IndexAlgorithm, IndexLock, IndexMethod, InlineType, MySQLEntity,
+            ReferentialAction,
+        };
+        use drizzle::migrations::parser::SchemaParser;
+        use drizzle::migrations::schema::{Schema as _, Snapshot};
+        use drizzle_types::Dialect;
+
+        let macro_snapshot = match MySqlParitySchema::new().to_snapshot() {
+            Snapshot::MySQL(snapshot) => snapshot,
+            Snapshot::Sqlite(_) | Snapshot::Postgres(_) => panic!("expected a MySQL snapshot"),
+        };
+
+        let parsed = SchemaParser::parse(include_str!("parser_parity.rs"));
+        assert!(
+            parsed.errors.is_empty(),
+            "parser reported errors on the fixture: {:?}",
+            parsed.errors
+        );
+        let parser_snapshot =
+            match drizzle::migrations::Snapshot::from_parse_result(&parsed, Dialect::MySQL, None) {
+                Snapshot::MySQL(snapshot) => snapshot,
+                Snapshot::Sqlite(_) | Snapshot::Postgres(_) => panic!("expected a MySQL snapshot"),
+            };
+
+        super::parity_util::assert_entity_parity(
+            "mysql",
+            macro_snapshot
+                .ddl
+                .iter()
+                .map(|entity| format!("{entity:?}"))
+                .collect(),
+            parser_snapshot
+                .ddl
+                .iter()
+                .map(|entity| format!("{entity:?}"))
+                .collect(),
+        );
+
+        let ddl = &macro_snapshot.ddl;
+        let accounts = ddl
+            .iter()
+            .find_map(|entity| match entity {
+                MySQLEntity::Table(table) if table.name.as_ref() == "mysql_parity_accounts" => {
+                    Some(table)
+                }
+                _ => None,
+            })
+            .expect("accounts table");
+        assert_eq!(accounts.database.as_deref(), Some("parity_db"));
+        assert_eq!(accounts.engine.as_deref(), Some("InnoDB"));
+        assert_eq!(accounts.charset.as_deref(), Some("utf8mb4"));
+        assert_eq!(accounts.collation.as_deref(), Some("utf8mb4_0900_ai_ci"));
+
+        let column = |name: &str| {
+            ddl.iter()
+                .find_map(|entity| match entity {
+                    MySQLEntity::Column(column)
+                        if column.table.as_ref() == "mysql_parity_accounts"
+                            && column.name.as_ref() == name =>
+                    {
+                        Some(column)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("accounts.{name} column"))
+        };
+        assert_eq!(
+            column("label").comment,
+            None,
+            "Rust docs became SQL COMMENT"
+        );
+        assert_eq!(
+            column("note").comment.as_deref(),
+            Some("stored in the schema")
+        );
+        assert!(matches!(
+            column("state").inline_type.as_ref(),
+            Some(InlineType::Enum(values))
+                if values.values.iter().map(AsRef::as_ref).eq(["Pending", "Active", "Suspended"])
+        ));
+        assert!(matches!(
+            column("roles").inline_type.as_ref(),
+            Some(InlineType::Set(values))
+                if values.values.iter().map(AsRef::as_ref).eq(["reader", "writer", "admin"])
+        ));
+        assert!(matches!(
+            column("label_length").generated.as_ref(),
+            Some(generated)
+                if generated.expression.as_ref() == "CHAR_LENGTH(label)"
+                    && generated.generation_type == GeneratedType::Stored
+        ));
+        assert_eq!(
+            column("updated_at").on_update.as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+
+        assert!(ddl.iter().any(|entity| matches!(
+            entity,
+            MySQLEntity::ForeignKey(foreign_key)
+                if foreign_key.table.as_ref() == "mysql_parity_accounts"
+                    && foreign_key.foreign_columns.iter().map(AsRef::as_ref).eq(["tenant_key"])
+                    && foreign_key.on_delete == Some(ReferentialAction::Cascade)
+                    && foreign_key.on_update == Some(ReferentialAction::Restrict)
+        )));
+        assert!(ddl.iter().any(|entity| matches!(
+            entity,
+            MySQLEntity::Index(index)
+                if index.name.as_ref() == "accounts_label_index"
+                    && index.using == Some(IndexMethod::Hash)
+                    && index.algorithm == Some(IndexAlgorithm::Inplace)
+                    && index.lock == Some(IndexLock::None)
+        )));
+        assert!(ddl.iter().any(|entity| matches!(
+            entity,
+            MySQLEntity::View(view)
+                if view.database.as_deref() == Some("parity_db")
+                    && view.name.as_ref() == "active_account_labels"
+                    && view.definition.as_deref()
+                        == Some("SELECT id, label FROM mysql_parity_accounts WHERE login_count > 0")
+                    && view.algorithm == Some(drizzle::migrations::mysql::ViewAlgorithm::Merge)
+                    && view.sql_security
+                        == Some(drizzle::migrations::mysql::ViewSqlSecurity::Invoker)
+                    && view.check_option
+                        == Some(drizzle::migrations::mysql::ViewCheckOption::Cascaded)
+                    && view.definer.is_none()
+                    && view.charset.is_none()
+                    && view.collation.is_none()
+        )));
     }
 }

@@ -17,13 +17,16 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let sqlite_update_value = sqlite_paths::sqlite_update_value();
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
-    let mut field_base_types: Vec<&syn::Type> = Vec::new();
+    let mut field_types: Vec<TokenStream> = Vec::new();
     let mut update_field_conversions = Vec::new();
     let mut update_convenience_methods = Vec::new();
 
     for info in ctx.field_infos {
         field_names.push(info.ident);
-        field_base_types.push(info.base_type);
+        field_types.push(MacroContext::get_field_type_for_model(
+            info,
+            ModelType::Update,
+        ));
 
         // Generate field conversion for ToSQL
         update_field_conversions.push(MacroContext::get_update_field_conversion(info));
@@ -40,7 +43,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
         // S = Empty means no fields set yet; S = NonEmpty means at least one field was set.
         #[derive(Debug, Clone)]
         pub struct #update_model<'a, S = #empty_marker> {
-            #(pub(crate) #field_names: #sqlite_update_value<'a, #sqlite_value<'a>, #field_base_types>,)*
+            #(pub(crate) #field_names: #field_types,)*
             pub(crate) _state: ::std::marker::PhantomData<S>,
         }
 

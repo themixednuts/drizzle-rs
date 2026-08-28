@@ -76,34 +76,38 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
     let parse_result = SchemaParser::parse(&combined_code);
     crate::snapshot::surface_parse_diagnostics(&parse_result)?;
 
-    if parse_result.tables.is_empty() && parse_result.indexes.is_empty() {
-        println!(
-            "{}",
-            output::warning("No tables or indexes found in schema files.")
-        );
-        return Ok(());
-    }
-
     println!(
-        "  {} {} table(s), {} index(es)",
+        "  {} {} table(s), {} index(es), {} enum(s), {} view(s)",
         output::label("Found"),
         parse_result.tables.len(),
-        parse_result.indexes.len()
+        parse_result.indexes.len(),
+        parse_result.enums.len(),
+        parse_result.views.len(),
     );
 
     // Build snapshot from parsed schema (use config dialect)
     let dialect = effective_dialect.to_base();
     let snapshot = Snapshot::from_parse_result(&parse_result, dialect, db.casing);
+    if snapshot.is_empty() {
+        println!("{}", output::warning("No schema entities found."));
+        return Ok(());
+    }
 
-    // Generate SQL from snapshot (create statements for all entities)
-    let sql_statements = generate_create_sql(&snapshot, db.breakpoints);
+    // Use the public planner so export has the same validation, dependency
+    // ordering, and SQL rendering call stack as generated migrations.
+    let plan = generate_create_plan(&snapshot)?;
+    let sql_statements = &plan.statements;
 
     if sql_statements.is_empty() {
         println!("{}", output::warning("No SQL statements generated."));
         return Ok(());
     }
 
-    let sql_content = sql_statements.join("\n\n");
+    let sql_content = if db.breakpoints {
+        plan.to_sql()
+    } else {
+        sql_statements.join("\n\n")
+    };
 
     // Output to file or stdout
     if let Some(path) = opts.output_path {
@@ -130,33 +134,11 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Resul
     Ok(())
 }
 
-/// Generate CREATE SQL statements from a snapshot
-fn generate_create_sql(
+/// Plan CREATE SQL from an empty snapshot through the shared dialect entrypoint.
+fn generate_create_plan(
     snapshot: &drizzle_migrations::schema::Snapshot,
-    breakpoints: bool,
-) -> Vec<String> {
-    match snapshot {
-        Snapshot::Sqlite(snap) => {
-            use drizzle_migrations::sqlite::SQLiteSnapshot;
-            use drizzle_migrations::sqlite::diff_snapshots;
-            use drizzle_migrations::sqlite::statements::Generator as SqliteGenerator;
-
-            // Diff against empty snapshot to get all CREATE statements
-            let empty = SQLiteSnapshot::new();
-            let diff = diff_snapshots(&empty, snap);
-            let generator = SqliteGenerator::new().with_breakpoints(breakpoints);
-            generator.generate_migration(&diff)
-        }
-        Snapshot::Postgres(snap) => {
-            use drizzle_migrations::postgres::PostgresSnapshot;
-            use drizzle_migrations::postgres::diff_full_snapshots;
-            use drizzle_migrations::postgres::statements::Generator as PostgresGenerator;
-
-            // Diff against empty snapshot to get all CREATE statements
-            let empty = PostgresSnapshot::new();
-            let diff = diff_full_snapshots(&empty, snap);
-            let generator = PostgresGenerator::new().with_breakpoints(breakpoints);
-            generator.generate(&diff.diffs)
-        }
-    }
+) -> Result<drizzle_migrations::Plan, CliError> {
+    let empty = Snapshot::empty(snapshot.dialect());
+    drizzle_migrations::diff(&empty, snapshot)
+        .map_err(|error| CliError::MigrationError(error.to_string()))
 }

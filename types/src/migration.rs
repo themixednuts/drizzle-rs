@@ -70,6 +70,12 @@ impl MigrationTracking {
         schema: Some(Cow::Borrowed("drizzle")),
     };
 
+    /// Default `MySQL` migration tracking metadata in the selected database.
+    pub const MYSQL: Self = Self {
+        table: Cow::Borrowed("__drizzle_migrations"),
+        schema: None,
+    };
+
     /// Create tracking metadata from table/schema values.
     pub fn new(
         table: impl Into<Cow<'static, str>>,

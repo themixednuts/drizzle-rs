@@ -5,17 +5,28 @@
 //! must push the base scan into a derived table. These tests pin that shape.
 
 use drizzle_core::query::{RelCardinality, RenderedRelation, build_query_sql};
-use drizzle_core::{ColumnRef, PaginationArg, SQL, SQLChunk};
+use drizzle_core::{ColumnRef, PaginationArg, SQL, SQLChunk, TableSqlRef};
 
 use crate::values::PostgresValue;
 
 type PgSql = SQL<'static, PostgresValue<'static>>;
 
+const ORDERS: TableSqlRef = TableSqlRef {
+    schema: None,
+    name: "orders",
+    column_names: &["id", "name"],
+};
+
 fn details_relation() -> RenderedRelation<'static, PostgresValue<'static>> {
     RenderedRelation {
-        table_name: "order_details",
+        table: TableSqlRef {
+            schema: None,
+            name: "order_details",
+            column_names: &["quantity", "order_id"],
+        },
         column_names: vec!["quantity", "order_id"],
         blob_columns: &[],
+        json_projections: &[],
         fk_columns: &[("order_id", "id")],
         cardinality: RelCardinality::Many,
         rel_name: "details",
@@ -40,8 +51,9 @@ const DETAILS_SUBQUERY: &str = r#"(SELECT COALESCE(json_agg(json_build_object('q
 #[test]
 fn unpaginated_relation_keeps_flat_shape() {
     let sql = build_query_sql(
-        "orders",
+        ORDERS,
         &["id", "name"],
+        &[],
         &[],
         vec![details_relation()],
         SQL::empty(),
@@ -60,8 +72,9 @@ fn unpaginated_relation_keeps_flat_shape() {
 #[test]
 fn paginated_relation_wraps_base_scan_in_derived_table() {
     let sql = build_query_sql(
-        "orders",
+        ORDERS,
         &["id", "name"],
+        &[],
         &[],
         vec![details_relation()],
         SQL::empty(),
@@ -82,8 +95,9 @@ fn paginated_relation_wraps_base_scan_in_derived_table() {
 #[test]
 fn paginated_partial_selection_exposes_fk_and_order_columns() {
     let sql = build_query_sql(
-        "orders",
+        ORDERS,
         &["name"],
+        &[],
         &[],
         vec![details_relation()],
         SQL::empty(),
@@ -106,8 +120,9 @@ fn paginated_partial_selection_exposes_fk_and_order_columns() {
 #[test]
 fn pagination_without_relations_keeps_flat_shape() {
     let sql = build_query_sql::<PostgresValue<'static>>(
-        "orders",
+        ORDERS,
         &["id", "name"],
+        &[],
         &[],
         Vec::new(),
         SQL::empty(),

@@ -10,3 +10,7 @@ pub const SQLITE_MAX_PARAMS: usize = 32766;
 /// Maximum parameter count for `PostgreSQL`.
 #[cfg(feature = "postgres")]
 pub const POSTGRES_MAX_PARAMS: usize = 65535;
+
+/// Maximum marker count in one `MySQL` prepared statement.
+#[cfg(feature = "mysql")]
+pub const MYSQL_MAX_PARAMS: usize = 65535;

@@ -51,9 +51,9 @@
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
-//! use drizzle::postgres::common::PostgresTransactionType;
+//! use drizzle::postgres::TransactionConfig;
 //!
-//! let count = db.transaction(PostgresTransactionType::ReadCommitted, async |tx| {
+//! let count = db.transaction(TransactionConfig::default(), async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     Ok(users.len())
@@ -69,14 +69,14 @@
 //! ```no_run
 //! # use drizzle::postgres::prelude::*;
 //! # use drizzle::postgres::tokio::Drizzle;
-//! # use drizzle::postgres::common::PostgresTransactionType;
+//! # use drizzle::postgres::TransactionConfig;
 //! # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
 //! # #[derive(PostgresSchema)] struct S { user: User }
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
 //! # let (mut db, S { user }) = Drizzle::new(client, S::new());
-//! db.transaction(PostgresTransactionType::ReadCommitted, async |tx| {
+//! db.transaction(TransactionConfig::default(), async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
 //!     // This savepoint fails — only its changes roll back
@@ -159,7 +159,7 @@ use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, Upd
 use drizzle_postgres::traits::PostgresTable;
 use smallvec::SmallVec;
 use tokio_postgres::{
-    Client, IsolationLevel, Row, Statement,
+    Client, IsolationLevel as DriverIsolationLevel, Row, Statement,
     types::{ToSql, Type},
 };
 
@@ -167,7 +167,7 @@ use drizzle_postgres::builder::{
     self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
     update::UpdateBuilder,
 };
-use drizzle_postgres::common::PostgresTransactionType;
+use drizzle_postgres::transaction::{AccessMode, IsolationLevel, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::common;
@@ -423,6 +423,53 @@ impl<Schema> Drizzle<Schema> {
         }
     }
 
+    async fn start(
+        &mut self,
+        config: impl Into<TransactionConfig>,
+    ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
+    where
+        Schema: Copy,
+    {
+        let config = config.into();
+        let applied_config = if config.uses_server_default_isolation() {
+            let mut applied = TransactionConfig::new();
+            if let Some(access) = config.access() {
+                applied = applied.access_mode(access);
+            }
+            applied
+        } else {
+            config
+        };
+        let client = Arc::get_mut(&mut self.client).ok_or_else(|| {
+            DrizzleError::Other("cannot start transaction: outstanding Drizzle clones exist".into())
+        })?;
+        let mut builder = client.build_transaction();
+
+        if let Some(isolation) = applied_config.isolation() {
+            builder = builder.isolation_level(match isolation {
+                IsolationLevel::ReadUncommitted => DriverIsolationLevel::ReadUncommitted,
+                IsolationLevel::ReadCommitted => DriverIsolationLevel::ReadCommitted,
+                IsolationLevel::RepeatableRead => DriverIsolationLevel::RepeatableRead,
+                IsolationLevel::Serializable => DriverIsolationLevel::Serializable,
+            });
+        }
+        if let Some(access) = applied_config.access() {
+            builder = builder.read_only(access == AccessMode::ReadOnly);
+        }
+        if applied_config.is_deferrable() {
+            builder = builder.deferrable(true);
+        }
+
+        drizzle_core::drizzle_trace_tx!("begin", "postgres.tokio");
+        let tx = builder.start().await?;
+        Ok(Transaction::new(
+            tx,
+            applied_config,
+            self.schema,
+            self.statement_cache.clone(),
+        ))
+    }
+
     /// Executes a transaction with the given callback.
     ///
     /// The transaction is committed when the callback returns `Ok` and
@@ -437,14 +484,14 @@ impl<Schema> Drizzle<Schema> {
     /// ```no_run
     /// # use drizzle::postgres::prelude::*;
     /// # use drizzle::postgres::tokio::Drizzle;
-    /// # use drizzle::postgres::common::PostgresTransactionType;
+    /// # use drizzle::postgres::TransactionConfig;
     /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
     /// # #[derive(PostgresSchema)] struct S { user: User }
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
     /// # tokio::spawn(async move { conn.await.unwrap() });
     /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
-    /// let count = db.transaction(PostgresTransactionType::ReadCommitted, async |tx| {
+    /// let count = db.transaction(TransactionConfig::default(), async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
     ///     Ok(users.len())
@@ -453,36 +500,18 @@ impl<Schema> Drizzle<Schema> {
     /// ```
     pub async fn transaction<F, R>(
         &mut self,
-        tx_type: PostgresTransactionType,
+        config: impl Into<TransactionConfig>,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        let client = Arc::get_mut(&mut self.client).ok_or_else(|| {
-            DrizzleError::Other("cannot start transaction: outstanding Drizzle clones exist".into())
-        })?;
-        let builder = client.build_transaction();
-        let builder = if tx_type == PostgresTransactionType::default() {
-            builder
-        } else {
-            let isolation = match tx_type {
-                PostgresTransactionType::ReadUncommitted => IsolationLevel::ReadUncommitted,
-                PostgresTransactionType::ReadCommitted => IsolationLevel::ReadCommitted,
-                PostgresTransactionType::RepeatableRead => IsolationLevel::RepeatableRead,
-                PostgresTransactionType::Serializable => IsolationLevel::Serializable,
-            };
-            builder.isolation_level(isolation)
-        };
-        drizzle_core::drizzle_trace_tx!("begin", "postgres.tokio");
-        let tx = builder.start().await?;
-
         // Cancellation safety: tokio-postgres 0.7.17 rolls back an unfinished
         // Transaction in Drop by queuing ROLLBACK on the client. If the user
         // future below is dropped, this wrapper is dropped with it and the
         // inner transaction's Drop handles rollback.
-        let transaction = Transaction::new(tx, tx_type, self.schema, self.statement_cache.clone());
+        let transaction = self.start(config).await?;
 
         match f(&transaction).await {
             Ok(value) => {
@@ -1268,7 +1297,8 @@ impl<Schema> Drizzle<Schema> {
         let desired = schema.to_snapshot();
         let target_schemas: Vec<String> = match &desired {
             drizzle_migrations::schema::Snapshot::Postgres(pg) => pg.schema_names(),
-            drizzle_migrations::schema::Snapshot::Sqlite(_) => Vec::new(),
+            drizzle_migrations::schema::Snapshot::Sqlite(_)
+            | drizzle_migrations::schema::Snapshot::MySQL(_) => Vec::new(),
         };
         let live = self
             .introspect_impl(if target_schemas.is_empty() {
@@ -1479,9 +1509,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             T::COLUMN_NAMES,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,
@@ -1606,9 +1637,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         builder.relations.render_into(&mut rendered);
         let col_refs: Vec<&str> = column_names.clone();
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             &col_refs,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,

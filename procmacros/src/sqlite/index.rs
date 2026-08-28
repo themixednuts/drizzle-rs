@@ -4,10 +4,11 @@ use quote::quote;
 use syn::{DeriveInput, Error, Expr, Meta, Result, Token, Type, parse::Parse};
 
 /// Attributes for the `SQLiteIndex` attribute macro.
-/// Syntax: #[`SQLiteIndex`], #[SQLiteIndex(unique)], or
+/// Syntax: #[`SQLiteIndex`], #[SQLiteIndex(name = "users_email_idx")], or
 /// #[SQLiteIndex(unique, where = "deleted = 0")].
 #[derive(Clone, Default)]
 pub struct IndexAttributes {
+    pub name: Option<String>,
     pub unique: bool,
     pub where_clause: Option<String>,
 }
@@ -53,13 +54,46 @@ impl Parse for IndexAttributes {
 
             let meta: Meta = input.parse()?;
             match meta {
+                Meta::NameValue(name_value)
+                    if name_value
+                        .path
+                        .get_ident()
+                        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case("name")) =>
+                {
+                    let Expr::Lit(literal) = &name_value.value else {
+                        return Err(Error::new_spanned(
+                            &name_value.value,
+                            "SQLite index `name` expects a string literal",
+                        ));
+                    };
+                    let syn::Lit::Str(name) = &literal.lit else {
+                        return Err(Error::new_spanned(
+                            &literal.lit,
+                            "SQLite index `name` expects a string literal",
+                        ));
+                    };
+                    if attrs.name.is_some() {
+                        return Err(Error::new_spanned(
+                            name_value,
+                            "SQLiteIndex accepts `name` only once",
+                        ));
+                    }
+                    let value = name.value();
+                    if value.trim().is_empty() {
+                        return Err(Error::new_spanned(
+                            name,
+                            "SQLite index `name` cannot be empty",
+                        ));
+                    }
+                    attrs.name = Some(value);
+                }
                 Meta::Path(path) if path.is_ident("unique") => {
                     attrs.unique = true;
                 }
                 _ => {
                     return Err(Error::new_spanned(
                         meta,
-                        "Unrecognized SQLite index attribute; supported: `unique`, `where = \"...\"`",
+                        "Unrecognized SQLite index attribute; supported: `name = \"...\"`, `unique`, `where = \"...\"`",
                     ));
                 }
             }
@@ -153,7 +187,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
     }
 
     // Generate index name from struct name (e.g., UserEmailIdx -> user_email_idx)
-    let index_name =
+    let index_name = attr.name.clone().unwrap_or_else(|| {
         struct_ident
             .to_string()
             .chars()
@@ -164,7 +198,8 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
                 }
                 acc.push(c.to_lowercase().next().unwrap());
                 acc
-            });
+            })
+    });
 
     // Build IndexColumnDef array for DDL using the column's NAME const
     // Uses a const block to validate that the column path implements SQLSchema
@@ -239,7 +274,8 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
         })
         .collect();
 
-    let create_index_prefix = format!("CREATE {unique_kw}INDEX \"{index_name_lit}\" ON \"");
+    let escaped_index_name = index_name_lit.replace('"', "\"\"");
+    let create_index_prefix = format!("CREATE {unique_kw}INDEX \"{escaped_index_name}\" ON \"");
     let create_index_mid = "\" (";
     let create_index_suffix = attr.where_clause.as_ref().map_or_else(
         || quote! { ")" },
@@ -399,6 +435,59 @@ mod tests {
     #[test]
     fn rejects_empty_partial_index_predicate() {
         assert!(syn::parse_str::<IndexAttributes>("where = \"  \"").is_err());
+    }
+
+    #[test]
+    fn parses_explicit_index_name() {
+        let attrs = syn::parse_str::<IndexAttributes>("name = \"users_by_email\"").unwrap();
+        let upper = syn::parse_str::<IndexAttributes>("NAME = \"users_by_email\"").unwrap();
+
+        assert_eq!(attrs.name.as_deref(), Some("users_by_email"));
+        assert_eq!(upper.name.as_deref(), Some("users_by_email"));
+    }
+
+    #[test]
+    fn rejects_empty_index_name() {
+        let error = syn::parse_str::<IndexAttributes>("name = \"  \"")
+            .err()
+            .expect("empty name should fail");
+
+        assert_eq!(error.to_string(), "SQLite index `name` cannot be empty");
+    }
+
+    #[test]
+    fn rejects_duplicate_index_names() {
+        let error =
+            syn::parse_str::<IndexAttributes>("name = \"users_by_email\", NAME = \"other_name\"")
+                .err()
+                .expect("duplicate name should fail");
+
+        assert_eq!(error.to_string(), "SQLiteIndex accepts `name` only once");
+    }
+
+    #[test]
+    fn explicit_name_reaches_all_generated_index_metadata() {
+        let attrs = syn::parse_str::<IndexAttributes>("name = \"users_by_email\"").unwrap();
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = sqlite_index_attr_macro(attrs, &input).unwrap().to_string();
+
+        // DDL SQL, DDL_INDEX, DrizzleIndex::INDEX_NAME, and SQLSchema::NAME.
+        assert_eq!(expanded.matches("users_by_email").count(), 4);
+        assert!(!expanded.contains("users_email_idx"));
+    }
+
+    #[test]
+    fn omitted_name_keeps_derived_name() {
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = sqlite_index_attr_macro(IndexAttributes::default(), &input)
+            .unwrap()
+            .to_string();
+
+        assert!(expanded.contains("users_email_idx"));
     }
 
     #[test]

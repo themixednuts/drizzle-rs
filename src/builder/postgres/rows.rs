@@ -29,19 +29,6 @@ impl<RowT, R> DecodeRows<RowT, R> {
     }
 }
 
-impl<RowT, R> DecodeRows<RowT, R>
-where
-    R: for<'r> TryFrom<&'r RowT>,
-    for<'r> <R as TryFrom<&'r RowT>>::Error: Into<DrizzleError>,
-{
-    pub fn next(&mut self) -> drizzle_core::error::Result<Option<R>> {
-        match self.rows.next() {
-            Some(row) => Ok(Some(R::try_from(&row).map_err(Into::into)?)),
-            None => Ok(None),
-        }
-    }
-}
-
 impl<RowT, R> Iterator for DecodeRows<RowT, R>
 where
     R: for<'r> TryFrom<&'r RowT>,

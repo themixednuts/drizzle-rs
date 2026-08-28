@@ -214,13 +214,7 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
             &crate::transaction::sqlite::durable::Transaction<Schema>,
         ) -> drizzle_core::error::Result<R>,
     {
-        drizzle_core::drizzle_trace_tx!("begin", "sqlite.durable");
-        self.conn
-            .exec("BEGIN", None)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-
-        let tx =
-            crate::transaction::sqlite::durable::Transaction::new(self.conn.clone(), self.schema);
+        let tx = self.start(drizzle_sqlite::TransactionConfig::Deferred)?;
         sync_transaction(
             tx,
             "sqlite.durable",
@@ -231,19 +225,32 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
                 drizzle_core::drizzle_trace_tx!("rollback", "sqlite.durable");
             },
             |tx| f(tx),
-            |tx| {
-                tx.inner()
-                    .exec("COMMIT", None)
-                    .map(|_| ())
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
-            },
-            |tx| {
-                tx.inner()
-                    .exec("ROLLBACK", None)
-                    .map(|_| ())
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
-            },
+            |tx| tx.commit(),
+            |tx| tx.rollback(),
         )
+    }
+
+    fn start(
+        &self,
+        config: drizzle_sqlite::TransactionConfig,
+    ) -> drizzle_core::error::Result<crate::transaction::sqlite::durable::Transaction<Schema>>
+    where
+        Schema: Copy,
+    {
+        let sql = match config {
+            drizzle_sqlite::TransactionConfig::Deferred => "BEGIN",
+            drizzle_sqlite::TransactionConfig::Immediate => "BEGIN IMMEDIATE",
+            drizzle_sqlite::TransactionConfig::Exclusive => "BEGIN EXCLUSIVE",
+        };
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.durable");
+        self.conn
+            .exec(sql, None)
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        Ok(crate::transaction::sqlite::durable::Transaction::new(
+            self.conn.clone(),
+            config,
+            self.schema,
+        ))
     }
 }
 
@@ -621,9 +628,10 @@ where
     let mut rendered = Vec::new();
     builder.relations.render_into(&mut rendered);
     let query_sql = drizzle_core::query::build_query_sql(
-        T::TABLE_NAME,
+        T::TABLE,
         T::COLUMN_NAMES,
         T::BLOB_COLUMNS,
+        T::JSON_PROJECTIONS,
         rendered,
         builder.where_sql,
         builder.order_by_sql,
@@ -746,9 +754,10 @@ where
     let mut rendered = Vec::new();
     builder.relations.render_into(&mut rendered);
     let query_sql = drizzle_core::query::build_query_sql(
-        T::TABLE_NAME,
+        T::TABLE,
         &col_refs,
         T::BLOB_COLUMNS,
+        T::JSON_PROJECTIONS,
         rendered,
         builder.where_sql,
         builder.order_by_sql,

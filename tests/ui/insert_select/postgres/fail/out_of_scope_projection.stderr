@@ -1,0 +1,32 @@
+error[E0277]: the trait bound `TargetsId: drizzle::core::ProjectionInScope<Cons<Sources, Nil>, _>` is not satisfied
+  --> tests/ui/insert_select/postgres/fail/out_of_scope_projection.rs:23:44
+   |
+23 |     let _ = builder.insert(targets).select(selected);
+   |                                     ------ ^^^^^^^^ unsatisfied trait bound
+   |                                     |
+   |                                     required by a bound introduced by this call
+   |
+help: the trait `drizzle::core::ProjectionInScope<Cons<Sources, Nil>, _>` is not implemented for `TargetsId`
+  --> tests/ui/insert_select/postgres/fail/out_of_scope_projection.rs:8:1
+   |
+ 8 | #[PostgresTable]
+   | ^^^^^^^^^^^^^^^^
+help: `TargetsId` implements trait `drizzle::core::ProjectionInScope<Scope, Proof>`
+  --> tests/ui/insert_select/postgres/fail/out_of_scope_projection.rs:8:1
+   |
+ 8 | #[PostgresTable]
+   | ^^^^^^^^^^^^^^^^
+   | |
+   | `drizzle::core::ProjectionInScope<Scope, drizzle::core::ColumnScope<&Targets, Witness>>`
+   | `drizzle::core::ProjectionInScope<Scope, drizzle::core::ColumnScope<Targets, Witness>>`
+   = note: required for `Cons<TargetsId, Nil>` to implement `drizzle_core::row::ProjectionsInScope<Cons<Sources, Nil>, (_, ())>`
+   = note: required for `Scoped<SelectCols<(TargetsId,)>, Cons<Sources, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSourceInScope<(_, ())>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`
+  --> postgres/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R, ScopeProof, AggProof>(
+   |            ------ required by a bound in this associated function
+...
+   |             + drizzle_core::InsertSourceInScope<ScopeProof>
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`
+   = note: this error originates in the attribute macro `PostgresTable` (in Nightly builds, run with -Z macro-backtrace for more info)

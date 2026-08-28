@@ -58,7 +58,7 @@ fn insert_from_select_with_returning(db: &mut TestDb<SimpleSchema>) {
 
     let stmt = db
         .insert(simple)
-        .select(SQL::raw("SELECT 9001, 'pg_from_select'"))
+        .select_raw(SQL::raw("SELECT 9001, 'pg_from_select'"))
         .returning((simple.id, simple.name));
 
     assert_eq!(
@@ -70,6 +70,61 @@ fn insert_from_select_with_returning(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "pg_from_select");
     assert_eq!(results[0].id, 9001);
+}
+
+#[drizzle::test]
+fn insert_selected_columns_from_checked_select(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple)
+        .value(InsertSimple::new("checked_source").with_id(9001))
+        .execute();
+
+    let source = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>()
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.id, 9001));
+    let stmt = db.insert(simple).columns(simple.name).select(source);
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" ("name") SELECT "simple"."name" FROM "simple" WHERE "simple"."id" = $1"#
+    );
+    let inserted = stmt.execute();
+    assert_eq!(inserted, 1);
+
+    let copied: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.name, "checked_source"))
+        .all();
+    assert_eq!(copied.len(), 2);
+    assert!(copied.iter().any(|row| row.id != 9001));
+
+    let borrowed = db.insert(&simple).columns(simple.name).select(
+        drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>()
+            .select(simple.name)
+            .from(simple)
+            .r#where(eq(simple.id, -1)),
+    );
+    assert_eq!(
+        borrowed.to_sql().sql(),
+        r#"INSERT INTO "simple" ("name") SELECT "simple"."name" FROM "simple" WHERE "simple"."id" = $1"#
+    );
+}
+
+#[drizzle::test]
+fn checked_full_insert_select_names_every_target_column(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    let source = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>()
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, -1));
+    let stmt = db.insert(simple).select(source);
+
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" ("id", "name") SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."id" = $1"#
+    );
 }
 
 #[drizzle::test]

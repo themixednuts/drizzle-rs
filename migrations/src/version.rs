@@ -114,6 +114,8 @@ mod tests {
         assert!(!is_latest_version(Dialect::SQLite, "6"));
         assert!(is_latest_version(Dialect::PostgreSQL, "8"));
         assert!(!is_latest_version(Dialect::PostgreSQL, "7"));
+        assert!(is_latest_version(Dialect::MySQL, "6"));
+        assert!(!is_latest_version(Dialect::MySQL, "5"));
     }
 
     #[test]
@@ -132,6 +134,12 @@ mod tests {
         assert!(is_supported_version(Dialect::PostgreSQL, "5"));
         assert!(!is_supported_version(Dialect::PostgreSQL, "4")); // Too old
         assert!(!is_supported_version(Dialect::PostgreSQL, "9")); // Too new
+
+        // MySQL supports legacy v5 input and current v6 snapshots.
+        assert!(is_supported_version(Dialect::MySQL, "6"));
+        assert!(is_supported_version(Dialect::MySQL, "5"));
+        assert!(!is_supported_version(Dialect::MySQL, "4"));
+        assert!(!is_supported_version(Dialect::MySQL, "7"));
     }
 
     #[test]
@@ -146,5 +154,11 @@ mod tests {
         // PostgreSQL v4 and below need upgrade
         assert!(needs_upgrade(Dialect::PostgreSQL, "4"));
         assert!(!needs_upgrade(Dialect::PostgreSQL, "5"));
+
+        // Supported v5 can be consumed by the structural upgrade machinery;
+        // only snapshots too old to understand require an older CLI first.
+        assert!(needs_upgrade(Dialect::MySQL, "4"));
+        assert!(!needs_upgrade(Dialect::MySQL, "5"));
+        assert!(!needs_upgrade(Dialect::MySQL, "6"));
     }
 }

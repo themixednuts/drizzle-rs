@@ -9,6 +9,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [[test]]
 name = "compile_fail"
 path = "tests/compile_fail.rs"
@@ -107,6 +111,10 @@ arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
 postgres = { version = ">=0.19.11, <0.20" }
 postgres-native-tls = { version = ">=0.5.3, <0.6" }
 native-tls = { version = ">=0.2.18, <0.3", features = ["vendored"] }
+mysql_common = { version = ">=0.37.1, <0.38", default-features = false }
+mysql = { version = ">=28.0.0, <29", default-features = false, features = ["minimal-rust", "native-tls"] }
+mysql_async = { version = ">=0.37.0, <0.38", default-features = false, features = ["minimal-rust", "native-tls-tls"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # `runtime` is deliberately NOT enabled here. It pulls `tokio/net` + `tokio/time`,
 # neither of which builds for wasm32-unknown-unknown, and it only gates
 # `Config::connect` (TCP/UDS dialing) — every query, transaction, and prepare API
@@ -128,7 +136,7 @@ sha2 = { version = "0.10" }
 cidr = { version = "0.3" }
 geo-types = { version = "0.7" }
 bit-vec = { version = "0.8" }
-time = { version = "0.3", default-features = false, features = ["formatting", "parsing"] }
+time = { version = "0.3", default-features = false, features = ["formatting", "macros", "parsing"] }
 const_format = { version = "0.2" }
 percent-encoding = { version = "2.3", default-features = false }
 
@@ -156,6 +164,8 @@ glob = { workspace = true }
 
 # External crates for type inference tests
 chrono = { version = "0.4", features = ["serde"] }
+time = { workspace = true }
+rust_decimal = { workspace = true }
 geo-types = { workspace = true, features = ["serde"] }
 cidr = { workspace = true, features = ["serde"] }
 bit-vec = { workspace = true }
@@ -177,10 +187,7 @@ std = [
   "drizzle-types/std",
   "drizzle-sqlite?/std",
   "drizzle-postgres?/std",
-  # TODO(mysql): re-add `"drizzle-mysql?/std"` once drizzle-mysql is
-  # published with the `std` feature. Currently publish=false so the
-  # only crates.io-visible version (0.1.5) lacks std/alloc features
-  # and the umbrella can't reference them.
+  "drizzle-mysql?/std",
   "dep:drizzle-migrations",
 ]
 
@@ -190,8 +197,7 @@ alloc = [
   "drizzle-types/alloc",
   "drizzle-sqlite?/alloc",
   "drizzle-postgres?/alloc",
-  # TODO(mysql): re-add `"drizzle-mysql?/alloc"` once drizzle-mysql is
-  # published with the `alloc` feature exposed.
+  "drizzle-mysql?/alloc",
 ]
 
 rusqlite = [
@@ -260,6 +266,7 @@ serde = [
   "drizzle-mysql?/serde",
   "drizzle-macros/serde",
   "drizzle-core/serde",
+  "drizzle-types/serde",
   "rusqlite?/serde_json",
   "uuid?/serde",
 ]
@@ -271,13 +278,14 @@ uuid = [
   "drizzle-mysql?/uuid",
   "drizzle-macros/uuid",
   "drizzle-core/uuid",
+  "drizzle-types/uuid",
   "rusqlite?/uuid",
 ]
 
-# PostgreSQL feature flags for optional types
-chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-sqlite?/chrono", "drizzle-macros/chrono"]
-time = ["drizzle-core/time", "drizzle-postgres?/time", "drizzle-sqlite?/time", "drizzle-macros/time"]
-rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-sqlite?/rust-decimal"]
+# Optional Rust value-type integrations shared by dialect crates
+chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-sqlite?/chrono", "drizzle-mysql?/chrono", "drizzle-macros/chrono"]
+time = ["drizzle-core/time", "drizzle-postgres?/time", "drizzle-sqlite?/time", "drizzle-mysql?/time", "drizzle-macros/time"]
+rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-sqlite?/rust-decimal", "drizzle-mysql?/rust-decimal", "drizzle-macros/rust-decimal"]
 cidr = ["drizzle-core/cidr", "drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
 geo-types = ["drizzle-core/geo-types", "drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]
 bit-vec = ["drizzle-core/bit-vec", "drizzle-seed/bit-vec", "drizzle-postgres?/bit-vec", "drizzle-macros/bit-vec"]
@@ -285,15 +293,17 @@ arrayvec = [
   "dep:arrayvec",
   "drizzle-postgres?/arrayvec",
   "drizzle-sqlite?/arrayvec",
+  "drizzle-mysql?/arrayvec",
   "drizzle-macros/arrayvec",
   "drizzle-core/arrayvec",
 ]
-compact-str = ["drizzle-core/compact-str", "drizzle-postgres?/compact-str", "drizzle-macros/compact-str"]
-bytes = ["drizzle-core/bytes", "drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-macros/bytes"]
+compact-str = ["drizzle-core/compact-str", "drizzle-postgres?/compact-str", "drizzle-mysql?/compact-str", "drizzle-macros/compact-str"]
+bytes = ["drizzle-core/bytes", "drizzle-postgres?/bytes", "drizzle-sqlite?/bytes", "drizzle-mysql?/bytes", "drizzle-macros/bytes"]
 smallvec-types = [
   "drizzle-core/smallvec-types",
   "drizzle-postgres?/smallvec",
   "drizzle-sqlite?/smallvec",
+  "drizzle-mysql?/smallvec",
   "drizzle-macros/smallvec",
 ]
 
@@ -316,12 +326,38 @@ query = [
   "drizzle-macros/query",
   "drizzle-sqlite?/query",
   "drizzle-postgres?/query",
+  "drizzle-mysql?/query",
 ]
 
 # Add dialect-specific features back for gating re-exports
 sqlite = ["drizzle-seed/sqlite", "drizzle-macros/sqlite", "dep:drizzle-sqlite"]
 postgres = ["drizzle-seed/postgres", "drizzle-macros/postgres", "dep:drizzle-postgres"]
-mysql = ["drizzle-macros/mysql", "dep:drizzle-mysql"]
+mysql = ["drizzle-seed/mysql", "drizzle-macros/mysql", "dep:drizzle-mysql"]
+
+# Blocking MySQL adapter. The upstream `mysql` client owns connections and
+# pool checkout; Drizzle accepts either `Conn` or `PooledConn` as its concrete
+# runner and adds no async runtime.
+mysql-sync = [
+  "std",
+  "mysql",
+  "dep:mysql",
+  "dep:mysql_common",
+  "drizzle-core/driver-error",
+  "drizzle-mysql/mysql-common",
+]
+
+# Tokio MySQL adapter. The pool remains lazy and becomes bound to the first
+# runtime that checks out a connection, matching mysql_async's ownership model.
+mysql-async = [
+  "std",
+  "mysql",
+  "dep:mysql_async",
+  "dep:mysql_common",
+  "dep:futures-util",
+  "dep:tokio",
+  "drizzle-core/driver-error",
+  "drizzle-mysql/mysql-common",
+]
 
 # PostgreSQL driver feature flags
 postgres-sync = [
@@ -405,6 +441,9 @@ uuid = { workspace = true, optional = true }
 puffin = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 postgres = { workspace = true, optional = true }
+mysql = { workspace = true, optional = true }
+mysql_common = { workspace = true, optional = true }
+mysql_async = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 aws-sdk-rdsdata = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }

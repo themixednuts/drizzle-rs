@@ -27,7 +27,7 @@ use crate::output;
 
 #[derive(clap::Args, Debug)]
 pub struct NewOptions {
-    /// Override dialect (sqlite, postgresql)
+    /// Override dialect (sqlite, postgresql, mysql)
     #[arg(long)]
     pub dialect: Option<Dialect>,
 
@@ -105,6 +105,14 @@ pub fn run(config: Option<&Config>, options: &NewOptions) -> Result<(), CliError
             &def.schema_name,
             def.casing,
         ),
+        Dialect::Mysql => generate_mysql(
+            &def.tables,
+            &def.indexes,
+            &def.foreign_keys,
+            &def.enums,
+            &def.schema_name,
+            def.casing,
+        )?,
     };
 
     // Write output
@@ -220,14 +228,14 @@ fn default_pg_schema() -> String {
 
 /// Auto-generation strategy for a column value.
 ///
-/// `autoincrement` is `SQLite`-specific (`INTEGER PRIMARY KEY AUTOINCREMENT`) and
-/// `identity` is `PostgreSQL`-specific (`GENERATED ALWAYS AS IDENTITY`). They are
+/// `autoincrement` is supported by SQLite (`AUTOINCREMENT`) and MySQL
+/// (`AUTO_INCREMENT`); `identity` is PostgreSQL-specific. They are
 /// mutually exclusive dialect variants, so they live in a single optional enum
 /// rather than two parallel booleans.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AutoGenKind {
-    /// `SQLite` `INTEGER PRIMARY KEY AUTOINCREMENT`.
+    /// SQLite `INTEGER PRIMARY KEY AUTOINCREMENT` or MySQL `AUTO_INCREMENT`.
     Autoincrement,
     /// `PostgreSQL` `GENERATED ALWAYS AS IDENTITY`.
     Identity,
@@ -246,10 +254,10 @@ pub struct ColumnDef {
     pub unique: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
-    /// Auto-generation strategy (`SQLite` autoincrement / `PostgreSQL` identity).
+    /// Auto-generation strategy (SQLite/MySQL autoincrement or PostgreSQL identity).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_gen: Option<AutoGenKind>,
-    /// For PG enum columns: the enum name
+    /// PostgreSQL enum type or MySQL inline enum definition name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enum_name: Option<String>,
 }
@@ -472,6 +480,22 @@ fn validate_table(table: &TableDef, dialect: Dialect) -> Result<(), CliError> {
                 }
             }
         }
+        Dialect::Mysql => {
+            if table.strict || table.without_rowid {
+                return Err(CliError::Other(format!(
+                    "Table '{}': SQLite table options are not supported for MySQL",
+                    table.name
+                )));
+            }
+            for col in &table.columns {
+                if col.is_identity() {
+                    return Err(CliError::Other(format!(
+                        "Column '{}.{}': 'identity' is only supported for PostgreSQL (use 'autoincrement' for MySQL)",
+                        table.name, col.name
+                    )));
+                }
+            }
+        }
     }
 
     Ok(())
@@ -479,9 +503,9 @@ fn validate_table(table: &TableDef, dialect: Dialect) -> Result<(), CliError> {
 
 /// Validate enum definitions and return the set of declared enum names.
 fn validate_enums(def: &SchemaDefinition) -> Result<HashSet<&str>, CliError> {
-    if def.dialect != Dialect::Postgresql && !def.enums.is_empty() {
+    if matches!(def.dialect, Dialect::Sqlite | Dialect::Turso) && !def.enums.is_empty() {
         return Err(CliError::Other(
-            "Enums are only supported for PostgreSQL".into(),
+            "Enums are only supported for PostgreSQL and MySQL".into(),
         ));
     }
     let mut enum_names = HashSet::new();
@@ -582,6 +606,20 @@ fn validate_foreign_keys(def: &SchemaDefinition) -> Result<(), CliError> {
                 VALID_FK_ACTIONS.join(", ")
             )));
         }
+        if def.dialect == Dialect::Mysql
+            && (fk.on_delete == "Set Default" || fk.on_update == "Set Default")
+        {
+            return Err(CliError::Other(format!(
+                "Foreign key '{}': MySQL does not support SET DEFAULT",
+                fk.name
+            )));
+        }
+        if fk.columns.len() != fk.columns_to.len() {
+            return Err(CliError::Other(format!(
+                "Foreign key '{}': source and target column counts must match",
+                fk.name
+            )));
+        }
     }
     Ok(())
 }
@@ -598,8 +636,8 @@ fn collect_interactively(
     let output_path = resolve_output_path(config, options.schema.clone())?;
     let schema_name = prompt_schema_name()?;
 
-    // Phase 2: Enums (PostgreSQL only)
-    let enums: Vec<EnumDef> = if dialect == Dialect::Postgresql {
+    // Phase 2: named PostgreSQL enums and inline MySQL enums.
+    let enums: Vec<EnumDef> = if matches!(dialect, Dialect::Postgresql | Dialect::Mysql) {
         prompt_enums()?
     } else {
         Vec::new()
@@ -654,13 +692,14 @@ fn resolve_dialect(
     if let Some(c) = config {
         return Ok(c.dialect());
     }
-    let options = vec!["SQLite", "PostgreSQL"];
+    let options = vec!["SQLite", "PostgreSQL", "MySQL"];
     let answer = Select::new("Select database dialect:", options)
         .prompt()
         .map_err(|e| CliError::Other(format!("Prompt cancelled: {e}")))?;
     match answer {
         "SQLite" => Ok(Dialect::Sqlite),
         "PostgreSQL" => Ok(Dialect::Postgresql),
+        "MySQL" => Ok(Dialect::Mysql),
         _ => unreachable!(),
     }
 }
@@ -783,6 +822,7 @@ fn prompt_table(dialect: Dialect, enums: &[EnumDef]) -> Result<TableDef, CliErro
                 .prompt()
                 .map_err(|e| CliError::Other(format!("Prompt cancelled: {e}")))?;
         }
+        Dialect::Mysql => {}
     }
 
     // Columns
@@ -835,6 +875,9 @@ fn prompt_column(dialect: Dialect, enums: &[EnumDef]) -> Result<ColumnDef, CliEr
                 "Unique",
                 "Default value",
             ]
+        }
+        Dialect::Mysql => {
+            vec!["Primary Key", "Autoincrement", "Unique", "Default value"]
         }
     };
     let selected = MultiSelect::new("  Column constraints (space to toggle):", constraint_opts)
@@ -905,6 +948,26 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
                 "serde_json::Value".into(),
             ]
         }
+        Dialect::Mysql => {
+            vec![
+                "i8".into(),
+                "i16".into(),
+                "i32".into(),
+                "i64".into(),
+                "u8".into(),
+                "u16".into(),
+                "u32".into(),
+                "u64".into(),
+                "f32".into(),
+                "f64".into(),
+                "String".into(),
+                "bool".into(),
+                "Vec<u8>".into(),
+                "chrono::NaiveDate".into(),
+                "chrono::NaiveDateTime".into(),
+                "serde_json::Value".into(),
+            ]
+        }
     };
 
     // Append user-defined enums as type choices
@@ -944,6 +1007,24 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
             "chrono::NaiveDateTime" => "timestamp",
             "chrono::DateTime<chrono::Utc>" => "timestamptz",
             "serde_json::Value" => "jsonb",
+            _ => "text",
+        },
+        Dialect::Mysql => match chosen {
+            "i8" => "tinyint",
+            "u8" => "tinyint unsigned",
+            "i16" => "smallint",
+            "u16" => "smallint unsigned",
+            "i32" => "int",
+            "u32" => "int unsigned",
+            "i64" => "bigint",
+            "u64" => "bigint unsigned",
+            "f32" => "float",
+            "f64" => "double",
+            "bool" => "boolean",
+            "Vec<u8>" => "blob",
+            "chrono::NaiveDate" => "date",
+            "chrono::NaiveDateTime" => "datetime",
+            "serde_json::Value" => "json",
             _ => "text",
         },
     };
@@ -1213,6 +1294,125 @@ fn generate_sqlite(
     codegen::generate_rust_schema(&ddl, &options).code
 }
 
+fn generate_mysql(
+    tables: &[TableDef],
+    indexes: &[IndexDef],
+    fks: &[ForeignKeyDef],
+    enums: &[EnumDef],
+    schema_name: &str,
+    casing: FieldCasing,
+) -> Result<String, CliError> {
+    use drizzle_migrations::mysql::codegen;
+    use drizzle_migrations::mysql::collection::MySQLDDL;
+    use drizzle_migrations::mysql::ddl::{
+        Column, ForeignKey, Index, IndexColumn, InlineEnum, InlineType, PrimaryKey, Table,
+        UniqueConstraint,
+    };
+
+    let enum_values = enums
+        .iter()
+        .map(|definition| (definition.name.as_str(), definition.variants.as_slice()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut ddl = MySQLDDL::new();
+
+    for table in tables {
+        ddl.tables.push(Table::new(table.name.clone()));
+        let mut primary_columns = Vec::new();
+
+        for column_definition in &table.columns {
+            let mut column = Column::new(
+                table.name.clone(),
+                column_definition.name.clone(),
+                column_definition.sql_type.clone(),
+            );
+            column.not_null = column_definition.not_null;
+            column.autoincrement = column_definition.is_autoincrement();
+            column.default = column_definition
+                .default
+                .as_ref()
+                .map(|value| Cow::Owned(value.clone()));
+            if let Some(enum_name) = column_definition.enum_name.as_deref()
+                && let Some(values) = enum_values.get(enum_name)
+            {
+                column.inline_type =
+                    Some(InlineType::Enum(InlineEnum::new(values.iter().cloned())));
+            }
+            ddl.columns.push(column);
+
+            if column_definition.primary_key {
+                primary_columns.push(column_definition.name.clone());
+            }
+            if column_definition.unique {
+                ddl.uniques.push(UniqueConstraint::new(
+                    table.name.clone(),
+                    format!("{}_{}_unique", table.name, column_definition.name),
+                    [column_definition.name.clone()],
+                ));
+            }
+        }
+
+        if !primary_columns.is_empty() {
+            ddl.pks
+                .push(PrimaryKey::new(table.name.clone(), primary_columns));
+        }
+    }
+
+    for definition in indexes {
+        let columns = definition
+            .columns
+            .iter()
+            .cloned()
+            .map(IndexColumn::column)
+            .collect();
+        let mut index = Index::new(definition.table.clone(), definition.name.clone(), columns);
+        index.unique = definition.unique;
+        ddl.indexes.push(index);
+    }
+
+    for definition in fks {
+        let mut foreign_key = ForeignKey::new(
+            definition.table.clone(),
+            definition.name.clone(),
+            definition.columns.clone(),
+            definition.table_to.clone(),
+            definition.columns_to.clone(),
+        );
+        foreign_key.on_delete = mysql_referential_action(&definition.on_delete);
+        foreign_key.on_update = mysql_referential_action(&definition.on_update);
+        ddl.fks.push(foreign_key);
+    }
+
+    let options = codegen::CodegenOptions {
+        module_doc: Some("Generated by `drizzle new`".to_string()),
+        include_schema: true,
+        schema_name: schema_name.to_string(),
+        use_pub: true,
+        field_casing: match casing {
+            FieldCasing::Snake => codegen::FieldCasing::Snake,
+            FieldCasing::Camel => codegen::FieldCasing::Camel,
+        },
+    };
+    codegen::generate_rust_schema(&ddl, &options)
+        .map(|generated| generated.code)
+        .map_err(|error| CliError::Other(format!("Cannot generate MySQL schema: {error}")))
+}
+
+fn mysql_referential_action(
+    action: &str,
+) -> Option<drizzle_migrations::mysql::ddl::ReferentialAction> {
+    use drizzle_migrations::mysql::ddl::ReferentialAction;
+
+    match action {
+        "Cascade" => Some(ReferentialAction::Cascade),
+        "Set Null" => Some(ReferentialAction::SetNull),
+        "Restrict" => Some(ReferentialAction::Restrict),
+        "No Action" => Some(ReferentialAction::NoAction),
+        // MySQL doesn't support SET DEFAULT, and validation rejects it for
+        // MySQL before generation.
+        _ => None,
+    }
+}
+
 fn generate_postgres(
     tables: &[TableDef],
     indexes: &[IndexDef],
@@ -1436,10 +1636,89 @@ mod tests {
         }
     }
 
+    fn minimal_mysql_def() -> SchemaDefinition {
+        let mut definition = minimal_sqlite_def();
+        definition.dialect = Dialect::Mysql;
+        definition.enums = vec![EnumDef {
+            name: "status".into(),
+            variants: vec!["active".into(), "disabled".into()],
+        }];
+        definition.tables[0].columns[0].sql_type = "bigint unsigned".into();
+        definition.tables[0].columns[0].auto_gen = Some(AutoGenKind::Autoincrement);
+        definition.tables[0].columns.push(ColumnDef {
+            name: "status".into(),
+            sql_type: "status".into(),
+            not_null: true,
+            primary_key: false,
+            unique: true,
+            default: Some("'active'".into()),
+            auto_gen: None,
+            enum_name: Some("status".into()),
+        });
+        definition
+    }
+
     #[test]
     fn validate_minimal_schema() {
         let def = minimal_sqlite_def();
         assert!(validate_schema(&def).is_ok());
+    }
+
+    #[test]
+    fn mysql_generation_uses_mysql_macros_and_dialect_features() {
+        let definition = minimal_mysql_def();
+        validate_schema(&definition).expect("valid MySQL definition");
+        let code = generate_mysql(
+            &definition.tables,
+            &definition.indexes,
+            &definition.foreign_keys,
+            &definition.enums,
+            &definition.schema_name,
+            definition.casing,
+        )
+        .expect("valid MySQL definition");
+
+        assert!(code.contains("MySQLTable"), "{code}");
+        assert!(code.contains("MySQLEnum"), "{code}");
+        assert!(code.contains("AUTO_INCREMENT"), "{code}");
+        assert!(code.contains("UNIQUE"), "{code}");
+        assert!(!code.contains("SQLiteTable"), "{code}");
+        assert!(!code.contains("PostgresTable"), "{code}");
+    }
+
+    #[test]
+    fn mysql_rejects_set_default_foreign_keys() {
+        let mut definition = minimal_mysql_def();
+        definition.tables.push(TableDef {
+            name: "posts".into(),
+            columns: vec![ColumnDef {
+                name: "user_id".into(),
+                sql_type: "bigint unsigned".into(),
+                not_null: true,
+                primary_key: false,
+                unique: false,
+                default: None,
+                auto_gen: None,
+                enum_name: None,
+            }],
+            strict: false,
+            without_rowid: false,
+            pg_schema: String::new(),
+        });
+        definition.foreign_keys.push(ForeignKeyDef {
+            name: "posts_user_fk".into(),
+            table: "posts".into(),
+            columns: vec!["user_id".into()],
+            table_to: "users".into(),
+            columns_to: vec!["id".into()],
+            on_delete: "Set Default".into(),
+            on_update: "No Action".into(),
+            pg_schema: String::new(),
+            pg_schema_to: String::new(),
+        });
+
+        let error = validate_schema(&definition).expect_err("SET DEFAULT is invalid in MySQL");
+        assert!(error.to_string().contains("does not support SET DEFAULT"));
     }
 
     #[test]

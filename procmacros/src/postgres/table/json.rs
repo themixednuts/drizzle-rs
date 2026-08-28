@@ -1,6 +1,6 @@
 //! JSON type implementations for `PostgreSQL`
 //!
-//! This module generates `TryInto`<PostgresValue> implementations for custom JSON types
+//! Generates `TryInto<PostgresValue>` implementations for custom JSON types.
 //! (structs marked with #[column(json)] or #[column(jsonb)]).
 
 use super::context::MacroContext;

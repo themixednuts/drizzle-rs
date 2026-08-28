@@ -18,8 +18,8 @@ mod store;
 
 pub use builder::{
     AllColumns, BuildRow, BuildStore, Clauses, HasLimit, HasOffset, HasOrderBy, HasWhere,
-    IntoColumnSelection, NoLimit, NoOrderBy, NoWhere, PartialColumns, QueryBuilder, QueryTable,
-    ResolveSelect,
+    IntoColumnSelection, JsonColumnProjection, JsonProjectionKind, NoLimit, NoOrderBy, NoWhere,
+    PartialColumns, QueryBuilder, QueryTable, ResolveSelect,
 };
 pub use deser::{
     DeserializeStore, FromJsonColumn, FromJsonField, FromJsonObject, JsonBool, JsonObjectDecoder,

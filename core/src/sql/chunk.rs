@@ -1,6 +1,6 @@
 use crate::SQLConstraintKind;
 use crate::prelude::*;
-use crate::{Param, Placeholder, SQLParam, sql::tokens::Token};
+use crate::{Dialect, Param, Placeholder, SQLParam, sql::tokens::Token};
 
 // ==================== Dialect enums ====================
 
@@ -28,6 +28,15 @@ pub enum ColumnDialect {
         collate: Option<&'static str>,
         comment: Option<&'static str>,
     },
+    MySQL {
+        auto_increment: bool,
+        default: Option<&'static str>,
+        generated_expression: Option<&'static str>,
+        generated_stored: bool,
+        charset: Option<&'static str>,
+        collate: Option<&'static str>,
+        on_update: Option<&'static str>,
+    },
 }
 
 /// Dialect-specific table metadata.
@@ -44,6 +53,13 @@ pub enum TableDialect {
     SQLite {
         without_rowid: bool,
         strict: bool,
+    },
+    MySQL {
+        is_temporary: bool,
+        engine: Option<&'static str>,
+        charset: Option<&'static str>,
+        collate: Option<&'static str>,
+        comment: Option<&'static str>,
     },
 }
 
@@ -153,6 +169,7 @@ impl TableRef {
 /// Table fields needed by SQL rendering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TableSqlRef {
+    pub schema: Option<&'static str>,
     pub name: &'static str,
     pub column_names: &'static [&'static str],
 }
@@ -162,6 +179,7 @@ impl TableSqlRef {
     #[must_use]
     pub const fn from_table_ref(table: TableRef) -> Self {
         Self {
+            schema: table.schema,
             name: table.name,
             column_names: table.column_names,
         }
@@ -171,6 +189,7 @@ impl TableSqlRef {
     #[must_use]
     pub const fn from_table_ref_ref(table: &TableRef) -> Self {
         Self {
+            schema: table.schema,
             name: table.name,
             column_names: table.column_names,
         }
@@ -364,21 +383,38 @@ impl From<ColumnRef> for ColumnSqlRef {
 
 /// Writes a SQL identifier enclosed in double quotes.
 ///
-/// Any embedded `"` characters are doubled to prevent identifier-injection
-/// (CWE-89). Both `PostgreSQL` and `SQLite` accept `"..."` as a delimited
-/// identifier and treat `""` as an escaped double-quote character inside
-/// such an identifier.
-///
-/// Fast path: identifiers with no embedded `"` are written with three calls
-/// (open quote, name, close quote). Only identifiers containing a `"` take
-/// the character-by-character escaping path.
+/// Embedded double quotes are doubled. This function retains the original
+/// dialect-neutral interface used by downstream code. Core SQL rendering
+/// dispatches through the active value dialect internally.
 #[inline]
 pub fn write_quoted_ident(buf: &mut impl core::fmt::Write, name: &str) {
-    let _ = buf.write_char('"');
-    if name.contains('"') {
+    write_dialect_quoted_ident(Dialect::SQLite, buf, name);
+}
+
+/// Writes a SQL identifier using the delimiter required by `dialect`.
+///
+/// `PostgreSQL` and `SQLite` use `"..."`; `MySQL` uses backticks. Embedded
+/// delimiter characters are doubled so a runtime identifier cannot terminate
+/// the quoted identifier.
+///
+/// Identifiers without an embedded delimiter use a three-write fast path.
+#[inline]
+pub(crate) fn write_dialect_quoted_ident(
+    dialect: Dialect,
+    buf: &mut impl core::fmt::Write,
+    name: &str,
+) {
+    let delimiter = match dialect {
+        Dialect::MySQL => '`',
+        Dialect::SQLite | Dialect::PostgreSQL => '"',
+    };
+
+    let _ = buf.write_char(delimiter);
+    if name.contains(delimiter) {
         for ch in name.chars() {
-            if ch == '"' {
-                let _ = buf.write_str("\"\"");
+            if ch == delimiter {
+                let _ = buf.write_char(delimiter);
+                let _ = buf.write_char(delimiter);
             } else {
                 let _ = buf.write_char(ch);
             }
@@ -386,7 +422,7 @@ pub fn write_quoted_ident(buf: &mut impl core::fmt::Write, name: &str) {
     } else {
         let _ = buf.write_str(name);
     }
-    let _ = buf.write_char('"');
+    let _ = buf.write_char(delimiter);
 }
 
 // ==================== SQLChunk ====================
@@ -523,7 +559,7 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
                 let _ = buf.write_str(token.as_str());
             }
             SQLChunk::Ident(name) => {
-                write_quoted_ident(buf, name);
+                write_dialect_quoted_ident(V::DIALECT, buf, name);
             }
             SQLChunk::Raw(text) => {
                 let _ = buf.write_str(text);
@@ -535,12 +571,16 @@ impl<'a, V: SQLParam> SQLChunk<'a, V> {
                 let _ = write!(buf, "{placeholder}");
             }
             SQLChunk::Table(t) => {
-                write_quoted_ident(buf, t.name);
+                if let Some(schema) = t.schema {
+                    write_dialect_quoted_ident(V::DIALECT, buf, schema);
+                    let _ = buf.write_char('.');
+                }
+                write_dialect_quoted_ident(V::DIALECT, buf, t.name);
             }
             SQLChunk::Column(c) => {
-                write_quoted_ident(buf, c.table);
+                write_dialect_quoted_ident(V::DIALECT, buf, c.table);
                 let _ = buf.write_char('.');
-                write_quoted_ident(buf, c.name);
+                write_dialect_quoted_ident(V::DIALECT, buf, c.name);
             }
         }
     }
@@ -568,7 +608,11 @@ impl<V: SQLParam + core::fmt::Debug> core::fmt::Debug for SQLChunk<'_, V> {
             SQLChunk::Raw(text) => f.debug_tuple("Raw").field(text).finish(),
             SQLChunk::Number(value) => f.debug_tuple("Number").field(value).finish(),
             SQLChunk::Param(param) => f.debug_tuple("Param").field(param).finish(),
-            SQLChunk::Table(t) => f.debug_tuple("Table").field(&t.name).finish(),
+            SQLChunk::Table(t) => f
+                .debug_tuple("Table")
+                .field(&t.schema)
+                .field(&t.name)
+                .finish(),
             SQLChunk::Column(c) => f
                 .debug_tuple("Column")
                 .field(&format!("{}.{}", c.table, c.name))
@@ -610,7 +654,7 @@ impl<'a, V: SQLParam> From<Param<'a, V>> for SQLChunk<'a, V> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dialect::{Dialect, SQLiteDialect};
+    use crate::dialect::{Dialect, MySQLDialect, SQLiteDialect};
     use core::mem::size_of;
 
     #[allow(dead_code)]
@@ -622,9 +666,53 @@ mod tests {
         type DialectMarker = SQLiteDialect;
     }
 
+    #[derive(Clone, Debug)]
+    struct MySQLTestParam;
+
+    impl SQLParam for MySQLTestParam {
+        const DIALECT: Dialect = Dialect::MySQL;
+        type DialectMarker = MySQLDialect;
+    }
+
     #[test]
     fn sql_chunk_stays_slim() {
         // Param is the dominant variant for this 32-byte test parameter.
         assert!(size_of::<SQLChunk<'static, TestParam>>() <= 64);
+    }
+
+    #[test]
+    fn quoted_ident_uses_the_dialect_delimiter() {
+        let mut sqlite = String::new();
+        write_dialect_quoted_ident(Dialect::SQLite, &mut sqlite, "account\"owner");
+        assert_eq!(sqlite, "\"account\"\"owner\"");
+
+        let mut postgres = String::new();
+        write_dialect_quoted_ident(Dialect::PostgreSQL, &mut postgres, "account\"owner");
+        assert_eq!(postgres, "\"account\"\"owner\"");
+
+        let mut mysql = String::new();
+        write_dialect_quoted_ident(Dialect::MySQL, &mut mysql, "account`owner");
+        assert_eq!(mysql, "`account``owner`");
+    }
+
+    #[test]
+    fn quoted_ident_keeps_injection_text_inside_the_identifier() {
+        let mut mysql = String::new();
+        write_dialect_quoted_ident(Dialect::MySQL, &mut mysql, "users`; DROP TABLE audit; --");
+        assert_eq!(mysql, "`users``; DROP TABLE audit; --`");
+    }
+
+    #[test]
+    fn table_chunk_preserves_structured_mysql_database_qualification() {
+        let table = TableRef {
+            schema: Some("tenant`db"),
+            ..TableRef::sql("user`accounts", &["id"])
+        };
+        let chunk = SQLChunk::<MySQLTestParam>::table(table);
+        let mut sql = String::new();
+
+        chunk.write(&mut sql);
+
+        assert_eq!(sql, "`tenant``db`.`user``accounts`");
     }
 }

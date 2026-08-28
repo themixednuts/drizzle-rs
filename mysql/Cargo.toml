@@ -8,23 +8,45 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-# WIP driver, but published in lockstep with the workspace: the umbrella's
-# `mysql` feature depends on this crate with an exact version pin, so keeping
-# it off crates.io would leave that feature resolving a stale stub (releases
-# 0.1.6..0.1.15 resolved drizzle-mysql 0.1.5) and break the release pipeline.
+# Published in lockstep with the workspace: the umbrella's `mysql` feature
+# depends on this crate with an exact version pin, so keeping it off crates.io
+# would leave that feature resolving a stale release (as happened in
+# 0.1.6..0.1.15) and break the release pipeline.
 
 [dependencies]
 drizzle-core = { workspace = true, features = ["alloc"] }
+drizzle-types = { workspace = true, features = ["alloc"] }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true, features = ["alloc"] }
 uuid = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true, features = ["alloc"] }
+time = { workspace = true, optional = true }
+rust_decimal = { workspace = true, optional = true }
+arrayvec = { workspace = true, optional = true }
+smallvec = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+compact_str = { workspace = true, optional = true }
+mysql_common = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
-std = ["drizzle-core/std"]
+std = ["drizzle-core/std", "drizzle-types/std", "compact_str?/std"]
 # Allocator support for no_std (forwarded features are always enabled since this
 # crate requires allocation unconditionally; flag retained for API clarity).
-alloc = []
+alloc = ["drizzle-types/alloc"]
 
-serde = ["dep:serde_json", "dep:serde"]
-uuid = ["dep:uuid"]
+serde = ["dep:serde_json", "dep:serde", "drizzle-core/serde", "drizzle-types/serde"]
+query = ["std", "serde", "drizzle-core/query"]
+uuid = ["dep:uuid", "uuid/js", "drizzle-core/uuid", "drizzle-types/uuid"]
+chrono = ["dep:chrono", "drizzle-core/chrono", "mysql_common?/chrono"]
+time = ["dep:time", "drizzle-core/time", "mysql_common?/time"]
+rust-decimal = ["dep:rust_decimal", "drizzle-core/rust-decimal", "mysql_common?/rust_decimal"]
+arrayvec = ["dep:arrayvec", "drizzle-core/arrayvec"]
+smallvec = ["dep:smallvec", "drizzle-core/smallvec-types"]
+bytes = ["dep:bytes", "drizzle-core/bytes"]
+compact-str = ["dep:compact_str", "drizzle-core/compact-str"]
+# Shared protocol types used by both `mysql` and `mysql_async` adapters. This
+# does not select a concrete client and is deliberately absent from the base
+# no_std dialect build.
+mysql-common = ["std", "dep:mysql_common", "dep:flate2"]

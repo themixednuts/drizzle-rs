@@ -348,6 +348,12 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
 fn format_table_attrs(ctx: &TableGenContext<'_>) -> Vec<String> {
     let table = ctx.table;
     let mut attrs = Vec::new();
+    if table.name.to_pascal_case().to_snake_case() != table.name {
+        attrs.push(format!(
+            "name = \"{}\"",
+            escape_for_rust_literal(&table.name)
+        ));
+    }
     if table.schema != "public" {
         attrs.push(format!(
             "schema = \"{}\"",
@@ -634,6 +640,10 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     // Build column attributes
     let mut attrs = Vec::new();
 
+    if let Some(physical_type) = bounded_character_type_attr(column) {
+        attrs.push(physical_type);
+    }
+
     // For SERIAL columns (auto-increment via nextval), use "serial" attribute
     if is_serial {
         attrs.push("serial".to_string());
@@ -732,6 +742,25 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
 
     let _ = writeln!(result, "    {vis}{field_name}: {rust_type},");
     result
+}
+
+fn bounded_character_type_attr(column: &Column) -> Option<String> {
+    let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
+    for (prefix, marker) in [("character varying", "VARCHAR"), ("character", "CHAR")] {
+        let Some(arguments) = normalized
+            .strip_prefix(prefix)
+            .and_then(|value| value.strip_prefix('('))
+        else {
+            continue;
+        };
+        let Some(length) = arguments.strip_suffix(')') else {
+            continue;
+        };
+        if !length.is_empty() && length.chars().all(|character| character.is_ascii_digit()) {
+            return Some(format!("{marker}({length})"));
+        }
+    }
+    None
 }
 
 /// Generate a Rust enum definition from a `PostgreSQL` enum
@@ -928,6 +957,18 @@ fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing
     let mut code = String::new();
 
     let mut attrs = Vec::new();
+    let inferred_name = struct_name.to_snake_case();
+    let inferred_name = if inferred_name.ends_with("_idx") || inferred_name.ends_with("_index") {
+        inferred_name
+    } else {
+        format!("{inferred_name}_idx")
+    };
+    if inferred_name != index.name.as_ref() {
+        attrs.push(format!(
+            "name = \"{}\"",
+            escape_for_rust_literal(&index.name)
+        ));
+    }
     if index.is_unique {
         attrs.push("unique".to_string());
     }
@@ -1173,6 +1214,31 @@ fn generate_schema_struct(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{parser::SchemaParser, schema::Snapshot};
+    use drizzle_types::Dialect;
+    use drizzle_types::postgres::ddl::Schema;
+
+    fn assert_round_trips(ddl: &PostgresDDL, generated: &GeneratedSchema) {
+        let parsed = SchemaParser::parse(&generated.code);
+        assert!(
+            parsed.errors.is_empty(),
+            "generated source:\n{}\nerrors: {:#?}",
+            generated.code,
+            parsed.errors
+        );
+        let Snapshot::Postgres(snapshot) =
+            Snapshot::from_parse_result(&parsed, Dialect::PostgreSQL, None)
+        else {
+            panic!("expected generated PostgreSQL schema snapshot");
+        };
+        let reparsed = PostgresDDL::from_entities(snapshot.ddl);
+        let migration = crate::postgres::diff::compute_migration(ddl, &reparsed);
+        assert!(
+            migration.sql_statements.is_empty(),
+            "generated PostgreSQL schema changed the DDL: {:#?}",
+            migration.sql_statements
+        );
+    }
 
     #[test]
     fn test_sql_type_to_rust_type() {
@@ -1185,6 +1251,40 @@ mod tests {
         // Nullable types
         assert_eq!(sql_type_to_rust_type("int4", false), "Option<i32>");
         assert_eq!(sql_type_to_rust_type("text", false), "Option<String>");
+    }
+
+    #[test]
+    fn bounded_character_types_round_trip_without_becoming_text() {
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "users"));
+        ddl.columns
+            .push(Column::new("public", "users", "name", "varchar(255)"));
+        ddl.columns
+            .push(Column::new("public", "users", "code", "character(8)"));
+        let mut aliases = Column::new("public", "users", "aliases", "varchar(64)");
+        aliases.dimensions = Some(1);
+        ddl.columns.push(aliases);
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            generated.code.contains("#[column(VARCHAR(255))]"),
+            "generated schema must preserve the VARCHAR length:\n{}",
+            generated.code
+        );
+        assert!(
+            generated.code.contains("#[column(CHAR(8))]"),
+            "generated schema must preserve the CHAR length:\n{}",
+            generated.code
+        );
+        assert!(
+            generated.code.contains("#[column(VARCHAR(64))]"),
+            "generated schema must preserve bounded array element types:\n{}",
+            generated.code
+        );
+        assert!(generated.code.contains("aliases: Option<Vec<String>>"));
+        assert_round_trips(&ddl, &generated);
     }
 
     #[test]
@@ -1214,5 +1314,81 @@ mod tests {
             format_default_value("nextval('seq'::regclass)", "int4"),
             None
         );
+    }
+
+    #[test]
+    fn table_name_that_does_not_round_trip_through_rust_is_explicit() {
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "audit_logs_42"));
+        ddl.columns
+            .push(Column::new("public", "audit_logs_42", "id", "integer"));
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            generated
+                .code
+                .contains("#[PostgresTable(name = \"audit_logs_42\")]"),
+            "generated schema must preserve the SQL table name:\n{}",
+            generated.code
+        );
+        assert_round_trips(&ddl, &generated);
+    }
+
+    #[test]
+    fn index_name_that_does_not_round_trip_through_rust_is_explicit() {
+        use drizzle_types::postgres::ddl::IndexColumn;
+
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "users"));
+        ddl.columns
+            .push(Column::new("public", "users", "email", "text"));
+        ddl.indexes.push(Index::new(
+            "public",
+            "users",
+            "users_email_42",
+            vec![IndexColumn::new("email")],
+        ));
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            generated
+                .code
+                .contains("#[PostgresIndex(name = \"users_email_42\")]"),
+            "generated schema must preserve the SQL index name:\n{}",
+            generated.code
+        );
+        assert_round_trips(&ddl, &generated);
+    }
+
+    #[test]
+    fn index_name_without_derived_suffix_is_explicit() {
+        use drizzle_types::postgres::ddl::IndexColumn;
+
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "users"));
+        ddl.columns
+            .push(Column::new("public", "users", "email", "text"));
+        ddl.indexes.push(Index::new(
+            "public",
+            "users",
+            "users_email",
+            vec![IndexColumn::new("email")],
+        ));
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            generated
+                .code
+                .contains("#[PostgresIndex(name = \"users_email\")]"),
+            "generated schema must override the macro's `_idx` default:\n{}",
+            generated.code
+        );
+        assert_round_trips(&ddl, &generated);
     }
 }

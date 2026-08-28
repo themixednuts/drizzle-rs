@@ -1,0 +1,6 @@
+error: GENERATED columns cannot use DEFAULT, DEFAULT_FN, or ON_UPDATE
+ --> tests/ui/mysql_macros/fail/generated_default_conflict.rs:7:5
+  |
+7 | /     #[column(generated(STORED, "id + 1"), DEFAULT = 1)]
+8 | |     generated_value: u64,
+  | |________________________^

@@ -33,6 +33,7 @@ mod turso;
 use core::marker::PhantomData;
 
 use crate::error::DrizzleError;
+use crate::prelude::{String, Vec};
 use crate::{Cons, Nil};
 
 // =============================================================================
@@ -170,7 +171,107 @@ pub trait MarkerScopeValidFor<Proof> {}
 impl<M, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<M, Scope>
 where
     M: MarkerRequiredTables,
-    Scope: ScopeSatisfies<<M as MarkerRequiredTables>::RequiredTables, Proof>,
+    Scope: ScopeSatisfies<M::RequiredTables, Proof>,
+{
+}
+
+/// Proof marker for a column found in a SELECT source scope.
+#[doc(hidden)]
+pub struct ColumnScope<Table, Witness>(PhantomData<(Table, Witness)>);
+
+/// Proof marker for a typed expression whose source columns are opaque.
+#[doc(hidden)]
+pub struct OpaqueScope;
+
+/// Proof marker for a binary expression's operands.
+#[doc(hidden)]
+pub struct BinaryScope<Left, Right>(PhantomData<(Left, Right)>);
+
+/// Proof marker for an expression wrapper.
+#[doc(hidden)]
+pub struct WrappedScope<Proof>(PhantomData<Proof>);
+
+/// Validates one explicit SELECT expression against its source scope.
+#[doc(hidden)]
+pub trait ProjectionInScope<Scope, Proof> {}
+
+impl<Lhs, Rhs, Op, D, T, N, Scope, LeftProof, RightProof>
+    ProjectionInScope<Scope, BinaryScope<LeftProof, RightProof>>
+    for crate::expr::ColumnBinOp<Lhs, Rhs, Op, D, T, N>
+where
+    Lhs: ProjectionInScope<Scope, LeftProof>,
+    Rhs: ProjectionInScope<Scope, RightProof>,
+{
+}
+
+impl<T, D, SQLType, Nullable, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>>
+    for crate::expr::ColumnNeg<T, D, SQLType, Nullable>
+where
+    T: ProjectionInScope<Scope, Proof>,
+{
+}
+
+impl<E, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for crate::expr::AliasedExpr<E> where
+    E: ProjectionInScope<Scope, Proof>
+{
+}
+
+impl<E, Name, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>>
+    for crate::expr::NamedExpr<E, Name>
+where
+    E: ProjectionInScope<Scope, Proof>,
+{
+}
+
+macro_rules! impl_scope_opaque {
+    ($($ty:ty),+ $(,)?) => {
+        $(impl<Scope> ProjectionInScope<Scope, OpaqueScope> for $ty {})+
+    };
+}
+
+impl_scope_opaque!(
+    bool,
+    i8,
+    i16,
+    i32,
+    i64,
+    i128,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    u128,
+    usize,
+    f32,
+    f64,
+    String,
+    &str,
+    Vec<u8>,
+    &[u8]
+);
+
+impl<T, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for Option<T> where
+    T: ProjectionInScope<Scope, Proof>
+{
+}
+
+impl<T, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for &T where
+    T: ProjectionInScope<Scope, Proof>
+{
+}
+
+/// Validates every expression in an explicit SELECT projection.
+#[doc(hidden)]
+pub trait ProjectionsInScope<Scope, Proof> {}
+
+impl<Scope> ProjectionsInScope<Scope, ()> for Nil {}
+
+impl<Head, Tail, Scope, HeadProof, TailProof> ProjectionsInScope<Scope, (HeadProof, TailProof)>
+    for Cons<Head, Tail>
+where
+    Head: ProjectionInScope<Scope, HeadProof>,
+    Tail: ProjectionsInScope<Scope, TailProof>,
 {
 }
 
@@ -389,12 +490,14 @@ where
 }
 
 // ColumnBinOp: identity is self (complex expressions won't match GROUP BY)
-impl<Lhs, Rhs, Op> GroupByIdentity for crate::expr::ColumnBinOp<Lhs, Rhs, Op> {
+impl<Lhs, Rhs, Op, D, SQLType, Nullable> GroupByIdentity
+    for crate::expr::ColumnBinOp<Lhs, Rhs, Op, D, SQLType, Nullable>
+{
     type Identity = Self;
 }
 
 // ColumnNeg: identity is self
-impl<T> GroupByIdentity for crate::expr::ColumnNeg<T> {
+impl<T, D, SQLType, Nullable> GroupByIdentity for crate::expr::ColumnNeg<T, D, SQLType, Nullable> {
     type Identity = Self;
 }
 
@@ -526,6 +629,16 @@ pub trait RowColumnList<Row: ?Sized> {
 /// Type-level column-list representation for selected column tuples.
 pub trait SelectedColumnList {
     type Columns: crate::TypeSet;
+}
+
+/// Type-level expression list for an explicit SELECT projection.
+///
+/// Unlike [`SelectedColumnList`], this preserves each expression type so a
+/// dialect can validate SQL types and nullability at a later boundary such as
+/// `INSERT ... SELECT`.
+#[doc(hidden)]
+pub trait SelectedExpressionList {
+    type Expressions: crate::TypeSet;
 }
 
 trait SameType<T> {}
@@ -933,7 +1046,7 @@ where
 #[diagnostic::on_unimplemented(
     message = "cannot deserialize `{Self}` from a database row",
     label = "this type does not implement FromDrizzleRow",
-    note = "derive #[SQLiteFromRow] or #[PostgresFromRow]"
+    note = "derive #[SQLiteFromRow], #[PostgresFromRow], or #[MySQLFromRow]"
 )]
 pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     /// Number of columns this type reads from the row.
@@ -1033,8 +1146,7 @@ with_col_sizes_200!(impl_from_drizzle_row_tuple);
 /// Maps a dialect-native SQL type marker to its canonical Rust type.
 ///
 /// Parameterized by `D` (a dialect marker such as
-/// [`SQLiteDialect`](crate::dialect::SQLiteDialect) or
-/// [`PostgresDialect`](crate::dialect::PostgresDialect)) so that
+/// [`SQLiteDialect`] or [`PostgresDialect`]) so that
 /// type mappings can differ per database.
 ///
 /// Each dialect's native type markers (e.g., `sqlite::types::Integer`,
@@ -1054,7 +1166,7 @@ pub trait SQLTypeToRust<D> {
 
 // -- Dialect-native mappings ---------------------------------------------------
 
-use crate::dialect::{PostgresDialect, SQLiteDialect};
+use crate::dialect::{MySQLDialect, PostgresDialect, SQLiteDialect};
 
 impl<D, T> SQLTypeToRust<D> for crate::types::Array<T>
 where
@@ -1086,6 +1198,95 @@ impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Numeric {
 impl SQLTypeToRust<SQLiteDialect> for drizzle_types::sqlite::types::Any {
     type RustType = crate::prelude::String;
 }
+
+macro_rules! impl_mysql_sql_type_to_rust {
+    ($rust:ty => $($sql:ty),+ $(,)?) => {
+        $(
+            impl SQLTypeToRust<MySQLDialect> for $sql {
+                type RustType = $rust;
+            }
+        )+
+    };
+}
+
+impl_mysql_sql_type_to_rust!(i8 => drizzle_types::mysql::types::TinyInt);
+impl_mysql_sql_type_to_rust!(u8 => drizzle_types::mysql::types::TinyIntUnsigned);
+impl_mysql_sql_type_to_rust!(i16 => drizzle_types::mysql::types::SmallInt);
+impl_mysql_sql_type_to_rust!(u16 => drizzle_types::mysql::types::SmallIntUnsigned);
+impl_mysql_sql_type_to_rust!(i32 =>
+    drizzle_types::mysql::types::MediumInt,
+    drizzle_types::mysql::types::Int,
+);
+impl_mysql_sql_type_to_rust!(u32 =>
+    drizzle_types::mysql::types::MediumIntUnsigned,
+    drizzle_types::mysql::types::IntUnsigned,
+);
+impl_mysql_sql_type_to_rust!(i64 => drizzle_types::mysql::types::BigInt);
+impl_mysql_sql_type_to_rust!(u64 => drizzle_types::mysql::types::BigIntUnsigned);
+impl_mysql_sql_type_to_rust!(f32 => drizzle_types::mysql::types::Float);
+impl_mysql_sql_type_to_rust!(f64 => drizzle_types::mysql::types::Double);
+impl_mysql_sql_type_to_rust!(bool => drizzle_types::mysql::types::Boolean);
+impl_mysql_sql_type_to_rust!(crate::prelude::String =>
+    drizzle_types::mysql::types::Char,
+    drizzle_types::mysql::types::Varchar,
+    drizzle_types::mysql::types::TinyText,
+    drizzle_types::mysql::types::Text,
+    drizzle_types::mysql::types::MediumText,
+    drizzle_types::mysql::types::LongText,
+    drizzle_types::mysql::types::Enum,
+    drizzle_types::mysql::types::Set,
+    drizzle_types::mysql::types::Any,
+);
+impl_mysql_sql_type_to_rust!(crate::prelude::Vec<u8> =>
+    drizzle_types::mysql::types::Binary,
+    drizzle_types::mysql::types::Varbinary,
+    drizzle_types::mysql::types::TinyBlob,
+    drizzle_types::mysql::types::Blob,
+    drizzle_types::mysql::types::MediumBlob,
+    drizzle_types::mysql::types::LongBlob,
+    drizzle_types::mysql::types::Bit,
+);
+impl_mysql_sql_type_to_rust!(u16 => drizzle_types::mysql::types::Year);
+
+#[cfg(feature = "rust-decimal")]
+impl_mysql_sql_type_to_rust!(rust_decimal::Decimal => drizzle_types::mysql::types::Decimal);
+#[cfg(not(feature = "rust-decimal"))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Decimal);
+
+#[cfg(feature = "serde")]
+impl_mysql_sql_type_to_rust!(serde_json::Value => drizzle_types::mysql::types::Json);
+#[cfg(not(feature = "serde"))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Json);
+
+#[cfg(feature = "chrono")]
+impl_mysql_sql_type_to_rust!(chrono::NaiveDate => drizzle_types::mysql::types::Date);
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl_mysql_sql_type_to_rust!(time::Date => drizzle_types::mysql::types::Date);
+#[cfg(not(any(feature = "chrono", feature = "time")))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Date);
+
+// Unlike SQL TIME in SQLite/PostgreSQL, MySQL TIME is a signed duration that
+// can exceed 24 hours (up to 838:59:59). Clock-only chrono/time values cannot
+// represent its full domain, so the canonical selected value remains text,
+// matching Drizzle ORM's MySQL TIME mapping.
+impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Time);
+
+#[cfg(feature = "chrono")]
+impl_mysql_sql_type_to_rust!(chrono::NaiveDateTime => drizzle_types::mysql::types::DateTime);
+// MySQL TIMESTAMP is session-time-zone aware. Wire adapters must establish a
+// UTC session before executing typed queries, so the public value is an
+// explicit UTC instant rather than an ambiguous naive datetime.
+#[cfg(feature = "chrono")]
+impl_mysql_sql_type_to_rust!(chrono::DateTime<chrono::Utc> => drizzle_types::mysql::types::Timestamp);
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl_mysql_sql_type_to_rust!(time::PrimitiveDateTime => drizzle_types::mysql::types::DateTime);
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl_mysql_sql_type_to_rust!(time::OffsetDateTime => drizzle_types::mysql::types::Timestamp);
+#[cfg(not(any(feature = "chrono", feature = "time")))]
+impl_mysql_sql_type_to_rust!(crate::prelude::String =>
+    drizzle_types::mysql::types::DateTime,
+    drizzle_types::mysql::types::Timestamp,
+);
 
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Int2 {
     type RustType = i16;
@@ -1319,6 +1520,10 @@ pub trait ExprValueType {
     type ValueType;
 }
 
+impl<T: ExprValueType + ?Sized> ExprValueType for &T {
+    type ValueType = T::ValueType;
+}
+
 impl<V: crate::SQLParam, T, N, A> ExprValueType for crate::expr::SQLExpr<'_, V, T, N, A>
 where
     T: crate::types::DataType + SQLTypeToRust<V::DialectMarker>,
@@ -1339,14 +1544,21 @@ impl<V: crate::SQLParam> ExprValueType for crate::sql::SQL<'_, V> {
 
 /// Associates a table with its Select model type and column count.
 ///
-/// Generated by `#[SQLiteTable]` / `#[PostgresTable]` alongside `SQLTable`.
+/// Generated by `#[SQLiteTable]`, `#[PostgresTable]`, and `#[MySQLTable]`
+/// alongside `SQLTable`.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a drizzle table",
-    label = "ensure this type was derived with #[SQLiteTable] or #[PostgresTable]"
+    label = "ensure this type was derived with #[SQLiteTable], #[PostgresTable], or #[MySQLTable]"
 )]
 pub trait HasSelectModel {
     type SelectModel;
     const COLUMN_COUNT: usize;
+}
+
+impl<T: HasSelectModel + ?Sized> HasSelectModel for &T {
+    type SelectModel = T::SelectModel;
+
+    const COLUMN_COUNT: usize = T::COLUMN_COUNT;
 }
 
 // =============================================================================
@@ -1443,6 +1655,15 @@ macro_rules! selected_columns_cons {
     };
 }
 
+macro_rules! selected_expressions_cons {
+    () => {
+        crate::Nil
+    };
+    ($head:ident $(, $tail:ident)*) => {
+        crate::Cons<$head, selected_expressions_cons!($($tail),*)>
+    };
+}
+
 macro_rules! impl_selected_column_list_tuple {
     ($($T:ident),+; $($idx:tt),+) => {
         impl<$($T: ExprValueType),+> SelectedColumnList for ($($T,)+) {
@@ -1451,7 +1672,16 @@ macro_rules! impl_selected_column_list_tuple {
     };
 }
 
+macro_rules! impl_selected_expression_list_tuple {
+    ($($T:ident),+; $($idx:tt),+) => {
+        impl<$($T),+> SelectedExpressionList for ($($T,)+) {
+            type Expressions = selected_expressions_cons!($($T),+);
+        }
+    };
+}
+
 with_col_sizes_8!(impl_selected_column_list_tuple);
+with_col_sizes_8!(impl_selected_expression_list_tuple);
 
 #[cfg(any(
     feature = "col16",
@@ -1461,6 +1691,14 @@ with_col_sizes_8!(impl_selected_column_list_tuple);
     feature = "col200"
 ))]
 with_col_sizes_16!(impl_selected_column_list_tuple);
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_selected_expression_list_tuple);
 
 #[cfg(any(
     feature = "col32",
@@ -1469,15 +1707,28 @@ with_col_sizes_16!(impl_selected_column_list_tuple);
     feature = "col200"
 ))]
 with_col_sizes_32!(impl_selected_column_list_tuple);
+#[cfg(any(
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_32!(impl_selected_expression_list_tuple);
 
 #[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
 with_col_sizes_64!(impl_selected_column_list_tuple);
+#[cfg(any(feature = "col64", feature = "col128", feature = "col200"))]
+with_col_sizes_64!(impl_selected_expression_list_tuple);
 
 #[cfg(any(feature = "col128", feature = "col200"))]
 with_col_sizes_128!(impl_selected_column_list_tuple);
+#[cfg(any(feature = "col128", feature = "col200"))]
+with_col_sizes_128!(impl_selected_expression_list_tuple);
 
 #[cfg(feature = "col200")]
 with_col_sizes_200!(impl_selected_column_list_tuple);
+#[cfg(feature = "col200")]
+with_col_sizes_200!(impl_selected_expression_list_tuple);
 
 // =============================================================================
 // AfterJoin — how joins transform the row type
@@ -1491,6 +1742,62 @@ pub trait AfterJoin<CurrentRow, JoinedTable> {
 /// Determines the new row type after a LEFT JOIN.
 pub trait AfterLeftJoin<CurrentRow, JoinedTable> {
     type NewRow;
+}
+
+/// Select projections whose row type can represent an unmatched lateral row.
+///
+/// `SELECT *` decodes the joined source as `Option<JoinedTable::SelectModel>`.
+/// Explicit columns are accepted only when they all belong to the current
+/// left-hand scope. A projection that reads the lateral source is rejected
+/// because its output would need to become nullable on unmatched rows.
+#[doc(hidden)]
+pub trait LeftLateralSelection<Proof = ()>: left_lateral_private::Sealed {}
+
+#[doc(hidden)]
+pub trait ColumnInScope<Scope, Proof> {}
+
+impl<Column, Scope, Table, Witness> ColumnInScope<Scope, (Table, Witness)> for Column
+where
+    Column: crate::traits::ColumnOf<Table>,
+    Scope: ScopeContains<Table, Witness>,
+{
+}
+
+#[doc(hidden)]
+pub trait ColumnsInScope<Scope, Proof> {}
+
+impl<Scope> ColumnsInScope<Scope, ()> for Nil {}
+
+impl<Head, Tail, Scope, HeadProof, TailProof> ColumnsInScope<Scope, (HeadProof, TailProof)>
+    for Cons<Head, Tail>
+where
+    Head: ColumnInScope<Scope, HeadProof>,
+    Tail: ColumnsInScope<Scope, TailProof>,
+{
+}
+
+mod left_lateral_private {
+    pub trait Sealed {}
+
+    impl Sealed for super::SelectStar {}
+    impl<Scope> Sealed for super::Scoped<super::SelectStar, Scope> {}
+    impl<Columns, Scope> Sealed for super::Scoped<super::SelectCols<Columns>, Scope> {}
+    impl<Row, Scope> Sealed for super::Scoped<super::SelectAs<Row>, Scope> {}
+}
+
+impl LeftLateralSelection for SelectStar {}
+impl<Scope> LeftLateralSelection for Scoped<SelectStar, Scope> {}
+
+impl<Columns, Scope, Proof> LeftLateralSelection<Proof> for Scoped<SelectCols<Columns>, Scope>
+where
+    Columns: SelectedExpressionList,
+    Columns::Expressions: ColumnsInScope<Scope, Proof>,
+{
+}
+
+impl<Row, Scope, Proof> LeftLateralSelection<Proof> for Scoped<SelectAs<Row>, Scope> where
+    Self: MarkerScopeValidFor<Proof>
+{
 }
 
 /// Determines the new row type after a RIGHT JOIN.
@@ -1627,6 +1934,10 @@ where
 )]
 pub trait IntoSelectTarget {
     type Marker;
+}
+
+impl<T: IntoSelectTarget + ?Sized> IntoSelectTarget for &T {
+    type Marker = T::Marker;
 }
 
 /// `select(())` → `SelectStar` — infer row type from the table.

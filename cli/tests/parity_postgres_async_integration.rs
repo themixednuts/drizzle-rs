@@ -4,7 +4,10 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::PredicateBooleanExt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Mutex, MutexGuard,
+    atomic::{AtomicU64, Ordering},
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::tempdir;
 
@@ -62,8 +65,16 @@ fn unique_suffix() -> u64 {
     base ^ COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
+fn lock_database() -> MutexGuard<'static, ()> {
+    static DATABASE_LOCK: Mutex<()> = Mutex::new(());
+    DATABASE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[test]
 fn push_explain_with_tokio_driver_honors_filters() {
+    let _database = lock_database();
     let dir = tempdir().expect("temp dir");
     let root = dir.path();
     let cfg_path = root.join("drizzle.config.toml");
@@ -127,6 +138,7 @@ url = '{url}'
 
 #[test]
 fn pull_with_tokio_driver_applies_filters_casing_and_breakpoints() {
+    let _database = lock_database();
     let dir = tempdir().expect("temp dir");
     let root = dir.path();
     let cfg_path = root.join("drizzle.config.toml");

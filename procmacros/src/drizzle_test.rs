@@ -16,12 +16,16 @@
 //!    `.await` injected on the terminal and `async move` on tx/savepoint
 //!    closures.
 //!
-//! 2. **Body-local helpers.** Only two remain, both tiny:
+//! 2. **Body-local helpers.** The generated module supplies small test-only
+//!    adapters:
 //!    - `result!(expr)` — opt out of rewriting for one expression; returns
 //!      the original `Result<T, E>`. Used for `.is_err()` assertions and
 //!      query-level rollback inside tx closures.
 //!    - `catch!(block)` — expect-panic wrapper; sync uses `catch_unwind`,
 //!      async uses `futures_util::future::FutureExt::catch_unwind`.
+//!
+//!    - `next_row!` and `collect_rows!` bridge iterator-backed adapters and
+//!      SQLite's asynchronous row cursors in shared cursor tests.
 //!
 //! A panic hook is installed at the top of each `fn run()` that appends the
 //! captured SQL trail to the panic message, so native `assert_eq!` / `panic!`
@@ -45,6 +49,7 @@ use syn::{
 enum Dialect {
     Sqlite,
     Postgres,
+    Mysql,
 }
 
 #[derive(Clone, Copy)]
@@ -52,6 +57,7 @@ enum DialectOverride {
     None,
     Sqlite,
     Postgres,
+    Mysql,
 }
 
 impl syn::parse::Parse for DialectOverride {
@@ -61,14 +67,15 @@ impl syn::parse::Parse for DialectOverride {
         }
         let ident: Ident = input.parse()?;
         if !input.is_empty() {
-            return Err(input.error("unexpected tokens; expected `sqlite` or `postgres`"));
+            return Err(input.error("unexpected tokens; expected `sqlite`, `postgres`, or `mysql`"));
         }
         match ident.to_string().as_str() {
             "sqlite" => Ok(Self::Sqlite),
             "postgres" => Ok(Self::Postgres),
+            "mysql" => Ok(Self::Mysql),
             other => Err(syn::Error::new(
                 ident.span(),
-                format!("expected `sqlite` or `postgres`, got `{other}`"),
+                format!("expected `sqlite`, `postgres`, or `mysql`, got `{other}`"),
             )),
         }
     }
@@ -105,6 +112,7 @@ fn attribute_impl_inner(args: TokenStream2, item: TokenStream2) -> syn::Result<T
     let specs = match dialect {
         Dialect::Sqlite => sqlite_driver_specs(),
         Dialect::Postgres => postgres_driver_specs(),
+        Dialect::Mysql => mysql_driver_specs(),
     };
     let parts: Vec<TokenStream2> = specs
         .iter()
@@ -239,19 +247,22 @@ fn resolve_dialect(overrid: DialectOverride, fn_input: &FnInput) -> syn::Result<
     match overrid {
         DialectOverride::Sqlite => Ok(Dialect::Sqlite),
         DialectOverride::Postgres => Ok(Dialect::Postgres),
+        DialectOverride::Mysql => Ok(Dialect::Mysql),
         DialectOverride::None => {
             let file = proc_macro::Span::call_site().file();
             let normalized = file.replace('\\', "/");
             let in_sqlite = normalized.contains("/sqlite/") || normalized.starts_with("sqlite/");
             let in_postgres =
                 normalized.contains("/postgres/") || normalized.starts_with("postgres/");
-            match (in_sqlite, in_postgres) {
-                (true, false) => Ok(Dialect::Sqlite),
-                (false, true) => Ok(Dialect::Postgres),
+            let in_mysql = normalized.contains("/mysql/") || normalized.starts_with("mysql/");
+            match (in_sqlite, in_postgres, in_mysql) {
+                (true, false, false) => Ok(Dialect::Sqlite),
+                (false, true, false) => Ok(Dialect::Postgres),
+                (false, false, true) => Ok(Dialect::Mysql),
                 _ => Err(syn::Error::new(
                     fn_input.fn_name.span(),
                     format!(
-                        "could not auto-detect dialect from file path `{file}` — add `#[drizzle::test(sqlite)]` or `#[drizzle::test(postgres)]`"
+                        "could not auto-detect dialect from file path `{file}` — add `#[drizzle::test(sqlite)]`, `#[drizzle::test(postgres)]`, or `#[drizzle::test(mysql)]`"
                     ),
                 )),
             }
@@ -286,7 +297,9 @@ struct DriverSpec {
     /// the setup-module identifier (`{mod_suffix}_setup` in `common::helpers`).
     mod_suffix: &'static str,
     async_mode: bool,
-    /// Per-driver `drizzle_client!()` expansion (postgres only; empty for sqlite).
+    /// Whether decoded rows are pulled from an asynchronous driver cursor.
+    async_rows: bool,
+    /// Per-driver `drizzle_client!()` expansion for prepared statements.
     client_expr: TokenStream2,
 }
 
@@ -296,19 +309,22 @@ fn sqlite_driver_specs() -> Vec<DriverSpec> {
             feature: "rusqlite",
             mod_suffix: "rusqlite",
             async_mode: false,
-            client_expr: TokenStream2::new(),
+            async_rows: false,
+            client_expr: quote!(db.conn()),
         },
         DriverSpec {
             feature: "libsql",
             mod_suffix: "libsql",
             async_mode: true,
-            client_expr: TokenStream2::new(),
+            async_rows: true,
+            client_expr: quote!(db.conn()),
         },
         DriverSpec {
             feature: "turso",
             mod_suffix: "turso",
             async_mode: true,
-            client_expr: TokenStream2::new(),
+            async_rows: true,
+            client_expr: quote!(db.conn()),
         },
     ]
 }
@@ -319,6 +335,7 @@ fn postgres_driver_specs() -> Vec<DriverSpec> {
             feature: "postgres-sync",
             mod_suffix: "postgres_sync",
             async_mode: false,
+            async_rows: false,
             // postgres-sync prepared stmts need `&mut Client`
             client_expr: quote!(db.conn_mut()),
         },
@@ -326,8 +343,28 @@ fn postgres_driver_specs() -> Vec<DriverSpec> {
             feature: "tokio-postgres",
             mod_suffix: "tokio_postgres",
             async_mode: true,
+            async_rows: false,
             // tokio-postgres prepared stmts take `&Client`
             client_expr: quote!(db.conn()),
+        },
+    ]
+}
+
+fn mysql_driver_specs() -> Vec<DriverSpec> {
+    vec![
+        DriverSpec {
+            feature: "mysql-sync",
+            mod_suffix: "mysql_sync",
+            async_mode: false,
+            async_rows: false,
+            client_expr: quote!(db.conn_mut()),
+        },
+        DriverSpec {
+            feature: "mysql-async",
+            mod_suffix: "mysql_async",
+            async_mode: true,
+            async_rows: false,
+            client_expr: quote!(db.conn_mut()),
         },
     ]
 }
@@ -359,7 +396,7 @@ fn emit_driver_module(fn_input: &FnInput, spec: &DriverSpec) -> TokenStream2 {
     let db_binding = rebind_db_stmt(&fn_input.db_pat, &fn_input.db_ty);
 
     let body = rewrite_body(fn_input.body.clone(), spec.async_mode);
-    let helper_macros = helper_macros(spec.async_mode, &spec.client_expr);
+    let helper_macros = helper_macros(spec.async_mode, spec.async_rows, &spec.client_expr);
     let panic_hook = install_panic_hook();
 
     quote! {
@@ -417,13 +454,12 @@ fn install_panic_hook() -> TokenStream2 {
     }
 }
 
-fn helper_macros(async_mode: bool, client_expr: &TokenStream2) -> TokenStream2 {
+fn helper_macros(async_mode: bool, async_rows: bool, client_expr: &TokenStream2) -> TokenStream2 {
     let client_macro = if client_expr.is_empty() {
         TokenStream2::new()
     } else {
         quote! {
-            /// Per-driver client expression: resolves to `db.conn_mut()`
-            /// (postgres-sync) or `db.conn()` (tokio-postgres).
+            /// Per-driver client expression for prepared statements.
             #[allow(unused_macros)]
             macro_rules! drizzle_client {
                 () => { #client_expr };
@@ -482,8 +518,40 @@ fn helper_macros(async_mode: bool, client_expr: &TokenStream2) -> TokenStream2 {
             }
         }
     };
+    let rows = if async_rows {
+        quote! {
+            /// Pull one decoded row from an asynchronous cursor.
+            #[allow(unused_macros)]
+            macro_rules! next_row {
+                ($rows:expr) => { $rows.next().await };
+            }
+            /// Collect an asynchronous decoded-row cursor.
+            #[allow(unused_macros)]
+            macro_rules! collect_rows {
+                ($rows:expr) => { $rows.collect::<::std::vec::Vec<_>>().await };
+            }
+        }
+    } else {
+        quote! {
+            /// Pull one decoded row from an iterator-backed cursor.
+            #[allow(unused_macros)]
+            macro_rules! next_row {
+                ($rows:expr) => {
+                    ::core::iter::Iterator::next(&mut $rows).transpose()
+                };
+            }
+            /// Collect an iterator-backed decoded-row cursor.
+            #[allow(unused_macros)]
+            macro_rules! collect_rows {
+                ($rows:expr) => {
+                    ::core::iter::Iterator::collect::<drizzle::Result<::std::vec::Vec<_>>>($rows)
+                };
+            }
+        }
+    };
     quote! {
         #core
+        #rows
         #client_macro
     }
 }

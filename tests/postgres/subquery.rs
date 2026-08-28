@@ -134,7 +134,7 @@ fn test_with_subquery_parenthesization(db: &mut TestDb<SimpleSchema>) {
         .to_sql()
         .sql();
     assert!(
-        cmp_sql.contains(r#""simple"."id" >(WITH filtered_ids AS"#),
+        cmp_sql.contains(r#""simple"."id" >(WITH "filtered_ids" AS"#),
         "sql: {cmp_sql}"
     );
 
@@ -149,7 +149,7 @@ fn test_with_subquery_parenthesization(db: &mut TestDb<SimpleSchema>) {
         .to_sql()
         .sql();
     assert!(
-        in_sql.contains(r#""simple"."id" IN (WITH filtered_ids AS"#),
+        in_sql.contains(r#""simple"."id" IN (WITH "filtered_ids" AS"#),
         "sql: {in_sql}"
     );
 
@@ -159,7 +159,7 @@ fn test_with_subquery_parenthesization(db: &mut TestDb<SimpleSchema>) {
         .from(&filtered_ids);
     let func_sql = db.select(avg(with_subquery)).from(simple).to_sql().sql();
     assert!(
-        func_sql.contains(r#"AVG ((WITH filtered_ids AS"#),
+        func_sql.contains(r#"AVG ((WITH "filtered_ids" AS"#),
         "sql: {func_sql}"
     );
 }

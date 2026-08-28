@@ -114,6 +114,13 @@ jobs:
             exit 1
           fi
 
+          for required in "Test MySQL (sync)" "Test MySQL (async)" "Test MySQL (unified)"; do
+            if ! echo "$CHECKS" | awk -v required="$required" '$1 == "success" { $1=""; sub(/^ /, ""); if ($0 == required) found = 1 } END { exit !found }'; then
+              echo "::error::Missing successful required check: $required"
+              exit 1
+            fi
+          done
+
           echo "All checks on PR #$PR_NUMBER are green — proceeding to publish."
 
       - name: Get Rust version
@@ -174,7 +181,7 @@ jobs:
 
           # The sparse index can lag the publish by a little; retry.
           for attempt in $(seq 1 20); do
-            if cargo add "drizzle@=$VERSION" --features rusqlite,postgres-sync >/dev/null 2>&1; then
+            if cargo add "drizzle@=$VERSION" --features rusqlite,postgres-sync,mysql-sync,mysql-async >/dev/null 2>&1; then
               break
             fi
             if [[ "$attempt" == 20 ]]; then

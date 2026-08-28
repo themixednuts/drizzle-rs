@@ -24,8 +24,8 @@ pub use cte::{CTEDefinition, CTEView};
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
 pub use insert::{
-    InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
-    OnConflictBuilder,
+    InsertColumnsSet, InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet,
+    InsertValuesSet, OnConflictBuilder,
 };
 pub use select::{
     SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
@@ -297,7 +297,7 @@ impl ExecutableState for CTEInit {}
 ///     .from(&active_users);
 /// assert_eq!(
 ///     query.to_sql().sql(),
-///     r#"WITH active_users AS (SELECT "users"."id", "users"."name" FROM "users") SELECT "active_users"."name" FROM "active_users""#
+///     r#"WITH "active_users" AS (SELECT "users"."id", "users"."name" FROM "users") SELECT "active_users"."name" FROM "active_users""#
 /// );
 /// ```
 #[derive(Debug, Clone, Default)]

@@ -24,6 +24,21 @@ struct PgSimpleAliasResult {
     name: String,
 }
 
+#[PostgresTable]
+struct DefaultMetadata {
+    #[column(DEFAULT = 7)]
+    database_value: i32,
+    #[column(DEFAULT_FN = || 7)]
+    application_value: i32,
+}
+
+#[test]
+fn column_metadata_distinguishes_database_and_application_defaults() {
+    let columns = <DefaultMetadata as DrizzleTable>::TABLE_REF.columns;
+    assert!(columns[0].has_default());
+    assert!(!columns[1].has_default());
+}
+
 #[PostgresView(
     NAME = "simple_view",
     DEFINITION = {

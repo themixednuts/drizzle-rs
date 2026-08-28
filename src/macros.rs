@@ -15,7 +15,6 @@ macro_rules! drizzle_builder_join_impl {
         drizzle_builder_join_impl!(full_outer, drizzle_core::AfterFullJoin);
         drizzle_builder_join_impl!(natural_full_outer, drizzle_core::AfterFullJoin);
         drizzle_builder_join_impl!(inner, drizzle_core::AfterJoin);
-        drizzle_builder_join_impl!(cross, drizzle_core::AfterJoin);
     };
     ($type:ident, $join_trait:path) => {
         paste::paste! {
@@ -36,7 +35,7 @@ macro_rules! drizzle_builder_join_impl {
                 DrizzleBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -60,7 +59,85 @@ macro_rules! drizzle_pg_builder_join_impl {
         drizzle_pg_builder_join_impl!(full_outer, drizzle_core::AfterFullJoin);
         drizzle_pg_builder_join_impl!(natural_full_outer, drizzle_core::AfterFullJoin);
         drizzle_pg_builder_join_impl!(inner, drizzle_core::AfterJoin);
-        drizzle_pg_builder_join_impl!(cross, drizzle_core::AfterJoin);
+        drizzle_pg_builder_join_impl!(@lateral inner_join_lateral, AfterJoin);
+        drizzle_pg_builder_join_impl!(
+            @lateral
+            left_join_lateral,
+            AfterLeftJoin,
+            SelectionProof
+        );
+        drizzle_pg_builder_join_impl!(@cross_lateral);
+    };
+    (@lateral $method:ident, $join_trait:ident $(, $proof:ident)?) => {
+        /// Adds a JOIN LATERAL clause with an ON condition.
+        #[inline]
+        #[allow(clippy::type_complexity)]
+        pub fn $method<J $(, $proof)?>(self, arg: J) -> DrizzleBuilder<
+            'd,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'a,
+                Schema,
+                SelectJoinSet,
+                J::JoinedTable,
+                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+                <M as drizzle_core::$join_trait<R, J::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            J: drizzle_core::LateralArg<'a, drizzle_postgres::values::PostgresValue<'a>>,
+            M: drizzle_core::$join_trait<R, J::JoinedTable>
+                + drizzle_core::ScopePush<J::JoinedTable>
+                $(+ drizzle_core::LeftLateralSelection<$proof>)?,
+        {
+            let builder = self.builder.$method(arg);
+            DrizzleBuilder {
+                runner: self.runner,
+                builder,
+                state: ::core::marker::PhantomData,
+            }
+        }
+    };
+    (@cross_lateral) => {
+        /// Adds a CROSS JOIN LATERAL clause without an ON condition.
+        #[inline]
+        #[allow(clippy::type_complexity)]
+        pub fn cross_join_lateral<Source>(
+            self,
+            source: Source,
+        ) -> DrizzleBuilder<
+            'd,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'a,
+                Schema,
+                SelectJoinSet,
+                Source::JoinedTable,
+                <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            Source: drizzle_core::LateralSource<
+                'a,
+                drizzle_postgres::values::PostgresValue<'a>,
+            >,
+            M: drizzle_core::AfterJoin<R, Source::JoinedTable>
+                + drizzle_core::ScopePush<Source::JoinedTable>,
+        {
+            let builder = self.builder.cross_join_lateral(source);
+            DrizzleBuilder {
+                runner: self.runner,
+                builder,
+                state: ::core::marker::PhantomData,
+            }
+        }
     };
     ($type:ident, $join_trait:path) => {
         paste::paste! {
@@ -81,7 +158,7 @@ macro_rules! drizzle_pg_builder_join_impl {
                 DrizzleBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -126,7 +203,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
             DrizzleBuilder {
                 runner: self.runner,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };
@@ -158,7 +235,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
                 DrizzleBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -202,7 +279,7 @@ macro_rules! transaction_builder_join_impl {
                 TransactionBuilder {
                     runner: self.runner,
                     builder,
-                    state: PhantomData,
+                    state: ::core::marker::PhantomData,
                 }
             }
         }
@@ -234,7 +311,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -260,7 +337,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -283,7 +360,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -306,7 +383,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -329,7 +406,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -352,7 +429,7 @@ macro_rules! sqlite_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };
@@ -382,7 +459,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -407,7 +484,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -429,7 +506,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -451,7 +528,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -473,7 +550,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
 
@@ -495,7 +572,7 @@ macro_rules! postgres_transaction_constructors {
             TransactionBuilder {
                 runner: self,
                 builder,
-                state: PhantomData,
+                state: ::core::marker::PhantomData,
             }
         }
     };

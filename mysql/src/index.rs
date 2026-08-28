@@ -1,0 +1,237 @@
+//! MySQL-specific index definition metadata.
+
+/// Storage/access method requested by a generated MySQL index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MySQLIndexMethod {
+    /// Balanced-tree index.
+    BTree,
+    /// Hash index.
+    Hash,
+}
+
+impl MySQLIndexMethod {
+    /// Returns the MySQL keyword for this method.
+    #[must_use]
+    pub const fn as_sql(self) -> &'static str {
+        match self {
+            Self::BTree => "BTREE",
+            Self::Hash => "HASH",
+        }
+    }
+}
+
+/// Online-DDL algorithm requested for a generated MySQL index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MySQLIndexAlgorithm {
+    /// Lets MySQL choose the DDL algorithm.
+    Default,
+    /// Requests in-place DDL.
+    Inplace,
+    /// Requests table-copy DDL.
+    Copy,
+}
+
+impl MySQLIndexAlgorithm {
+    /// Returns the MySQL keyword for this algorithm.
+    #[must_use]
+    pub const fn as_sql(self) -> &'static str {
+        match self {
+            Self::Default => "DEFAULT",
+            Self::Inplace => "INPLACE",
+            Self::Copy => "COPY",
+        }
+    }
+}
+
+/// Metadata-lock policy requested for a generated MySQL index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MySQLIndexLock {
+    /// Lets MySQL choose the metadata-lock policy.
+    Default,
+    /// Permits concurrent reads and writes when supported.
+    None,
+    /// Permits concurrent reads but blocks writes.
+    Shared,
+    /// Blocks concurrent access.
+    Exclusive,
+}
+
+impl MySQLIndexLock {
+    /// Returns the MySQL keyword for this lock policy.
+    #[must_use]
+    pub const fn as_sql(self) -> &'static str {
+        match self {
+            Self::Default => "DEFAULT",
+            Self::None => "NONE",
+            Self::Shared => "SHARED",
+            Self::Exclusive => "EXCLUSIVE",
+        }
+    }
+}
+
+/// Sort direction for one MySQL index key part.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IndexOrder {
+    /// Ascending order.
+    Asc,
+    /// Descending order.
+    Desc,
+}
+
+/// One column or trusted SQL expression in a generated MySQL index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IndexKeyPart {
+    /// A named table column.
+    Column {
+        /// Physical column name.
+        name: &'static str,
+        /// Optional prefix length.
+        length: Option<u32>,
+        /// Optional key-part direction.
+        order: Option<IndexOrder>,
+    },
+    /// A trusted functional-index SQL expression.
+    Expression {
+        /// Raw expression SQL without the outer MySQL key-part parentheses.
+        sql: &'static str,
+        /// Optional key-part direction.
+        order: Option<IndexOrder>,
+    },
+}
+
+/// SQL type marker accepted by a prefix-length MySQL index key part.
+///
+/// This trait is public only so `#[MySQLIndex]` can validate generated column
+/// types in downstream crates.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not support a MySQL index prefix length",
+    note = "prefix lengths are supported for character, binary, TEXT, and BLOB columns"
+)]
+pub trait IndexPrefixType {}
+
+/// SQL type marker accepted by a MySQL index key part without a prefix.
+///
+/// This trait is public only so generated custom-column implementations can
+/// preserve the same indexability checks as built-in columns.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be used directly in a MySQL index",
+    note = "TEXT and BLOB columns need a prefix length; JSON needs an indexed scalar expression"
+)]
+pub trait IndexType {}
+
+macro_rules! impl_index_types {
+    ($trait:ident: $($type:ty),+ $(,)?) => {
+        $(impl $trait for $type {})+
+    };
+}
+
+impl_index_types! { IndexPrefixType:
+    crate::types::Char,
+    crate::types::Varchar,
+    crate::types::TinyText,
+    crate::types::Text,
+    crate::types::MediumText,
+    crate::types::LongText,
+    crate::types::Binary,
+    crate::types::Varbinary,
+    crate::types::TinyBlob,
+    crate::types::Blob,
+    crate::types::MediumBlob,
+    crate::types::LongBlob,
+}
+
+impl_index_types! { IndexType:
+    crate::types::TinyInt,
+    crate::types::TinyIntUnsigned,
+    crate::types::SmallInt,
+    crate::types::SmallIntUnsigned,
+    crate::types::MediumInt,
+    crate::types::MediumIntUnsigned,
+    crate::types::Int,
+    crate::types::IntUnsigned,
+    crate::types::BigInt,
+    crate::types::BigIntUnsigned,
+    crate::types::Float,
+    crate::types::Double,
+    crate::types::Decimal,
+    crate::types::Boolean,
+    crate::types::Char,
+    crate::types::Varchar,
+    crate::types::Binary,
+    crate::types::Varbinary,
+    crate::types::Date,
+    crate::types::Time,
+    crate::types::DateTime,
+    crate::types::Timestamp,
+    crate::types::Year,
+    crate::types::Enum,
+    crate::types::Set,
+    crate::types::Bit,
+}
+
+/// MySQL-only metadata generated by `#[MySQLIndex]`.
+pub trait MySQLIndexMetadata {
+    /// Ordered key parts in this index.
+    const KEY_PARTS: &'static [IndexKeyPart];
+    /// Optional index access method.
+    const METHOD: Option<MySQLIndexMethod>;
+    /// Optional online-DDL algorithm.
+    const ALGORITHM: Option<MySQLIndexAlgorithm>;
+    /// Optional metadata-lock policy.
+    const LOCK: Option<MySQLIndexLock>;
+}
+
+/// Internal sealing marker for generated MySQL schema items.
+///
+/// The module is public only because procedural-macro output is expanded in a
+/// downstream crate. Consumers should use [`MySQLSchemaItemMetadata`] rather
+/// than implementing this marker themselves.
+#[doc(hidden)]
+pub mod __private {
+    pub trait MySQLSchemaItemSealed {}
+}
+
+/// Inline MySQL column-type metadata retained separately from rendered SQL.
+///
+/// `ENUM` and `SET` values affect migration safety analysis, so schema
+/// producers carry them as values instead of reverse-engineering a generated
+/// DDL string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MySQLInlineTypeMetadata {
+    /// Inline `ENUM` values in declaration order.
+    Enum(&'static [&'static str]),
+    /// Inline `SET` values in declaration order.
+    Set(&'static [&'static str]),
+}
+
+/// MySQL metadata shared by table and index schema items.
+///
+/// Migration snapshot producers inspect this trait rather than reparsing an
+/// item's generated SQL. Tables use the default empty index settings; index
+/// derives provide their declared method, online-DDL algorithm, and lock.
+pub trait MySQLSchemaItemMetadata: __private::MySQLSchemaItemSealed {
+    /// Ordered key parts when this item is an index.
+    const INDEX_KEY_PARTS: &'static [IndexKeyPart] = &[];
+    /// Optional index access method.
+    const INDEX_METHOD: Option<MySQLIndexMethod> = None;
+    /// Optional online-DDL algorithm.
+    const INDEX_ALGORITHM: Option<MySQLIndexAlgorithm> = None;
+    /// Optional metadata-lock policy.
+    const INDEX_LOCK: Option<MySQLIndexLock> = None;
+
+    /// Inline type values for a named table column, if this item is a table
+    /// with an `ENUM` or `SET` declaration.
+    fn inline_type(_column: &str) -> Option<MySQLInlineTypeMetadata> {
+        None
+    }
+
+    /// A MySQL `COMMENT` attached to a named table column.
+    ///
+    /// This stays separate from generated DDL so migration snapshots can
+    /// distinguish a comment change from a column-definition change.
+    fn column_comment(_column: &str) -> Option<&'static str> {
+        None
+    }
+}

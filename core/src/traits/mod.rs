@@ -73,7 +73,7 @@ pub trait SchemaItemTables {
 /// Marker trait for schema types (used for type-level discrimination).
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a SQL schema type marker",
-    label = "expected a dialect marker like SQLiteSchemaType or PostgresSchemaType"
+    label = "expected a dialect marker like SQLiteSchemaType, PostgresSchemaType, or MySQLSchemaType"
 )]
 pub trait SQLSchemaType: core::fmt::Debug + Any + Send + Sync {}
 

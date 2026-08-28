@@ -1,0 +1,247 @@
+//! `mysql_async`-only pool, runtime, and delayed-drop contracts.
+
+use crate::common::{helpers::mysql_async_setup, schema::mysql::*};
+use drizzle::{
+    core::{
+        SQL,
+        expr::{count, eq},
+    },
+    migrations::{Migration, Snapshot, Tracking},
+    mysql::{mysql_async::Drizzle, prelude::*},
+};
+use mysql_async::{Pool, PoolConstraints, PoolOpts, prelude::Queryable as _};
+
+fn pool() -> Pool {
+    let constraints = PoolConstraints::new(1, 1).expect("valid one-connection pool constraints");
+    let options = mysql_async::OptsBuilder::from_opts(mysql_async_setup::options())
+        .pool_opts(PoolOpts::default().with_constraints(constraints));
+    Pool::new(options)
+}
+
+async fn setup_pool() -> (
+    Drizzle<Pool, TestSchema>,
+    TestSchema,
+    tokio::sync::MutexGuard<'static, ()>,
+) {
+    let guard = mysql_async_setup::acquire_lock_async().await;
+    let schema = TestSchema::new();
+    let pool = pool();
+    let mut connection = pool.get_conn().await.expect("checkout MySQL connection");
+    mysql_async_setup::reset_schema(&mut connection, &schema).await;
+    drop(connection);
+    let (db, schema) = Drizzle::new(pool, schema);
+    db.create().await.expect("create MySQL test schema");
+    (db, schema, guard)
+}
+
+async fn cleanup(db: Drizzle<Pool, TestSchema>, schema: &TestSchema) {
+    let mut connection = db
+        .conn()
+        .get_conn()
+        .await
+        .expect("checkout connection for cleanup");
+    mysql_async_setup::reset_schema(&mut connection, schema).await;
+    drop(connection);
+    db.disconnect().await.expect("gracefully disconnect pool");
+}
+
+#[tokio::test]
+async fn direct_connection_access_reestablishes_session_invariants() -> drizzle::Result<()> {
+    let _guard = mysql_async_setup::acquire_lock_async().await;
+    let schema = TestSchema::new();
+    let mut connection = mysql_async::Conn::new(mysql_async_setup::options())
+        .await
+        .expect("connect to MySQL");
+    mysql_async_setup::reset_schema(&mut connection, &schema).await;
+    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection, schema);
+    db.create().await?;
+
+    db.conn_mut()
+        .query_drop(
+            "SET SESSION time_zone = '+01:00', sql_mode = CONCAT_WS(',', @@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', 'REAL_AS_FLOAT')",
+        )
+        .await
+        .expect("change session state");
+    let _: i64 = db.select(count(users.id)).from(users).get().await?;
+
+    let mode: Option<String> = db
+        .conn_mut()
+        .query_first("SELECT @@SESSION.sql_mode")
+        .await
+        .expect("read sql_mode");
+    let timezone: Option<String> = db
+        .conn_mut()
+        .query_first("SELECT @@SESSION.time_zone")
+        .await
+        .expect("read time zone");
+    let mode = mode.unwrap_or_default();
+    assert!(!mode.contains("NO_UNSIGNED_SUBTRACTION"));
+    assert!(!mode.contains("REAL_AS_FLOAT"));
+    assert_eq!(timezone.as_deref(), Some("+00:00"));
+    mysql_async_setup::reset_schema(db.conn_mut(), &TestSchema::new()).await;
+    Ok(())
+}
+
+#[test]
+fn pool_construction_is_lazy_and_runtime_owned_by_first_checkout() {
+    let _guard = mysql_async_setup::acquire_lock();
+    let pool = pool();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build Tokio runtime");
+    runtime.block_on(async move {
+        let mut connection = pool.get_conn().await.expect("first checkout binds runtime");
+        connection
+            .ping()
+            .await
+            .expect("connection works on owner runtime");
+        drop(connection);
+        pool.disconnect()
+            .await
+            .expect("disconnect on owner runtime");
+    });
+}
+
+#[tokio::test]
+async fn cancelling_pooled_transaction_rolls_back_before_reuse() -> drizzle::Result<()> {
+    let (db, TestSchema { users, .. }, _guard) = setup_pool().await;
+
+    {
+        let (inserted, ready) = tokio::sync::oneshot::channel();
+        let transaction = db.transaction(TransactionConfig::default(), async |tx| {
+            tx.insert(users)
+                .value(
+                    InsertUser::new("cancelled", true, Role::Member, vec![], 0, 0.0)
+                        .with_note(None::<String>),
+                )
+                .execute()
+                .await?;
+            let _ = inserted.send(());
+            std::future::pending::<drizzle::Result<()>>().await
+        });
+        tokio::pin!(transaction);
+        tokio::select! {
+            result = &mut transaction => panic!("transaction unexpectedly completed: {result:?}"),
+            result = ready => result.expect("transaction body reached cancellation point"),
+        }
+    }
+
+    // The pool has max=1, so this checkout waits until the recycler rolls the
+    // cancelled transaction back and makes that same connection safe.
+    let count: i64 = db.select(count(users.id)).from(users).get().await?;
+    assert_eq!(count, 0);
+
+    cleanup(db, &TestSchema::new()).await;
+    drizzle::Result::Ok(())
+}
+
+#[tokio::test]
+async fn prepared_queries_execute_through_one_pool_checkout() -> drizzle::Result<()> {
+    let (db, schema, _guard) = setup_pool().await;
+    let TestSchema { users, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Member, vec![], 0, 0.0).with_note(None::<String>),
+            InsertUser::new("Bob", true, Role::Member, vec![], 0, 0.0).with_note(None::<String>),
+        ])
+        .execute()
+        .await?;
+
+    let name = users.name.placeholder("name");
+    let prepared = db
+        .select(())
+        .from(users)
+        .r#where(eq(users.name, name))
+        .prepare()
+        .into_owned();
+    let alice: SelectUser = prepared.get(db.conn(), [name.bind("Alice")]).await?;
+    assert_eq!(alice.name, "Alice");
+
+    cleanup(db, &schema).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn pooled_introspection_and_push_work() -> drizzle::Result<()> {
+    let (db, schema, _guard) = setup_pool().await;
+
+    db.execute(SQL::raw("DROP TABLE test_posts")).await?;
+    db.push(&schema).await?;
+
+    let Snapshot::MySQL(snapshot) = db.introspect().await? else {
+        panic!("MySQL pooled introspection returned another dialect");
+    };
+    let ddl = drizzle::migrations::mysql::MySQLDDL::try_from_entities(snapshot.ddl)
+        .expect("pooled introspection returns a valid MySQL snapshot");
+    assert!(ddl.tables.one(None, "test_users").is_some());
+    assert!(ddl.tables.one(None, "test_posts").is_some());
+    db.push(&schema).await?;
+
+    cleanup(db, &schema).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn disconnect_closes_every_pool_clone() -> drizzle::Result<()> {
+    let (db, schema, _guard) = setup_pool().await;
+    let observer = db.conn().clone();
+    let mut connection = observer
+        .get_conn()
+        .await
+        .map_err(|error| drizzle::error::DrizzleError::driver("MySQL", error))?;
+    mysql_async_setup::reset_schema(&mut connection, &schema).await;
+    drop(connection);
+
+    db.disconnect().await?;
+    assert!(matches!(
+        observer.get_conn().await,
+        Err(mysql_async::Error::Driver(
+            mysql_async::DriverError::PoolDisconnected
+        ))
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn pooled_migrations_use_one_checkout() -> drizzle::Result<()> {
+    let (db, schema, _guard) = setup_pool().await;
+    let tracking = Tracking::MYSQL.table("__drizzle_pool_migrations");
+    for table in ["mysql_pool_migration", "__drizzle_pool_migrations"] {
+        db.execute(SQL::raw(format!("DROP TABLE IF EXISTS `{table}`")))
+            .await?;
+    }
+
+    let migrations = [Migration::with_hash(
+        "20260827000003_mysql_pool_migration",
+        "mysql-pool-migration",
+        1_787_788_800_003,
+        vec![
+            "CREATE TABLE `mysql_pool_migration` (`id` INT PRIMARY KEY)".to_owned(),
+            "INSERT INTO `mysql_pool_migration` (`id`) VALUES (1)".to_owned(),
+        ],
+    )];
+
+    let outcome = db.migrate(&migrations, tracking.clone()).await?;
+    assert_eq!(
+        outcome.applied_tags(),
+        ["20260827000003_mysql_pool_migration"]
+    );
+    let id: i64 = db
+        .get(SQL::raw("SELECT `id` FROM `mysql_pool_migration`"))
+        .await?;
+    assert_eq!(id, 1);
+    assert!(
+        db.migrate(&migrations, tracking.clone())
+            .await?
+            .is_up_to_date()
+    );
+
+    for table in ["mysql_pool_migration", "__drizzle_pool_migrations"] {
+        db.execute(SQL::raw(format!("DROP TABLE IF EXISTS `{table}`")))
+            .await?;
+    }
+    cleanup(db, &schema).await;
+    Ok(())
+}

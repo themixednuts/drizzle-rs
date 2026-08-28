@@ -1,4 +1,27 @@
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: drizzle-mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: drizzle_test
+      MYSQL_USER: drizzle
+      MYSQL_PASSWORD: drizzle
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -udrizzle -pdrizzle --silent && mysql -h 127.0.0.1 -udrizzle -pdrizzle drizzle_test -e 'SELECT 1'",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   postgres:
     image: postgres:18-alpine
     container_name: drizzle-postgres
@@ -13,4 +36,3 @@ services:
       interval: 2s
       timeout: 5s
       retries: 10
-

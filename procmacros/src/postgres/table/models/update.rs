@@ -1,6 +1,6 @@
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
-use crate::paths::core as core_paths;
+use crate::paths::{core as core_paths, postgres as pg_paths};
 use crate::postgres::field::FieldInfo;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -11,6 +11,10 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
     let struct_vis = ctx.struct_vis;
     let empty_marker = core_paths::empty_marker();
     let non_empty_marker = core_paths::non_empty_marker();
+    let sql = core_paths::sql();
+    let to_sql = core_paths::to_sql();
+    let postgres_value = pg_paths::postgres_value();
+    let postgres_update_value = pg_paths::postgres_update_value();
 
     let mut field_names: Vec<&syn::Ident> = Vec::new();
     let mut field_types: Vec<TokenStream> = Vec::new();
@@ -50,7 +54,7 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
         impl<'a> ::std::default::Default for #update_ident<'a> {
             fn default() -> Self {
                 Self {
-                    #(#field_names2: PostgresUpdateValue::Skip,)*
+                    #(#field_names2: #postgres_update_value::Skip,)*
                     _state: ::std::marker::PhantomData,
                 }
             }
@@ -60,11 +64,11 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
         #(#update_convenience_methods)*
 
         // ToSQL is only implemented for NonEmpty state
-        impl<'a> ToSQL<'a, PostgresValue<'a>> for #update_ident<'a, #non_empty_marker> {
-            fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-                let mut assignments = Vec::new();
+        impl<'a> #to_sql<'a, #postgres_value<'a>> for #update_ident<'a, #non_empty_marker> {
+            fn to_sql(&self) -> #sql<'a, #postgres_value<'a>> {
+                let mut assignments = ::std::vec::Vec::new();
                 #(#update_field_conversions)*
-                SQL::assignments_sql(assignments)
+                #sql::assignments_sql(assignments)
             }
         }
     }
@@ -75,14 +79,17 @@ pub fn generate_update_model(ctx: &MacroContext) -> TokenStream {
 fn get_update_field_conversion(field_info: &FieldInfo) -> TokenStream {
     let name = &field_info.ident;
     let column_name = &field_info.column_name;
+    let sql = core_paths::sql();
+    let postgres_value = pg_paths::postgres_value();
+    let postgres_update_value = pg_paths::postgres_update_value();
 
     quote! {
         match &self.#name {
-            PostgresUpdateValue::Skip => {},
-            PostgresUpdateValue::Null => {
-                assignments.push((#column_name, SQL::param(PostgresValue::Null)));
+            #postgres_update_value::Skip => {},
+            #postgres_update_value::Null => {
+                assignments.push((#column_name, #sql::param(#postgres_value::Null)));
             },
-            PostgresUpdateValue::Value(wrapper) => {
+            #postgres_update_value::Value(wrapper) => {
                 assignments.push((#column_name, wrapper.value.clone()));
             },
         }

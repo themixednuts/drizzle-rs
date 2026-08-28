@@ -97,8 +97,8 @@ pub struct OptionalOne;
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Copy)]
 pub struct JunctionMeta {
-    /// Junction table name (e.g., "`post_categories`").
-    pub table_name: &'static str,
+    /// Structured junction table identity.
+    pub table: crate::TableSqlRef,
     /// (`junction_col`, `source_col`) — WHERE correlation with parent row.
     pub source_fk: &'static [(&'static str, &'static str)],
     /// (`junction_col`, `target_col`) — INNER JOIN with target table.

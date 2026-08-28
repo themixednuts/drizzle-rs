@@ -81,7 +81,7 @@ impl core::fmt::Debug for dyn SQLIndexInfo {
 /// Implemented by tuple structs like `struct UserEmailIdx(User::email);`
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a SQL index for this dialect",
-    label = "ensure this type was derived with #[SQLiteIndex] or #[PostgresIndex]"
+    label = "ensure this type was derived with #[SQLiteIndex], #[PostgresIndex], or #[MySQLIndex]"
 )]
 pub trait SQLIndex<'a, Type: SQLSchemaType, Value: SQLParam + 'a>:
     SQLIndexInfo + ToSQL<'a, Value>

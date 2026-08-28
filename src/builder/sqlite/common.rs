@@ -8,14 +8,16 @@ use drizzle_core::ConflictTarget;
 use drizzle_core::traits::{SQLModel, SQLTable, ToSQL};
 use drizzle_sqlite::{
     builder::{
-        self, CTEView, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertDoUpdateSet,
-        InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet, OnConflictBuilder,
-        QueryBuilder, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
-        SelectOffsetSet, SelectOrderSet, SelectWhereSet, UpdateInitial, UpdateReturningSet,
-        UpdateSetClauseSet, UpdateWhereSet,
+        self, CTEView, DeleteInitial, DeleteReturningSet, DeleteWhereSet, InsertColumnsSet,
+        InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
+        OnConflictBuilder, QueryBuilder, SelectFromSet, SelectGroupSet, SelectInitial,
+        SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectWhereSet,
+        UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
         delete::DeleteBuilder,
         insert::InsertBuilder,
-        select::{AsCteState, IntoSelect, SelectBuilder, SelectSetOpSet},
+        select::{
+            AsCteState, CompletedSelect, IntoSelect, IntoSelectQuery, SelectBuilder, SelectSetOpSet,
+        },
         update::UpdateBuilder,
     },
     common::SQLiteSchemaType,
@@ -500,9 +502,10 @@ where
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             T::COLUMN_NAMES,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,
@@ -540,9 +543,10 @@ where
         builder.relations.render_into(&mut rendered);
         let col_refs: Vec<&str> = builder.cols.columns;
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             &col_refs,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,
@@ -1045,6 +1049,34 @@ macro_rules! impl_select_methods {
         }
 
         crate::drizzle_builder_join_impl!();
+
+        /// Adds a cross join without an ON condition.
+        #[inline]
+        pub fn cross_join<Arg: drizzle_sqlite::helpers::CrossJoinArg<'a, T>>(
+            self,
+            arg: Arg,
+        ) -> DrizzleBuilder<
+            'd,
+            Runner,
+            Schema,
+            SelectBuilder<
+                'a,
+                Schema,
+                SelectJoinSet,
+                Arg::JoinedTable,
+                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+                G,
+            >,
+            SelectJoinSet,
+        >
+        where
+            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
+                + drizzle_core::ScopePush<Arg::JoinedTable>,
+        {
+            let builder = self.builder.cross_join(arg);
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
+        }
     };
 }
 
@@ -1067,11 +1099,28 @@ impl<'a, Runner, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
     for DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: drizzle_sqlite::builder::ExecutableState,
+    SelectBuilder<'a, Schema, State, T, M, R, G>:
+        CompletedSelect<'a, Schema, R, Marker = M, Grouped = G>,
 {
     type State = State;
     type Table = T;
     fn into_select(self) -> SelectBuilder<'a, Schema, State, T, M, R> {
         self.builder.into_select()
+    }
+}
+
+impl<'a, Runner, Schema, State, T, M, R, G> IntoSelectQuery<'a, Schema, R>
+    for DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+where
+    SelectBuilder<'a, Schema, State, T, M, R, G>:
+        CompletedSelect<'a, Schema, R, Marker = M, Grouped = G>,
+{
+    type Marker = M;
+    type Grouped = G;
+    type Select = SelectBuilder<'a, Schema, State, T, M, R, G>;
+
+    fn into_select_query(self) -> Self::Select {
+        self.builder
     }
 }
 
@@ -1228,8 +1277,44 @@ where
     }
 }
 
-impl<'a, Runner, Schema, State, T, M, R>
-    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
+impl<'a, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
+where
+    State: drizzle_sqlite::builder::ExecutableState,
+    M: drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>,
+{
+    /// Names this completed query so it can be used as a derived source.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[inline]
+    #[must_use]
+    pub fn alias<Name, ScopeProof, AggProof>(
+        self,
+        name: Name,
+    ) -> drizzle_core::Derived<
+        'a,
+        SQLiteValue<'a>,
+        Name,
+        <M as drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>>::Projection,
+        SelectBuilder<'a, Schema, State, T, M, R, G>,
+    >
+    where
+        Name: drizzle_core::Tag,
+        <M as drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>>::Projection:
+            drizzle_core::DerivedProjection<Name>,
+        M: drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+    {
+        self.builder.alias(name)
+    }
+}
+
+impl<'a, Runner, Schema, State, T, M, R, G>
+    DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
     State: AsCteState,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
@@ -1241,7 +1326,7 @@ where
     ) -> CTEView<
         'a,
         <T as SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>>::Aliased<Tag>,
-        SelectBuilder<'a, Schema, State, T, M, R>,
+        SelectBuilder<'a, Schema, State, T, M, R, G>,
     > {
         self.builder.into_cte::<Tag>()
     }
@@ -1298,7 +1383,56 @@ impl<'a, 'b, Runner, Schema, Table>
     }
 
     #[inline]
-    pub fn select<Q>(
+    pub fn columns<Columns>(
+        self,
+        columns: Columns,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        InsertBuilder<'b, Schema, InsertColumnsSet<Columns::Columns>, Table>,
+        InsertColumnsSet<Columns::Columns>,
+    >
+    where
+        Table: SQLiteTable<'b>,
+        Columns: drizzle_core::InsertTargetColumns<'b, SQLiteValue<'b>, Table>,
+    {
+        let builder = self.builder.columns(columns);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn select<Q, R, ScopeProof, AggProof>(
+        self,
+        query: Q,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: SQLiteTable<'b> + drizzle_core::InsertSelectTable,
+        Q: IntoSelectQuery<'b, Schema, R>,
+        Q::Marker: drizzle_core::InsertSelectCompatible<'b, SQLiteValue<'b>, Table, R>
+            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
+    {
+        let builder = self.builder.select(query);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn select_raw<Q>(
         self,
         query: Q,
     ) -> DrizzleBuilder<
@@ -1312,7 +1446,68 @@ impl<'a, 'b, Runner, Schema, Table>
         Table: SQLiteTable<'b>,
         Q: ToSQL<'b, SQLiteValue<'b>>,
     {
+        let builder = self.builder.select_raw(query);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<'a, 'b, Runner, Schema, Table, Targets>
+    DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        InsertBuilder<'b, Schema, InsertColumnsSet<Targets>, Table>,
+        InsertColumnsSet<Targets>,
+    >
+where
+    Table: SQLiteTable<'b> + drizzle_core::InsertSelectTable,
+{
+    #[inline]
+    pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+        self,
+        query: Q,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
+        Q: IntoSelectQuery<'b, Schema, R>,
+        Q::Marker: drizzle_core::PartialInsertSelectCompatible<'b, SQLiteValue<'b>, Targets>
+            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
+    {
         let builder = self.builder.select(query);
+        DrizzleBuilder {
+            runner: self.runner,
+            builder,
+            state: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn select_raw<Q, RequiredProof>(
+        self,
+        query: Q,
+    ) -> DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        InsertBuilder<'b, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
+        Q: ToSQL<'b, SQLiteValue<'b>>,
+    {
+        let builder = self.builder.select_raw(query);
         DrizzleBuilder {
             runner: self.runner,
             builder,

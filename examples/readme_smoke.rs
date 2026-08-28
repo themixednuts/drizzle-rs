@@ -343,9 +343,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fn _consume(_: &readme::UsersWithPosts) {}
 
     // -------- Transactions --------
-    use drizzle::sqlite::connection::SQLiteTransactionType;
+    use drizzle::sqlite::TransactionConfig;
 
-    let counted = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let counted = db.transaction(TransactionConfig::Deferred, |tx| {
         tx.insert(users)
             .value(InsertUsers::new("Tx Person", 28i64))
             .execute()?;
@@ -355,7 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(counted > 0);
 
     // Savepoint: outer commits Alice + Bob; the bad inner aborts cleanly.
-    let _ = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    let _ = db.transaction(TransactionConfig::Deferred, |tx| {
         tx.insert(users)
             .value(InsertUsers::new("SP Alice", 28i64))
             .execute()?;

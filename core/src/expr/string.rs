@@ -9,11 +9,11 @@
 //! - `length`: Dialect-aware integer output from text input
 //! - `substr`, `replace`, `instr`: Require `Textual` types
 
-use crate::dialect::DialectTypes;
+use crate::dialect::{Dialect, DialectTypes};
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{DataType, Integral, Textual};
-use crate::{PostgresDialect, SQLiteDialect};
+use crate::{MySQLDialect, PostgresDialect, SQLiteDialect};
 use drizzle_types::postgres::types::{
     Char as PgChar, Int4 as PgInt4, Text as PgText, Varchar as PgVarchar,
 };
@@ -33,13 +33,39 @@ pub trait LengthPolicy<D>: DataType {
     message = "this string function is not available for this dialect",
     label = "use a dialect-specific alternative"
 )]
-pub trait SQLiteStringSupport {}
+pub trait PostgresStringSupport {}
 
 #[diagnostic::on_unimplemented(
-    message = "this string function is not available for this dialect",
-    label = "use a dialect-specific alternative"
+    message = "INSTR is not available for this dialect",
+    label = "use a dialect-specific substring-position function"
 )]
-pub trait PostgresStringSupport {}
+pub trait InstrPolicy {
+    type Output: DataType;
+}
+
+#[diagnostic::on_unimplemented(
+    message = "LEFT/RIGHT are not available for this dialect",
+    label = "use a dialect-specific substring function"
+)]
+pub trait LeftRightSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "LPAD/RPAD are not available for this dialect",
+    label = "use a dialect-specific padding expression"
+)]
+pub trait PadSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "REVERSE is not available for this dialect",
+    label = "use a dialect-specific string expression"
+)]
+pub trait ReverseSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "REPEAT is not available for this dialect",
+    label = "use a dialect-specific string expression"
+)]
+pub trait RepeatSupport {}
 
 impl LengthPolicy<SQLiteDialect> for SqliteText {
     type Output = SqliteInteger;
@@ -58,8 +84,44 @@ impl LengthPolicy<PostgresDialect> for PgChar {
     type Output = PgInt4;
 }
 
-impl SQLiteStringSupport for SQLiteDialect {}
+macro_rules! mysql_length_policy {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl LengthPolicy<MySQLDialect> for $ty {
+                type Output = drizzle_types::mysql::types::BigInt;
+            }
+        )+
+    };
+}
+
+mysql_length_policy!(
+    drizzle_types::mysql::types::Char,
+    drizzle_types::mysql::types::Varchar,
+    drizzle_types::mysql::types::TinyText,
+    drizzle_types::mysql::types::Text,
+    drizzle_types::mysql::types::MediumText,
+    drizzle_types::mysql::types::LongText,
+    drizzle_types::mysql::types::Enum,
+    drizzle_types::mysql::types::Set,
+);
+
 impl PostgresStringSupport for PostgresDialect {}
+
+impl InstrPolicy for SQLiteDialect {
+    type Output = SqliteInteger;
+}
+impl InstrPolicy for MySQLDialect {
+    type Output = drizzle_types::mysql::types::BigInt;
+}
+
+impl LeftRightSupport for PostgresDialect {}
+impl LeftRightSupport for MySQLDialect {}
+impl PadSupport for PostgresDialect {}
+impl PadSupport for MySQLDialect {}
+impl ReverseSupport for PostgresDialect {}
+impl ReverseSupport for MySQLDialect {}
+impl RepeatSupport for PostgresDialect {}
+impl RepeatSupport for MySQLDialect {}
 
 // =============================================================================
 // CASE CONVERSION
@@ -213,14 +275,13 @@ where
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
-    // `(expr COLLATE "name")` — always quote-wrap the name, since
-    // PostgreSQL's parser requires it and SQLite accepts the quoted form
-    // for its built-in collations as well.
     let inner = expr.into_sql().parens_if_subquery();
     SQLExpr::new(
-        SQL::raw("(")
+        SQL::token(Token::LPAREN)
             .append(inner)
-            .append(SQL::raw(format!(" COLLATE \"{name}\")"))),
+            .push(Token::COLLATE)
+            .append(SQL::ident(name))
+            .push(Token::RPAREN),
     )
 }
 
@@ -228,9 +289,11 @@ where
 // LENGTH
 // =============================================================================
 
-/// LENGTH - returns the length of a string.
+/// `LENGTH` - returns the length of a string.
 ///
-/// Returns a dialect-aware integer type, preserves nullability.
+/// MySQL counts bytes. SQLite and PostgreSQL follow their native `LENGTH`
+/// semantics. Use [`char_length`] when character count is the intended value.
+/// The result type is dialect-aware and preserves nullability.
 ///
 /// # Example
 ///
@@ -261,7 +324,7 @@ where
 /// SUBSTR - extracts a substring from a string.
 ///
 /// Extracts `len` characters starting at position `start` (1-indexed).
-/// Preserves the nullability of the input expression.
+/// The result is nullable when any argument is nullable.
 ///
 /// # Example
 ///
@@ -282,7 +345,7 @@ pub fn substr<'a, V, E, S, L>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <<E::Nullable as NullOr<S::Nullable>>::Output as NullOr<L::Nullable>>::Output,
     <<E::Aggregate as AggOr<S::Aggregate>>::Output as AggOr<L::Aggregate>>::Output,
 >
 where
@@ -291,10 +354,14 @@ where
     E::SQLType: Textual,
     S: Expr<'a, V>,
     S::SQLType: Integral,
+    S::Nullable: Nullability,
     S::Aggregate: AggregateKind,
     L: Expr<'a, V>,
     L::SQLType: Integral,
+    L::Nullable: Nullability,
     L::Aggregate: AggregateKind,
+    E::Nullable: NullOr<S::Nullable>,
+    <E::Nullable as NullOr<S::Nullable>>::Output: NullOr<L::Nullable>,
     E::Aggregate: AggOr<S::Aggregate>,
     <E::Aggregate as AggOr<S::Aggregate>>::Output: AggOr<L::Aggregate>,
 {
@@ -315,7 +382,7 @@ where
 /// REPLACE - replaces occurrences of a substring.
 ///
 /// Replaces all occurrences of `from` with `to` in the expression.
-/// Preserves the nullability of the input expression.
+/// The result is nullable when any argument is nullable.
 ///
 /// # Example
 ///
@@ -336,7 +403,7 @@ pub fn replace<'a, V, E, F, T>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <<E::Nullable as NullOr<F::Nullable>>::Output as NullOr<T::Nullable>>::Output,
     <<E::Aggregate as AggOr<F::Aggregate>>::Output as AggOr<T::Aggregate>>::Output,
 >
 where
@@ -345,10 +412,14 @@ where
     E::SQLType: Textual,
     F: Expr<'a, V>,
     F::SQLType: Textual,
+    F::Nullable: Nullability,
     F::Aggregate: AggregateKind,
     T: Expr<'a, V>,
     T::SQLType: Textual,
+    T::Nullable: Nullability,
     T::Aggregate: AggregateKind,
+    E::Nullable: NullOr<F::Nullable>,
+    <E::Nullable as NullOr<F::Nullable>>::Output: NullOr<T::Nullable>,
     E::Aggregate: AggOr<F::Aggregate>,
     <E::Aggregate as AggOr<F::Aggregate>>::Output: AggOr<T::Aggregate>,
 {
@@ -369,8 +440,8 @@ where
 /// INSTR - finds the position of a substring.
 ///
 /// Returns the 1-indexed position of the first occurrence of `search`
-/// in the expression, or 0 if not found. Returns `SQLite` INTEGER.
-/// Preserves the nullability of the input expression.
+/// in the expression, or 0 if not found. The result type is dialect-aware.
+/// The result is nullable when either argument is nullable.
 ///
 /// # Example
 ///
@@ -389,17 +460,19 @@ pub fn instr<'a, V, E, S>(
 ) -> SQLExpr<
     'a,
     V,
-    drizzle_types::sqlite::types::Integer,
-    E::Nullable,
+    <V::DialectMarker as InstrPolicy>::Output,
+    <E::Nullable as NullOr<S::Nullable>>::Output,
     <E::Aggregate as AggOr<S::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteStringSupport,
+    V::DialectMarker: InstrPolicy,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     S: Expr<'a, V>,
     S::SQLType: Textual,
+    S::Nullable: Nullability,
+    E::Nullable: NullOr<S::Nullable>,
     S::Aggregate: AggregateKind,
     E::Aggregate: AggOr<S::Aggregate>,
 {
@@ -418,7 +491,7 @@ pub fn strpos<'a, V, E, S>(
     'a,
     V,
     drizzle_types::postgres::types::Int4,
-    E::Nullable,
+    <E::Nullable as NullOr<S::Nullable>>::Output,
     <E::Aggregate as AggOr<S::Aggregate>>::Output,
 >
 where
@@ -428,6 +501,8 @@ where
     E::SQLType: Textual,
     S: Expr<'a, V>,
     S::SQLType: Textual,
+    S::Nullable: Nullability,
+    E::Nullable: NullOr<S::Nullable>,
     S::Aggregate: AggregateKind,
     E::Aggregate: AggOr<S::Aggregate>,
 {
@@ -441,10 +516,12 @@ where
 // CONCAT (with NULL propagation)
 // =============================================================================
 
-/// Concatenate two string expressions using || operator.
+/// Concatenate two string expressions.
 ///
 /// Nullability follows SQL concatenation rules: if either input is nullable,
 /// the result is nullable. `string_concat` is a compatibility alias.
+/// `MySQL` renders `CONCAT(left, right)` because its default SQL mode treats
+/// `||` as logical OR. `SQLite` and `PostgreSQL` use `||`.
 ///
 /// # Type Safety
 ///
@@ -493,12 +570,13 @@ where
     E2::Aggregate: AggregateKind,
     E1::Aggregate: AggOr<E2::Aggregate>,
 {
-    SQLExpr::new(
-        expr1
-            .into_sql()
-            .push(Token::CONCAT)
-            .append(expr2.into_sql()),
-    )
+    let left = expr1.into_sql();
+    let right = expr2.into_sql();
+    let sql = match V::DIALECT {
+        Dialect::MySQL => SQL::func("CONCAT", left.push(Token::COMMA).append(right)),
+        Dialect::SQLite | Dialect::PostgreSQL => left.push(Token::CONCAT).append(right),
+    };
+    SQLExpr::new(sql)
 }
 
 // =============================================================================
@@ -551,12 +629,12 @@ where
 }
 
 // =============================================================================
-// PostgreSQL-specific String Functions
+// Dialect-gated String Functions
 // =============================================================================
 
-/// LEFT - returns the first n characters of a string (`PostgreSQL`).
+/// LEFT - returns the first n characters of a string (`PostgreSQL` and `MySQL`).
 ///
-/// Preserves the nullability of the input expression.
+/// The result is nullable when either argument is nullable.
 ///
 /// # Example
 ///
@@ -576,16 +654,18 @@ pub fn left<'a, V, E, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <E::Nullable as NullOr<N::Nullable>>::Output,
     <E::Aggregate as AggOr<N::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: LeftRightSupport,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     N: Expr<'a, V>,
     N::SQLType: Integral,
+    N::Nullable: Nullability,
+    E::Nullable: NullOr<N::Nullable>,
     N::Aggregate: AggregateKind,
     E::Aggregate: AggOr<N::Aggregate>,
 {
@@ -595,9 +675,9 @@ where
     ))
 }
 
-/// RIGHT - returns the last n characters of a string (`PostgreSQL`).
+/// RIGHT - returns the last n characters of a string (`PostgreSQL` and `MySQL`).
 ///
-/// Preserves the nullability of the input expression.
+/// The result is nullable when either argument is nullable.
 ///
 /// # Example
 ///
@@ -617,16 +697,18 @@ pub fn right<'a, V, E, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <E::Nullable as NullOr<N::Nullable>>::Output,
     <E::Aggregate as AggOr<N::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: LeftRightSupport,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     N: Expr<'a, V>,
     N::SQLType: Integral,
+    N::Nullable: Nullability,
+    E::Nullable: NullOr<N::Nullable>,
     N::Aggregate: AggregateKind,
     E::Aggregate: AggOr<N::Aggregate>,
 {
@@ -659,7 +741,7 @@ pub fn split_part<'a, V, E, D, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <<E::Nullable as NullOr<D::Nullable>>::Output as NullOr<N::Nullable>>::Output,
     <<E::Aggregate as AggOr<D::Aggregate>>::Output as AggOr<N::Aggregate>>::Output,
 >
 where
@@ -669,10 +751,14 @@ where
     E::SQLType: Textual,
     D: Expr<'a, V>,
     D::SQLType: Textual,
+    D::Nullable: Nullability,
     D::Aggregate: AggregateKind,
     N: Expr<'a, V>,
     N::SQLType: Integral,
+    N::Nullable: Nullability,
     N::Aggregate: AggregateKind,
+    E::Nullable: NullOr<D::Nullable>,
+    <E::Nullable as NullOr<D::Nullable>>::Output: NullOr<N::Nullable>,
     E::Aggregate: AggOr<D::Aggregate>,
     <E::Aggregate as AggOr<D::Aggregate>>::Output: AggOr<N::Aggregate>,
 {
@@ -686,7 +772,7 @@ where
     ))
 }
 
-/// LPAD - pads a string on the left to a specified length (`PostgreSQL`).
+/// LPAD - pads a string on the left to a specified length (`PostgreSQL` and `MySQL`).
 ///
 /// # Example
 ///
@@ -707,19 +793,23 @@ pub fn lpad<'a, V, E, L, F>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <<E::Nullable as NullOr<L::Nullable>>::Output as NullOr<F::Nullable>>::Output,
     <<E::Aggregate as AggOr<L::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: PadSupport,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     L: Expr<'a, V>,
     L::SQLType: Integral,
+    L::Nullable: Nullability,
     L::Aggregate: AggregateKind,
     F: Expr<'a, V>,
     F::SQLType: Textual,
+    F::Nullable: Nullability,
+    E::Nullable: NullOr<L::Nullable>,
+    <E::Nullable as NullOr<L::Nullable>>::Output: NullOr<F::Nullable>,
     F::Aggregate: AggregateKind,
     E::Aggregate: AggOr<L::Aggregate>,
     <E::Aggregate as AggOr<L::Aggregate>>::Output: AggOr<F::Aggregate>,
@@ -734,7 +824,7 @@ where
     ))
 }
 
-/// RPAD - pads a string on the right to a specified length (`PostgreSQL`).
+/// RPAD - pads a string on the right to a specified length (`PostgreSQL` and `MySQL`).
 ///
 /// # Example
 ///
@@ -755,19 +845,23 @@ pub fn rpad<'a, V, E, L, F>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <<E::Nullable as NullOr<L::Nullable>>::Output as NullOr<F::Nullable>>::Output,
     <<E::Aggregate as AggOr<L::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: PadSupport,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     L: Expr<'a, V>,
     L::SQLType: Integral,
+    L::Nullable: Nullability,
     L::Aggregate: AggregateKind,
     F: Expr<'a, V>,
     F::SQLType: Textual,
+    F::Nullable: Nullability,
+    E::Nullable: NullOr<L::Nullable>,
+    <E::Nullable as NullOr<L::Nullable>>::Output: NullOr<F::Nullable>,
     F::Aggregate: AggregateKind,
     E::Aggregate: AggOr<L::Aggregate>,
     <E::Aggregate as AggOr<L::Aggregate>>::Output: AggOr<F::Aggregate>,
@@ -797,7 +891,7 @@ where
     SQLExpr::new(SQL::func("INITCAP", expr.into_sql()))
 }
 
-/// REVERSE - reverses a string (`PostgreSQL`).
+/// REVERSE - reverses a string (`PostgreSQL` and `MySQL`).
 ///
 /// Preserves the nullability of the input expression.
 pub fn reverse<'a, V, E>(
@@ -805,14 +899,14 @@ pub fn reverse<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: ReverseSupport,
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
     SQLExpr::new(SQL::func("REVERSE", expr.into_sql()))
 }
 
-/// REPEAT - repeats a string n times (`PostgreSQL`).
+/// REPEAT - repeats a string n times (`PostgreSQL` and `MySQL`).
 ///
 /// # Example
 ///
@@ -832,16 +926,18 @@ pub fn repeat<'a, V, E, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
+    <E::Nullable as NullOr<N::Nullable>>::Output,
     <E::Aggregate as AggOr<N::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: RepeatSupport,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     N: Expr<'a, V>,
     N::SQLType: Integral,
+    N::Nullable: Nullability,
+    E::Nullable: NullOr<N::Nullable>,
     N::Aggregate: AggregateKind,
     E::Aggregate: AggOr<N::Aggregate>,
 {
@@ -899,7 +995,7 @@ where
 
 /// Dialect-aware function name for `CHAR_LENGTH`.
 ///
-/// `PostgreSQL` uses `CHAR_LENGTH`; `SQLite` uses `LENGTH`.
+/// PostgreSQL and MySQL use `CHAR_LENGTH`; SQLite uses `LENGTH`.
 pub trait CharLengthPolicy {
     const CHAR_LENGTH_FN: &'static str;
 }
@@ -912,9 +1008,14 @@ impl CharLengthPolicy for PostgresDialect {
     const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
 }
 
+impl CharLengthPolicy for crate::MySQLDialect {
+    const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
+}
+
 /// `CHAR_LENGTH` - returns the number of characters in a string.
 ///
-/// Standard SQL function. Emits `CHAR_LENGTH` on `PostgreSQL`, `LENGTH` on `SQLite`.
+/// Standard SQL function. Emits `CHAR_LENGTH` on `PostgreSQL` and `MySQL`,
+/// and `LENGTH` on `SQLite`.
 ///
 /// # Example
 ///
@@ -922,7 +1023,7 @@ impl CharLengthPolicy for PostgresDialect {
 /// # let _ = r####"
 /// use drizzle_core::expr::char_length;
 ///
-/// // SELECT CHAR_LENGTH(users.name)  -- PG
+/// // SELECT CHAR_LENGTH(users.name)  -- PostgreSQL/MySQL
 /// // SELECT LENGTH(users.name)       -- SQLite
 /// let name_len = char_length(users.name);
 /// # "####;
@@ -945,7 +1046,7 @@ where
 
 /// `OCTET_LENGTH` - returns the number of bytes in a string.
 ///
-/// Standard SQL function. Works on both `SQLite` (3.43+) and `PostgreSQL`.
+/// Standard SQL function. Works on SQLite (3.43+), PostgreSQL, and MySQL.
 ///
 /// # Example
 ///

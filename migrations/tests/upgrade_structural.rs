@@ -3,11 +3,14 @@
 //! must load back through the typed snapshot APIs (including from disk via
 //! `Snapshot::load`).
 
+use drizzle_migrations::mysql::{MySQLEntity, MySQLSnapshot};
 use drizzle_migrations::postgres::PostgresSnapshot;
 use drizzle_migrations::schema::Snapshot;
 use drizzle_migrations::sqlite::SQLiteSnapshot;
 use drizzle_migrations::upgrade::upgrade_to_latest;
-use drizzle_migrations::version::{POSTGRES_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION};
+use drizzle_migrations::version::{
+    MYSQL_SNAPSHOT_VERSION, POSTGRES_SNAPSHOT_VERSION, SQLITE_SNAPSHOT_VERSION,
+};
 use drizzle_types::Dialect;
 use serde_json::{Value, json};
 
@@ -217,6 +220,47 @@ fn postgres_v7_fixture() -> Value {
     })
 }
 
+/// A legacy drizzle-kit MySQL v5 snapshot used by the same conversion,
+/// deserialization, disk-load, and determinism contracts as the other
+/// dialects.
+fn mysql_v5_fixture() -> Value {
+    json!({
+        "version": "5",
+        "dialect": "mysql",
+        "id": "a8028a49-9cb6-45b6-895a-77c941167003",
+        "prevId": "00000000-0000-0000-0000-000000000000",
+        "database": "app",
+        "tables": {
+            "users": {
+                "name": "users",
+                "engine": "InnoDB",
+                "charset": "utf8mb4",
+                "columns": {
+                    "id": {
+                        "name": "id",
+                        "type": "bigint unsigned",
+                        "primaryKey": true,
+                        "notNull": true,
+                        "autoincrement": true
+                    },
+                    "email": {
+                        "name": "email",
+                        "type": "varchar(255)",
+                        "primaryKey": false,
+                        "notNull": true
+                    }
+                },
+                "indexes": {},
+                "foreignKeys": {},
+                "compositePrimaryKeys": {},
+                "uniqueConstraints": {},
+                "checkConstraints": {}
+            }
+        },
+        "views": {}
+    })
+}
+
 #[test]
 fn sqlite_v6_converts_and_reloads() {
     let upgraded = upgrade_to_latest(sqlite_v6_fixture(), Dialect::SQLite);
@@ -249,6 +293,93 @@ fn postgres_v7_converts_and_reloads() {
 }
 
 #[test]
+fn mysql_v5_converts_and_reloads() {
+    let upgraded = upgrade_to_latest(mysql_v5_fixture(), Dialect::MySQL);
+    assert_eq!(upgraded["version"], MYSQL_SNAPSHOT_VERSION);
+    assert_eq!(upgraded["dialect"], "mysql");
+    assert_eq!(upgraded["id"], "a8028a49-9cb6-45b6-895a-77c941167003");
+    assert_eq!(
+        upgraded["prevIds"][0],
+        "00000000-0000-0000-0000-000000000000"
+    );
+
+    let snapshot = MySQLSnapshot::from_json(&serde_json::to_string(&upgraded).expect("serialize"))
+        .expect("converted mysql snapshot must deserialize");
+    // 1 table + 2 columns + the synthesized table-level primary key.
+    assert_eq!(snapshot.ddl.len(), 4);
+    let primary_keys: Vec<_> = snapshot
+        .ddl
+        .iter()
+        .filter_map(|entity| match entity {
+            MySQLEntity::PrimaryKey(primary_key) => Some(primary_key),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(primary_keys.len(), 1);
+    assert_eq!(primary_keys[0].columns[0], "id");
+}
+
+#[test]
+fn mysql_v5_composite_primary_key_suppresses_inline_synthesis() {
+    let mut fixture = mysql_v5_fixture();
+    fixture["tables"]["users"]["columns"]["tenant_id"] = json!({
+        "name": "tenant_id",
+        "type": "bigint unsigned",
+        "primaryKey": true,
+        "notNull": true
+    });
+    fixture["tables"]["users"]["compositePrimaryKeys"] = json!({
+        "users_tenant_id_id_pk": {
+            "name": "users_tenant_id_id_pk",
+            "columns": ["tenant_id", "id"]
+        }
+    });
+
+    let snapshot: MySQLSnapshot =
+        serde_json::from_value(upgrade_to_latest(fixture, Dialect::MySQL))
+            .expect("upgraded composite primary key snapshot");
+    let primary_keys: Vec<_> = snapshot
+        .ddl
+        .iter()
+        .filter_map(|entity| match entity {
+            MySQLEntity::PrimaryKey(primary_key) => Some(primary_key),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(primary_keys.len(), 1);
+    assert_eq!(
+        primary_keys[0]
+            .columns
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<&str>>(),
+        ["tenant_id", "id"]
+    );
+}
+
+#[test]
+fn current_snapshots_save_and_load_for_every_dialect() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    for (dialect, file_name) in [
+        (Dialect::SQLite, "sqlite-current.json"),
+        (Dialect::PostgreSQL, "postgres-current.json"),
+        (Dialect::MySQL, "mysql-current.json"),
+    ] {
+        let snapshot = Snapshot::empty(dialect);
+        let path = dir.path().join(file_name);
+        snapshot.save(&path).expect("save current snapshot");
+
+        let loaded = Snapshot::load(&path, dialect).expect("load current snapshot");
+        assert_eq!(loaded.dialect(), dialect);
+        assert_eq!(loaded.id(), snapshot.id());
+        assert_eq!(loaded.prev_ids(), snapshot.prev_ids());
+        assert!(loaded.is_empty());
+    }
+}
+
+#[test]
 fn converted_snapshots_load_from_disk() {
     let dir = tempfile::tempdir().expect("tempdir");
 
@@ -273,6 +404,116 @@ fn converted_snapshots_load_from_disk() {
     let loaded = Snapshot::load(&pg_path, Dialect::PostgreSQL).expect("load postgres snapshot");
     assert!(!loaded.is_empty());
     assert_eq!(loaded.id(), "9f0e11f8-30f2-4f14-8f0e-aa41f7fbe002");
+
+    let mysql_path = dir.path().join("mysql_snapshot.json");
+    std::fs::write(
+        &mysql_path,
+        serde_json::to_string_pretty(&mysql_v5_fixture()).expect("serialize"),
+    )
+    .expect("write legacy mysql snapshot");
+    let loaded = Snapshot::load(&mysql_path, Dialect::MySQL)
+        .expect("public loader must upgrade a legacy mysql snapshot");
+    assert!(!loaded.is_empty());
+    assert_eq!(loaded.id(), "a8028a49-9cb6-45b6-895a-77c941167003");
+    let mysql = loaded.as_mysql().expect("mysql snapshot");
+    assert_eq!(mysql.version, MYSQL_SNAPSHOT_VERSION);
+    assert_eq!(
+        mysql
+            .ddl
+            .iter()
+            .filter(|entity| matches!(entity, MySQLEntity::PrimaryKey(_)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn mysql_public_loader_rejects_future_foreign_and_malformed_snapshots() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let write_and_load = |name: &str, value: Value| {
+        let path = dir.path().join(name);
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&value).expect("serialize fixture"),
+        )
+        .expect("write fixture");
+        Snapshot::load(&path, Dialect::MySQL).expect_err("snapshot must be rejected")
+    };
+
+    let mut future = serde_json::to_value(MySQLSnapshot::new()).expect("serialize current");
+    future["version"] = json!("7");
+    let error = write_and_load("future.json", future);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("version `7`"), "{error}");
+
+    let mut foreign = serde_json::to_value(MySQLSnapshot::new()).expect("serialize current");
+    foreign["dialect"] = json!("postgresql");
+    let error = write_and_load("foreign.json", foreign);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(
+        error.to_string().contains("dialect `postgresql`"),
+        "{error}"
+    );
+
+    let malformed = json!({
+        "version": "6",
+        "dialect": "mysql",
+        "id": "a8028a49-9cb6-45b6-895a-77c941167003",
+        "prevIds": ["00000000-0000-0000-0000-000000000000"],
+        "ddl": [{
+            "entityType": "columns",
+            "table": "missing_table",
+            "name": "id",
+            "type": "int"
+        }],
+        "renames": []
+    });
+    let error = write_and_load("malformed.json", malformed);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("missing table"), "{error}");
+
+    for (field, kind) in [
+        ("indexes", "index"),
+        ("foreignKeys", "foreign key"),
+        ("compositePrimaryKeys", "primary key"),
+        ("primaryKeys", "primary key"),
+        ("uniqueConstraints", "unique constraint"),
+        ("checkConstraints", "check constraint"),
+        ("checkConstraint", "check constraint"),
+    ] {
+        let mut malformed_v5 = mysql_v5_fixture();
+        malformed_v5["tables"]["users"]
+            .as_object_mut()
+            .expect("table object")
+            .entry(field)
+            .or_insert_with(|| json!({}))["broken"] = json!(42);
+        let error = write_and_load(&format!("malformed-v5-{field}.json"), malformed_v5);
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("{kind} `users.broken` must be an object")),
+            "{error}"
+        );
+    }
+
+    let mut malformed_sql = serde_json::to_value(MySQLSnapshot::new()).expect("serialize current");
+    malformed_sql["ddl"] = json!([
+        {"entityType": "tables", "name": "users"},
+        {"entityType": "columns", "table": "users", "name": "id", "type": " "}
+    ]);
+    let error = write_and_load("malformed-v6-sql.json", malformed_sql);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("column type"), "{error}");
+
+    let mut render_invalid = serde_json::to_value(MySQLSnapshot::new()).expect("serialize current");
+    render_invalid["ddl"] = json!([
+        {"entityType": "tables", "name": "users", "engine": "Inno DB"},
+        {"entityType": "columns", "table": "users", "name": "id", "type": "int"}
+    ]);
+    let error = write_and_load("render-invalid-v6.json", render_invalid);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("storage engine"), "{error}");
 }
 
 #[test]
@@ -296,6 +537,14 @@ fn conversion_is_deterministic() {
     ))
     .expect("serialize");
     assert_eq!(first, second);
+
+    let first =
+        serde_json::to_string_pretty(&upgrade_to_latest(mysql_v5_fixture(), Dialect::MySQL))
+            .expect("serialize");
+    let second =
+        serde_json::to_string_pretty(&upgrade_to_latest(mysql_v5_fixture(), Dialect::MySQL))
+            .expect("serialize");
+    assert_eq!(first, second);
 }
 
 #[test]
@@ -306,5 +555,9 @@ fn already_current_snapshots_pass_through_unchanged() {
 
     let current = serde_json::to_value(PostgresSnapshot::new()).expect("serialize");
     let upgraded = upgrade_to_latest(current.clone(), Dialect::PostgreSQL);
+    assert_eq!(current, upgraded);
+
+    let current = serde_json::to_value(MySQLSnapshot::new()).expect("serialize");
+    let upgraded = upgrade_to_latest(current.clone(), Dialect::MySQL);
     assert_eq!(current, upgraded);
 }

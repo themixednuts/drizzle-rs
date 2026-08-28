@@ -12,6 +12,7 @@ use super::ddl::{
 };
 use crate::collection::EntityCollection;
 use crate::traits::EntityKind;
+use drizzle_types::sqlite::SQLTypeCategory;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
@@ -597,7 +598,7 @@ fn columns_equivalent(
 ) -> bool {
     let normalize = |column: &Column| -> Column {
         let mut c = column.clone();
-        c.sql_type = Cow::Owned(c.sql_type.to_ascii_lowercase());
+        c.sql_type = Cow::Owned(canonical_sqlite_type(&c.sql_type));
         // (a) ordinal position is introspection metadata, not schema shape
         c.ordinal_position = None;
         // Explicit `Some(false)` flags are equivalent to omitted flags
@@ -630,6 +631,19 @@ fn columns_equivalent(
     };
 
     normalize(left) == normalize(right)
+}
+
+/// The schema code generator maps every SQLite TEXT-affinity declaration to
+/// Rust `String`, which parses back to the canonical `TEXT` declaration.
+/// SQLite does not enforce the width of `VARCHAR(n)`, so TEXT-affinity spelling
+/// differences do not require a table rebuild.
+fn canonical_sqlite_type(sql_type: &str) -> String {
+    let normalized = sql_type.to_ascii_lowercase();
+    if SQLTypeCategory::from_sql_type(&normalized) == SQLTypeCategory::Text {
+        "text".to_string()
+    } else {
+        normalized
+    }
 }
 
 fn normalize_fk_action(action: &Option<Cow<'static, str>>) -> Option<Cow<'static, str>> {

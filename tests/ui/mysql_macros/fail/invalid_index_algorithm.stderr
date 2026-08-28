@@ -1,0 +1,5 @@
+error: invalid MySQL index `algorithm`; supported values: default, inplace, copy
+ --> tests/ui/mysql_macros/fail/invalid_index_algorithm.rs:8:26
+  |
+8 | #[MySQLIndex(algorithm = "concurrently")]
+  |                          ^^^^^^^^^^^^^^

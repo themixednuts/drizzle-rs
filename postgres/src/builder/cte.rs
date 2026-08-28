@@ -1,5 +1,12 @@
-//! Common Table Expression (CTE / `WITH`) support for `PostgreSQL`.
+//! Common table expression support for PostgreSQL.
 
 use crate::values::PostgresValue;
 
-drizzle_core::impl_cte_types!(value_type: PostgresValue<'a>);
+/// A value that can provide a PostgreSQL CTE definition.
+pub trait CTEDefinition<'a>: drizzle_core::cte::CTEDefinition<'a, PostgresValue<'a>> {}
+
+impl<'a, T> CTEDefinition<'a> for T where T: drizzle_core::cte::CTEDefinition<'a, PostgresValue<'a>> {}
+
+/// A typed PostgreSQL CTE view.
+pub type CTEView<'a, Table, Query> =
+    drizzle_core::cte::CTEView<'a, PostgresValue<'a>, Table, Query>;

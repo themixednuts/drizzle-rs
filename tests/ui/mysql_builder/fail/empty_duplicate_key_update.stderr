@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+  --> tests/ui/mysql_builder/fail/empty_duplicate_key_update.rs:20:34
+   |
+20 |         .on_duplicate_key_update(UpdateUsers::default());
+   |          ----------------------- ^^^^^^^^^^^^^^^^^^^^^^ expected `UpdateUsers<'_, NonEmpty>`, found `UpdateUsers<'_>`
+   |          |
+   |          arguments to this method are incorrect
+   |
+   = note: expected struct `UpdateUsers<'_, NonEmpty>`
+              found struct `UpdateUsers<'_, drizzle::core::Empty>`
+note: method defined here
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn on_duplicate_key_update(
+   |            ^^^^^^^^^^^^^^^^^^^^^^^

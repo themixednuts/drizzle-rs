@@ -40,7 +40,6 @@ macro_rules! join_impl {
         join_impl!(full_outer, Join::new().full().outer(), drizzle_core::AfterFullJoin);
         join_impl!(natural_full_outer, Join::new().natural().full().outer(), drizzle_core::AfterFullJoin);
         join_impl!(inner, Join::new().inner(), drizzle_core::AfterJoin);
-        join_impl!(cross, Join::new().cross(), drizzle_core::AfterJoin);
     };
     ($type:ident, $join_expr:expr, $join_trait:path) => {
         paste! {
@@ -389,6 +388,37 @@ where
     }
 
     join_impl!();
+
+    /// Adds a cross join.
+    ///
+    /// A bare source renders `CROSS JOIN`. For backwards compatibility,
+    /// `(source, predicate)` renders the equivalent `INNER JOIN ... ON ...`.
+    #[allow(clippy::type_complexity)]
+    pub fn cross_join<Arg: helpers::CrossJoinArg<'a, T>>(
+        self,
+        arg: Arg,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectJoinSet,
+        Arg::JoinedTable,
+        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        G,
+    >
+    where
+        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+    {
+        SelectBuilder {
+            sql: self.sql.append(arg.into_cross_join_sql()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
 }
 
 // WHERE (available from SelectFromSet and SelectJoinSet)
@@ -609,6 +639,52 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
+    State: drizzle_core::ExecutableState,
+    M: drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, crate::common::SQLiteSchemaType, T>,
+{
+    /// Names this completed query so it can be used as a derived source.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the projection contains duplicate output names. Name a
+    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// make each output unique.
+    #[inline]
+    #[must_use]
+    pub fn alias<Name, ScopeProof, AggProof>(
+        self,
+        _name: Name,
+    ) -> drizzle_core::Derived<
+        'a,
+        SQLiteValue<'a>,
+        Name,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            SQLiteValue<'a>,
+            crate::common::SQLiteSchemaType,
+            T,
+        >>::Projection,
+        Self,
+    >
+    where
+        Name: drizzle_core::Tag,
+        <M as drizzle_core::DerivedSelection<
+            'a,
+            SQLiteValue<'a>,
+            crate::common::SQLiteSchemaType,
+            T,
+        >>::Projection: drizzle_core::DerivedProjection<Name>,
+        M: drizzle_core::row::MarkerScopeValidFor<ScopeProof>
+            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+    {
+        // SAFETY: The executable-state, scope, aggregate, and projection
+        // bounds above prove that this query matches the derived projection.
+        unsafe { drizzle_core::Derived::new_unchecked(self) }
+    }
+}
+
+impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
+where
     State: AsCteState,
     T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
 {
@@ -778,5 +854,75 @@ impl<'a, S, State: drizzle_core::ExecutableState, T, M, R, G> IntoSelect<'a, S, 
             row: PhantomData,
             grouped: PhantomData,
         }
+    }
+}
+
+mod insert_select_private {
+    use super::{
+        SelectFromSet, SelectGroupSet, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
+        SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+    };
+
+    pub trait Sealed {}
+    pub trait Completed: drizzle_core::ExecutableState {}
+
+    impl Completed for SelectFromSet {}
+    impl Completed for SelectJoinSet {}
+    impl Completed for SelectWhereSet {}
+    impl Completed for SelectGroupSet {}
+    impl Completed for SelectOrderSet {}
+    impl Completed for SelectLimitSet {}
+    impl Completed for SelectOffsetSet {}
+    impl Completed for SelectSetOpSet {}
+}
+
+/// A completed SELECT that can supply rows to an INSERT.
+#[doc(hidden)]
+pub trait CompletedSelect<'a, S, R>: insert_select_private::Sealed {
+    type Marker;
+    type Grouped;
+
+    fn into_select_sql(self) -> drizzle_core::SQL<'a, SQLiteValue<'a>>;
+}
+
+/// Converts a completed SELECT or attached SELECT wrapper into its checked source.
+#[doc(hidden)]
+pub trait IntoSelectQuery<'a, S, R> {
+    type Marker;
+    type Grouped;
+    type Select: CompletedSelect<'a, S, R, Marker = Self::Marker, Grouped = Self::Grouped>;
+
+    fn into_select_query(self) -> Self::Select;
+}
+
+impl<'a, S, State, T, M, R, G> insert_select_private::Sealed
+    for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: insert_select_private::Completed,
+{
+}
+
+impl<'a, S, State, T, M, R, G> CompletedSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: insert_select_private::Completed,
+{
+    type Marker = M;
+    type Grouped = G;
+
+    fn into_select_sql(self) -> drizzle_core::SQL<'a, SQLiteValue<'a>> {
+        self.sql
+    }
+}
+
+impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: insert_select_private::Completed,
+{
+    type Marker = M;
+    type Grouped = G;
+    type Select = Self;
+
+    fn into_select_query(self) -> Self::Select {
+        self
     }
 }

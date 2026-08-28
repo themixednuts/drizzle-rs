@@ -921,6 +921,12 @@ fn test_column_arithmetic(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].id, 10);
     assert_eq!(result[1].id, 20);
+
+    // SQLite returns NULL for division and remainder by zero, even when both
+    // operands are declared NOT NULL. The inferred row must preserve that.
+    let zero_results: Vec<(Option<i32>, Option<i32>)> =
+        db.select((simple.id / 0, simple.id % 0)).from(simple).all();
+    assert_eq!(zero_results, vec![(None, None), (None, None), (None, None)]);
 }
 
 // =============================================================================
@@ -1177,6 +1183,11 @@ struct MathFloatResult {
     result: f64,
 }
 
+#[derive(Debug, SQLiteFromRow)]
+struct NullableMathFloatResult {
+    result: Option<f64>,
+}
+
 #[drizzle::test]
 fn test_math_abs(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
@@ -1217,12 +1228,12 @@ fn test_math_round(db: &mut TestDb<SimpleSchema>) {
 
     // Test ROUND function with computed expression (id / 10.0)
     // 37 / 10.0 = 3.7, ROUND(3.7) = 4.0
-    let result: Vec<MathFloatResult> = db
+    let result: Vec<NullableMathFloatResult> = db
         .select(alias(round(simple.id / 10), "result"))
         .from(simple)
         .all();
     // Integer division: 37 / 10 = 3, ROUND(3) = 3.0
-    assert_eq!(result[0].result, 3.0);
+    assert_eq!(result[0].result, Some(3.0));
 }
 
 #[drizzle::test]

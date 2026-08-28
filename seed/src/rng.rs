@@ -1,6 +1,8 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+use crate::identity::TableId;
+
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
@@ -15,7 +17,12 @@ const fn fnv1a_extend(mut state: u64, bytes: &[u8]) -> u64 {
 }
 
 /// Deterministically derive a 64-bit seed for `table.column`.
+#[cfg(test)]
 pub const fn column_seed(table: &str, column: &str, seed: u64) -> u64 {
+    column_seed_inner(table, column, seed)
+}
+
+const fn column_seed_inner(table: &str, column: &str, seed: u64) -> u64 {
     let mut state = FNV_OFFSET_BASIS;
     state = fnv1a_extend(state, table.as_bytes());
     state = fnv1a_extend(state, b".");
@@ -27,8 +34,32 @@ pub const fn column_seed(table: &str, column: &str, seed: u64) -> u64 {
 ///
 /// Uses a const FNV-1a hash for `"table.column"`, then adds the user seed.
 /// This ensures each column gets a unique but reproducible value sequence.
+#[cfg(test)]
 pub fn column_rng(table: &str, column: &str, seed: u64) -> StdRng {
     StdRng::seed_from_u64(column_seed(table, column, seed))
+}
+
+/// Create a deterministic column RNG, adding the namespace only when the
+/// active schema contains an otherwise ambiguous table name.
+pub(crate) fn table_column_rng(
+    table: TableId,
+    column: &str,
+    seed: u64,
+    qualify_namespace: bool,
+) -> StdRng {
+    if !qualify_namespace {
+        return StdRng::seed_from_u64(column_seed_inner(table.name, column, seed));
+    }
+
+    let mut state = FNV_OFFSET_BASIS;
+    if let Some(schema) = table.schema {
+        state = fnv1a_extend(state, schema.as_bytes());
+    }
+    state = fnv1a_extend(state, b"\0");
+    state = fnv1a_extend(state, table.name.as_bytes());
+    state = fnv1a_extend(state, b".");
+    state = fnv1a_extend(state, column.as_bytes());
+    StdRng::seed_from_u64(state.wrapping_add(seed))
 }
 
 #[cfg(test)]
@@ -68,5 +99,20 @@ mod tests {
         let v1: u64 = rng1.random();
         let v2: u64 = rng2.random();
         assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn qualified_tables_have_independent_streams() {
+        let mut rng1 = table_column_rng(TableId::new(Some("a"), "users"), "email", 42, true);
+        let mut rng2 = table_column_rng(TableId::new(Some("b"), "users"), "email", 42, true);
+        assert_ne!(rng1.random::<u64>(), rng2.random::<u64>());
+    }
+
+    #[test]
+    fn unambiguous_tables_preserve_the_legacy_stream_even_with_a_namespace() {
+        let mut legacy = column_rng("users", "email", 42);
+        let mut qualified =
+            table_column_rng(TableId::new(Some("public"), "users"), "email", 42, false);
+        assert_eq!(legacy.random::<u64>(), qualified.random::<u64>());
     }
 }

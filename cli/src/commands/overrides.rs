@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use crate::config::{
-    Credentials, DatabaseConfig, Dialect, Driver, Extension, Filter, PostgresCreds, PostgresSslMode,
+    Credentials, DatabaseConfig, Dialect, Driver, Extension, Filter, MySQLCreds, MySQLSslMode,
+    PostgresCreds, PostgresSslMode,
 };
 use crate::error::CliError;
 
@@ -12,6 +13,10 @@ use crate::error::CliError;
 /// surface is defined once and reused across `push`, `introspect`/`pull`.
 #[derive(clap::Args, Clone, Default)]
 pub struct ConnectionOverrides {
+    /// Rust database driver
+    #[arg(long)]
+    pub driver: Option<Driver>,
+
     /// Database connection URL
     #[arg(long)]
     pub url: Option<String>,
@@ -48,6 +53,7 @@ pub struct ConnectionOverrides {
 impl std::fmt::Debug for ConnectionOverrides {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConnectionOverrides")
+            .field("driver", &self.driver)
             .field("url", &self.url.as_ref().map(|_| "[REDACTED]"))
             .field("host", &self.host)
             .field("port", &self.port)
@@ -98,6 +104,16 @@ impl ConnectionOverrides {
             || self.ssl.is_some()
             || self.auth_token.is_some()
     }
+}
+
+/// Fully resolved live database target. Keeping the driver beside the
+/// credentials prevents command validation from selecting one adapter and
+/// the effect layer silently using another compiled adapter.
+#[derive(Debug, Clone)]
+pub struct ResolvedConnection {
+    pub dialect: Dialect,
+    pub driver: Driver,
+    pub credentials: Credentials,
 }
 
 #[must_use]
@@ -239,9 +255,128 @@ pub fn resolve_credentials(
                 })
             }
         }
+        Dialect::Mysql => {
+            if overrides.auth_token.is_some() {
+                return Err(CliError::Other(
+                    "mysql does not support --authToken (use --password or --url)".into(),
+                ));
+            }
+
+            if let Some(url) = overrides.url.clone() {
+                if overrides.host.is_some()
+                    || overrides.port.is_some()
+                    || overrides.user.is_some()
+                    || overrides.password.is_some()
+                    || overrides.database.is_some()
+                    || overrides.ssl.is_some()
+                {
+                    return Err(CliError::Other(
+                        "mysql credentials: use either --url OR --host/--database[/--port/...], not both"
+                            .into(),
+                    ));
+                }
+                if !url.starts_with("mysql://") {
+                    return Err(CliError::Other(
+                        "mysql --url must start with mysql://".into(),
+                    ));
+                }
+                Credentials::MySQL(MySQLCreds::Url(url.into_boxed_str()))
+            } else {
+                let host = overrides.host.clone().ok_or_else(|| {
+                    CliError::Other("mysql host credentials require --host".into())
+                })?;
+                let database = overrides.database.clone().ok_or_else(|| {
+                    CliError::Other("mysql host credentials require --database".into())
+                })?;
+
+                Credentials::MySQL(MySQLCreds::Host {
+                    host: host.into_boxed_str(),
+                    port: overrides.port.unwrap_or(3306),
+                    user: overrides.user.clone().map(String::into_boxed_str),
+                    password: overrides.password.clone().map(String::into_boxed_str),
+                    database: database.into_boxed_str(),
+                    ssl: parse_mysql_ssl_override(overrides.ssl.as_deref())?
+                        .unwrap_or(MySQLSslMode::Disable),
+                })
+            }
+        }
     };
 
     Ok(Some(creds))
+}
+
+/// Resolve a live connection target, including a deterministic default driver
+/// when the config omits one.
+pub fn resolve_connection(
+    db: &DatabaseConfig,
+    dialect: Dialect,
+    overrides: &ConnectionOverrides,
+) -> Result<Option<ResolvedConnection>, CliError> {
+    let credentials = resolve_credentials(db, dialect, overrides)?;
+    let Some(credentials) = credentials else {
+        return Ok(None);
+    };
+    let configured_driver = overrides
+        .driver
+        .or_else(|| (dialect == db.dialect).then_some(db.driver).flatten());
+    let driver = configured_driver.unwrap_or_else(|| default_driver(dialect, &credentials));
+    if !driver.is_valid_for(dialect) {
+        return Err(CliError::Other(format!(
+            "driver '{driver}' invalid for {dialect} dialect"
+        )));
+    }
+    if !driver_accepts_credentials(driver, &credentials) {
+        return Err(CliError::Other(format!(
+            "driver '{driver}' is incompatible with the resolved {dialect} credentials"
+        )));
+    }
+    Ok(Some(ResolvedConnection {
+        dialect,
+        driver,
+        credentials,
+    }))
+}
+
+fn driver_accepts_credentials(driver: Driver, credentials: &Credentials) -> bool {
+    matches!(
+        (driver, credentials),
+        (Driver::Rusqlite, Credentials::Sqlite { .. })
+            | (Driver::Libsql | Driver::Turso, Credentials::Turso { .. })
+            | (
+                Driver::PostgresSync | Driver::TokioPostgres,
+                Credentials::Postgres(_)
+            )
+            | (
+                Driver::MysqlSync | Driver::MysqlAsync,
+                Credentials::MySQL(_)
+            )
+            | (Driver::D1Http, Credentials::D1 { .. })
+            | (Driver::AwsDataApi, Credentials::AwsDataApi { .. })
+    )
+}
+
+fn default_driver(dialect: Dialect, credentials: &Credentials) -> Driver {
+    match (dialect, credentials) {
+        (Dialect::Sqlite, Credentials::D1 { .. }) => Driver::D1Http,
+        (Dialect::Postgresql, Credentials::AwsDataApi { .. }) => Driver::AwsDataApi,
+        (Dialect::Sqlite, _) => Driver::Rusqlite,
+        (Dialect::Turso, Credentials::Turso { url, .. }) => {
+            if is_local_libsql_url(url) {
+                Driver::Libsql
+            } else {
+                Driver::Turso
+            }
+        }
+        (Dialect::Postgresql, _) => Driver::PostgresSync,
+        (Dialect::Mysql, _) => Driver::MysqlSync,
+        // Config validation prevents these mismatches. Keep a deterministic
+        // fallback so this remains total for hand-built values in tests.
+        (Dialect::Turso, _) => Driver::Turso,
+    }
+}
+
+fn is_local_libsql_url(url: &str) -> bool {
+    !url.starts_with("libsql://") && !url.starts_with("http://") && !url.starts_with("https://")
 }
 
 fn parse_ssl_override(ssl: Option<&str>) -> Result<Option<PostgresSslMode>, CliError> {
@@ -252,6 +387,18 @@ fn parse_ssl_override(ssl: Option<&str>) -> Result<Option<PostgresSslMode>, CliE
     PostgresSslMode::parse(raw).map(Some).map_err(|_| {
         CliError::Other(format!(
             "invalid --ssl value '{raw}'; expected one of: true,false,require,allow,prefer,verify-full,verify-ca,disable"
+        ))
+    })
+}
+
+fn parse_mysql_ssl_override(ssl: Option<&str>) -> Result<Option<MySQLSslMode>, CliError> {
+    let Some(raw) = ssl else {
+        return Ok(None);
+    };
+
+    MySQLSslMode::parse(raw).map(Some).map_err(|_| {
+        CliError::Other(format!(
+            "invalid --ssl value '{raw}' for mysql; expected one of: true,false,required,verify-ca,verify-identity,disable"
         ))
     })
 }
@@ -274,6 +421,9 @@ pub fn resolve_schema_filters(
     cli: Option<&[String]>,
     config: Option<&Filter>,
 ) -> Option<Vec<String>> {
+    if dialect != Dialect::Postgresql {
+        return None;
+    }
     let resolved = resolve_filter_list(cli, config);
     if resolved.is_some() {
         return resolved;
@@ -288,9 +438,13 @@ pub fn resolve_schema_filters(
 
 #[must_use]
 pub fn resolve_extensions_filter(
+    dialect: Dialect,
     cli: Option<&[Extension]>,
     config: Option<&[Extension]>,
 ) -> Option<Vec<Extension>> {
+    if dialect != Dialect::Postgresql {
+        return None;
+    }
     if let Some(values) = cli {
         if values.is_empty() {
             return None;
@@ -423,11 +577,24 @@ mod tests {
     }
 
     #[test]
+    fn non_postgres_filters_are_ignored_after_cli_warning() {
+        let schemas = vec!["public".to_string()];
+        let extensions = vec![Extension::Postgis];
+        for dialect in [Dialect::Sqlite, Dialect::Turso, Dialect::Mysql] {
+            assert_eq!(resolve_schema_filters(dialect, Some(&schemas), None), None);
+            assert_eq!(
+                resolve_extensions_filter(dialect, Some(&extensions), None),
+                None
+            );
+        }
+    }
+
+    #[test]
     fn resolve_extensions_filter_prefers_cli_values() {
         let cli = vec![Extension::Postgis];
         let config = vec![];
 
-        let resolved = resolve_extensions_filter(Some(&cli), Some(&config));
+        let resolved = resolve_extensions_filter(Dialect::Postgresql, Some(&cli), Some(&config));
         assert_eq!(resolved, Some(vec![Extension::Postgis]));
     }
 
@@ -619,6 +786,115 @@ dialect = "postgresql"
         assert_eq!(
             err.to_string(),
             "invalid --ssl value 'maybe'; expected one of: true,false,require,allow,prefer,verify-full,verify-ca,disable"
+        );
+    }
+
+    #[test]
+    fn resolve_connection_preserves_explicit_mysql_async_driver() {
+        let (_dir, db) = load_db(
+            r#"
+dialect = "mysql"
+driver = "mysql-sync"
+"#,
+        );
+        let overrides = ConnectionOverrides {
+            driver: Some(Driver::MysqlAsync),
+            host: Some("localhost".to_string()),
+            database: Some("app".to_string()),
+            ssl: Some("verify-ca".to_string()),
+            ..Default::default()
+        };
+        let target = resolve_connection(&db, Dialect::Mysql, &overrides)
+            .expect("resolve")
+            .expect("target");
+        assert_eq!(target.driver, Driver::MysqlAsync);
+        assert_eq!(target.dialect, Dialect::Mysql);
+        match target.credentials {
+            Credentials::MySQL(MySQLCreds::Host { port, ssl, .. }) => {
+                assert_eq!(port, 3306);
+                assert_eq!(ssl, MySQLSslMode::VerifyCa);
+            }
+            other => panic!("unexpected credentials: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_connection_defaults_mysql_to_sync() {
+        let (_dir, db) = load_db(
+            r#"
+dialect = "mysql"
+[dbCredentials]
+url = "mysql://localhost/app"
+"#,
+        );
+        let target = resolve_connection(&db, Dialect::Mysql, &ConnectionOverrides::default())
+            .expect("resolve")
+            .expect("target");
+        assert_eq!(target.driver, Driver::MysqlSync);
+    }
+
+    #[test]
+    fn resolve_connection_rejects_driver_with_wrong_credential_shape() {
+        let (_dir, db) = load_db(
+            r#"
+dialect = "postgresql"
+[dbCredentials]
+url = "postgres://localhost/app"
+"#,
+        );
+        let overrides = ConnectionOverrides {
+            driver: Some(Driver::AwsDataApi),
+            ..Default::default()
+        };
+
+        let error = resolve_connection(&db, Dialect::Postgresql, &overrides)
+            .expect_err("AWS adapter cannot consume TCP credentials");
+        assert!(error.to_string().contains("incompatible"));
+    }
+
+    #[test]
+    fn dialect_switch_does_not_reuse_original_driver() {
+        let (_dir, db) = load_db(
+            r#"
+dialect = "sqlite"
+driver = "rusqlite"
+"#,
+        );
+        let overrides = ConnectionOverrides {
+            url: Some("mysql://localhost/app".to_string()),
+            ..Default::default()
+        };
+        let target = resolve_connection(&db, Dialect::Mysql, &overrides)
+            .expect("resolve switch")
+            .expect("target");
+        assert_eq!(target.driver, Driver::MysqlSync);
+    }
+
+    #[test]
+    fn mysql_override_rejects_postgres_url_and_auth_token() {
+        let (_dir, db) = load_db("dialect = \"mysql\"");
+        let bad_url = ConnectionOverrides {
+            url: Some("postgres://localhost/app".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            resolve_credentials(&db, Dialect::Mysql, &bad_url)
+                .expect_err("wrong scheme")
+                .to_string()
+                .contains("mysql://")
+        );
+
+        let auth_token = ConnectionOverrides {
+            host: Some("localhost".to_string()),
+            database: Some("app".to_string()),
+            auth_token: Some("unsupported".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            resolve_credentials(&db, Dialect::Mysql, &auth_token)
+                .expect_err("auth token")
+                .to_string()
+                .contains("does not support --authToken")
         );
     }
 

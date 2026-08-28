@@ -17,7 +17,7 @@ use drizzle_core::error::DrizzleError;
 /// - Integers (i16, i32, i64)
 /// - Floats (f32, f64)
 /// - Text (String, &str)
-/// - Binary (Vec<u8>, &[u8])
+/// - Binary (`Vec<u8>`, `&[u8]`)
 /// - Boolean
 /// - NULL handling
 ///

@@ -1,0 +1,25 @@
+error[E0599]: no method named `left_join_using` found for struct `QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+  --> tests/ui/mysql_builder/fail/join_using_absent.rs:27:10
+   |
+24 |       let _ = builder
+   |  _____________-
+25 | |         .select(users.id)
+26 | |         .from(users)
+27 | |         .left_join_using(posts, posts.id);
+   | |_________-^^^^^^^^^^^^^^^
+   |
+help: there is a method `left_join` with a similar name, but with different arguments
+  --> mysql/src/builder/select.rs
+   |
+   | /         pub fn $name<J: helpers::JoinArg<'a, T>>(
+   | |             self,
+   | |             arg: J,
+   | |         ) -> SelectBuilder<
+...  |
+   | |             M: drizzle_core::$row_trait<R, J::JoinedTable>
+   | |                 + drizzle_core::ScopePush<J::JoinedTable>,
+   | |__________________________________________________________^
+...
+   |       join_on_method!(left_join, drizzle_core::Join::new().left(), AfterLeftJoin);
+   |       --------------------------------------------------------------------------- in this macro invocation
+   = note: this error originates in the macro `join_on_method` (in Nightly builds, run with -Z macro-backtrace for more info)

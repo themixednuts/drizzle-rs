@@ -1,3 +1,5 @@
+use crate::builder::sqlite::rows::LibsqlRows as Rows;
+use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::ToSQL;
 #[cfg(feature = "sqlite")]
@@ -6,9 +8,6 @@ use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, Updat
 use drizzle_sqlite::traits::SQLiteTable;
 use libsql::Row;
 use std::marker::PhantomData;
-
-use crate::builder::sqlite::rows::LibsqlRows as Rows;
-use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
@@ -21,7 +20,7 @@ use drizzle_sqlite::{
 };
 
 /// LibSQL-specific transaction builder. See
-/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// `TransactionBuilder` for the
 /// typestate-advancing methods; executor methods live below in this module.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<
@@ -101,19 +100,27 @@ impl<Schema> Transaction<Schema> {
     /// If it returns `Err`, the savepoint is rolled back.
     /// The outer transaction is unaffected either way.
     ///
-    /// Savepoints can be nested — each level gets its own savepoint name.
+    /// Savepoints can be nested. Each level gets its own savepoint name.
     ///
-    /// ```rust
-    /// # let _ = r####"
+    /// ```no_run
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
-    /// db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    /// # use drizzle::sqlite::TransactionConfig;
+    /// # #[SQLiteTable]
+    /// # struct User {
+    /// #     #[column(PRIMARY, AUTOINCREMENT)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// # #[derive(SQLiteSchema)]
+    /// # struct AppSchema { user: User }
+    /// # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
+    /// db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///
     ///     let _ = tx.savepoint(async |stx| {
     ///         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
-    ///         Err(drizzle::error::DrizzleError::Other("oops".into()))
+    ///         Err::<(), _>(drizzle::error::DrizzleError::Other("oops".into()))
     ///     }).await;
     ///
     ///     // Alice is still there
@@ -121,7 +128,8 @@ impl<Schema> Transaction<Schema> {
     ///     assert_eq!(users.len(), 1);
     ///     Ok(())
     /// }).await?;
-    /// # "####;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Errors
@@ -224,7 +232,7 @@ impl<Schema> Transaction<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the commit call to the database fails.
-    pub async fn commit(self) -> Result<(), DrizzleError> {
+    pub(crate) async fn commit(self) -> Result<(), DrizzleError> {
         if let Err(error) = self.savepoints.ensure_usable() {
             self.tx.rollback().await?;
             return Err(error);
@@ -237,7 +245,7 @@ impl<Schema> Transaction<Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the rollback call to the database fails.
-    pub async fn rollback(self) -> Result<(), DrizzleError> {
+    pub(crate) async fn rollback(self) -> Result<(), DrizzleError> {
         Ok(self.tx.rollback().await?)
     }
 }
@@ -389,9 +397,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             T::COLUMN_NAMES,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,
@@ -515,9 +524,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             &col_refs,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,

@@ -22,6 +22,8 @@
 //! #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 //! #         pub mod expr { pub use drizzle_postgres::expr::*; }
 //! #         pub mod types { pub use drizzle_postgres::types::*; }
+//! #         #[cfg(feature = "aws-data-api")]
+//! #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 //! #         pub struct Row;
 //! #         impl Row {
 //! #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -300,7 +302,7 @@ pub const COLLATE: ColumnMarker = ColumnMarker;
 ///
 /// ## Difference from DEFAULT
 /// - `DEFAULT_FN`: Calls the function at runtime for each insert (e.g., UUID generation)
-/// - `DEFAULT`: Uses a fixed compile-time value
+/// - `DEFAULT`: Adds a literal database `DEFAULT` clause
 pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
 /// Specifies a raw SQL default expression emitted directly in DDL.
@@ -319,7 +321,7 @@ pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 /// See: <https://www.postgresql.org/docs/current/ddl-default.html>
 pub const DEFAULT_SQL: ColumnMarker = ColumnMarker;
 
-/// Specifies a fixed default value for new rows.
+/// Specifies a literal database `DEFAULT` clause for new rows.
 ///
 /// ## Example
 /// ```rust
@@ -747,6 +749,8 @@ pub const FOREIGN_KEY: TableMarker = TableMarker;
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         #[cfg(feature = "aws-data-api")]
+/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -797,6 +801,8 @@ pub const UNLOGGED: TableMarker = TableMarker;
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         #[cfg(feature = "aws-data-api")]
+/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -846,6 +852,8 @@ pub const TEMPORARY: TableMarker = TableMarker;
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         #[cfg(feature = "aws-data-api")]
+/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -892,6 +900,8 @@ pub const INHERITS: TableMarker = TableMarker;
 /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         #[cfg(feature = "aws-data-api")]
+/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #         pub struct Row;
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
@@ -1075,6 +1085,9 @@ pub const TEXT: TypeMarker = TypeMarker;
 ///
 /// VARCHAR stores variable-length character strings.
 /// In `PostgreSQL`, VARCHAR without length limit is equivalent to TEXT.
+/// Use `#[column(VARCHAR(255))]` to preserve a bounded physical column while
+/// keeping the Rust field type as `String`; `Vec<String>` preserves the same
+/// bound for each array element.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
 pub const VARCHAR: TypeMarker = TypeMarker;
@@ -1085,6 +1098,8 @@ pub const CHARACTER_VARYING: TypeMarker = TypeMarker;
 /// Specifies a CHAR column type.
 ///
 /// CHAR stores fixed-length character strings.
+/// Use `#[column(CHAR(8))]` to declare its required physical length. The same
+/// marker on `Vec<String>` declares an array of bounded CHAR elements.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-character.html>
 pub const CHAR: TypeMarker = TypeMarker;

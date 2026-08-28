@@ -9,6 +9,12 @@ error[E0277]: `[UserAge; 1]` is not a valid SQL expression
 help: the following other types implement trait `Expr<'a, V>`
   --> core/src/expr/primitives.rs
    |
+   | / impl<'a, V, const N: usize> Expr<'a, V> for [char; N]
+   | | where
+   | |     V: SQLParam + 'a + From<Self> + From<char> + Into<Cow<'a, V>>,
+   | |     Self: ValueTypeForDialect<V::DialectMarker>,
+   | |________________________________________________^ `[char; N]`
+...
    | / impl<'a, V> Expr<'a, V> for &'a [u8]
    | | where
    | |     V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + From<u8> + Into<Cow<'a, V>>,
@@ -54,6 +60,12 @@ error[E0277]: `[UserAge; 1]` is not a valid SQL expression
 help: the following other types implement trait `Expr<'a, V>`
   --> core/src/expr/primitives.rs
    |
+   | / impl<'a, V, const N: usize> Expr<'a, V> for [char; N]
+   | | where
+   | |     V: SQLParam + 'a + From<Self> + From<char> + Into<Cow<'a, V>>,
+   | |     Self: ValueTypeForDialect<V::DialectMarker>,
+   | |________________________________________________^ `[char; N]`
+...
    | / impl<'a, V> Expr<'a, V> for &'a [u8]
    | | where
    | |     V: SQLParam + 'a + From<&'a [u8]> + From<Vec<u8>> + From<u8> + Into<Cow<'a, V>>,

@@ -114,6 +114,8 @@ pub enum Dialect {
     SQLite,
     #[cfg_attr(not(feature = "postgres"), allow(dead_code))]
     Postgres,
+    #[cfg_attr(not(feature = "mysql"), allow(dead_code))]
+    MySQL,
 }
 
 // =============================================================================
@@ -729,6 +731,18 @@ pub fn generate_const_sql(
             quote!(drizzle::postgres::values::PostgresValue),
             quote!(drizzle::postgres::common::PostgresSchemaType),
         ),
+        Dialect::MySQL => (
+            quote!(drizzle::mysql::values::MySQLValue),
+            quote!(drizzle::mysql::common::MySQLSchemaType),
+        ),
+    };
+    let (identifier_open, identifier_close) = match dialect {
+        Dialect::SQLite | Dialect::Postgres => (".\"", "\""),
+        Dialect::MySQL => (".", ""),
+    };
+    let alias = |name: &str| match dialect {
+        Dialect::SQLite | Dialect::Postgres => format!(" AS \"{name}\""),
+        Dialect::MySQL => format!(" AS `{}`", name.replace('`', "``")),
     };
 
     // Helper: generate a concatcp-compatible expression for a table name given a table TYPE
@@ -740,45 +754,63 @@ pub fn generate_const_sql(
 
     // Helper: generate a concatcp-compatible expression for a column name
     let column_name_expr = |col_path: &Path| -> TokenStream {
-        quote! {
-            {
-                const fn column_name<'a, C: #sql_schema_path<'a, &'static str, #value_path<'a>>>(_: &C) -> &'a str {
-                    C::NAME
+        match dialect {
+            Dialect::MySQL => quote! {
+                {
+                    const fn column_name<'a, C: drizzle::mysql::traits::MySQLColumn<'a>>(_: &C) -> &'a str {
+                        C::DDL_NAME
+                    }
+                    column_name(&#col_path)
                 }
-                column_name(&#col_path)
-            }
+            },
+            Dialect::SQLite | Dialect::Postgres => quote! {
+                {
+                    const fn column_name<'a, C: #sql_schema_path<'a, &'static str, #value_path<'a>>>(_: &C) -> &'a str {
+                        C::NAME
+                    }
+                    column_name(&#col_path)
+                }
+            },
         }
     };
 
     // Generate schema-qualified table ref parts from a bare table path (e.g., VqUser)
     let table_ref_from_table_path = |table_path: &Path| -> Vec<TokenStream> {
         let ty = path_to_table_type(table_path);
-        if dialect == Dialect::Postgres {
-            vec![
+        match dialect {
+            Dialect::Postgres => vec![
                 quote! { "\"" },
                 quote! { <#ty>::DDL_TABLE.schema },
                 quote! { "\".\"" },
                 table_name_from_type(&ty),
                 quote! { "\"" },
-            ]
-        } else {
-            vec![quote! { "\"" }, table_name_from_type(&ty), quote! { "\"" }]
+            ],
+            Dialect::MySQL => vec![quote! {
+                <#ty as drizzle::mysql::traits::MySQLTable<'static>>::DDL_QUALIFIED_NAME
+            }],
+            Dialect::SQLite => {
+                vec![quote! { "\"" }, table_name_from_type(&ty), quote! { "\"" }]
+            }
         }
     };
 
     // Generate table ref parts from a Table::column path (extracts table from first segment)
     let table_ref_from_column_path = |col_path: &Path| -> Vec<TokenStream> {
         let ty = extract_table_from_column(col_path).unwrap();
-        if dialect == Dialect::Postgres {
-            vec![
+        match dialect {
+            Dialect::Postgres => vec![
                 quote! { "\"" },
                 quote! { <#ty>::DDL_TABLE.schema },
                 quote! { "\".\"" },
                 table_name_from_type(&ty),
                 quote! { "\"" },
-            ]
-        } else {
-            vec![quote! { "\"" }, table_name_from_type(&ty), quote! { "\"" }]
+            ],
+            Dialect::MySQL => vec![quote! {
+                <#ty as drizzle::mysql::traits::MySQLTable<'static>>::DDL_QUALIFIED_NAME
+            }],
+            Dialect::SQLite => {
+                vec![quote! { "\"" }, table_name_from_type(&ty), quote! { "\"" }]
+            }
         }
     };
 
@@ -795,9 +827,9 @@ pub fn generate_const_sql(
                 // "table"."col" AS "field"
                 parts.extend(table_ref_from_column_path(path));
                 let col_name = column_name_expr(path);
-                parts.push(quote! { ".\"" });
+                parts.push(quote! { #identifier_open });
                 parts.push(col_name);
-                parts.push(quote! { "\"" });
+                parts.push(quote! { #identifier_close });
             }
             SelectItem::Expr(expr) => {
                 let expr_parts = expr_to_sql_parts(
@@ -810,8 +842,8 @@ pub fn generate_const_sql(
             }
         }
         // AS alias
-        let alias = format!(" AS \"{field_name}\"");
-        parts.push(quote! { #alias });
+        let field_alias = alias(field_name);
+        parts.push(quote! { #field_alias });
     }
 
     // FROM (bare table path)
@@ -860,9 +892,9 @@ pub fn generate_const_sql(
             }
             parts.extend(table_ref_from_column_path(path));
             let col_name = column_name_expr(path);
-            parts.push(quote! { ".\"" });
+            parts.push(quote! { #identifier_open });
             parts.push(col_name);
-            parts.push(quote! { "\"" });
+            parts.push(quote! { #identifier_close });
         }
     }
 
@@ -920,13 +952,17 @@ fn expr_to_sql_parts(
     column_name_expr: &dyn Fn(&Path) -> TokenStream,
     dialect: Dialect,
 ) -> Vec<TokenStream> {
+    let (identifier_open, identifier_close) = match dialect {
+        Dialect::SQLite | Dialect::Postgres => (".\"", "\""),
+        Dialect::MySQL => (".", ""),
+    };
     match expr {
         QueryExpr::Column(path) => {
             let mut parts = table_ref_parts(path);
             let col_name = column_name_expr(path);
-            parts.push(quote! { ".\"" });
+            parts.push(quote! { #identifier_open });
             parts.push(col_name);
-            parts.push(quote! { "\"" });
+            parts.push(quote! { #identifier_close });
             parts
         }
         QueryExpr::Literal(lit) => {
@@ -1093,7 +1129,11 @@ fn literal_to_sql(lit: &Lit, dialect: Dialect) -> TokenStream {
             quote! { #s }
         }
         Lit::Str(s) => {
-            let val = format!("'{}'", s.value().replace('\'', "''"));
+            let mut value = s.value();
+            if dialect == Dialect::MySQL {
+                value = value.replace('\\', "\\\\");
+            }
+            let val = format!("'{}'", value.replace('\'', "''"));
             quote! { #val }
         }
         Lit::Bool(b) => {
@@ -1102,6 +1142,8 @@ fn literal_to_sql(lit: &Lit, dialect: Dialect) -> TokenStream {
                 (Dialect::SQLite, false) => "0",
                 (Dialect::Postgres, true) => "TRUE",
                 (Dialect::Postgres, false) => "FALSE",
+                (Dialect::MySQL, true) => "TRUE",
+                (Dialect::MySQL, false) => "FALSE",
             };
             quote! { #s }
         }
@@ -1123,13 +1165,24 @@ fn literal_to_sql(lit: &Lit, dialect: Dialect) -> TokenStream {
 pub fn generate_validation(
     query: &ViewQuery,
     field_count: usize,
-    _dialect: Dialect,
+    dialect: Dialect,
 ) -> Result<TokenStream> {
     let select_count = query.select.len();
     if select_count != field_count {
         return Err(syn::Error::new(
             proc_macro2::Span::call_site(),
             format!("query has {select_count} SELECT items but struct has {field_count} fields"),
+        ));
+    }
+    if dialect == Dialect::MySQL
+        && query
+            .joins
+            .iter()
+            .any(|join| matches!(join.kind, JoinKind::Full))
+    {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "MySQL view queries do not support FULL JOIN",
         ));
     }
 

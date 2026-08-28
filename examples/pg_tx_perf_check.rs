@@ -21,7 +21,7 @@ async fn main() -> drizzle::Result<()> {
     use std::time::{Duration, Instant};
 
     use drizzle::core::expr::eq;
-    use drizzle::postgres::common::PostgresTransactionType;
+    use drizzle::postgres::TransactionConfig;
     use drizzle::postgres::prelude::*;
     use drizzle::postgres::tokio::Drizzle;
 
@@ -107,7 +107,7 @@ async fn main() -> drizzle::Result<()> {
     }
     raw_tx.commit().await?;
 
-    db.transaction(PostgresTransactionType::ReadCommitted, async |tx| {
+    db.transaction(TransactionConfig::default(), async |tx| {
         for i in 0..ITERATIONS {
             let id = (i % 20000) as i32 + 1;
             let start = Instant::now();

@@ -246,6 +246,111 @@ impl Temporal for crate::postgres::types::Interval {}
 impl BooleanLike for crate::postgres::types::Boolean {}
 
 // =============================================================================
+// MySQL dialect marker impls
+// =============================================================================
+
+macro_rules! impl_mysql_data_types {
+    ($($marker:ident),+ $(,)?) => {
+        $(
+            impl private::Sealed for crate::mysql::types::$marker {}
+            impl DataType for crate::mysql::types::$marker {}
+        )+
+    };
+}
+
+impl_mysql_data_types!(
+    TinyInt,
+    TinyIntUnsigned,
+    SmallInt,
+    SmallIntUnsigned,
+    MediumInt,
+    MediumIntUnsigned,
+    Int,
+    IntUnsigned,
+    BigInt,
+    BigIntUnsigned,
+    Float,
+    Double,
+    Decimal,
+    Boolean,
+    Char,
+    Varchar,
+    TinyText,
+    Text,
+    MediumText,
+    LongText,
+    Binary,
+    Varbinary,
+    TinyBlob,
+    Blob,
+    MediumBlob,
+    LongBlob,
+    Json,
+    Date,
+    Time,
+    DateTime,
+    Timestamp,
+    Year,
+    Enum,
+    Set,
+    Bit,
+    Any,
+);
+
+macro_rules! impl_mysql_marker_trait {
+    ($trait:ident; $($marker:ident),+ $(,)?) => {
+        $(impl $trait for crate::mysql::types::$marker {})+
+    };
+}
+
+impl_mysql_marker_trait!(Numeric;
+    TinyInt,
+    TinyIntUnsigned,
+    SmallInt,
+    SmallIntUnsigned,
+    MediumInt,
+    MediumIntUnsigned,
+    Int,
+    IntUnsigned,
+    BigInt,
+    BigIntUnsigned,
+    Year,
+    Float,
+    Double,
+    Decimal,
+);
+
+impl_mysql_marker_trait!(Integral;
+    TinyInt,
+    TinyIntUnsigned,
+    SmallInt,
+    SmallIntUnsigned,
+    MediumInt,
+    MediumIntUnsigned,
+    Int,
+    IntUnsigned,
+    BigInt,
+    BigIntUnsigned,
+    Year,
+);
+
+impl Floating for crate::mysql::types::Float {}
+impl Floating for crate::mysql::types::Double {}
+
+impl_mysql_marker_trait!(Textual;
+    Char, Varchar, TinyText, Text, MediumText, LongText, Enum, Set,
+);
+
+impl_mysql_marker_trait!(Binary; Binary, Varbinary, TinyBlob, Blob, MediumBlob, LongBlob, Bit,);
+
+impl Temporal for crate::mysql::types::Date {}
+impl Temporal for crate::mysql::types::Time {}
+impl Temporal for crate::mysql::types::DateTime {}
+impl Temporal for crate::mysql::types::Timestamp {}
+
+impl BooleanLike for crate::mysql::types::Boolean {}
+
+// =============================================================================
 // Tuple SQL type markers
 // =============================================================================
 
@@ -426,3 +531,31 @@ with_col_sizes_128!(impl_tuple_datatype);
 
 #[cfg(feature = "col200")]
 with_col_sizes_200!(impl_tuple_datatype);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_data_type<T: DataType>() {}
+    fn assert_integral<T: Integral>() {}
+    fn assert_floating<T: Floating>() {}
+    fn assert_textual<T: Textual>() {}
+    fn assert_binary<T: Binary>() {}
+    fn assert_temporal<T: Temporal>() {}
+    fn assert_boolean_like<T: BooleanLike>() {}
+
+    #[test]
+    fn mysql_markers_have_their_expected_type_capabilities() {
+        assert_data_type::<crate::mysql::types::Any>();
+        assert_integral::<crate::mysql::types::IntUnsigned>();
+        assert_integral::<crate::mysql::types::Year>();
+        assert_floating::<crate::mysql::types::Float>();
+        assert_floating::<crate::mysql::types::Double>();
+        assert_textual::<crate::mysql::types::Enum>();
+        assert_textual::<crate::mysql::types::Set>();
+        assert_binary::<crate::mysql::types::Varbinary>();
+        assert_binary::<crate::mysql::types::Bit>();
+        assert_temporal::<crate::mysql::types::DateTime>();
+        assert_boolean_like::<crate::mysql::types::Boolean>();
+    }
+}

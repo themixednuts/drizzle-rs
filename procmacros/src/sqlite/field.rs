@@ -451,7 +451,10 @@ impl<'a> FieldInfo<'a> {
                                 args.marker_exprs.push(make_uppercase_path(ident, "JSONB"));
                             }
                             "DEFAULT" => {
-                                args.default_fn = Some(syn::parse_quote!(Default::default));
+                                return Err(Error::new_spanned(
+                                    ident,
+                                    "DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default",
+                                ));
                             }
                             "ENUM" => {
                                 args.flags.insert("enum".to_string());
@@ -493,6 +496,21 @@ impl<'a> FieldInfo<'a> {
                         let upper = param_str.to_ascii_uppercase();
                         match upper.as_str() {
                             "DEFAULT" => {
+                                if !matches!(
+                                    &*assign.right,
+                                    Expr::Lit(syn::ExprLit {
+                                        lit: Lit::Str(_)
+                                            | Lit::Int(_)
+                                            | Lit::Float(_)
+                                            | Lit::Bool(_),
+                                        ..
+                                    })
+                                ) {
+                                    return Err(Error::new_spanned(
+                                        &assign.right,
+                                        "DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default",
+                                    ));
+                                }
                                 args.default_value = Some(*assign.right);
                                 args.marker_exprs
                                     .push(make_uppercase_path(param, "DEFAULT"));
@@ -998,9 +1016,9 @@ impl<'a> FieldInfo<'a> {
             ),
             (
                 default_value.is_some() && default_fn.is_some(),
-                "Cannot specify both 'default' (compile-time literal) and 'default_fn' (runtime function).\n\
+                "Cannot specify both 'default' (database default) and 'default_fn' (application default).\n\
               Choose one: either 'default = literal' or 'default_fn = function'\n\
-              Examples:\n  #[column(default = \"hello\")] for compile-time defaults\n  #[column(default_fn = String::new)] for runtime defaults",
+              Examples:\n  #[column(default = \"hello\")] for a database DEFAULT clause\n  #[column(default_fn = String::new)] for an application-generated insert value",
             ),
             (
                 default_value.is_some() && default_sql.is_some(),

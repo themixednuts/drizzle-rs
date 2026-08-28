@@ -266,9 +266,8 @@ fn validated_pretty_snapshot(
             .map_err(|e| CliError::Other(e.to_string()))?;
         }
         Dialect::MySQL => {
-            return Err(CliError::Other(
-                "MySQL snapshot upgrades are not supported".to_string(),
-            ));
+            serde_json::from_value::<drizzle_migrations::mysql::MySQLSnapshot>(upgraded.clone())
+                .map_err(|e| CliError::Other(e.to_string()))?;
         }
     }
 
@@ -477,5 +476,19 @@ mod tests {
             "ddl": []
         });
         assert!(is_current_format(&current, Dialect::SQLite));
+    }
+
+    #[test]
+    fn mysql_latest_snapshot_is_validated_like_other_dialects() {
+        let current = serde_json::json!({
+            "version": snapshot_version(Dialect::MySQL),
+            "dialect": "mysql",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "prevIds": ["00000000-0000-0000-0000-000000000000"],
+            "ddl": []
+        });
+        let rendered =
+            validated_pretty_snapshot(&current, Dialect::MySQL).expect("current MySQL snapshot");
+        assert!(rendered.contains("\"dialect\": \"mysql\""));
     }
 }

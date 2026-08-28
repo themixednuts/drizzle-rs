@@ -1,0 +1,29 @@
+error[E0277]: the trait bound `SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>: drizzle::core::ProjectionInScope<Cons<Sources, Nil>, _>` is not satisfied
+  --> tests/ui/insert_select/mysql/fail/out_of_scope_expression.rs:24:44
+   |
+24 |     let _ = builder.insert(targets).select(selected);
+   |                                     ------ ^^^^^^^^ unsatisfied trait bound
+   |                                     |
+   |                                     required by a bound introduced by this call
+   |
+   = help: the trait `drizzle::core::ProjectionInScope<Cons<Sources, Nil>, _>` is not implemented for `SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>`
+   = help: the following other types implement trait `drizzle::core::ProjectionInScope<Scope, Proof>`:
+             `&T` implements `drizzle::core::ProjectionInScope<Scope, drizzle_core::row::WrappedScope<Proof>>`
+             `&[u8]` implements `drizzle::core::ProjectionInScope<Scope, drizzle::core::OpaqueScope>`
+             `&str` implements `drizzle::core::ProjectionInScope<Scope, drizzle::core::OpaqueScope>`
+             `AliasedExpr<E>` implements `drizzle::core::ProjectionInScope<Scope, drizzle_core::row::WrappedScope<Proof>>`
+             `ColumnBinOp<Lhs, Rhs, Op, D, T, N>` implements `drizzle::core::ProjectionInScope<Scope, drizzle_core::row::BinaryScope<LeftProof, RightProof>>`
+             `ColumnNeg<T, D, SQLType, Nullable>` implements `drizzle::core::ProjectionInScope<Scope, drizzle_core::row::WrappedScope<Proof>>`
+             `DerivedField<Name, Output>` implements `drizzle::core::ProjectionInScope<Scope, drizzle::core::ColumnScope<Derived<'a, V, Name, Projection, Query>, Witness>>`
+             `NamedExpr<E, Name>` implements `drizzle::core::ProjectionInScope<Scope, drizzle_core::row::WrappedScope<Proof>>`
+           and $N others
+   = note: required for `Cons<SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>, Nil>` to implement `drizzle_core::row::ProjectionsInScope<Cons<Sources, Nil>, (_, ())>`
+   = note: required for `Scoped<SelectCols<(SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::Text>,)>, Cons<Sources, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSourceInScope<(_, ())>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R, ScopeProof, AggProof>(
+   |            ------ required by a bound in this associated function
+...
+   |             + drizzle_core::InsertSourceInScope<ScopeProof>
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`

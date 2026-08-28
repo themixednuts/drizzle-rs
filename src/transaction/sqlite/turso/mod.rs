@@ -43,7 +43,7 @@ async fn turso_transaction_query_cached(
 }
 
 /// Turso-specific transaction builder. See
-/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// `TransactionBuilder` for the
 /// typestate-advancing methods; executor methods live below in this module.
 pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<
@@ -120,7 +120,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// ```no_run
     /// # use drizzle::sqlite::turso::Drizzle;
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # use drizzle::sqlite::TransactionConfig;
     /// # use turso::Builder;
     /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct S { user: User }
@@ -128,7 +128,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # let db_builder = Builder::new_local(":memory:").build().await?;
     /// # let conn = db_builder.connect()?;
     /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
-    /// db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    /// db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///
     ///     let _: Result<(), _> = tx.savepoint(async |stx| {
@@ -244,7 +244,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the commit call to the database fails.
-    pub async fn commit(self) -> Result<(), DrizzleError> {
+    pub(crate) async fn commit(self) -> Result<(), DrizzleError> {
         if let Err(error) = self.savepoints.ensure_usable() {
             self.tx.rollback().await?;
             return Err(error);
@@ -257,7 +257,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the rollback call to the database fails.
-    pub async fn rollback(self) -> Result<(), DrizzleError> {
+    pub(crate) async fn rollback(self) -> Result<(), DrizzleError> {
         Ok(self.tx.rollback().await?)
     }
 }

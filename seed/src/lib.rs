@@ -7,27 +7,55 @@
 //! # Example
 //!
 //! ```rust
-//! # let _ = r####"
+//! # #[cfg(feature = "sqlite")]
+//! # {
+//! use drizzle_core::{SQLSchemaImpl, TableRef};
 //! use drizzle_seed::SeedConfig;
 //!
-//! let schema = AppSchema::new();
+//! struct AppSchema;
+//! impl SQLSchemaImpl for AppSchema {
+//!     fn table_refs(&self) -> &'static [&'static TableRef] {
+//!         &[]
+//!     }
+//!     fn create_statements(&self) -> drizzle_core::error::Result<impl Iterator<Item = String>> {
+//!         Ok(std::iter::empty())
+//!     }
+//! }
+//!
+//! let schema = AppSchema;
 //! let stmts = SeedConfig::sqlite(&schema)
 //!     .seed(42)
-//!     .count(&schema.users, 100)
-//!     .count(&schema.posts, 500)
 //!     .generate();
-//! # "####;
+//! assert!(stmts.is_empty());
+//!
+//! // Cleanup uses the same typed config for every dialect. Execute the
+//! // returned statements in order before generating the replacement data.
+//! let reset = SeedConfig::sqlite(&schema).reset_plan().expect("valid reset plan");
+//! assert!(reset.is_empty());
+//! # }
 //! ```
+
+// The crate intentionally has no default dialect. Its planner is dormant in
+// that feature-isolation build and becomes reachable once any dialect is on.
+#![cfg_attr(
+    not(any(feature = "sqlite", feature = "postgres", feature = "mysql")),
+    allow(dead_code)
+)]
 
 pub(crate) mod batch;
 pub(crate) mod config;
 pub(crate) mod datasets;
+mod error;
 pub(crate) mod generator;
+pub(crate) mod identity;
 pub(crate) mod inference;
+#[cfg(feature = "mysql")]
+mod mysql_seed;
 pub(crate) mod rng;
 pub(crate) mod topology;
 
 pub use config::SeedConfig;
+pub use error::SeedError;
 pub use generator::{Generator, GeneratorKind, RngCore, SeedValue};
 
 use drizzle_core::{ColumnRef, TableRef};
@@ -35,23 +63,37 @@ use rand::rngs::StdRng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
-use drizzle_core::{OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+use drizzle_core::{ColumnDialect, OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
 
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use std::borrow::Cow;
 
+use identity::{ColumnId, TableId};
+
+#[cfg(feature = "sqlite")]
+pub use statement::SQLiteResetStatement;
 #[cfg(feature = "sqlite")]
 pub use statement::SQLiteSeedStatement;
 
 #[cfg(feature = "postgres")]
+pub use statement::PostgresResetStatement;
+#[cfg(feature = "postgres")]
 pub use statement::PostgresSeedStatement;
+
+#[cfg(feature = "mysql")]
+pub use statement::MySQLResetStatement;
+#[cfg(feature = "mysql")]
+pub use statement::MySQLSeedStatement;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
 
 #[cfg(feature = "postgres")]
 use drizzle_postgres::values::{OwnedPostgresValue, PostgresValue};
+
+#[cfg(feature = "mysql")]
+use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
 
 #[cfg(all(feature = "postgres", feature = "chrono"))]
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
@@ -68,12 +110,16 @@ pub struct Sqlite;
 #[cfg(feature = "postgres")]
 pub struct Postgres;
 
+/// `MySQL` dialect marker for type-safe seeder configuration.
+#[cfg(feature = "mysql")]
+pub struct MySql;
+
 // ---------------------------------------------------------------------------
 // Seed statement types
 // ---------------------------------------------------------------------------
 
 mod statement {
-    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
     use super::{Cow, OwnedSQL, Param, SQL, SQLChunk, ToSQL};
 
     #[cfg(feature = "sqlite")]
@@ -82,8 +128,11 @@ mod statement {
     #[cfg(feature = "postgres")]
     use super::{OwnedPostgresValue, PostgresValue};
 
+    #[cfg(feature = "mysql")]
+    use super::{MySQLValue, OwnedMySQLValue};
+
     // Generic OwnedSQL → SQL conversion (borrowing)
-    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
     fn convert_to_sql<'a, Owned, Borrowed>(owned: &OwnedSQL<Owned>) -> SQL<'a, Borrowed>
     where
         Owned: drizzle_core::SQLParam,
@@ -112,7 +161,7 @@ mod statement {
     }
 
     // Generic OwnedSQL → SQL conversion (consuming — avoids cloning values)
-    #[cfg(any(feature = "sqlite", feature = "postgres"))]
+    #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
     fn convert_into_sql<'a, Owned, Borrowed>(owned: OwnedSQL<Owned>) -> SQL<'a, Borrowed>
     where
         Owned: drizzle_core::SQLParam,
@@ -140,21 +189,25 @@ mod statement {
     }
 
     macro_rules! seed_statement {
-        ($name:ident, $owned:ty, $feature:literal) => {
+        ($name:ident, $owned:ty, $borrowed:ty, $feature:literal) => {
             #[cfg(feature = $feature)]
             #[derive(Debug, Clone)]
+            /// An owned SQL statement produced by [`crate::SeedConfig`].
+            ///
+            /// Inspect it with [`Self::build`] or execute it directly through
+            /// the matching drizzle driver.
             pub struct $name {
                 pub(crate) inner: OwnedSQL<$owned>,
             }
 
             #[cfg(feature = $feature)]
             impl $name {
-                /// Render the INSERT statement as a SQL string.
+                /// Render the statement as a SQL string.
                 pub fn sql(&self) -> String {
                     self.inner.to_sql().build().0
                 }
 
-                /// Render the INSERT statement as a SQL string with bound parameters.
+                /// Render the statement as a SQL string with bound parameters.
                 pub fn build(&self) -> (String, Vec<$owned>) {
                     let sql = self.inner.to_sql();
                     let (text, params) = sql.build();
@@ -168,33 +221,51 @@ mod statement {
                     f.write_str(&self.sql())
                 }
             }
+
+            #[cfg(feature = $feature)]
+            impl<'a> ToSQL<'a, $borrowed> for $name {
+                fn to_sql(&self) -> SQL<'a, $borrowed> {
+                    convert_to_sql(&self.inner)
+                }
+
+                fn into_sql(self) -> SQL<'a, $borrowed> {
+                    convert_into_sql(self.inner)
+                }
+            }
         };
     }
 
-    seed_statement!(SQLiteSeedStatement, OwnedSQLiteValue, "sqlite");
-    seed_statement!(PostgresSeedStatement, OwnedPostgresValue, "postgres");
-
-    #[cfg(feature = "sqlite")]
-    impl<'a> ToSQL<'a, SQLiteValue<'a>> for SQLiteSeedStatement {
-        fn to_sql(&self) -> SQL<'a, SQLiteValue<'a>> {
-            convert_to_sql(&self.inner)
-        }
-
-        fn into_sql(self) -> SQL<'a, SQLiteValue<'a>> {
-            convert_into_sql(self.inner)
-        }
-    }
-
-    #[cfg(feature = "postgres")]
-    impl<'a> ToSQL<'a, PostgresValue<'a>> for PostgresSeedStatement {
-        fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {
-            convert_to_sql(&self.inner)
-        }
-
-        fn into_sql(self) -> SQL<'a, PostgresValue<'a>> {
-            convert_into_sql(self.inner)
-        }
-    }
+    seed_statement!(
+        SQLiteSeedStatement,
+        OwnedSQLiteValue,
+        SQLiteValue<'a>,
+        "sqlite"
+    );
+    seed_statement!(
+        SQLiteResetStatement,
+        OwnedSQLiteValue,
+        SQLiteValue<'a>,
+        "sqlite"
+    );
+    seed_statement!(
+        PostgresSeedStatement,
+        OwnedPostgresValue,
+        PostgresValue<'a>,
+        "postgres"
+    );
+    seed_statement!(
+        PostgresResetStatement,
+        OwnedPostgresValue,
+        PostgresValue<'a>,
+        "postgres"
+    );
+    seed_statement!(MySQLSeedStatement, OwnedMySQLValue, MySQLValue<'a>, "mysql");
+    seed_statement!(
+        MySQLResetStatement,
+        OwnedMySQLValue,
+        MySQLValue<'a>,
+        "mysql"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -208,10 +279,19 @@ struct GeneratedChunk<'a> {
 
 #[derive(Clone)]
 struct RelationSpec {
-    target_table: &'static str,
+    target_table: TableId,
     fk_columns: &'static [&'static str],
     ref_columns: &'static [&'static str],
     children_per_parent: usize,
+}
+
+struct RelationContext<'plan, 'schema> {
+    source_table: &'schema TableRef,
+    column_indexes: &'plan HashMap<&'static str, usize>,
+    specs: &'plan [RelationSpec],
+    generated_values: &'plan HashMap<ColumnId, Vec<SeedValue>>,
+    generated_counts: &'plan HashMap<TableId, usize>,
+    active_tables: &'plan HashMap<TableId, &'schema TableRef>,
 }
 
 // ---------------------------------------------------------------------------
@@ -230,19 +310,35 @@ where
         Self { config }
     }
 
-    fn generate_chunks(&self, dialect_max_params: usize) -> Vec<GeneratedChunk<'a>> {
+    fn generate_chunks(
+        &self,
+        dialect_max_params: usize,
+    ) -> Result<Vec<GeneratedChunk<'a>>, SeedError> {
         let active_tables = self.config.active_tables();
-        let order = topology::seeding_order(&active_tables);
-        let table_map: HashMap<&str, &TableRef> =
-            active_tables.iter().map(|t| (t.name, *t)).collect();
+        let order = topology::seeding_order(&active_tables).map_err(|error| {
+            SeedError::CyclicForeignKeys {
+                tables: error
+                    .tables
+                    .into_iter()
+                    .map(|table| table.to_string())
+                    .collect(),
+            }
+        })?;
+        let table_map: HashMap<TableId, &TableRef> = active_tables
+            .iter()
+            .map(|table| (TableId::from_ref(table), *table))
+            .collect();
+        let mut table_name_counts: HashMap<&'static str, usize> = HashMap::new();
+        for table in &active_tables {
+            *table_name_counts.entry(table.name).or_default() += 1;
+        }
 
-        let mut generated_values: HashMap<(&'static str, &'static str), Vec<SeedValue>> =
-            HashMap::new();
-        let mut generated_counts: HashMap<&'static str, usize> = HashMap::new();
+        let mut generated_values: HashMap<ColumnId, Vec<SeedValue>> = HashMap::new();
+        let mut generated_counts: HashMap<TableId, usize> = HashMap::new();
         let mut chunks_out = Vec::new();
 
-        for &table_name in &order {
-            let Some(&table) = table_map.get(table_name) else {
+        for table_id in order {
+            let Some(&table) = table_map.get(&table_id) else {
                 continue;
             };
 
@@ -253,12 +349,12 @@ where
 
             let count = self.derived_count_for(table, &generated_counts);
             if count == 0 {
-                generated_counts.insert(table_name, 0);
+                generated_counts.insert(table_id, 0);
                 continue;
             }
 
             let generators = self.build_generators(table);
-            let col_index_map: HashMap<&str, usize> = columns
+            let col_index_map: HashMap<&'static str, usize> = columns
                 .iter()
                 .enumerate()
                 .map(|(idx, col)| (col.name, idx))
@@ -268,7 +364,14 @@ where
             let mut all_rows: Vec<Vec<SeedValue>> = Vec::with_capacity(count);
             let mut col_rngs: Vec<StdRng> = columns
                 .iter()
-                .map(|c| rng::column_rng(table_name, c.name, self.config.seed))
+                .map(|column| {
+                    rng::table_column_rng(
+                        table_id,
+                        column.name,
+                        self.config.seed,
+                        table_name_counts.get(table.name).copied().unwrap_or(0) > 1,
+                    )
+                })
                 .collect();
 
             for row_idx in 0..count {
@@ -284,11 +387,16 @@ where
 
                 Self::apply_many_to_one_relations(
                     &mut row,
-                    &col_index_map,
-                    &relation_specs,
                     row_idx,
-                    &generated_values,
-                );
+                    &RelationContext {
+                        source_table: table,
+                        column_indexes: &col_index_map,
+                        specs: &relation_specs,
+                        generated_values: &generated_values,
+                        generated_counts: &generated_counts,
+                        active_tables: &table_map,
+                    },
+                )?;
 
                 all_rows.push(row);
             }
@@ -297,10 +405,10 @@ where
             for (col_idx, col) in columns.iter().enumerate() {
                 let vals: Vec<SeedValue> =
                     all_rows.iter().map(|row| row[col_idx].clone()).collect();
-                generated_values.insert((table_name, col.name), vals);
+                generated_values.insert(ColumnId::new(table_id, col.name), vals);
             }
 
-            generated_counts.insert(table_name, count);
+            generated_counts.insert(table_id, count);
 
             let param_limit = self
                 .config
@@ -308,7 +416,15 @@ where
                 .unwrap_or(dialect_max_params)
                 .max(1);
 
-            for (start, end) in batch_ranges_by_param_limit(&all_rows, param_limit) {
+            for (start, end) in
+                batch_ranges_by_param_limit(&all_rows, param_limit).map_err(|required| {
+                    SeedError::ParameterLimitTooLow {
+                        table: table_id.to_string(),
+                        required,
+                        limit: param_limit,
+                    }
+                })?
+            {
                 chunks_out.push(GeneratedChunk {
                     table,
                     rows: all_rows[start..end].to_vec(),
@@ -316,25 +432,70 @@ where
             }
         }
 
-        chunks_out
+        Ok(chunks_out)
+    }
+
+    fn reset_tables(&self) -> Result<Vec<&'static TableRef>, SeedError> {
+        let all_tables = self.config.schema.table_refs();
+        let active_tables = self.config.active_tables();
+        let active_ids: HashSet<_> = active_tables
+            .iter()
+            .map(|table| TableId::from_ref(table))
+            .collect();
+
+        for child in all_tables {
+            let child_id = TableId::from_ref(child);
+            if active_ids.contains(&child_id) {
+                continue;
+            }
+            for foreign_key in child.foreign_keys {
+                let parent_id = TableId::foreign_target(child, foreign_key);
+                if active_ids.contains(&parent_id) {
+                    return Err(SeedError::UnsafeResetSelection {
+                        parent: parent_id.to_string(),
+                        skipped_child: child_id.to_string(),
+                    });
+                }
+            }
+        }
+
+        let order = topology::seeding_order(&active_tables).map_err(|error| {
+            SeedError::CyclicForeignKeys {
+                tables: error
+                    .tables
+                    .into_iter()
+                    .map(|table| table.to_string())
+                    .collect(),
+            }
+        })?;
+        let table_map: HashMap<_, _> = active_tables
+            .into_iter()
+            .map(|table| (TableId::from_ref(table), table))
+            .collect();
+        Ok(order
+            .into_iter()
+            .rev()
+            .filter_map(|table| table_map.get(&table).copied())
+            .collect())
     }
 
     fn derived_count_for(
         &self,
         table: &TableRef,
-        generated_counts: &HashMap<&'static str, usize>,
+        generated_counts: &HashMap<TableId, usize>,
     ) -> usize {
-        if let Some(&count) = self.config.table_counts.get(table.name) {
+        let table_id = TableId::from_ref(table);
+        if let Some(&count) = self.config.table_counts.get(&table_id) {
             return count;
         }
 
         let mut derived: Option<usize> = None;
-        for parent_name in Self::parent_table_names(table) {
-            if let Some(&parent_count) = generated_counts.get(parent_name) {
+        for parent_id in Self::parent_table_ids(table) {
+            if let Some(&parent_count) = generated_counts.get(&parent_id) {
                 let children_per_parent = self
                     .config
                     .relation_counts
-                    .get(&(parent_name, table.name))
+                    .get(&(parent_id, table_id))
                     .copied()
                     .unwrap_or(1);
                 let child_count = parent_count.saturating_mul(children_per_parent);
@@ -342,31 +503,32 @@ where
             }
         }
 
-        derived.unwrap_or_else(|| self.config.count_for(table.name))
+        derived.unwrap_or_else(|| self.config.count_for(table_id))
     }
 
-    fn parent_table_names(table: &TableRef) -> Vec<&'static str> {
+    fn parent_table_ids(table: &TableRef) -> Vec<TableId> {
         let mut seen = HashSet::new();
-        let mut parent_names = Vec::new();
+        let mut parent_ids = Vec::new();
+        let table_id = TableId::from_ref(table);
 
         for fk in table.foreign_keys {
-            let parent = fk.target_table;
-            if parent != table.name && seen.insert(parent) {
-                parent_names.push(parent);
+            let parent = TableId::foreign_target(table, fk);
+            if parent != table_id && seen.insert(parent) {
+                parent_ids.push(parent);
             }
         }
 
-        parent_names
+        parent_ids
     }
 
     fn build_generators(&self, table: &TableRef) -> Vec<Box<dyn Generator>> {
-        let table_name = table.name;
+        let table_id = TableId::from_ref(table);
         table
             .columns
             .iter()
             .map(|col| {
                 let col_name = col.name;
-                let key = (table_name, col_name);
+                let key = ColumnId::new(table_id, col_name);
 
                 if let Some(custom) = self.config.column_generators.get(&key) {
                     return Box::new(Arc::clone(custom)) as Box<dyn Generator>;
@@ -380,25 +542,27 @@ where
                     return Box::new(DefaultGen);
                 }
 
-                inference::infer_generator(col).into_generator()
+                inference::infer_generator(col)
             })
             .collect()
     }
 
     fn relation_specs_for(&self, source_table: &TableRef) -> Vec<RelationSpec> {
+        let source_id = TableId::from_ref(source_table);
         source_table
             .foreign_keys
             .iter()
             .map(|fk| {
+                let target_id = TableId::foreign_target(source_table, fk);
                 let children_per_parent = self
                     .config
                     .relation_counts
-                    .get(&(fk.target_table, source_table.name))
+                    .get(&(target_id, source_id))
                     .copied()
                     .unwrap_or(1);
 
                 RelationSpec {
-                    target_table: fk.target_table,
+                    target_table: target_id,
                     fk_columns: fk.source_columns,
                     ref_columns: fk.target_columns,
                     children_per_parent,
@@ -409,13 +573,18 @@ where
 
     fn apply_many_to_one_relations(
         row: &mut [SeedValue],
-        col_index_map: &HashMap<&str, usize>,
-        relation_specs: &[RelationSpec],
         row_idx: usize,
-        generated_values: &HashMap<(&'static str, &'static str), Vec<SeedValue>>,
-    ) {
-        for rel in relation_specs {
+        context: &RelationContext<'_, '_>,
+    ) -> Result<(), SeedError> {
+        for rel in context.specs {
             if rel.fk_columns.len() != rel.ref_columns.len() {
+                continue;
+            }
+
+            // A skipped parent may intentionally refer to rows already in the
+            // database. Keep the caller's inferred/custom FK values in that
+            // case; only planner-owned parents can be resolved here.
+            if !context.active_tables.contains_key(&rel.target_table) {
                 continue;
             }
 
@@ -423,15 +592,37 @@ where
                 .ref_columns
                 .first()
                 .and_then(|first_ref| {
-                    generated_values
-                        .get(&(rel.target_table, first_ref))
+                    context
+                        .generated_values
+                        .get(&ColumnId::new(rel.target_table, first_ref))
                         .map(std::vec::Vec::len)
                 })
+                .or_else(|| context.generated_counts.get(&rel.target_table).copied())
                 .unwrap_or(0);
 
             if parent_count == 0 || rel.children_per_parent == 0 {
-                for fk_col in rel.fk_columns {
-                    if let Some(&fk_idx) = col_index_map.get(fk_col) {
+                let nullable_columns = rel
+                    .fk_columns
+                    .iter()
+                    .filter(|fk_column| {
+                        let fk_column = **fk_column;
+                        context
+                            .source_table
+                            .columns
+                            .iter()
+                            .find(|column| column.name == fk_column)
+                            .is_some_and(|column| !column.not_null())
+                    })
+                    .copied()
+                    .collect::<Vec<_>>();
+                if nullable_columns.is_empty() {
+                    return Err(SeedError::MissingParentRows {
+                        child: TableId::from_ref(context.source_table).to_string(),
+                        parent: rel.target_table.to_string(),
+                    });
+                }
+                for fk_col in nullable_columns {
+                    if let Some(&fk_idx) = context.column_indexes.get(fk_col) {
                         row[fk_idx] = SeedValue::Null;
                     }
                 }
@@ -440,19 +631,25 @@ where
 
             let parent_idx = (row_idx / rel.children_per_parent) % parent_count;
             for (fk_col, ref_col) in rel.fk_columns.iter().zip(rel.ref_columns.iter()) {
-                let Some(&fk_idx) = col_index_map.get(fk_col) else {
+                let Some(&fk_idx) = context.column_indexes.get(fk_col) else {
                     continue;
                 };
 
-                if let Some(parent_vals) = generated_values.get(&(rel.target_table, ref_col))
+                if let Some(parent_vals) = context
+                    .generated_values
+                    .get(&ColumnId::new(rel.target_table, ref_col))
                     && let Some(parent_value) = parent_vals.get(parent_idx)
                 {
                     row[fk_idx] = parent_value.clone();
                 } else {
-                    row[fk_idx] = SeedValue::Null;
+                    return Err(SeedError::MissingParentRows {
+                        child: TableId::from_ref(context.source_table).to_string(),
+                        parent: rel.target_table.to_string(),
+                    });
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -461,11 +658,19 @@ impl<S> Seeder<'_, Sqlite, S>
 where
     S: drizzle_core::SQLSchemaImpl,
 {
-    fn generate_sqlite(&self) -> Vec<SQLiteSeedStatement> {
-        self.generate_chunks(batch::SQLITE_MAX_PARAMS)
+    fn generate_sqlite(&self) -> Result<Vec<SQLiteSeedStatement>, SeedError> {
+        Ok(self
+            .generate_chunks(batch::SQLITE_MAX_PARAMS)?
             .iter()
             .map(|chunk| build_sqlite_statement(chunk))
-            .collect()
+            .collect())
+    }
+
+    fn reset_sqlite(&self) -> Result<Vec<SQLiteResetStatement>, SeedError> {
+        Ok(build_reset_sql(&self.reset_tables()?)
+            .into_iter()
+            .map(|inner| SQLiteResetStatement { inner })
+            .collect())
     }
 }
 
@@ -474,11 +679,56 @@ impl<S> Seeder<'_, Postgres, S>
 where
     S: drizzle_core::SQLSchemaImpl,
 {
-    fn generate_postgres(&self) -> Vec<PostgresSeedStatement> {
-        self.generate_chunks(batch::POSTGRES_MAX_PARAMS)
+    fn generate_postgres(&self) -> Result<Vec<PostgresSeedStatement>, SeedError> {
+        Ok(self
+            .generate_chunks(batch::POSTGRES_MAX_PARAMS)?
             .iter()
             .map(|chunk| build_postgres_statement(chunk))
+            .collect())
+    }
+
+    fn reset_postgres(&self) -> Result<Vec<PostgresResetStatement>, SeedError> {
+        Ok(build_reset_sql(&self.reset_tables()?)
+            .into_iter()
+            .map(|inner| PostgresResetStatement { inner })
+            .collect())
+    }
+}
+
+#[cfg(feature = "mysql")]
+impl<S> Seeder<'_, MySql, S>
+where
+    S: drizzle_core::SQLSchemaImpl,
+{
+    fn generate_mysql(&self) -> Result<Vec<MySQLSeedStatement>, SeedError> {
+        self.generate_chunks(batch::MYSQL_MAX_PARAMS)?
+            .iter()
+            .map(mysql_seed::build_statement)
             .collect()
+    }
+
+    fn reset_mysql(&self) -> Result<Vec<MySQLResetStatement>, SeedError> {
+        let tables = self.reset_tables()?;
+        let mut statements = build_reset_sql(&tables)
+            .into_iter()
+            .map(|inner| MySQLResetStatement { inner })
+            .collect::<Vec<_>>();
+        for table in tables.into_iter().rev() {
+            if table.columns.iter().any(|column| {
+                matches!(
+                    column.dialect,
+                    drizzle_core::ColumnDialect::MySQL {
+                        auto_increment: true,
+                        ..
+                    }
+                )
+            }) {
+                statements.push(MySQLResetStatement {
+                    inner: build_mysql_auto_increment_reset_sql(table),
+                });
+            }
+        }
+        Ok(statements)
     }
 }
 
@@ -492,9 +742,12 @@ fn row_param_count(row: &[SeedValue]) -> usize {
         .count()
 }
 
-fn batch_ranges_by_param_limit(rows: &[Vec<SeedValue>], param_limit: usize) -> Vec<(usize, usize)> {
+fn batch_ranges_by_param_limit(
+    rows: &[Vec<SeedValue>],
+    param_limit: usize,
+) -> Result<Vec<(usize, usize)>, usize> {
     if rows.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut ranges = Vec::new();
@@ -503,6 +756,9 @@ fn batch_ranges_by_param_limit(rows: &[Vec<SeedValue>], param_limit: usize) -> V
 
     for (idx, row) in rows.iter().enumerate() {
         let row_params = row_param_count(row);
+        if row_params > param_limit {
+            return Err(row_params);
+        }
         if idx > start && current_params.saturating_add(row_params) > param_limit {
             ranges.push((start, idx));
             start = idx;
@@ -510,42 +766,57 @@ fn batch_ranges_by_param_limit(rows: &[Vec<SeedValue>], param_limit: usize) -> V
         }
 
         current_params = current_params.saturating_add(row_params);
-
-        if start == idx && row_params > param_limit {
-            ranges.push((idx, idx + 1));
-            start = idx + 1;
-            current_params = 0;
-        }
     }
 
     if start < rows.len() {
         ranges.push((start, rows.len()));
     }
 
-    ranges
+    Ok(ranges)
 }
 
 // ---------------------------------------------------------------------------
 // Per-dialect rendering: SeedValue → SQL fragments, assembled via core's SQL
 // ---------------------------------------------------------------------------
 
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 fn build_insert_sql<V>(table: &TableRef, rows: &[Vec<SQL<'static, V>>]) -> OwnedSQL<V>
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
 {
-    let columns = table.columns;
+    let columns = table
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, column)| {
+            let generated_expression = match column.dialect {
+                ColumnDialect::SQLite {
+                    generated_expression,
+                    ..
+                }
+                | ColumnDialect::PostgreSQL {
+                    generated_expression,
+                    ..
+                }
+                | ColumnDialect::MySQL {
+                    generated_expression,
+                    ..
+                } => generated_expression,
+            };
+            generated_expression.is_none()
+        })
+        .collect::<Vec<_>>();
 
     let column_idents = SQL::join(
         columns
             .iter()
-            .map(|c| SQL::<'static, V>::ident(c.name.to_string())),
+            .map(|(_, column)| SQL::<'static, V>::ident(column.name.to_string())),
         Token::COMMA,
     );
 
     let sql = SQL::<'static, V>::token(Token::INSERT)
         .push(Token::INTO)
-        .append(SQL::<'static, V>::ident(table.name.to_string()))
+        .append(SQL::<'static, V>::table(*table))
         .append(column_idents.parens())
         .push(Token::VALUES);
 
@@ -554,11 +825,65 @@ where
         if row_idx > 0 {
             values_sql = values_sql.push(Token::COMMA);
         }
-        let row_sql = SQL::join(row.iter().cloned(), Token::COMMA);
+        debug_assert_eq!(row.len(), table.columns.len());
+        let row_sql = SQL::join(
+            columns.iter().map(|(index, _)| row[*index].clone()),
+            Token::COMMA,
+        );
         values_sql = values_sql.append(row_sql.parens());
     }
 
     sql.append(values_sql).into_owned()
+}
+
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+fn build_delete_sql<V>(table: &TableRef) -> OwnedSQL<V>
+where
+    V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
+{
+    SQL::<'static, V>::token(Token::DELETE)
+        .push(Token::FROM)
+        .append(SQL::table(*table))
+        .into_owned()
+}
+
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+fn build_reset_sql<V>(tables: &[&TableRef]) -> Vec<OwnedSQL<V>>
+where
+    V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
+{
+    let mut statements = Vec::new();
+    for table in tables {
+        let self_reference_columns = topology::nullable_self_reference_columns(table);
+        if !self_reference_columns.is_empty() {
+            let assignments = SQL::join(
+                self_reference_columns.into_iter().map(|column| {
+                    SQL::<'static, V>::ident(column.to_string())
+                        .push(Token::EQ)
+                        .push(Token::NULL)
+                }),
+                Token::COMMA,
+            );
+            statements.push(
+                SQL::<'static, V>::token(Token::UPDATE)
+                    .append(SQL::table(**table))
+                    .push(Token::SET)
+                    .append(assignments)
+                    .into_owned(),
+            );
+        }
+        statements.push(build_delete_sql(table));
+    }
+    statements
+}
+
+#[cfg(feature = "mysql")]
+fn build_mysql_auto_increment_reset_sql(table: &TableRef) -> OwnedSQL<OwnedMySQLValue> {
+    SQL::<'static, OwnedMySQLValue>::token(Token::ALTER)
+        .push(Token::TABLE)
+        .append(SQL::table(*table))
+        .append(SQL::raw(" AUTO_INCREMENT = 1"))
+        .into_owned()
 }
 
 #[cfg(feature = "sqlite")]
@@ -769,9 +1094,7 @@ where
                 collate: None,
             },
         };
-        inference::infer_generator(&col_ref)
-            .into_generator()
-            .generate(rng, index, sql_type)
+        inference::infer_generator(&col_ref).generate(rng, index, sql_type)
     }
 
     fn name(&self) -> &'static str {
@@ -796,6 +1119,13 @@ impl Generator for Arc<dyn Generator> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "sqlite")]
+    type SeedTestValue = OwnedSQLiteValue;
+    #[cfg(all(not(feature = "sqlite"), feature = "postgres"))]
+    type SeedTestValue = OwnedPostgresValue;
+    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres"), feature = "mysql"))]
+    type SeedTestValue = OwnedMySQLValue;
 
     #[test]
     fn arc_generator_delegation() {
@@ -896,7 +1226,7 @@ mod tests {
         ];
 
         let ranges = batch_ranges_by_param_limit(&rows, 4);
-        assert_eq!(ranges, vec![(0, 2), (2, 4), (4, 5)]);
+        assert_eq!(ranges.unwrap(), vec![(0, 2), (2, 4), (4, 5)]);
     }
 
     #[test]
@@ -908,7 +1238,7 @@ mod tests {
         ];
 
         let ranges = batch_ranges_by_param_limit(&rows, 2);
-        assert_eq!(ranges, vec![(0, 2), (2, 3)]);
+        assert_eq!(ranges.unwrap(), vec![(0, 2), (2, 3)]);
     }
 
     #[test]
@@ -922,7 +1252,74 @@ mod tests {
         // Each row has 1 param (Integer). CurrentTime is raw SQL, not a param.
         // With limit 2, we should fit 2 rows per batch.
         let ranges = batch_ranges_by_param_limit(&rows, 2);
-        assert_eq!(ranges, vec![(0, 2), (2, 3)]);
+        assert_eq!(ranges.unwrap(), vec![(0, 2), (2, 3)]);
+    }
+
+    #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+    #[test]
+    fn insert_sql_omits_generated_columns_for_every_dialect() {
+        let generated_dialects = [
+            ColumnDialect::SQLite {
+                autoincrement: false,
+                default: None,
+                generated_expression: Some("LENGTH(app_default)"),
+                generated_stored: true,
+                collate: None,
+            },
+            ColumnDialect::PostgreSQL {
+                postgres_type: "INTEGER",
+                dimensions: None,
+                is_serial: false,
+                is_bigserial: false,
+                is_generated_identity: false,
+                is_identity_always: false,
+                default: None,
+                generated_expression: Some("LENGTH(app_default)"),
+                generated_stored: true,
+                collate: None,
+                comment: None,
+            },
+            ColumnDialect::MySQL {
+                auto_increment: false,
+                default: None,
+                generated_expression: Some("CHAR_LENGTH(app_default)"),
+                generated_stored: true,
+                charset: None,
+                collate: None,
+                on_update: None,
+            },
+        ];
+
+        for generated_dialect in generated_dialects {
+            let columns = Box::leak(Box::new([
+                ColumnRef::sql("seed_values", "db_default"),
+                ColumnRef::sql("seed_values", "app_default"),
+                ColumnRef {
+                    table: "seed_values",
+                    name: "computed",
+                    sql_type: "INTEGER",
+                    flags: drizzle_core::ColumnFlags::empty(),
+                    dialect: generated_dialect,
+                },
+            ]));
+            let mut table =
+                TableRef::sql("seed_values", &["db_default", "app_default", "computed"]);
+            table.columns = columns;
+            let rows = [vec![
+                SQL::<'static, SeedTestValue>::token(Token::DEFAULT),
+                SQL::raw("'application-default'"),
+                SQL::raw("'generated-value'"),
+            ]];
+
+            let sql = build_insert_sql(&table, &rows).to_sql().sql();
+
+            assert!(sql.contains("db_default"), "{generated_dialect:?}");
+            assert!(sql.contains("DEFAULT"), "{generated_dialect:?}");
+            assert!(sql.contains("app_default"), "{generated_dialect:?}");
+            assert!(sql.contains("application-default"), "{generated_dialect:?}");
+            assert!(!sql.contains("computed"), "{generated_dialect:?}");
+            assert!(!sql.contains("generated-value"), "{generated_dialect:?}");
+        }
     }
 
     #[cfg(all(feature = "postgres", feature = "chrono"))]

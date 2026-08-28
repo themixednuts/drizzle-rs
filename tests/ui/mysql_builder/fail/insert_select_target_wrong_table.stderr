@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `UsersId: drizzle::core::InsertColumn<Posts>` is not satisfied
+  --> tests/ui/mysql_builder/fail/insert_select_target_wrong_table.rs:30:10
+   |
+30 |         .columns((users.id, posts.title))
+   |          ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `drizzle::core::InsertColumn<Posts>` is not implemented for `UsersId`
+  --> tests/ui/mysql_builder/fail/insert_select_target_wrong_table.rs:3:1
+   |
+ 3 | #[MySQLTable]
+   | ^^^^^^^^^^^^^
+help: `UsersId` implements trait `drizzle::core::InsertColumn<Table>`
+  --> tests/ui/mysql_builder/fail/insert_select_target_wrong_table.rs:3:1
+   |
+ 3 | #[MySQLTable]
+   | ^^^^^^^^^^^^^
+   | |
+   | `drizzle::core::InsertColumn<&Users>`
+   | `drizzle::core::InsertColumn<Users>`
+   = note: required for `Cons<UsersId, Cons<PostsTitle, Nil>>` to implement `drizzle_core::builder::insert_select::InsertTargetColumnList<Posts>`
+   = note: required for `(UsersId, PostsTitle)` to implement `drizzle_core::builder::insert_select::InsertTargetColumns<'_, drizzle::mysql::MySQLValue<'_>, Posts>`
+   = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)

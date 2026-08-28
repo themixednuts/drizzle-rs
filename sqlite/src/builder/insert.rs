@@ -4,14 +4,20 @@ use core::marker::PhantomData;
 use drizzle_core::builder::{
     ConflictColumnsTarget, OnConflictBuilder as CoreOnConflictBuilder, OnConflictOutput,
 };
-use drizzle_core::{ConflictTarget, SQL, SQLModel, ToSQL, Token};
+use drizzle_core::{
+    ConflictTarget, InsertSelectCompatible, InsertSelectTable, InsertTargetColumns,
+    PartialInsertSelectCompatible, SQL, SQLModel, ToSQL, Token,
+};
+
+use super::select::{CompletedSelect, IntoSelectQuery};
 
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
 
 pub use drizzle_core::builder::{
-    InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
+    InsertColumnsSet, InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet,
+    InsertValuesSet,
 };
 
 //------------------------------------------------------------------------------
@@ -150,12 +156,115 @@ where
         }
     }
 
-    /// Inserts rows produced by a SELECT query without an explicit column list.
-    ///
-    /// The SELECT output must provide every table column in declaration order.
+    /// Chooses an explicit ordered target-column list for an INSERT SELECT.
     #[inline]
-    pub fn select<Q>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    pub fn columns<Columns>(
+        self,
+        columns: Columns,
+    ) -> InsertBuilder<'a, Schema, InsertColumnsSet<Columns::Columns>, Table>
     where
+        Columns: InsertTargetColumns<'a, SQLiteValue<'a>, Table>,
+    {
+        InsertBuilder {
+            sql: self.sql.append(columns.into_target_columns_sql()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+
+    /// Inserts a checked SELECT into every insertable table column.
+    #[inline]
+    pub fn select<Q, R, ScopeProof, AggProof>(
+        self,
+        query: Q,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Table: InsertSelectTable,
+        Q: IntoSelectQuery<'a, Schema, R>,
+        Q::Marker: InsertSelectCompatible<'a, SQLiteValue<'a>, Table, R>
+            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
+    {
+        let select = query.into_select_query().into_select_sql();
+        InsertBuilder {
+            sql: self
+                .sql
+                .append(Table::insert_columns_sql::<SQLiteValue<'a>>())
+                .append(select),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+
+    /// Inserts an unchecked raw SELECT without a target list.
+    ///
+    /// This opts out of projection shape, type, nullability, source-scope, and
+    /// aggregate validation.
+    #[inline]
+    pub fn select_raw<Q>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Q: ToSQL<'a, SQLiteValue<'a>>,
+    {
+        InsertBuilder {
+            sql: self.sql.append(query.into_sql()),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+}
+
+impl<'a, Schema, Table, Targets> InsertBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>
+where
+    Table: SQLiteTable<'a> + InsertSelectTable,
+{
+    /// Inserts a checked SELECT into the chosen target columns.
+    #[inline]
+    pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+        self,
+        query: Q,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
+        Q: IntoSelectQuery<'a, Schema, R>,
+        Q::Marker: PartialInsertSelectCompatible<'a, SQLiteValue<'a>, Targets>
+            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
+    {
+        let select = query.into_select_query().into_select_sql();
+        InsertBuilder {
+            sql: self.sql.append(select),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+
+    /// Inserts an unchecked raw SELECT into the chosen target columns.
+    ///
+    /// This opts out of projection shape, type, nullability, source-scope, and
+    /// aggregate validation.
+    #[inline]
+    pub fn select_raw<Q, RequiredProof>(
+        self,
+        query: Q,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
         Q: ToSQL<'a, SQLiteValue<'a>>,
     {
         InsertBuilder {

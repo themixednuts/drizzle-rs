@@ -3,7 +3,7 @@ use crate::prelude::*;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
 use drizzle_core::{
-    ColumnRef, SQL, Token, helpers as core_helpers,
+    SQL, Token, helpers as core_helpers,
     traits::{SQLModel, ToSQL},
 };
 
@@ -16,24 +16,118 @@ pub(crate) use core_helpers::{
 // Re-export Join from core
 pub use drizzle_core::Join;
 
+/// A table-like source accepted by an explicit JOIN tuple.
+#[doc(hidden)]
+pub trait JoinSource<'a>: join_source_private::Sealed {
+    type JoinedTable;
+
+    fn into_join_source_sql(self) -> SQL<'a, SQLiteValue<'a>>;
+}
+
+mod join_source_private {
+    pub trait Sealed {}
+}
+
+impl<'a, Table> join_source_private::Sealed for Table where Table: SQLiteTable<'a> {}
+
+impl<'a, Name, Projection, Query> join_source_private::Sealed
+    for drizzle_core::Derived<'a, SQLiteValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, SQLiteValue<'a>>,
+{
+}
+
+impl<'a, Table> JoinSource<'a> for Table
+where
+    Table: SQLiteTable<'a>,
+{
+    type JoinedTable = Table;
+
+    fn into_join_source_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        self.into_sql()
+    }
+}
+
+impl<'a, Name, Projection, Query> JoinSource<'a>
+    for drizzle_core::Derived<'a, SQLiteValue<'a>, Name, Projection, Query>
+where
+    Name: drizzle_core::Tag,
+    Projection: drizzle_core::DerivedProjection<Name>,
+    Query: ToSQL<'a, SQLiteValue<'a>>,
+{
+    type JoinedTable = Self;
+
+    fn into_join_source_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        self.into_sql()
+    }
+}
+
+/// A source or legacy tuple accepted by [`crate::builder::SelectBuilder::cross_join`].
+///
+/// A bare source renders `CROSS JOIN`. The legacy `(source, predicate)`
+/// form renders the equivalent portable `INNER JOIN ... ON ...`, because
+/// PostgreSQL does not allow an `ON` clause after `CROSS JOIN`.
+#[doc(hidden)]
+pub trait CrossJoinArg<'a, FromTable>: cross_join_arg_private::Sealed {
+    type JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>>;
+}
+
+mod cross_join_arg_private {
+    pub trait Sealed {}
+
+    impl<'a, Source> Sealed for Source where Source: super::JoinSource<'a> {}
+
+    impl<'a, Source, Condition> Sealed for (Source, Condition)
+    where
+        Source: super::JoinSource<'a>,
+        Condition: drizzle_core::ToSQL<'a, crate::values::SQLiteValue<'a>>,
+    {
+    }
+}
+
+impl<'a, Source, FromTable> CrossJoinArg<'a, FromTable> for Source
+where
+    Source: JoinSource<'a>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        Join::new()
+            .cross()
+            .into_sql()
+            .append(self.into_join_source_sql())
+    }
+}
+
+impl<'a, Source, Condition, FromTable> CrossJoinArg<'a, FromTable> for (Source, Condition)
+where
+    Source: JoinSource<'a>,
+    Condition: ToSQL<'a, SQLiteValue<'a>>,
+{
+    type JoinedTable = Source::JoinedTable;
+
+    fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>> {
+        let (source, condition) = self;
+        Join::new()
+            .inner()
+            .into_sql()
+            .append(source.into_join_source_sql())
+            .push(Token::ON)
+            .append(condition.into_sql())
+    }
+}
+
 drizzle_core::impl_join_arg_trait!(
     table_trait: SQLiteTable<'a>,
     table_info_trait: drizzle_core::SQLTableInfo,
     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
+    join_source_trait: JoinSource<'a>,
     value_type: SQLiteValue<'a>,
 );
-
-/// Helper to convert column info to SQL for joining (column names only for INSERT)
-fn columns_info_to_sql<'a>(columns: &[ColumnRef]) -> SQL<'a, SQLiteValue<'a>> {
-    let mut sql = SQL::with_capacity_chunks(columns.len().saturating_mul(2));
-    for (idx, col) in columns.iter().enumerate() {
-        if idx > 0 {
-            sql.push_mut(Token::COMMA);
-        }
-        sql.append_mut(SQL::ident(col.name));
-    }
-    sql
-}
 
 // Generate all join helper functions using the shared macro
 drizzle_core::impl_join_helpers!(
@@ -66,7 +160,7 @@ where
         return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
     }
 
-    let columns_sql = columns_info_to_sql(columns_slice);
+    let columns_sql = SQL::columns(columns_slice);
     let mut values_sql = SQL::with_capacity_chunks(rows.len().saturating_mul(4));
     for (idx, row) in rows.iter().enumerate() {
         if idx > 0 {

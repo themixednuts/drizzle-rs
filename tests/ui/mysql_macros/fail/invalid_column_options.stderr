@@ -1,0 +1,6 @@
+error: CHARACTER_SET/CHARSET and COLLATE apply only to MySQL character, text, ENUM, or SET columns
+ --> tests/ui/mysql_macros/fail/invalid_column_options.rs:7:5
+  |
+7 | /     #[column(CHARSET = "utf8mb4")]
+8 | |     count: u32,
+  | |______________^

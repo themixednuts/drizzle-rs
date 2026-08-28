@@ -4,7 +4,7 @@
 //! validation, analysis, and snapshot generation. Entities are recognized by
 //! the *last segment* of their attribute / derive paths, so both
 //! `#[SQLiteTable]` and `#[drizzle::SQLiteTable]` forms work. Supports
-//! `SQLite`, `PostgreSQL`, and `MySQL` (tables only, future) schema code.
+//! `SQLite`, `PostgreSQL`, and `MySQL` schema code.
 //!
 //! Attribute *interpretation* lives in the private `attrs` module and mirrors the procedural
 //! macros' semantics exactly — see that module for the ground rules.
@@ -46,7 +46,7 @@ mod types;
 
 pub use types::*;
 
-pub(crate) use attrs::{postgres_index_name, sqlite_index_name};
+pub(crate) use attrs::{mysql_index_name, postgres_index_name, sqlite_index_name};
 
 use attrs::{Diags, attr_last_segment, spanned_source};
 use drizzle_types::Dialect;
@@ -95,6 +95,7 @@ impl SchemaParser {
         let Walker { diags, .. } = walker;
         result.warnings.extend(diags.warnings);
         result.errors.extend(diags.errors);
+        validate_mysql_database_scope(&mut result);
         result
     }
 }
@@ -126,6 +127,57 @@ fn prepare_source(code: &str) -> String {
         }
     }
     out
+}
+
+/// MySQL migration snapshots represent one selected database at a time. The
+/// table macro permits a `DATABASE` qualifier because it is needed for normal
+/// query DDL, but a migration diff cannot safely turn that into an implicit
+/// cross-database move. Restrict the parsed *schema selection* to one explicit
+/// database; unqualified tables share the configured/default scope and are
+/// therefore allowed alongside that one name.
+fn validate_mysql_database_scope(result: &mut ParseResult) {
+    let selected = result
+        .schema
+        .as_ref()
+        .filter(|schema| schema.dialect == Dialect::MySQL)
+        .map(|schema| {
+            schema
+                .member_types
+                .iter()
+                .map(String::as_str)
+                .collect::<std::collections::HashSet<_>>()
+        });
+    let mut databases: Vec<&str> = result
+        .tables
+        .values()
+        .filter(|table| table.dialect == Dialect::MySQL)
+        .filter(|table| {
+            selected
+                .as_ref()
+                .is_none_or(|members| members.contains(table.name.as_str()))
+        })
+        .filter_map(|table| table.spec.database.as_deref())
+        .collect();
+    databases.extend(
+        result
+            .views
+            .values()
+            .filter(|view| view.dialect == Dialect::MySQL)
+            .filter(|view| {
+                selected
+                    .as_ref()
+                    .is_none_or(|members| members.contains(view.name.as_str()))
+            })
+            .filter_map(|view| view.database.as_deref()),
+    );
+    databases.sort_unstable();
+    databases.dedup();
+    if databases.len() > 1 {
+        result.errors.push(format!(
+            "MySQL migration schema selects multiple databases ({}) — migrations operate on one database scope and do not support cross-database moves",
+            databases.join(", ")
+        ));
+    }
 }
 
 struct Walker<'a> {
@@ -173,6 +225,7 @@ impl Walker<'_> {
                 "MySQLIndex" => return self.visit_index(item, attr, Dialect::MySQL),
                 "SQLiteView" => return self.visit_view(item, attr, Dialect::SQLite),
                 "PostgresView" => return self.visit_view(item, attr, Dialect::PostgreSQL),
+                "MySQLView" => return self.visit_view(item, attr, Dialect::MySQL),
                 "PostgresPolicy" => return self.visit_policy(item, attr),
                 _ => {}
             }
@@ -207,12 +260,8 @@ impl Walker<'_> {
                 Dialect::SQLite => {
                     attrs::sqlite_column_spec(field, self.source, &desc, &mut self.diags)
                 }
-                // MySQL snapshots are not generated; interpret with the
-                // SQLite rules for the structural surface but discard
-                // dialect-specific diagnostics.
                 Dialect::MySQL => {
-                    let mut scratch = Diags::new();
-                    attrs::sqlite_column_spec(field, self.source, &desc, &mut scratch)
+                    attrs::mysql_column_spec(field, self.source, &desc, &mut self.diags)
                 }
             };
             fields.push(ParsedField {
@@ -300,6 +349,7 @@ impl Walker<'_> {
             dialect,
             explicit_name: data.name,
             schema: data.schema,
+            database: data.database,
             definition: data.definition,
             has_opaque_definition: data.has_opaque_definition,
             materialized: data.materialized,
@@ -307,6 +357,9 @@ impl Walker<'_> {
             with_no_data: data.with_no_data,
             using: data.using,
             tablespace: data.tablespace,
+            mysql_algorithm: data.mysql_algorithm,
+            mysql_sql_security: data.mysql_sql_security,
+            mysql_check_option: data.mysql_check_option,
             order: self.next_order(),
         };
 
@@ -421,6 +474,37 @@ impl Walker<'_> {
     fn visit_enum(&mut self, item: &syn::ItemEnum) {
         for dialect in derive_dialects(&item.attrs, "SQLiteEnum", "PostgresEnum", "MySQLEnum") {
             let name = item.ident.to_string();
+            if dialect == Dialect::MySQL {
+                if item.variants.is_empty() {
+                    self.diags.errors.push(format!(
+                        "enum `{name}`: MySQLEnum requires at least one variant"
+                    ));
+                }
+                if item.attrs.iter().any(|attr| attr.path().is_ident("repr")) {
+                    self.diags.errors.push(format!(
+                        "enum `{name}`: MySQLEnum does not support #[repr(...)]"
+                    ));
+                }
+                for variant in &item.variants {
+                    if !matches!(variant.fields, syn::Fields::Unit) {
+                        self.diags.errors.push(format!(
+                            "enum `{name}`: MySQLEnum only supports fieldless variants"
+                        ));
+                    }
+                    if variant.discriminant.is_some() {
+                        self.diags.errors.push(format!(
+                            "enum `{name}`: MySQLEnum variants cannot have explicit discriminants"
+                        ));
+                    }
+                    let label = variant.ident.to_string();
+                    let label = label.trim_start_matches("r#");
+                    if label.contains(['\'', '\\']) {
+                        self.diags.errors.push(format!(
+                            "enum `{name}`: MySQLEnum label `{label}` contains a quote or backslash"
+                        ));
+                    }
+                }
+            }
             let schema = if dialect == Dialect::PostgreSQL {
                 enum_schema_attr(&item.attrs)
             } else {
@@ -428,7 +512,18 @@ impl Walker<'_> {
             };
             let parsed = ParsedEnum {
                 name: name.clone(),
-                variants: item.variants.iter().map(|v| v.ident.to_string()).collect(),
+                variants: item
+                    .variants
+                    .iter()
+                    .map(|variant| {
+                        let variant = variant.ident.to_string();
+                        if dialect == Dialect::MySQL {
+                            variant.trim_start_matches("r#").to_string()
+                        } else {
+                            variant
+                        }
+                    })
+                    .collect(),
                 dialect,
                 schema,
                 order: self.next_order(),
@@ -648,6 +743,129 @@ struct IdxUsersEmail(Users::email);
         let idx = result.index("IdxUsersEmail", Dialect::SQLite).unwrap();
         assert!(idx.is_unique());
         assert_eq!(idx.columns, vec!["Users::email"]);
+    }
+
+    #[test]
+    fn test_parse_mysql_index_options() {
+        let code = r#"
+#[MySQLIndex(unique, using = "HASH", algorithm = "INPLACE", lock = "NONE")]
+struct IdxUsersEmail(Users::email);
+"#;
+        let result = SchemaParser::parse(code);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let idx = result.index("IdxUsersEmail", Dialect::MySQL).unwrap();
+        assert!(idx.is_unique());
+        assert_eq!(idx.mysql_using().as_deref(), Some("hash"));
+        assert_eq!(idx.mysql_algorithm().as_deref(), Some("inplace"));
+        assert_eq!(idx.mysql_lock().as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn test_parse_mysql_schema_producer_metadata() {
+        let code = r#"
+#[derive(MySQLEnum)]
+enum Status {
+    Draft,
+    Published,
+}
+
+#[MySQLTable(
+    DATABASE = "app",
+    TEMPORARY,
+    ENGINE = "InnoDB",
+    CHARSET = "utf8mb4",
+    COLLATE = "utf8mb4_0900_ai_ci",
+    COMMENT = "application users"
+)]
+struct Users {
+    #[column(PRIMARY, AUTO_INCREMENT)]
+    id: i64,
+    #[column(ENUM, CHARSET = "utf8mb4", COLLATE = "utf8mb4_bin", COMMENT = "lifecycle")]
+    status: Status,
+    #[column(SET("admin", "editor"))]
+    roles: String,
+    #[column(DATETIME(6), ON_UPDATE = "CURRENT_TIMESTAMP(6)")]
+    updated_at: chrono::NaiveDateTime,
+    #[column(INT, generated(stored, "id + 1"))]
+    derived_id: i32,
+}
+"#;
+
+        let result = SchemaParser::parse(code);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        let users = result.table("Users", Dialect::MySQL).unwrap();
+        assert_eq!(users.spec.database.as_deref(), Some("app"));
+        assert!(users.spec.temporary);
+        assert_eq!(users.spec.engine.as_deref(), Some("InnoDB"));
+        assert_eq!(users.spec.charset.as_deref(), Some("utf8mb4"));
+        assert_eq!(users.spec.collate.as_deref(), Some("utf8mb4_0900_ai_ci"));
+        assert_eq!(users.spec.comment.as_deref(), Some("application users"));
+
+        let id = users.field("id").unwrap();
+        assert!(id.spec.primary);
+        assert!(id.spec.autoincrement);
+        assert_eq!(id.spec.mysql_type.as_deref(), Some("BIGINT"));
+
+        let status = users.field("status").unwrap();
+        assert_eq!(status.spec.mysql_type.as_deref(), Some("ENUM"));
+        assert!(status.spec.mysql_inline_enum);
+        assert_eq!(status.spec.charset.as_deref(), Some("utf8mb4"));
+        assert_eq!(status.spec.collate.as_deref(), Some("utf8mb4_bin"));
+        assert_eq!(status.spec.comment.as_deref(), Some("lifecycle"));
+
+        let roles = users.field("roles").unwrap();
+        assert_eq!(
+            roles.spec.mysql_type.as_deref(),
+            Some("SET('admin', 'editor')")
+        );
+        assert_eq!(
+            roles.spec.mysql_set_values,
+            Some(vec!["admin".to_string(), "editor".to_string()])
+        );
+
+        let updated_at = users.field("updated_at").unwrap();
+        assert_eq!(updated_at.spec.mysql_type.as_deref(), Some("DATETIME(6)"));
+        assert_eq!(
+            updated_at.spec.mysql_on_update.as_deref(),
+            Some("CURRENT_TIMESTAMP(6)")
+        );
+        assert_eq!(
+            users.field("derived_id").unwrap().spec.generated,
+            Some(ParsedGenerated {
+                expression: "id + 1".to_string(),
+                stored: true,
+            })
+        );
+
+        assert_eq!(
+            result
+                .parsed_enum("Status", Dialect::MySQL)
+                .unwrap()
+                .variants,
+            vec!["Draft", "Published"]
+        );
+    }
+
+    #[test]
+    fn test_mysql_schema_rejects_multiple_database_scopes() {
+        let code = r#"
+#[MySQLTable(DATABASE = "catalog")]
+struct Products { id: i64 }
+
+#[MySQLTable(DATABASE = "identity")]
+struct Users { id: i64 }
+
+#[derive(MySQLSchema)]
+struct AppSchema {
+    products: Products,
+    users: Users,
+}
+"#;
+
+        let result = SchemaParser::parse(code);
+        assert!(result.errors.iter().any(|error| {
+            error.contains("multiple databases") && error.contains("cross-database moves")
+        }));
     }
 
     #[test]
@@ -1000,8 +1218,21 @@ struct ActiveUsers {
 struct Ones {
     one: i32,
 }
+
+#[MySQLView(
+    DATABASE = "app",
+    NAME = "active_accounts",
+    DEFINITION = "SELECT id FROM accounts WHERE active = 1",
+    ALGORITHM = "TEMP_TABLE",
+    SECURITY = "INVOKER",
+    WITH_CHECK_OPTION = "LOCAL"
+)]
+struct ActiveAccounts {
+    id: u64,
+}
 "#;
         let result = SchemaParser::parse(code);
+        assert!(result.errors.is_empty(), "{:#?}", result.errors);
         let active = result.view("ActiveUsers", Dialect::SQLite).unwrap();
         assert_eq!(
             active.definition.as_deref(),
@@ -1010,6 +1241,57 @@ struct Ones {
         let ones = result.view("Ones", Dialect::PostgreSQL).unwrap();
         assert!(ones.materialized);
         assert_eq!(ones.schema.as_deref(), Some("app"));
+        let accounts = result.view("ActiveAccounts", Dialect::MySQL).unwrap();
+        assert_eq!(accounts.explicit_name.as_deref(), Some("active_accounts"));
+        assert_eq!(accounts.database.as_deref(), Some("app"));
+        assert_eq!(accounts.mysql_algorithm.as_deref(), Some("temptable"));
+        assert_eq!(accounts.mysql_sql_security.as_deref(), Some("invoker"));
+        assert_eq!(accounts.mysql_check_option.as_deref(), Some("local"));
+    }
+
+    #[test]
+    fn mysql_view_rejects_conflicting_definition_sources() {
+        let result = SchemaParser::parse(
+            r#"
+#[MySQLView(EXISTING, DEFINITION = "SELECT 1", query(Accounts::id))]
+struct InvalidView { id: u64 }
+"#,
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.contains("mutually exclusive"))
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.contains("EXISTING cannot be combined"))
+        );
+    }
+
+    #[test]
+    fn mysql_view_rejects_non_rc_source_options() {
+        let result = SchemaParser::parse(
+            r#"
+#[MySQLView(
+    DEFINITION = "SELECT 1",
+    DEFINER = "root@localhost",
+    CHARSET = "utf8mb4",
+    COLLATE = "utf8mb4_bin"
+)]
+struct InvalidView { one: i32 }
+"#,
+        );
+        assert_eq!(
+            result
+                .errors
+                .iter()
+                .filter(|error| error.contains("unrecognized view attribute"))
+                .count(),
+            3
+        );
     }
 
     #[test]

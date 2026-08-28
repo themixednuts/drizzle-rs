@@ -5,7 +5,6 @@
 //! Supports the same query-builder surface as `Drizzle` plus nested
 //! savepoints through [`Transaction::savepoint`].
 
-use std::marker::PhantomData;
 use std::sync::atomic::AtomicU32;
 
 use ::worker::{SqlStorage, SqlStorageValue};
@@ -16,6 +15,7 @@ use crate::transaction::savepoint::sync_savepoint;
 
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
+    TransactionConfig,
     builder::{
         self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
         update::UpdateBuilder,
@@ -28,7 +28,7 @@ use drizzle_sqlite::{
 use crate::builder::sqlite::durable::sqlite_value_to_storage;
 
 /// Query builder scoped to a [`Transaction`]. See
-/// [`crate::transaction::sqlite::typestate::TransactionBuilder`] for the
+/// `TransactionBuilder` for the
 /// typestate-advancing methods; executor methods live below in this module.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<
@@ -51,6 +51,8 @@ crate::drizzle_tx_prepare_impl!();
 /// [`Transaction::savepoint`] for nested savepoints.
 pub struct Transaction<Schema = ()> {
     conn: SqlStorage,
+    config: TransactionConfig,
+    active: bool,
     savepoint_depth: AtomicU32,
     schema: Schema,
 }
@@ -62,9 +64,11 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
 }
 
 impl<Schema> Transaction<Schema> {
-    pub(crate) fn new(conn: SqlStorage, schema: Schema) -> Self {
+    pub(crate) fn new(conn: SqlStorage, config: TransactionConfig, schema: Schema) -> Self {
         Self {
             conn,
+            config,
+            active: true,
             savepoint_depth: AtomicU32::new(0),
             schema,
         }
@@ -80,6 +84,12 @@ impl<Schema> Transaction<Schema> {
     #[inline]
     pub fn inner(&self) -> &SqlStorage {
         &self.conn
+    }
+
+    /// Configuration used to begin this transaction.
+    #[inline]
+    pub const fn config(&self) -> TransactionConfig {
+        self.config
     }
 
     /// Executes a nested savepoint within this transaction.
@@ -103,6 +113,24 @@ impl<Schema> Transaction<Schema> {
             },
             || f(self),
         )
+    }
+
+    /// Commits the transaction.
+    pub(crate) fn commit(mut self) -> drizzle_core::error::Result<()> {
+        self.conn
+            .exec("COMMIT", None)
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        self.active = false;
+        Ok(())
+    }
+
+    /// Rolls back the transaction.
+    pub(crate) fn rollback(mut self) -> drizzle_core::error::Result<()> {
+        self.conn
+            .exec("ROLLBACK", None)
+            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
+        self.active = false;
+        Ok(())
     }
 
     sqlite_transaction_constructors!();
@@ -150,6 +178,14 @@ impl<Schema> Transaction<Schema> {
             .into_iter()
             .next()
             .ok_or(DrizzleError::NotFound)
+    }
+}
+
+impl<Schema> Drop for Transaction<Schema> {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.conn.exec("ROLLBACK", None);
+        }
     }
 }
 

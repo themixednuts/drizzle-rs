@@ -693,3 +693,104 @@ pub fn generate_postgres_from_row_impl(input: &DeriveInput) -> Result<TokenStrea
         }
     })
 }
+
+/// Generate the driver-neutral selector and checked row decoder for `MySQLFromRow`.
+#[cfg(feature = "mysql")]
+pub fn generate_mysql_from_row_impl(input: &DeriveInput) -> Result<TokenStream> {
+    use crate::paths::mysql as mysql_paths;
+
+    let struct_name = &input.ident;
+    let default_from = parse_default_from_table(input)?;
+    let (fields, is_tuple) = extract_struct_fields(input)?;
+    let mysql_value = mysql_paths::mysql_value();
+    let tosql_impl = generate_tosql_impl(
+        struct_name,
+        &input.vis,
+        default_from.as_ref(),
+        fields,
+        is_tuple,
+        &mysql_value,
+    );
+
+    let select_as_from = quote!(drizzle::core::SelectAsFrom);
+    let select_as_from_impl = default_from.as_ref().map_or_else(
+        || quote!(impl<__Table> #select_as_from<__Table> for #struct_name {}),
+        |default_table| quote!(impl #select_as_from<#default_table> for #struct_name {}),
+    );
+    let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
+    let required_scope =
+        build_scope_list_type(&collect_required_tables(fields, default_from.as_ref()));
+    let into_select_target = core_paths::into_select_target();
+    let select_as = quote!(drizzle::core::SelectAs);
+    let drizzle_error = core_paths::drizzle_error();
+    let row_column_list = core_paths::row_column_list();
+    let mysql_row = mysql_paths::mysql_row();
+    let mysql_row_access = mysql_paths::mysql_row_access();
+    let row_type = quote!(#mysql_row<'__drizzle_row, __DrizzleRow>);
+    let field_count = fields.len();
+    let field_assignments = fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let field_type = &field.ty;
+            let value = quote! {
+                <#field_type as drizzle::core::FromDrizzleRow<#row_type>>::from_row_at(
+                    row,
+                    offset + #index,
+                )?
+            };
+            if is_tuple {
+                quote!(#value,)
+            } else {
+                let field_name = field.ident.as_ref().expect("named field");
+                quote!(#field_name: #value,)
+            }
+        })
+        .collect::<Vec<_>>();
+    let construct = if is_tuple {
+        quote!(Self(#(#field_assignments)*))
+    } else {
+        quote!(Self { #(#field_assignments)* })
+    };
+    let columns = build_column_list_type_from_fields(fields);
+
+    Ok(quote! {
+        impl<'__drizzle_row, __DrizzleRow: #mysql_row_access + ?Sized>
+            drizzle::core::FromDrizzleRow<#row_type> for #struct_name
+        {
+            const COLUMN_COUNT: usize = #field_count;
+
+            fn from_row_at(
+                row: &#row_type,
+                offset: usize,
+            ) -> ::std::result::Result<Self, #drizzle_error> {
+                ::std::result::Result::Ok(#construct)
+            }
+        }
+
+        impl<'__drizzle_row, __DrizzleRow: #mysql_row_access + ?Sized>
+            ::std::convert::TryFrom<&#row_type> for #struct_name
+        {
+            type Error = #drizzle_error;
+
+            fn try_from(row: &#row_type) -> ::std::result::Result<Self, Self::Error> {
+                <Self as drizzle::core::FromDrizzleRow<#row_type>>::from_row(row)
+            }
+        }
+
+        impl<'__drizzle_row, __DrizzleRow: #mysql_row_access + ?Sized>
+            #row_column_list<#row_type> for #struct_name
+        {
+            type Columns = #columns;
+        }
+
+        #tosql_impl
+        #select_as_from_impl
+        impl #select_required_tables for #struct_name {
+            type RequiredTables = #required_scope;
+        }
+        impl #into_select_target for #struct_name {
+            type Marker = #select_as<#struct_name>;
+        }
+    })
+}

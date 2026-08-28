@@ -57,6 +57,8 @@ impl<T> TypeEq<T> for T {}
 )]
 pub trait ColumnOf<Table> {}
 
+impl<T, Table> ColumnOf<Table> for &T where T: ColumnOf<Table> {}
+
 #[diagnostic::on_unimplemented(
     message = "column `{Self}` is nullable and cannot be used here",
     label = "this column must be NOT NULL",

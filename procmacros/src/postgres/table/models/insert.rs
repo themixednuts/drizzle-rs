@@ -158,12 +158,12 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
 fn get_insert_default_value(field: &FieldInfo) -> TokenStream {
     let name = &field.ident;
 
-    // Handle runtime function defaults (default_fn)
+    // DEFAULT_FN supplies an application-side value for an omitted field.
     if let Some(f) = &field.default_fn {
         return quote! { #name: ((#f)()).into() };
     }
 
-    // Handle compile-time PostgreSQL defaults (SQL defaults - let database handle)
+    // DEFAULT is a database clause, so leave the field omitted.
     if field.default.is_some() {
         return quote! { #name: PostgresInsertValue::Omit };
     }
@@ -220,6 +220,7 @@ mod tests {
             column_name: name.to_string(),
             sql_definition: format!("\"{name}\" INTEGER"),
             column_type: PostgreSQLType::Integer,
+            type_args: Vec::new(),
             dimensions: None,
             flags: HashSet::new(),
             is_nullable: false,

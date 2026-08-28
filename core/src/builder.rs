@@ -1,7 +1,9 @@
 pub mod conflict;
+pub mod insert_select;
 pub mod states;
 
 pub use conflict::*;
+pub use insert_select::*;
 pub use states::*;
 
 /// Marker trait for executable builder states.

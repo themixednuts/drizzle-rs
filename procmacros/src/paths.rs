@@ -415,6 +415,11 @@ pub mod core {
     pub fn postgres_dialect() -> TokenStream {
         quote!(drizzle::core::dialect::PostgresDialect)
     }
+
+    /// Path to the `MySQLDialect` marker type.
+    pub fn mysql_dialect() -> TokenStream {
+        quote!(drizzle::core::dialect::MySQLDialect)
+    }
 }
 
 // =============================================================================
@@ -486,6 +491,81 @@ pub mod sqlite {
     /// Path to the `SQLite` types module (Any, Integer, Text, Real, Blob, Numeric).
     pub fn types() -> TokenStream {
         quote!(drizzle::sqlite::types)
+    }
+}
+
+// =============================================================================
+// MYSQL TYPES AND TRAITS
+// =============================================================================
+
+#[cfg(feature = "mysql")]
+pub mod mysql {
+    use super::{TokenStream, quote};
+
+    pub fn mysql_value() -> TokenStream {
+        quote!(drizzle::mysql::values::MySQLValue)
+    }
+
+    pub fn mysql_insert_value() -> TokenStream {
+        quote!(drizzle::mysql::values::MySQLInsertValue)
+    }
+
+    pub fn mysql_update_value() -> TokenStream {
+        quote!(drizzle::mysql::values::MySQLUpdateValue)
+    }
+
+    pub fn value_wrapper() -> TokenStream {
+        quote!(drizzle::mysql::values::ValueWrapper)
+    }
+
+    pub fn mysql_schema_type() -> TokenStream {
+        quote!(drizzle::mysql::common::MySQLSchemaType)
+    }
+
+    pub fn mysql_view_info() -> TokenStream {
+        quote!(drizzle::mysql::common::MySQLViewInfo)
+    }
+
+    pub fn order_schema_views() -> TokenStream {
+        quote!(drizzle::mysql::common::order_schema_views)
+    }
+
+    pub fn mysql_row() -> TokenStream {
+        quote!(drizzle::mysql::driver::MySQLRow)
+    }
+
+    pub fn mysql_row_access() -> TokenStream {
+        quote!(drizzle::mysql::driver::MySQLRowAccess)
+    }
+
+    pub fn mysql_table() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLTable)
+    }
+
+    pub fn mysql_column() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLColumn)
+    }
+
+    pub fn drizzle_mysql_column() -> TokenStream {
+        quote!(drizzle::mysql::traits::DrizzleMySQLColumn)
+    }
+
+    pub fn mysql_index_column() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLIndexColumn)
+    }
+
+    /// Path to the `MySQLEnum` trait.
+    pub fn mysql_enum_trait() -> TokenStream {
+        quote!(drizzle::mysql::traits::MySQLEnum)
+    }
+
+    pub fn column_marker() -> TokenStream {
+        quote!(drizzle::mysql::attrs::AttributeMarker)
+    }
+
+    /// Path to the `MySQL` types module (Int, Varchar, Decimal, etc.).
+    pub fn types() -> TokenStream {
+        quote!(drizzle::mysql::types)
     }
 }
 
@@ -848,6 +928,103 @@ pub mod migrations {
 
         pub fn table_sql() -> TokenStream {
             quote!(drizzle::ddl::postgres::ddl::TableSql)
+        }
+    }
+
+    // MySQL DDL types (from drizzle::ddl)
+    pub mod mysql {
+        use super::{TokenStream, quote};
+
+        pub fn snapshot() -> TokenStream {
+            quote!(drizzle::migrations::mysql::MySQLSnapshot)
+        }
+
+        pub fn collection() -> TokenStream {
+            quote!(drizzle::migrations::mysql::MySQLDDL)
+        }
+
+        pub fn entity() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::MySQLEntity)
+        }
+
+        pub fn table() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::Table)
+        }
+
+        pub fn column() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::Column)
+        }
+
+        pub fn index() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::Index)
+        }
+
+        pub fn index_column() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::IndexColumn)
+        }
+
+        pub fn primary_key() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::PrimaryKey)
+        }
+
+        pub fn unique_constraint() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::UniqueConstraint)
+        }
+
+        pub fn foreign_key() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::ForeignKey)
+        }
+
+        pub fn check_constraint() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::CheckConstraint)
+        }
+
+        pub fn generated() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::Generated)
+        }
+
+        pub fn generated_type() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::GeneratedType)
+        }
+
+        pub fn inline_enum() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::InlineEnum)
+        }
+
+        pub fn inline_type() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::InlineType)
+        }
+
+        pub fn referential_action() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::ReferentialAction)
+        }
+
+        pub fn index_method() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::IndexMethod)
+        }
+
+        pub fn index_algorithm() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::IndexAlgorithm)
+        }
+
+        pub fn index_lock() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::IndexLock)
+        }
+
+        pub fn view() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::View)
+        }
+
+        pub fn view_algorithm() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::ViewAlgorithm)
+        }
+
+        pub fn view_sql_security() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::ViewSqlSecurity)
+        }
+
+        pub fn view_check_option() -> TokenStream {
+            quote!(drizzle::ddl::mysql::ddl::ViewCheckOption)
         }
     }
 }

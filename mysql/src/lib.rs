@@ -1,5 +1,64 @@
-//! `MySQL` support for drizzle-rs (WIP).
+//! `MySQL` support for drizzle-rs.
 //!
-//! This crate will host the `MySQL` query builder and driver integrations.
+//! This crate is the MySQL dialect boundary. It exposes SQL types,
+//! client-neutral values, and a typed SQL builder. Feature-gated wire adapters
+//! layer execution on those contracts.
+//!
+//! Wire adapters must set each connection's MySQL session time zone to UTC
+//! before executing typed queries. This is the adapter-owned invariant that
+//! makes `TIMESTAMP` values round-trip as UTC instants.
+//!
+//! Adapters must also reject or remove `NO_UNSIGNED_SUBTRACTION` and
+//! `REAL_AS_FLOAT` from `sql_mode`. The former changes unsigned subtraction to
+//! a signed result, while the latter changes `REAL` from double to float. The
+//! static type policy models MySQL's default behavior for both.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![warn(missing_docs)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+pub(crate) mod prelude {
+    #[cfg(feature = "std")]
+    pub use std::{borrow::Cow, boxed::Box, rc::Rc, string::String, sync::Arc, vec::Vec};
+
+    #[cfg(not(feature = "std"))]
+    pub use alloc::{
+        borrow::Cow,
+        boxed::Box,
+        rc::Rc,
+        string::{String, ToString},
+        sync::Arc,
+        vec::Vec,
+    };
+}
+
+pub mod attrs;
+pub mod builder;
+/// Schema metadata shared by generated MySQL tables, indexes, and views.
+pub mod common;
+pub mod driver;
+pub mod helpers;
+pub mod index;
+pub mod result;
+/// Traits implemented by generated MySQL schema types and custom columns.
+pub mod traits;
+pub mod transaction;
+/// MySQL SQL type markers.
+pub mod types {
+    pub use drizzle_types::mysql::types::*;
+}
+
+pub mod values;
+
+pub use common::MySQLViewInfo;
+pub use driver::{MySQLRow, MySQLRowAccess};
+pub use drizzle_core::{MySQLDialect, ParamBind};
+pub use drizzle_types::mysql::ddl::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
+pub use index::{
+    IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata,
+    MySQLIndexMethod,
+};
+pub use result::MySQLMutationResult;
+pub use transaction::{AccessMode, IsolationLevel, TransactionConfig};

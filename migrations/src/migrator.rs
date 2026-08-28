@@ -58,7 +58,7 @@ use crate::config::Tracking;
 use drizzle_types::Dialect;
 use sha2::{Digest, Sha256};
 
-fn quote_identifier(dialect: Dialect, identifier: &str) -> String {
+pub(crate) fn quote_identifier(dialect: Dialect, identifier: &str) -> String {
     match dialect {
         Dialect::MySQL => format!("`{}`", identifier.replace('`', "``")),
         _ => format!("\"{}\"", identifier.replace('"', "\"\"")),
@@ -529,6 +529,27 @@ impl Migrations {
         )
     }
 
+    /// Session advisory-lock name used by MySQL migration runners.
+    ///
+    /// `GET_LOCK` names are limited to 64 characters. A SHA-256 prefix keeps
+    /// the name stable per database and tracking table without leaking a long
+    /// qualified identifier into that limit. MySQL lock names are server-wide,
+    /// so including the selected database prevents unrelated databases from
+    /// serializing each other's migrations.
+    #[must_use]
+    pub fn mysql_advisory_lock_name(&self, database: &str) -> String {
+        use std::fmt::Write as _;
+
+        let digest = Sha256::digest(
+            format!("drizzle-rs:migrate:{database}:{}", self.table_ident()).as_bytes(),
+        );
+        let mut name = String::from("drizzle-rs:migrate:");
+        for byte in &digest[..20] {
+            write!(&mut name, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        name
+    }
+
     /// Whether any migration requires execution outside a PostgreSQL transaction.
     #[must_use]
     pub fn has_postgres_concurrent_index(&self) -> bool {
@@ -875,19 +896,38 @@ impl Migrations {
             .join(", ");
         let plural = if dirty_names.len() == 1 { "" } else { "s" };
         let first = escape_sql_string(dirty_names[0].as_ref());
+        let (name_column, applied_at_column) = match self.dialect {
+            Dialect::MySQL => ("`name`", "`applied_at`"),
+            Dialect::SQLite | Dialect::PostgreSQL => ("\"name\"", "\"applied_at\""),
+        };
+
+        let recovery = if self.dialect == Dialect::MySQL {
+            format!(
+                "Recovery options:\n  \
+                 1. inspect the partially applied DDL and reconcile the schema by hand\n  \
+                 2. after reconciliation, either complete the row \
+                 (UPDATE {table} SET {applied_at_column} = CURRENT_TIMESTAMP WHERE {name_column} = '{first}';) \
+                 or discard it and re-run from scratch \
+                 (DELETE FROM {table} WHERE {name_column} = '{first}';)"
+            )
+        } else {
+            format!(
+                "Recovery options:\n  \
+                 1. re-run with repair enabled (`drizzle migrate --repair`, or `migrate_with_repair` \
+                 on the driver) to reconcile each remaining statement against the live schema\n  \
+                 2. resolve the partial state by hand, then either complete the row \
+                 (UPDATE {table} SET {applied_at_column} = CURRENT_TIMESTAMP WHERE {name_column} = '{first}';) \
+                 or discard it and re-run from scratch \
+                 (DELETE FROM {table} WHERE {name_column} = '{first}';)"
+            )
+        };
 
         Some(MigratorError::InterruptedMigration(format!(
             "migration{plural} {names} {} interrupted mid-apply: the tracking row in {table} has \
              a NULL `applied_at`, so an earlier run recorded the migration as started but never \
              recorded it as finished. The database may be in a partially-migrated state, and \
              re-running the migration as-is would fail (for example with `table already exists`).\n\
-             Recovery options:\n  \
-             1. re-run with repair enabled (`drizzle migrate --repair`, or `migrate_with_repair` \
-             on the driver) to reconcile each remaining statement against the live schema\n  \
-             2. resolve the partial state by hand, then either complete the row \
-             (UPDATE {table} SET \"applied_at\" = CURRENT_TIMESTAMP WHERE \"name\" = '{first}';) \
-             or discard it and re-run from scratch \
-             (DELETE FROM {table} WHERE \"name\" = '{first}';)",
+             {recovery}",
             if dirty_names.len() == 1 {
                 "was"
             } else {
@@ -960,7 +1000,7 @@ impl Migrations {
                 },
             ),
             Dialect::MySQL => format!(
-                "SELECT table_name FROM information_schema.tables WHERE table_name='{table}';"
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name='{table}';"
             ),
         }
     }
@@ -1909,6 +1949,33 @@ mod tests {
     }
 
     #[test]
+    fn mysql_advisory_lock_name_is_stable_and_within_server_limit() {
+        let first = Migrations::with_tracking(
+            Vec::new(),
+            Dialect::MySQL,
+            Tracking::new("migrations", None::<String>),
+        );
+        let different = Migrations::with_tracking(
+            Vec::new(),
+            Dialect::MySQL,
+            Tracking::new("other_migrations", None::<String>),
+        );
+        assert_eq!(
+            first.mysql_advisory_lock_name("app"),
+            first.mysql_advisory_lock_name("app")
+        );
+        assert_ne!(
+            first.mysql_advisory_lock_name("app"),
+            different.mysql_advisory_lock_name("app")
+        );
+        assert_ne!(
+            first.mysql_advisory_lock_name("app"),
+            first.mysql_advisory_lock_name("other_app")
+        );
+        assert!(first.mysql_advisory_lock_name("app").len() <= 64);
+    }
+
+    #[test]
     fn parse_timestamp_tag_matches_drizzle_orm_millis() {
         let created_at = parse_timestamp_from_tag("20230331141203_test");
         assert_eq!(created_at, 1_680_271_923_000);
@@ -2143,6 +2210,19 @@ mod tests {
     }
 
     #[test]
+    fn mysql_interrupted_migration_requires_manual_reconciliation() {
+        let set = Migrations::new(Vec::new(), Dialect::MySQL);
+        let text = set
+            .interrupted_migration_error(&["20230331141203_test"])
+            .expect("dirty row must produce an error")
+            .to_string();
+
+        assert!(text.contains("reconcile the schema by hand"), "{text}");
+        assert!(!text.contains("drizzle migrate --repair"), "{text}");
+        assert!(text.contains("UPDATE `__drizzle_migrations` SET"), "{text}");
+    }
+
+    #[test]
     fn interrupted_migration_error_pluralizes_and_lists_all() {
         let set = Migrations::new(Vec::new(), Dialect::SQLite);
         let text = set
@@ -2150,6 +2230,27 @@ mod tests {
             .expect("dirty rows")
             .to_string();
         assert!(text.contains("migrations `a_one`, `b_two` were"), "{text}");
+    }
+
+    #[test]
+    fn mysql_interrupted_migration_recovery_uses_mysql_identifiers() {
+        let set = Migrations::new(Vec::new(), Dialect::MySQL);
+        let text = set
+            .interrupted_migration_error(&["partial"])
+            .expect("dirty row")
+            .to_string();
+        assert!(
+            text.contains("SET `applied_at` = CURRENT_TIMESTAMP WHERE `name` = 'partial'"),
+            "{text}"
+        );
+        assert!(!text.contains("\"applied_at\""), "{text}");
+    }
+
+    #[test]
+    fn mysql_tracking_table_lookup_is_scoped_to_current_database() {
+        let sql = Migrations::new(Vec::new(), Dialect::MySQL).table_exists_sql();
+        assert!(sql.contains("table_schema = DATABASE()"), "{sql}");
+        assert!(sql.contains("table_name='__drizzle_migrations'"), "{sql}");
     }
 
     #[test]

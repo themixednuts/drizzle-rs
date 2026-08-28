@@ -1,0 +1,63 @@
+error[E0277]: SQL type `drizzle::mysql::types::BigIntUnsigned` is not assignable from `drizzle::mysql::types::Text`
+  --> tests/ui/mysql_builder/fail/insert_select_partial_type_mismatch.rs:31:17
+   |
+31 |         .select(selected);
+   |          ------ ^^^^^^^^ this value type cannot be bound to the placeholder/column type
+   |          |
+   |          required by a bound introduced by this call
+   |
+   = help: the trait `Assignable<drizzle::mysql::types::Text>` is not implemented for `drizzle::mysql::types::BigIntUnsigned`
+   = note: assignment is stricter than comparison compatibility; use a value matching the target SQL marker
+   = help: `drizzle::mysql::types::BigIntUnsigned` implements trait `Assignable<Rhs>`:
+             Assignable<drizzle::mysql::types::IntUnsigned>
+             Assignable<drizzle::mysql::types::MediumIntUnsigned>
+             Assignable<drizzle::mysql::types::SmallIntUnsigned>
+             Assignable<drizzle::mysql::types::TinyIntUnsigned>
+             Assignable<drizzle::mysql::types::Year>
+             Assignable
+   = note: required for `Cons<PostsUserId, Cons<PostsTitle, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<UsersName, Cons<UsersId, Nil>>>`
+   = note: required for `SelectCols<(UsersName, UsersId)>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Scoped<SelectCols<(UsersName, UsersId)>, Cons<Users, Nil>>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+   |            ------ required by a bound in this associated function
+...
+   |         Q::Marker: PartialInsertSelectCompatible<'a, MySQLValue<'a>, Targets>
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
+
+error[E0277]: SQL type `drizzle::mysql::types::Text` is not assignable from `drizzle::mysql::types::BigIntUnsigned`
+  --> tests/ui/mysql_builder/fail/insert_select_partial_type_mismatch.rs:31:17
+   |
+31 |         .select(selected);
+   |          ------ ^^^^^^^^ this value type cannot be bound to the placeholder/column type
+   |          |
+   |          required by a bound introduced by this call
+   |
+   = help: the trait `Assignable<drizzle::mysql::types::BigIntUnsigned>` is not implemented for `drizzle::mysql::types::Text`
+   = note: assignment is stricter than comparison compatibility; use a value matching the target SQL marker
+   = help: `drizzle::mysql::types::Text` implements trait `Assignable<Rhs>`:
+             Assignable<drizzle::mysql::types::Char>
+             Assignable<drizzle::mysql::types::Enum>
+             Assignable<drizzle::mysql::types::LongText>
+             Assignable<drizzle::mysql::types::MediumText>
+             Assignable<drizzle::mysql::types::Set>
+             Assignable<drizzle::mysql::types::TinyText>
+             Assignable<drizzle::mysql::types::Varchar>
+             Assignable
+   = note: required for `Cons<PostsTitle, Nil>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<UsersId, Nil>>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Cons<PostsUserId, Cons<PostsTitle, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<UsersName, Cons<UsersId, Nil>>>`
+   = note: required for `SelectCols<(UsersName, UsersId)>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Scoped<SelectCols<(UsersName, UsersId)>, Cons<Users, Nil>>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+   |            ------ required by a bound in this associated function
+...
+   |         Q::Marker: PartialInsertSelectCompatible<'a, MySQLValue<'a>, Targets>
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`

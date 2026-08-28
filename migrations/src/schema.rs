@@ -3,11 +3,12 @@
 //! This module provides the `Schema` trait that user-defined schema structs
 //! implement (via derive macros) to enable migration generation.
 
+use crate::mysql::MySQLSnapshot;
 use crate::postgres::PostgresSnapshot;
 use crate::sqlite::SQLiteSnapshot;
 use drizzle_types::Dialect;
 
-/// A unified snapshot type that can hold either `SQLite` or `PostgreSQL` schema data.
+/// A unified snapshot type for every migration-capable SQL dialect.
 ///
 /// This is returned by `Schema::to_snapshot()` and used by the migration
 /// generation logic to diff against previous snapshots.
@@ -17,6 +18,8 @@ pub enum Snapshot {
     Sqlite(SQLiteSnapshot),
     /// `PostgreSQL` schema snapshot
     Postgres(PostgresSnapshot),
+    /// `MySQL` schema snapshot
+    MySQL(MySQLSnapshot),
 }
 
 impl Snapshot {
@@ -26,6 +29,7 @@ impl Snapshot {
         match self {
             Self::Sqlite(_) => Dialect::SQLite,
             Self::Postgres(_) => Dialect::PostgreSQL,
+            Self::MySQL(_) => Dialect::MySQL,
         }
     }
 
@@ -39,6 +43,7 @@ impl Snapshot {
         match self {
             Self::Sqlite(s) => s.save(path),
             Self::Postgres(s) => s.save(path),
+            Self::MySQL(s) => s.save(path),
         }
     }
 
@@ -46,35 +51,24 @@ impl Snapshot {
     ///
     /// # Errors
     ///
-    /// Returns [`std::io::ErrorKind::Unsupported`] for `Dialect::MySQL` until
-    /// `MySQL` support is added, or any [`std::io::Error`] produced by the
-    /// dialect-specific load operation (file not found, parse failure, etc.).
+    /// Returns any [`std::io::Error`] produced by the dialect-specific load
+    /// operation (file not found, parse failure, etc.).
     pub fn load(path: &std::path::Path, dialect: Dialect) -> std::io::Result<Self> {
         match dialect {
             Dialect::SQLite => Ok(Self::Sqlite(SQLiteSnapshot::load(path)?)),
             Dialect::PostgreSQL => Ok(Self::Postgres(PostgresSnapshot::load(path)?)),
-            Dialect::MySQL => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "MySQL snapshots not yet supported",
-            )),
+            Dialect::MySQL => Ok(Self::MySQL(crate::mysql::snapshot::load(path)?)),
         }
     }
 
     /// Create an empty snapshot for the given dialect.
     ///
-    /// # Panics
-    ///
-    /// Panics when called with [`Dialect::MySQL`]; `MySQL` snapshot support is
-    /// not yet implemented.
     #[must_use]
     pub fn empty(dialect: Dialect) -> Self {
         match dialect {
             Dialect::SQLite => Self::Sqlite(SQLiteSnapshot::new()),
             Dialect::PostgreSQL => Self::Postgres(PostgresSnapshot::new()),
-            Dialect::MySQL => {
-                // TODO: Add MySQL support
-                panic!("MySQL not yet supported")
-            }
+            Dialect::MySQL => Self::MySQL(MySQLSnapshot::new()),
         }
     }
 
@@ -84,6 +78,7 @@ impl Snapshot {
         match self {
             Self::Sqlite(s) => s.is_empty(),
             Self::Postgres(s) => s.ddl.is_empty(),
+            Self::MySQL(s) => s.ddl.is_empty(),
         }
     }
 
@@ -93,6 +88,7 @@ impl Snapshot {
         match self {
             Self::Sqlite(s) => &s.id,
             Self::Postgres(s) => &s.id,
+            Self::MySQL(s) => &s.id,
         }
     }
 
@@ -102,6 +98,7 @@ impl Snapshot {
         match self {
             Self::Sqlite(s) => &s.prev_ids,
             Self::Postgres(s) => &s.prev_ids,
+            Self::MySQL(s) => &s.prev_ids,
         }
     }
 
@@ -110,6 +107,7 @@ impl Snapshot {
         match self {
             Self::Sqlite(s) => s.prev_ids = prev_ids,
             Self::Postgres(s) => s.prev_ids = prev_ids,
+            Self::MySQL(s) => s.prev_ids = prev_ids,
         }
     }
 
@@ -119,6 +117,7 @@ impl Snapshot {
         match self {
             Self::Sqlite(s) => Some(s),
             Self::Postgres(_) => None,
+            Self::MySQL(_) => None,
         }
     }
 
@@ -127,16 +126,25 @@ impl Snapshot {
     pub const fn as_postgres(&self) -> Option<&PostgresSnapshot> {
         match self {
             Self::Postgres(s) => Some(s),
-            Self::Sqlite(_) => None,
+            Self::Sqlite(_) | Self::MySQL(_) => None,
+        }
+    }
+
+    /// Get the snapshot as `MySQL` if it is one.
+    #[must_use]
+    pub const fn as_mysql(&self) -> Option<&MySQLSnapshot> {
+        match self {
+            Self::MySQL(snapshot) => Some(snapshot),
+            Self::Sqlite(_) | Self::Postgres(_) => None,
         }
     }
 }
 
 /// Trait for database schemas that can be used with Drizzle migrations.
 ///
-/// This trait is automatically implemented by the `#[derive(PostgresSchema)]`
-/// and `#[derive(SQLiteSchema)]` macros. It provides the ability to convert
-/// a schema definition into a snapshot for migration generation.
+/// This trait is automatically implemented by the `#[derive(PostgresSchema)]`,
+/// `#[derive(SQLiteSchema)]`, and `#[derive(MySQLSchema)]` macros. It converts a
+/// schema definition into a snapshot for migration generation.
 ///
 /// # Example
 ///
@@ -189,5 +197,12 @@ mod tests {
         let snapshot = Snapshot::empty(Dialect::PostgreSQL);
         assert!(snapshot.is_empty());
         assert_eq!(snapshot.dialect(), Dialect::PostgreSQL);
+    }
+
+    #[test]
+    fn test_empty_snapshot_mysql() {
+        let snapshot = Snapshot::empty(Dialect::MySQL);
+        assert!(snapshot.is_empty());
+        assert_eq!(snapshot.dialect(), Dialect::MySQL);
     }
 }

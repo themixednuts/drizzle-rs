@@ -6,6 +6,10 @@ pub mod sqlite;
 #[macro_use]
 pub mod postgres;
 
+#[cfg(feature = "mysql")]
+#[macro_use]
+pub mod mysql;
+
 #[macro_export]
 macro_rules! drizzle_prepare_impl {
     () => {

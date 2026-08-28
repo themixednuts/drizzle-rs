@@ -411,12 +411,15 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         .iter()
         .map(|f| {
             let col_name = &f.column_name;
-            let pg_type = f.column_type.to_sql_type();
+            let pg_type = f.sql_type_expr();
             let flag_bits = ColumnRefFlags::new()
                 .with(ColumnRefFlags::NOT_NULL, !f.is_nullable)
                 .with(ColumnRefFlags::PRIMARY_KEY, f.is_primary())
                 .with(ColumnRefFlags::UNIQUE, f.is_unique())
-                .with(ColumnRefFlags::HAS_DEFAULT, f.has_default)
+                .with(
+                    ColumnRefFlags::HAS_DEFAULT,
+                    f.default.is_some() || f.is_serial,
+                )
                 .bits();
             let is_serial = f.is_serial;
             let is_bigserial = false;
@@ -646,7 +649,12 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
 
     // Generate query API code (relation ZSTs, accessors, JSON decoders)
     #[cfg(feature = "query")]
-    let query_api_impls = crate::postgres::table::generate_query_api_impls(&ctx);
+    // Unqualified views follow PostgreSQL's active search_path just like
+    // unqualified tables. The DDL model still resolves that default to
+    // `public`, but relational SELECTs must only qualify a schema the user
+    // explicitly requested.
+    let query_api_impls =
+        crate::postgres::table::generate_query_api_impls(&ctx, attrs.schema.as_deref());
     #[cfg(not(feature = "query"))]
     let query_api_impls = quote!();
 

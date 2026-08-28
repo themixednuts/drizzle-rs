@@ -19,6 +19,14 @@
 //! - [`PostgresIndex`] - Define indexes on `PostgreSQL` tables
 //! - [`PostgresSchema`] - Derive macro to group tables and indexes into a schema
 //!
+//! ### `MySQL`
+//! - [`MySQLTable`] - Define `MySQL` table schemas with type safety
+//! - [`MySQLView`] - Define `MySQL` view schemas with type safety
+//! - [`MySQLEnum`] - Define inline enums stored in `MySQL` columns
+//! - [`MySQLIndex`] - Define indexes on `MySQL` tables
+//! - [`MySQLSchema`] - Derive macro to group tables and indexes into a schema
+//! - [`MySQLFromRow`] - Derive a driver-neutral `MySQL` row selector
+//!
 //! ### Shared
 //! - [`SQLiteFromRow`] - Derive automatic row-to-struct conversion
 //! - [`sql!`] - Build SQL queries with embedded expressions
@@ -57,6 +65,8 @@
 //! #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 //! #      pub mod expr { pub use drizzle_postgres::expr::*; }
 //! #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+//! #      #[cfg(feature = "aws-data-api")]
+//! #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 //! #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 //! #      pub use ::postgres::Row;
 //! #      #[cfg(feature = "tokio-postgres")]
@@ -124,6 +134,9 @@ mod sqlite;
 #[cfg(feature = "postgres")]
 mod postgres;
 
+#[cfg(feature = "mysql")]
+mod mysql;
+
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
@@ -176,6 +189,8 @@ use syn::parse_macro_input;
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -257,6 +272,8 @@ use syn::parse_macro_input;
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -373,8 +390,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// - `unique` - Unique constraint
 ///
 /// ## Defaults
-/// - `default = value` - Compile-time default value
-/// - `default_fn = function` - Runtime default function (called at insert time)
+/// - `default = value` - Literal database `DEFAULT` clause
+/// - `default_fn = function` - Application default function (called at insert time)
 ///
 /// ## Special Types
 /// - `enum` - Store enum as TEXT or INTEGER (requires `SQLiteEnum` derive)
@@ -417,6 +434,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -496,6 +515,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -570,6 +591,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -657,6 +680,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -743,6 +768,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -822,6 +849,8 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Attributes
 ///
+/// - `name = "..."` / `NAME = "..."` - Set the physical index name; defaults
+///   to the struct name converted to `snake_case`
 /// - `unique` - Create a unique index (enforces uniqueness constraint)
 /// - `where = "..."` - Create a partial index with a raw SQLite SQL predicate;
 ///   database column names inside the string are not rename-checked
@@ -863,6 +892,8 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -942,6 +973,8 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1014,6 +1047,8 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1141,6 +1176,8 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1213,6 +1250,8 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1305,6 +1344,8 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1374,6 +1415,8 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1445,6 +1488,8 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1523,6 +1568,8 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1610,6 +1657,8 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1701,6 +1750,8 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1776,6 +1827,8 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1856,6 +1909,8 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -1966,6 +2021,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2043,6 +2100,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2119,6 +2178,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2190,6 +2251,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2270,6 +2333,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2354,6 +2419,8 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2391,40 +2458,37 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 
 /// Attribute-style integration test macro with dependency injection.
 ///
-/// Apply to a plain `fn` whose signature declares the two resources needed:
-/// `db` (the driver-bound test handle) and `schema` (the schema instance).
+/// Apply to a plain `fn` whose signature declares `db`, the driver-bound test
+/// handle. The schema instance is injected into the body as `schema`.
 /// The macro expands into per-driver test modules: one gated on each enabled
 /// driver feature (`rusqlite`, `libsql`, `turso`, `postgres-sync`,
-/// `tokio-postgres`). Body-local helper macros (`drizzle_exec!`,
-/// `drizzle_try!`, `drizzle_tx!`, `drizzle_assert_eq!`, etc.) are injected
-/// into the scope so sync and async drivers share a single test body.
+/// `tokio-postgres`, `mysql-sync`, `mysql-async`). Body-local `result!` and `catch!` helper
+/// macros provide explicit access to fallible results and panic assertions.
 ///
 /// # Dialect selection
 ///
 /// - `#[drizzle::test]` — dialect is auto-detected from the call-site file
 ///   path: tests living under a `sqlite` directory emit `SQLite` drivers,
-///   tests under a `postgres` directory emit `PostgreSQL` drivers. If the
-///   path is ambiguous, the macro emits a compile error asking for an
-///   explicit override.
+///   tests under a `postgres` directory emit `PostgreSQL` drivers, and tests
+///   under a `mysql` directory emit `MySQL` drivers. If the path is ambiguous,
+///   the macro emits a compile error asking for an explicit override.
 /// - `#[drizzle::test(sqlite)]` — force `SQLite` driver expansion.
 /// - `#[drizzle::test(postgres)]` — force `PostgreSQL` driver expansion.
+/// - `#[drizzle::test(mysql)]` — force `MySQL` driver expansion.
 ///
 /// # Signature requirements
 ///
 /// ```ignore
 /// #[drizzle::test]
-/// fn my_test(db: &mut TestDb<MySchema>, schema: MySchema) {
+/// fn my_test(db: &mut TestDb<MySchema>) {
 ///     let MySchema { users } = schema;
-///     drizzle_exec!(db.insert(users).values([/* ... */]) => execute);
+///     db.insert(users).values([/* ... */]).execute();
 /// }
 /// ```
 ///
-/// - Function must be synchronous; async operations flow through the
-///   injected `drizzle_exec!` / `drizzle_try!` / `drizzle_tx!` macros.
-/// - First parameter must be named `db` and the second `schema`. Both
-///   parameter forms are honored: `&mut TestDb<S>`, `&TestDb<S>`,
-///   `mut TestDb<S>`, and owned `TestDb<S>` all produce appropriate
-///   local bindings in each generated driver test.
+/// - The function must be synchronous; async is injected for async drivers.
+/// - Its only parameter must be named `db`. The forms `&mut TestDb<S>`,
+///   `&TestDb<S>`, `mut TestDb<S>`, and owned `TestDb<S>` are honored.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     crate::drizzle_test::attribute_impl(args, item)
@@ -2479,6 +2543,8 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2556,6 +2622,8 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2662,14 +2730,17 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - Column types are inferred from Rust field types by default
 /// - Use `#[column(...)]` to add markers like `serial`, `smallserial`, `bigserial`,
 ///   `json`, `jsonb`, or `enum`
+/// - Use `#[column(VARCHAR(length))]` or `#[column(CHAR(length))]` on `String`
+///   or `Vec<String>` fields when the physical character-length constraint must
+///   be preserved
 ///
 /// ## Constraints
 /// - `primary` - Primary key constraint
 /// - `unique` - Unique constraint
 ///
 /// ## Defaults
-/// - `default = value` - Compile-time default value
-/// - `default_fn = function` - Runtime default function
+/// - `default = value` - Literal database `DEFAULT` clause
+/// - `default_fn = function` - Application default function
 ///
 /// ## Special Types
 /// - `enum` - Map a `PostgresEnum` field (`#[column(enum)]`)
@@ -2716,6 +2787,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2792,6 +2865,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2881,6 +2956,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -2987,6 +3064,9 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Attributes
 ///
+/// - `name = "..."` / `NAME = "..."` - Set the physical index name; defaults
+///   to the struct name converted to `snake_case` with an `_idx` suffix when
+///   needed
 /// - `unique` - Create a unique index
 /// - `concurrent` - Create the index without locking out writes
 /// - `method = "..."` - Select the PostgreSQL index method
@@ -3030,6 +3110,8 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -3107,6 +3189,8 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -3175,6 +3259,8 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
 /// #      pub mod expr { pub use drizzle_postgres::expr::*; }
 /// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
+/// #      #[cfg(feature = "aws-data-api")]
+/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
 /// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 /// #      pub use ::postgres::Row;
 /// #      #[cfg(feature = "tokio-postgres")]
@@ -3212,6 +3298,97 @@ pub fn PostgresPolicy(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr_input = syn::parse_macro_input!(attr as crate::postgres::policy::PolicyAttributes);
 
     match crate::postgres::policy::postgres_policy_attr_macro(&attr_input, &input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Derive metadata and conversions for an inline `MySQL` enum.
+#[cfg(feature = "mysql")]
+#[proc_macro_derive(MySQLEnum)]
+pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match &input.data {
+        syn::Data::Enum(data) => {
+            match crate::mysql::r#enum::generate_enum_impl(&input.ident, data, &input.attrs) {
+                Ok(tokens) => tokens.into(),
+                Err(err) => err.to_compile_error().into(),
+            }
+        }
+        _ => syn::Error::new_spanned(input, "#[derive(MySQLEnum)] can only be applied to enums")
+            .to_compile_error()
+            .into(),
+    }
+}
+
+/// Define a `MySQL` table schema with type-safe column definitions.
+#[cfg(feature = "mysql")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn MySQLTable(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    let attrs = parse_macro_input!(attr as crate::mysql::table::TableAttributes);
+
+    match crate::mysql::table::table_attr_macro(&input, &attrs) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a typed `MySQL` view.
+///
+/// Supports `NAME`, `DATABASE`/`SCHEMA`, `DEFINITION` or `query(...)`,
+/// `EXISTING`, `ALGORITHM`, `SQL_SECURITY`, and `CHECK_OPTION`.
+#[cfg(feature = "mysql")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn MySQLView(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    let attrs = parse_macro_input!(attr as crate::mysql::view::ViewAttributes);
+
+    match crate::mysql::view::view_attr_macro(&input, &attrs) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a driver-neutral `MySQL` index.
+///
+/// Use `name = "..."` or `NAME = "..."` to set the physical index name. When
+/// omitted, the macro converts the struct name to `snake_case`.
+#[cfg(feature = "mysql")]
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn MySQLIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as syn::DeriveInput);
+    let attrs = parse_macro_input!(attr as crate::mysql::index::IndexAttributes);
+
+    match crate::mysql::index::mysql_index_attr_macro(attrs, &input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Derive a `MySQL` schema from named table and index fields.
+#[cfg(feature = "mysql")]
+#[proc_macro_derive(MySQLSchema)]
+pub fn mysql_schema_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match crate::mysql::generate_mysql_schema_derive_impl(&input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Derive a driver-neutral row selector for `MySQL` queries.
+#[cfg(feature = "mysql")]
+#[proc_macro_derive(MySQLFromRow, attributes(column, from))]
+pub fn mysql_from_row_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+
+    match crate::fromrow::generate_mysql_from_row_impl(&input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

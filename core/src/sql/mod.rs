@@ -71,6 +71,19 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
+    /// Creates a comma-separated list of unqualified column identifiers.
+    #[must_use]
+    pub fn columns(columns: &[ColumnRef]) -> Self {
+        let mut sql = Self::with_capacity_chunks(columns.len().saturating_mul(2));
+        for (index, column) in columns.iter().enumerate() {
+            if index > 0 {
+                sql.push_mut(Token::COMMA);
+            }
+            sql.append_mut(Self::ident(column.name));
+        }
+        sql
+    }
+
     /// Creates SQL with raw text (unquoted)
     #[inline]
     pub fn raw(text: impl Into<Cow<'a, str>>) -> Self {
@@ -320,7 +333,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL { chunks }
     }
 
-    /// Creates a comma-separated list of column assignments from pre-built SQL fragments: "col" = <sql>
+    /// Creates comma-separated column assignments from pre-built SQL fragments,
+    /// such as `"col" = <expression>`.
     ///
     /// Unlike `assignments()` which wraps each value in `SQL::param()`, this variant
     /// accepts pre-built `SQL` fragments, preserving placeholders and raw expressions.
@@ -367,6 +381,31 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                 )),
                 SQLChunk::Table(t) => SQLChunk::Table(t),
                 SQLChunk::Column(c) => SQLChunk::Column(c),
+            })
+            .collect();
+        SQL { chunks }
+    }
+
+    /// Own every borrowed SQL fragment while mapping parameter values.
+    ///
+    /// This is used by generated models that outlive their source values. It
+    /// preserves identifiers, raw fragments, placeholders, tables, and columns
+    /// instead of assuming the fragment consists of a single parameter.
+    pub fn into_owned_with<U: SQLParam>(self, mut f: impl FnMut(V) -> U) -> SQL<'static, U> {
+        let chunks = self
+            .chunks
+            .into_iter()
+            .map(|chunk| match chunk {
+                SQLChunk::Token(token) => SQLChunk::Token(token),
+                SQLChunk::Ident(value) => SQLChunk::Ident(Cow::Owned(value.into_owned())),
+                SQLChunk::Raw(value) => SQLChunk::Raw(Cow::Owned(value.into_owned())),
+                SQLChunk::Number(value) => SQLChunk::Number(value),
+                SQLChunk::Param(param) => SQLChunk::Param(Param::new(
+                    param.placeholder,
+                    param.value.map(|value| Cow::Owned(f(value.into_owned()))),
+                )),
+                SQLChunk::Table(table) => SQLChunk::Table(table),
+                SQLChunk::Column(column) => SQLChunk::Column(column),
             })
             .collect();
         SQL { chunks }
@@ -519,9 +558,46 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     ) {
         let chunks = self.chunks.get(select_index + 1..select_index + 3);
         match chunks {
-            Some([SQLChunk::Token(Token::FROM), SQLChunk::Table(table)]) => {
+            Some([SQLChunk::Token(Token::FROM), SQLChunk::Table(_)]) => {
                 let _ = buf.write_char(' ');
-                Self::write_qualified_columns(buf, table);
+                let mut first = true;
+                let mut depth = 0usize;
+
+                for (index, chunk) in self.chunks.iter().enumerate().skip(select_index + 2) {
+                    match chunk {
+                        SQLChunk::Token(Token::LPAREN) => depth += 1,
+                        SQLChunk::Token(Token::RPAREN) if depth == 0 => break,
+                        SQLChunk::Token(Token::RPAREN) => depth -= 1,
+                        SQLChunk::Token(
+                            Token::WHERE
+                            | Token::GROUP
+                            | Token::HAVING
+                            | Token::ORDER
+                            | Token::LIMIT
+                            | Token::OFFSET
+                            | Token::WINDOW
+                            | Token::FOR
+                            | Token::UNION
+                            | Token::INTERSECT
+                            | Token::EXCEPT
+                            | Token::SELECT,
+                        ) if depth == 0 => break,
+                        SQLChunk::Table(table) if depth == 0 => {
+                            if !first {
+                                let _ = buf.write_str(", ");
+                            }
+                            let alias = match self.chunks.get(index + 1..index + 3) {
+                                Some([SQLChunk::Token(Token::AS), SQLChunk::Ident(alias)]) => {
+                                    Some(alias.as_ref())
+                                }
+                                _ => None,
+                            };
+                            Self::write_qualified_columns_as(buf, table, alias);
+                            first = false;
+                        }
+                        _ => {}
+                    }
+                }
             }
             Some([SQLChunk::Token(Token::FROM), _]) => {
                 let _ = buf.write_char(' ');
@@ -534,8 +610,26 @@ impl<'a, V: SQLParam> SQL<'a, V> {
     /// Write fully qualified columns for a table
     #[inline]
     pub fn write_qualified_columns(buf: &mut impl core::fmt::Write, table: &TableSqlRef) {
+        Self::write_qualified_columns_as(buf, table, None);
+    }
+
+    #[inline]
+    fn write_qualified_columns_as(
+        buf: &mut impl core::fmt::Write,
+        table: &TableSqlRef,
+        alias: Option<&str>,
+    ) {
         if table.column_names.is_empty() {
-            let _ = buf.write_char('*');
+            if let Some(alias) = alias {
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, alias);
+            } else {
+                if let Some(schema) = table.schema {
+                    chunk::write_dialect_quoted_ident(V::DIALECT, buf, schema);
+                    let _ = buf.write_char('.');
+                }
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, table.name);
+            }
+            let _ = buf.write_str(".*");
             return;
         }
 
@@ -543,9 +637,17 @@ impl<'a, V: SQLParam> SQL<'a, V> {
             if i > 0 {
                 let _ = buf.write_str(", ");
             }
-            chunk::write_quoted_ident(buf, table.name);
+            if let Some(alias) = alias {
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, alias);
+            } else {
+                if let Some(schema) = table.schema {
+                    chunk::write_dialect_quoted_ident(V::DIALECT, buf, schema);
+                    let _ = buf.write_char('.');
+                }
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, table.name);
+            }
             let _ = buf.write_char('.');
-            chunk::write_quoted_ident(buf, col_name);
+            chunk::write_dialect_quoted_ident(V::DIALECT, buf, col_name);
         }
     }
 
@@ -688,6 +790,14 @@ pub(crate) fn chunk_needs_space<V: SQLParam>(
         (SQLChunk::Token(Token::COMMA), _) => true,
         // Space after closing paren if next is word-like (e.g., ") FROM")
         (SQLChunk::Token(Token::RPAREN), next) => next.is_word_like(),
+        // MySQL requires built-in function names to touch the opening
+        // parenthesis unless the session enables IGNORE_SPACE. SQL::func uses
+        // a raw static function name followed by LPAREN.
+        (SQLChunk::Raw(_), SQLChunk::Token(Token::LPAREN))
+            if V::DIALECT == crate::Dialect::MySQL =>
+        {
+            false
+        }
         // Space before opening paren if preceded by word-like (e.g., "AS (")
         (current, SQLChunk::Token(Token::LPAREN)) => current.is_word_like(),
         // Space around comparison/arithmetic operators
@@ -765,5 +875,101 @@ impl<'a, V: SQLParam> IntoIterator for SQL<'a, V> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.chunks.into_iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Dialect, MySQLDialect};
+
+    #[derive(Clone, Debug)]
+    struct TestParam;
+
+    impl SQLParam for TestParam {
+        const DIALECT: Dialect = Dialect::MySQL;
+        type DialectMarker = MySQLDialect;
+    }
+
+    impl From<TestParam> for Cow<'_, TestParam> {
+        fn from(value: TestParam) -> Self {
+            Cow::Owned(value)
+        }
+    }
+
+    #[test]
+    fn owning_mapped_params_preserves_every_chunk_kind() {
+        let raw = String::from("COALESCE(");
+        let identifier = String::from("display_name");
+        let sql = SQL::raw(raw.as_str())
+            .append(SQL::ident(identifier.as_str()))
+            .push(Token::COMMA)
+            .append(SQL::param(TestParam))
+            .push(Token::COMMA)
+            .push(Param::<TestParam>::from(Placeholder::named("fallback")))
+            .push(Token::RPAREN);
+
+        let owned = sql.into_owned_with(|value| value);
+        drop(raw);
+        drop(identifier);
+
+        assert_eq!(owned.sql(), "COALESCE( `display_name`, ?, ?)");
+        assert_eq!(owned.params().count(), 1);
+        assert_eq!(
+            owned
+                .chunks
+                .iter()
+                .filter(|chunk| matches!(chunk, SQLChunk::Param(param) if param.value.is_none()))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn columns_renders_an_identifier_list() {
+        let columns = [
+            ColumnRef::sql("users", "first"),
+            ColumnRef::sql("users", "last`name"),
+        ];
+
+        assert_eq!(
+            SQL::<TestParam>::columns(&columns).sql(),
+            "`first`, `last``name`"
+        );
+    }
+
+    #[test]
+    fn select_star_uses_the_table_alias_to_qualify_columns() {
+        let table = TableRef::sql("users", &["id", "name"]);
+        let query = SQL::<TestParam>::from(Token::SELECT)
+            .push(Token::FROM)
+            .append(SQL::table(table).alias("u"));
+
+        assert_eq!(
+            query.sql(),
+            "SELECT `u`.`id`, `u`.`name` FROM `users` AS `u`"
+        );
+    }
+
+    #[test]
+    fn nested_select_star_keeps_derived_alias_in_outer_projection() {
+        let source = SQL::<TestParam>::from(Token::SELECT)
+            .push(Token::FROM)
+            .append(SQL::table(TableRef::sql("posts", &["id", "name"])))
+            .parens()
+            .push(Token::AS)
+            .append(SQL::table(TableRef::sql("post_rows", &[])));
+        let query = SQL::<TestParam>::from(Token::SELECT)
+            .push(Token::FROM)
+            .append(SQL::table(TableRef::sql("users", &["id"])))
+            .append(SQL::raw(" INNER JOIN LATERAL "))
+            .append(source)
+            .push(Token::ON)
+            .append(SQL::raw("TRUE"));
+
+        assert_eq!(
+            query.sql(),
+            "SELECT `users`.`id`, `post_rows`.* FROM `users` INNER JOIN LATERAL (SELECT `posts`.`id`, `posts`.`name` FROM `posts`) AS `post_rows` ON TRUE"
+        );
     }
 }

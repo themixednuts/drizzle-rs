@@ -1,0 +1,24 @@
+error[E0277]: the trait bound `(UsersNameIdx, PostsUserIdIdx): drizzle::mysql::helpers::IndexHintList<'_, Users>` is not satisfied
+  --> tests/ui/mysql_builder/fail/index_hint_mixed_tables.rs:34:20
+   |
+34 |         .use_index((UsersNameIdx::new(), PostsUserIdIdx::new()));
+   |          --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `drizzle::mysql::helpers::IndexHintList<'_, Users>` is not implemented for `(UsersNameIdx, PostsUserIdIdx)`
+   |          |
+   |          required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `drizzle::mysql::helpers::IndexHintList<'a, Table>`:
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             (A, B, C, D, E)
+             (A, B, C, D, E, F)
+             (A, B, C, D, E, F, G)
+             (A, B, C, D, E, F, G, H)
+note: required by a bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R, G>>::use_index`
+  --> mysql/src/builder/select.rs
+   |
+   |     pub fn use_index<Indexes>(
+   |            --------- required by a bound in this associated function
+...
+   |         Indexes: helpers::IndexHintList<'a, T>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, SelectFromSet, T, M, R, G>>::use_index`

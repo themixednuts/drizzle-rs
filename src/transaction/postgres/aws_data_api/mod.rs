@@ -26,12 +26,12 @@ use drizzle_postgres::builder::{
 };
 use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::traits::PostgresTable;
+use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::aws_data_api::{
     Rows, aws_error, decode_rows, encode_params, execute_statement_raw,
 };
-use crate::builder::postgres::rows::DecodeRows as _;
 
 /// Returns an error indicating the transaction has already been consumed.
 fn tx_consumed_error() -> DrizzleError {
@@ -39,7 +39,7 @@ fn tx_consumed_error() -> DrizzleError {
 }
 
 /// AWS Data API transaction builder wrapper. See
-/// [`crate::transaction::postgres::typestate::TransactionBuilder`] for the
+/// `TransactionBuilder` for the
 /// typestate-advancing methods; executor methods live below.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::postgres::typestate::TransactionBuilder<
@@ -62,16 +62,40 @@ pub struct Transaction<Schema = ()> {
     secret_arn: Arc<str>,
     database: Option<Arc<str>>,
     tx_id: Mutex<Option<String>>,
-    tx_type: PostgresTransactionType,
+    config: TransactionConfig,
     savepoints: AsyncSavepointState,
     schema: Schema,
+}
+
+impl<Schema> Drop for Transaction<Schema> {
+    fn drop(&mut self) {
+        let Some(transaction_id) = self.tx_id.get_mut().ok().and_then(Option::take) else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+
+        let client = self.client.clone();
+        let resource_arn = Arc::clone(&self.resource_arn);
+        let secret_arn = Arc::clone(&self.secret_arn);
+        let _rollback = runtime.spawn(async move {
+            let _ = client
+                .rollback_transaction()
+                .resource_arn(resource_arn.as_ref())
+                .secret_arn(secret_arn.as_ref())
+                .transaction_id(transaction_id)
+                .send()
+                .await;
+        });
+    }
 }
 
 impl<Schema> std::fmt::Debug for Transaction<Schema> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let is_active = self.tx_id.lock().is_ok_and(|g| g.is_some());
         f.debug_struct("Transaction")
-            .field("tx_type", &self.tx_type)
+            .field("config", &self.config)
             .field("is_active", &is_active)
             .field("savepoints", &self.savepoints)
             .field("resource_arn", &self.resource_arn)
@@ -88,7 +112,7 @@ impl<Schema> Transaction<Schema> {
         secret_arn: Arc<str>,
         database: Option<Arc<str>>,
         transaction_id: String,
-        tx_type: PostgresTransactionType,
+        config: TransactionConfig,
         schema: Schema,
     ) -> Self {
         Self {
@@ -97,7 +121,7 @@ impl<Schema> Transaction<Schema> {
             secret_arn,
             database,
             tx_id: Mutex::new(Some(transaction_id)),
-            tx_type,
+            config,
             savepoints: AsyncSavepointState::new(),
             schema,
         }
@@ -109,10 +133,25 @@ impl<Schema> Transaction<Schema> {
         &self.schema
     }
 
-    /// Isolation / transaction type configured on begin.
+    /// Legacy isolation view.
+    ///
+    /// This cannot distinguish server-default isolation from explicit
+    /// `READ COMMITTED`. Use [`Self::config`] when that distinction matters.
+    #[deprecated(since = "0.1.17", note = "use config()")]
     #[inline]
     pub const fn tx_type(&self) -> PostgresTransactionType {
-        self.tx_type
+        match self.config.isolation() {
+            None | Some(IsolationLevel::ReadCommitted) => PostgresTransactionType::ReadCommitted,
+            Some(IsolationLevel::ReadUncommitted) => PostgresTransactionType::ReadUncommitted,
+            Some(IsolationLevel::RepeatableRead) => PostgresTransactionType::RepeatableRead,
+            Some(IsolationLevel::Serializable) => PostgresTransactionType::Serializable,
+        }
+    }
+
+    /// Configuration used to begin this transaction.
+    #[inline]
+    pub const fn config(&self) -> TransactionConfig {
+        self.config
     }
 
     /// Current transaction id, if the transaction is still open.
@@ -197,6 +236,31 @@ impl<Schema> Transaction<Schema> {
             .collect()
     }
 
+    /// Run a query and return a lazy decoded-row cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails.
+    pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    where
+        R: for<'r> TryFrom<&'r Row>,
+        for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+        T: ToSQL<'q, PostgresValue<'q>>,
+    {
+        let sql = query.to_sql();
+        let (sql_str, params) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.aws_data_api", "tx.rows");
+            let (sql_str, params) = sql.build_with(ParamStyle::ColonNumbered);
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+            (sql_str, params)
+        };
+
+        let sql_params = encode_params(params.as_slice());
+        let out = self.run_statement(&sql_str, sql_params).await?;
+        Ok(Rows::new(decode_rows(out)))
+    }
+
     /// Run a query and return a single row (errors if empty).
     ///
     /// # Errors
@@ -236,7 +300,7 @@ impl<Schema> Transaction<Schema> {
             .tx_id
             .lock()
             .map_err(|_| tx_consumed_error())?
-            .take()
+            .clone()
             .ok_or_else(tx_consumed_error)?;
         // CommitTransaction doesn't take a database — transaction id is enough.
         self.client
@@ -246,8 +310,9 @@ impl<Schema> Transaction<Schema> {
             .transaction_id(tx_id)
             .send()
             .await
-            .map(|_| ())
-            .map_err(|e| aws_error("commit_transaction", &e))
+            .map_err(|e| aws_error("commit_transaction", &e))?;
+        self.tx_id.lock().map_err(|_| tx_consumed_error())?.take();
+        Ok(())
     }
 
     /// Roll back via the service-level `RollbackTransaction` call.
@@ -256,7 +321,7 @@ impl<Schema> Transaction<Schema> {
             .tx_id
             .lock()
             .map_err(|_| tx_consumed_error())?
-            .take()
+            .clone()
             .ok_or_else(tx_consumed_error)?;
         // RollbackTransaction doesn't take a database — transaction id is enough.
         self.client
@@ -266,8 +331,9 @@ impl<Schema> Transaction<Schema> {
             .transaction_id(tx_id)
             .send()
             .await
-            .map(|_| ())
-            .map_err(|e| aws_error("rollback_transaction", &e))
+            .map_err(|e| aws_error("rollback_transaction", &e))?;
+        self.tx_id.lock().map_err(|_| tx_consumed_error())?.take();
+        Ok(())
     }
 
     /// Internal helper — runs a statement with this transaction's id threaded in.
@@ -355,6 +421,29 @@ where
             decoded.push(R::try_from(row).map_err(Into::into)?);
         }
         Ok(decoded)
+    }
+
+    /// Run the builder and return a lazy decoded-row cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError`] if the Data API call fails.
+    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    where
+        Rw: for<'r> TryFrom<&'r Row>,
+        for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
+    {
+        let (sql_str, params) = {
+            #[cfg(feature = "profiling")]
+            drizzle_core::drizzle_profile_scope!("postgres.aws_data_api", "tx_builder.rows");
+            let (sql_str, params) = self.builder.sql.build_with(ParamStyle::ColonNumbered);
+            drizzle_core::drizzle_trace_query!(&sql_str, params.len());
+            (sql_str, params)
+        };
+
+        let sql_params = encode_params(params.as_slice());
+        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        Ok(Rows::new(decode_rows(out)))
     }
 
     /// Run the builder and return a single row.

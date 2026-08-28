@@ -1,8 +1,8 @@
 //! Dialect-agnostic code generation traits and utilities.
 //!
 //! This module provides traits that abstract over the differences between
-//! `SQLite` and `PostgreSQL` code generation, allowing shared generator functions
-//! to work with both dialects.
+//! `SQLite`, `PostgreSQL`, and `MySQL` code generation, allowing shared generator
+//! functions to work with each dialect.
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -12,7 +12,7 @@ use crate::paths::core as core_paths;
 
 /// Provides dialect-specific type paths for code generation.
 ///
-/// This trait is implemented by both `SQLite` and `PostgreSQL` to provide
+/// This trait is implemented by each supported SQL dialect to provide
 /// the appropriate fully-qualified paths for their respective types.
 #[allow(dead_code)]
 pub trait GeneratorPaths {
@@ -102,9 +102,44 @@ mod postgres_impl {
 #[cfg(feature = "postgres")]
 pub use postgres_impl::PostgresDialect;
 
+// =============================================================================
+// MySQL Dialect Implementation
+// =============================================================================
+
+#[cfg(feature = "mysql")]
+mod mysql_impl {
+    use super::{Dialect, GeneratorPaths, TokenStream};
+
+    /// Marker struct for `MySQL` code generation.
+    pub struct MySQLDialect;
+
+    impl GeneratorPaths for MySQLDialect {
+        fn value_type() -> TokenStream {
+            crate::paths::mysql::mysql_value()
+        }
+
+        fn schema_type() -> TokenStream {
+            crate::paths::mysql::mysql_schema_type()
+        }
+
+        fn column_trait() -> TokenStream {
+            crate::paths::mysql::mysql_column()
+        }
+
+        fn table_trait() -> TokenStream {
+            crate::paths::mysql::mysql_table()
+        }
+    }
+
+    impl Dialect for MySQLDialect {}
+}
+
+#[cfg(feature = "mysql")]
+pub use mysql_impl::MySQLDialect;
+
 /// Generate `ToSQL` trait implementation for a given dialect.
 ///
-/// This is a dialect-agnostic version that works with both `SQLite` and `PostgreSQL`.
+/// This is a dialect-agnostic version that works with every supported SQL dialect.
 pub fn generate_to_sql<D: Dialect>(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
     let to_sql = core_paths::to_sql();
     let sql = core_paths::sql();

@@ -82,8 +82,8 @@ enum Command {
 
     /// Initialize a new drizzle.config.toml configuration file
     Init {
-        /// Database dialect (sqlite, postgresql, turso)
-        #[arg(short, long, default_value = "sqlite", value_parser = ["sqlite", "postgresql", "postgres", "turso"])]
+        /// Database dialect (sqlite, postgresql, mysql, turso)
+        #[arg(short, long, default_value = "sqlite", value_parser = ["sqlite", "postgresql", "postgres", "mysql", "turso"])]
         dialect: String,
 
         /// Database driver (optional; Rust drivers only)
@@ -91,7 +91,8 @@ enum Command {
         /// - sqlite: rusqlite
         /// - turso: libsql, turso
         /// - postgresql: postgres-sync, tokio-postgres
-        #[arg(short = 'r', long, value_parser = ["rusqlite", "libsql", "turso", "postgres-sync", "tokio-postgres"])]
+        /// - mysql: mysql-sync, mysql-async
+        #[arg(short = 'r', long, value_parser = ["rusqlite", "libsql", "turso", "postgres-sync", "tokio-postgres", "mysql-sync", "mysql-async"])]
         driver: Option<String>,
     },
 }
@@ -210,7 +211,7 @@ fn generate_init_config(dialect: &str, driver: Option<&str>) -> Result<String, C
 # Drizzle Configuration (drizzle-rs)
 #
 # This file is parsed by `drizzle-cli` and should stay aligned with its config schema:
-# - dialect: sqlite | turso | postgresql
+# - dialect: sqlite | turso | postgresql | mysql
 # - drivers: Rust drivers only (optional)
 
 dialect = "sqlite"
@@ -286,8 +287,46 @@ url = "postgres://user:password@localhost:5432/mydb"
 "#
             ))
         }
+        "mysql" => {
+            if let Some(ref driver) = driver
+                && driver != "mysql-sync"
+                && driver != "mysql-async"
+            {
+                return Err(CliError::Other(format!(
+                    "Invalid driver for mysql: {driver}. Supported: mysql-sync, mysql-async"
+                )));
+            }
+            let driver_config = driver.as_deref().map_or_else(
+                || "# driver = \"mysql-sync\"\n# driver = \"mysql-async\"".to_string(),
+                |driver| format!("driver = \"{driver}\""),
+            );
+            Ok(format!(
+                r#"#:schema {SCHEMA_URL}
+
+# Drizzle Configuration (drizzle-rs)
+
+dialect = "mysql"
+{driver_config}
+schema = "src/schema.rs"
+out = "./drizzle"
+# breakpoints = true
+
+[dbCredentials]
+url = "mysql://user:password@localhost:3306/mydb"
+
+# Or use individual connection fields:
+# [dbCredentials]
+# host = "localhost"
+# port = 3306
+# user = "root"
+# password = "password"
+# database = "mydb"
+# ssl = "required"
+"#
+            ))
+        }
         _ => Err(CliError::Other(format!(
-            "Unknown dialect: {dialect}. Supported: sqlite, turso, postgresql"
+            "Unknown dialect: {dialect}. Supported: sqlite, turso, postgresql, mysql"
         ))),
     }
 }
@@ -462,6 +501,44 @@ mod tests {
             }
             _ => panic!("expected push command"),
         }
+    }
+
+    #[test]
+    fn parse_mysql_live_driver_override() {
+        let cli = Cli::parse_from([
+            "drizzle",
+            "push",
+            "--dialect",
+            "mysql",
+            "--driver",
+            "mysql-async",
+            "--url",
+            "mysql://localhost/app",
+        ]);
+        match cli.command {
+            Command::Push(opts) => {
+                assert_eq!(opts.dialect, Some(Dialect::Mysql));
+                assert_eq!(opts.connection.driver, Some(Driver::MysqlAsync));
+            }
+            _ => panic!("expected push command"),
+        }
+    }
+
+    #[test]
+    fn mysql_init_template_uses_mysql_port_and_drivers() {
+        let config = generate_init_config("mysql", Some("mysql-sync")).expect("mysql config");
+        assert!(config.contains("dialect = \"mysql\""), "{config}");
+        assert!(config.contains("mysql://user:password@localhost:3306/mydb"));
+        assert!(config.contains("driver = \"mysql-sync\""), "{config}");
+        assert!(!config.contains("ssl = \"preferred\""), "{config}");
+
+        let async_config =
+            generate_init_config("mysql", Some("mysql-async")).expect("async mysql config");
+        assert!(
+            async_config.contains("driver = \"mysql-async\""),
+            "{async_config}"
+        );
+        assert!(generate_init_config("mysql", Some("postgres-sync")).is_err());
     }
 
     #[test]

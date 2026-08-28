@@ -1,0 +1,406 @@
+use crate::mysql::table::context::MacroContext;
+use crate::paths::core as core_paths;
+use crate::paths::std as std_paths;
+use heck::ToUpperCamelCase;
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+
+/// Generates an aliased version of a `MySQL` table struct
+///
+/// For a table `Users` with fields `id` and `name`, this generates:
+/// - `AliasedUsers` struct with `AliasedUsersId` and `AliasedUsersName` fields
+/// - Each aliased field contains the table alias name
+/// - `Users::alias::<Tag>() -> UsersAlias<Tag>` method
+pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
+    let table_name = &ctx.struct_ident;
+    let struct_vis = &ctx.struct_vis;
+    let aliased_table_name = format_ident!("Aliased{}", table_name);
+    let sql = core_paths::sql();
+    let sql_column_info = core_paths::sql_column_info();
+    let alias_tag = core_paths::tag();
+    let tagged = core_paths::tagged();
+    let phantom_data = std_paths::phantom_data();
+    let token = core_paths::token();
+
+    // Generate aliased field structs and their names
+    let aliased_fields: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .map(|field| {
+            let field_name = &field.ident;
+            // Use same casing as original column types to avoid conflicts
+            let field_name_pascal = field_name.to_string().to_upper_camel_case();
+            let aliased_field_type = format_ident!("Aliased{}{}", table_name, field_name_pascal);
+
+            (field_name, aliased_field_type)
+        })
+        .collect();
+
+    // Generate the aliased field type definitions
+    let aliased_field_definitions: Vec<TokenStream> = ctx.field_infos.iter().zip(aliased_fields.iter()).map(|(field, (_, aliased_field_type))| {
+        let field_name = &field.ident;
+        // Use the same naming pattern as original column types
+        let field_name_pascal = field_name.to_string().to_upper_camel_case();
+        let original_field_type = format_ident!("{}{}", table_name, field_name_pascal);
+        let custom_comparison_operand_impls =
+            super::column_definitions::generate_custom_comparison_operand_impls(
+                field,
+                aliased_field_type,
+                &quote!(MySQLValue),
+            );
+
+        quote! {
+            #[allow(non_upper_case_globals, dead_code)]
+            #[derive(Debug, Clone, Copy, Default)]
+            #struct_vis struct #aliased_field_type {
+                alias: &'static str,
+            }
+
+            impl #aliased_field_type {
+                pub const fn new(alias: &'static str) -> Self {
+                    Self { alias }
+                }
+            }
+
+            // Implement column info traits for the aliased field
+            impl SQLColumnInfo for #aliased_field_type {
+                fn is_not_null(&self) -> bool {
+                    // Forward to the original field instance with explicit trait qualification
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    <#original_field_type as SQLColumnInfo>::is_not_null(&ORIGINAL_FIELD)
+                }
+
+                fn is_primary_key(&self) -> bool {
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    <#original_field_type as SQLColumnInfo>::is_primary_key(&ORIGINAL_FIELD)
+                }
+
+                fn is_unique(&self) -> bool {
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    <#original_field_type as SQLColumnInfo>::is_unique(&ORIGINAL_FIELD)
+                }
+
+                fn name(&self) -> &'static str {
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    <#original_field_type as SQLColumnInfo>::name(&ORIGINAL_FIELD)
+                }
+
+                fn r#type(&self) -> &'static str {
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    <#original_field_type as SQLColumnInfo>::r#type(&ORIGINAL_FIELD)
+                }
+
+                fn has_default(&self) -> bool {
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    <#original_field_type as SQLColumnInfo>::has_default(&ORIGINAL_FIELD)
+                }
+
+                fn table(&self) -> &'static dyn SQLTableInfo {
+                    // Column info requires a static table reference, so runtime alias names are
+                    // intentionally not reflected here.
+                    static ORIGINAL_TABLE: #table_name = #table_name::new();
+                    &ORIGINAL_TABLE
+                }
+            }
+
+            // Implement SQLColumn trait for aliased field
+            impl<'a> SQLColumn<'a, MySQLValue<'a>> for #aliased_field_type {
+                type Table = #aliased_table_name;
+                type TableType = <#original_field_type as SQLColumn<'a, MySQLValue<'a>>>::TableType;
+                type ForeignKeys = <#original_field_type as SQLColumn<'a, MySQLValue<'a>>>::ForeignKeys;
+                type Type = <#original_field_type as SQLColumn<'a, MySQLValue<'a>>>::Type;
+
+                const PRIMARY_KEY: bool = <#original_field_type as SQLColumn<'a, MySQLValue<'a>>>::PRIMARY_KEY;
+                const NOT_NULL: bool = <#original_field_type as SQLColumn<'a, MySQLValue<'a>>>::NOT_NULL;
+                const UNIQUE: bool = <#original_field_type as SQLColumn<'a, MySQLValue<'a>>>::UNIQUE;
+                const DEFAULT: Option<Self::Type> = <#original_field_type as SQLColumn<'a, MySQLValue<'a>>>::DEFAULT;
+
+                fn default_fn(&'a self) -> Option<impl Fn() -> Self::Type> {
+                    static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                    ORIGINAL_FIELD.default_fn()
+                }
+            }
+
+            // Implement MySQLColumn trait for aliased field
+            impl<'a> MySQLColumn<'a> for #aliased_field_type {
+                const DDL_NAME: &'static str = <#original_field_type as MySQLColumn<'a>>::DDL_NAME;
+                const AUTO_INCREMENT: bool = <#original_field_type as MySQLColumn<'a>>::AUTO_INCREMENT;
+                const CHARSET: Option<&'static str> = <#original_field_type as MySQLColumn<'a>>::CHARSET;
+                const COLLATE: Option<&'static str> = <#original_field_type as MySQLColumn<'a>>::COLLATE;
+            }
+
+            // Implement SQLSchema trait for aliased field
+            impl<'a> SQLSchema<'a, &'a str, MySQLValue<'a>> for #aliased_field_type {
+                const NAME: &'static str = <#original_field_type as SQLSchema<'a, &'a str, MySQLValue<'a>>>::NAME;
+                const TYPE: &'a str = <#original_field_type as SQLSchema<'a, &'a str, MySQLValue<'a>>>::TYPE;
+                const SQL: &'static str = <#original_field_type as SQLSchema<'a, &'a str, MySQLValue<'a>>>::SQL;
+            }
+            // ToSQL implementation that uses the alias
+            impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for #aliased_field_type {
+                fn to_sql(&self) -> #sql<'a, V> {
+                    #sql::ident(self.alias)
+                        .push(#token::DOT)
+                        .append(#sql::ident({
+                            static ORIGINAL_FIELD: #original_field_type = #original_field_type::new();
+                            #sql_column_info::name(&ORIGINAL_FIELD)
+                        }))
+                }
+            }
+
+            // Expr impl inheriting types from original column
+            impl<'a> drizzle::core::expr::Expr<'a, MySQLValue<'a>> for #aliased_field_type {
+                type SQLType = <#original_field_type as drizzle::core::expr::Expr<'a, MySQLValue<'a>>>::SQLType;
+                type Nullable = <#original_field_type as drizzle::core::expr::Expr<'a, MySQLValue<'a>>>::Nullable;
+                type Aggregate = drizzle::core::expr::Scalar;
+            }
+            impl drizzle::core::ExprValueType for #aliased_field_type {
+                type ValueType = <#original_field_type as drizzle::core::ExprValueType>::ValueType;
+            }
+            impl drizzle::core::IntoSelectTarget for #aliased_field_type {
+                type Marker = drizzle::core::SelectCols<(#aliased_field_type,)>;
+            }
+            impl drizzle::core::expr::HasAggStatus for #aliased_field_type {
+                type Status = drizzle::core::expr::AllScalar;
+            }
+            impl drizzle::core::GroupByIdentity for #aliased_field_type {
+                type Identity = #aliased_field_type;
+            }
+            impl<'a> drizzle::core::IntoGroupBy<'a, MySQLValue<'a>> for #aliased_field_type {
+                type Columns = drizzle::core::Cons<#aliased_field_type, drizzle::core::Nil>;
+            }
+            #custom_comparison_operand_impls
+        }
+    }).collect();
+
+    // Generate the aliased table struct fields
+    let aliased_struct_fields: Vec<TokenStream> = aliased_fields
+        .iter()
+        .map(|(field_name, aliased_type)| {
+            quote! {
+                #struct_vis #field_name: #aliased_type
+            }
+        })
+        .collect();
+
+    // Generate field initializers for the alias() method
+    let field_initializers: Vec<TokenStream> = aliased_fields
+        .iter()
+        .map(|(field_name, aliased_type)| {
+            quote! {
+                #field_name: #aliased_type::new(alias)
+            }
+        })
+        .collect();
+
+    let tagged_alias_meta_name = format_ident!("AliasTagMeta{}", table_name);
+    let alias_type_name = format_ident!("{}Alias", table_name);
+    let tagged_const_defs: Vec<TokenStream> = aliased_fields
+        .iter()
+        .map(|(field_name, aliased_type)| {
+            quote! {
+                const #field_name: #aliased_type = #aliased_type::new(Tag::NAME);
+            }
+        })
+        .collect();
+    let tagged_sql_column_refs: Vec<TokenStream> = aliased_fields
+        .iter()
+        .map(|(field_name, _)| {
+            quote! {
+                &(#tagged_alias_meta_name::<Tag>::#field_name) as &'static dyn SQLColumnInfo
+            }
+        })
+        .collect();
+    quote! {
+
+        // Generate all aliased field type definitions
+        #(#aliased_field_definitions)*
+
+        // Generate the aliased table struct
+        #[allow(non_upper_case_globals, dead_code)]
+        #[derive(Debug, Clone, Copy, Default)]
+        #struct_vis struct #aliased_table_name {
+            alias: &'static str,
+            #(#aliased_struct_fields),*
+        }
+
+        impl #aliased_table_name {
+            pub const fn new(alias: &'static str) -> Self {
+                Self {
+                    alias,
+                    #(#field_initializers),*
+                }
+            }
+
+        }
+
+        #struct_vis struct #alias_type_name<Tag: #alias_tag>(#tagged<#aliased_table_name, Tag>);
+
+        impl<Tag: #alias_tag> #alias_type_name<Tag> {
+            pub const fn new() -> Self {
+                Self(#tagged::new(#aliased_table_name::new(Tag::NAME)))
+            }
+
+            pub const fn from_inner(inner: #aliased_table_name) -> Self {
+                Self(#tagged::new(inner))
+            }
+        }
+
+        impl<Tag: #alias_tag> ::core::marker::Copy for #alias_type_name<Tag> {}
+
+        impl<Tag: #alias_tag> ::core::clone::Clone for #alias_type_name<Tag> {
+            fn clone(&self) -> Self {
+                *self
+            }
+        }
+
+        impl<Tag: #alias_tag> ::core::default::Default for #alias_type_name<Tag> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl<Tag: #alias_tag> ::core::ops::Deref for #alias_type_name<Tag> {
+            type Target = #aliased_table_name;
+
+            fn deref(&self) -> &Self::Target {
+                ::core::ops::Deref::deref(&self.0)
+            }
+        }
+
+        struct #tagged_alias_meta_name<Tag: #alias_tag>(#phantom_data<fn() -> Tag>);
+
+        #[allow(non_upper_case_globals)]
+        impl<Tag: #alias_tag> #tagged_alias_meta_name<Tag> {
+            #(#tagged_const_defs)*
+
+            const SQL_COLUMNS: &'static [&'static dyn SQLColumnInfo] = &[
+                #(#tagged_sql_column_refs,)*
+            ];
+        }
+
+        // Implement table traits for the aliased table
+        impl SQLTableInfo for #aliased_table_name {
+            fn name(&self) -> &'static str {
+                self.alias
+            }
+
+            fn schema(&self) -> ::std::option::Option<&'static str> {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                <#table_name as SQLTableInfo>::schema(&ORIGINAL_TABLE)
+            }
+        }
+
+        impl<'a> MySQLTable<'a> for #aliased_table_name {
+            const DDL_QUALIFIED_NAME: &'static str =
+                <#table_name as MySQLTable<'a>>::DDL_QUALIFIED_NAME;
+        }
+
+        // Implement core SQLTable trait for aliased table
+        impl<'a> SQLTable<'a, MySQLSchemaType, MySQLValue<'a>> for #aliased_table_name {
+            type Select = <#table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Select;
+            type ForeignKeys = <#table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::ForeignKeys;
+            type PrimaryKey = <#table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::PrimaryKey;
+            type Constraints = <#table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Constraints;
+            type Insert<T> = <#table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Insert<T>;
+            type Update = <#table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Update;
+            type Aliased<Name: #alias_tag + 'static> = #alias_type_name<Name>;
+
+            fn alias<Name: #alias_tag + 'static>() -> Self::Aliased<Name> {
+                #alias_type_name::<Name>::new()
+            }
+        }
+
+        impl SQLTableMeta for #aliased_table_name {
+            type ForeignKeys = <#table_name as SQLTableMeta>::ForeignKeys;
+            type PrimaryKey = <#table_name as SQLTableMeta>::PrimaryKey;
+            type Constraints = <#table_name as SQLTableMeta>::Constraints;
+        }
+
+        // Implement SQLSchema trait for aliased table
+        impl<'a> SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>> for #aliased_table_name {
+            const NAME: &'static str = <#table_name as SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>>>::NAME;
+            const TYPE: MySQLSchemaType = <#table_name as SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>>>::TYPE;
+            const SQL: &'static str = <#table_name as SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>>>::SQL;
+        }
+
+        // ToSQL implementation for aliased table
+        impl<'a> ToSQL<'a, MySQLValue<'a>> for #aliased_table_name {
+            fn to_sql(&self) -> SQL<'a, MySQLValue<'a>> {
+                static ORIGINAL_TABLE: #table_name = #table_name::new();
+                ORIGINAL_TABLE.to_sql().alias(self.alias)
+            }
+        }
+
+        impl<Tag: #alias_tag + 'static> SQLTableInfo for #alias_type_name<Tag> {
+            fn name(&self) -> &'static str {
+                Tag::NAME
+            }
+
+            fn schema(&self) -> ::std::option::Option<&'static str> {
+                SQLTableInfo::schema(::core::ops::Deref::deref(self))
+            }
+        }
+
+        impl<'a, Tag: #alias_tag + 'static> MySQLTable<'a> for #alias_type_name<Tag> {
+            const DDL_QUALIFIED_NAME: &'static str =
+                <#aliased_table_name as MySQLTable<'a>>::DDL_QUALIFIED_NAME;
+        }
+
+        impl<'a, Tag: #alias_tag + 'static> SQLTable<'a, MySQLSchemaType, MySQLValue<'a>> for #alias_type_name<Tag> {
+            type Select = <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Select;
+            type ForeignKeys = <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::ForeignKeys;
+            type PrimaryKey = <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::PrimaryKey;
+            type Constraints = <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Constraints;
+            type Insert<T> = <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Insert<T>;
+            type Update = <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Update;
+            type Aliased<Name: #alias_tag + 'static> = <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::Aliased<Name>;
+
+            fn alias<Name: #alias_tag + 'static>() -> Self::Aliased<Name> {
+                <#aliased_table_name as SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>>::alias::<Name>()
+            }
+        }
+
+        impl<Tag: #alias_tag + 'static> SQLTableMeta for #alias_type_name<Tag> {
+            type ForeignKeys = <#aliased_table_name as SQLTableMeta>::ForeignKeys;
+            type PrimaryKey = <#aliased_table_name as SQLTableMeta>::PrimaryKey;
+            type Constraints = <#aliased_table_name as SQLTableMeta>::Constraints;
+        }
+
+        impl<'a, Tag: #alias_tag + 'static> SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>> for #alias_type_name<Tag> {
+            const NAME: &'static str = <#aliased_table_name as SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>>>::NAME;
+            const TYPE: MySQLSchemaType = <#aliased_table_name as SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>>>::TYPE;
+            const SQL: &'static str = <#aliased_table_name as SQLSchema<'a, MySQLSchemaType, MySQLValue<'a>>>::SQL;
+        }
+
+        impl<'a, Tag: #alias_tag + 'static> ToSQL<'a, MySQLValue<'a>> for #alias_type_name<Tag> {
+            fn to_sql(&self) -> SQL<'a, MySQLValue<'a>> {
+                ToSQL::to_sql(::core::ops::Deref::deref(self))
+            }
+        }
+
+        // HasSelectModel for aliased table (delegates to original)
+        impl drizzle::core::HasSelectModel for #aliased_table_name {
+            type SelectModel = <#table_name as drizzle::core::HasSelectModel>::SelectModel;
+            const COLUMN_COUNT: usize = <#table_name as drizzle::core::HasSelectModel>::COLUMN_COUNT;
+        }
+        impl drizzle::core::IntoSelectTarget for #aliased_table_name {
+            type Marker = drizzle::core::SelectStar;
+        }
+
+        impl<Tag: #alias_tag + 'static> drizzle::core::HasSelectModel for #alias_type_name<Tag> {
+            type SelectModel = <#aliased_table_name as drizzle::core::HasSelectModel>::SelectModel;
+            const COLUMN_COUNT: usize = <#aliased_table_name as drizzle::core::HasSelectModel>::COLUMN_COUNT;
+        }
+
+        impl<Tag: #alias_tag + 'static> drizzle::core::IntoSelectTarget for #alias_type_name<Tag> {
+            type Marker = drizzle::core::SelectStar;
+        }
+
+        // Add alias() method to the original table struct
+        impl #table_name {
+            pub const fn alias<Tag: #alias_tag + 'static>() -> #alias_type_name<Tag> {
+                #alias_type_name::<Tag>::new()
+            }
+        }
+    }
+}

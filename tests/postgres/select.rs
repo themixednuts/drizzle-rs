@@ -34,6 +34,27 @@ struct PgAliasResult {
     user_name: String,
 }
 
+#[test]
+fn conditional_cross_join_renders_portable_inner_join() {
+    struct JoinedSimple;
+    impl drizzle::core::Tag for JoinedSimple {
+        const NAME: &'static str = "joined_simple";
+    }
+
+    let SimpleSchema { simple } = SimpleSchema::new();
+    let joined = Simple::alias::<JoinedSimple>();
+    let sql = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>()
+        .select(simple.id)
+        .from(simple)
+        .cross_join((joined, eq(simple.id, joined.id)))
+        .to_sql();
+
+    assert_eq!(
+        sql.sql(),
+        r#"SELECT "simple"."id" FROM "simple" INNER JOIN "simple" AS "joined_simple" ON "simple"."id" = "joined_simple"."id""#
+    );
+}
+
 #[derive(Debug, PostgresFromRow)]
 struct PgCoalesceResult {
     email: String,
@@ -384,6 +405,47 @@ fn cte_after_order_limit_offset(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, 2);
     assert_eq!(results[1].id, 3);
+}
+
+#[drizzle::test]
+fn derived_lateral_sql(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    struct LateralInner;
+    impl drizzle::core::Tag for LateralInner {
+        const NAME: &'static str = "lateral_inner";
+    }
+
+    struct LateralSimple;
+    impl drizzle::core::Tag for LateralSimple {
+        const NAME: &'static str = "lateral_simple";
+    }
+
+    let lateral_inner = Simple::alias::<LateralInner>();
+    let lateral = db
+        .select((lateral_inner.id, lateral_inner.name))
+        .from(lateral_inner)
+        .r#where(eq(lateral_inner.id, simple.id))
+        .alias(LateralSimple);
+    let (lateral_id, lateral_name) = lateral.fields();
+
+    let inner_lateral = db
+        .select((simple.id, lateral_name))
+        .from(simple)
+        .inner_join_lateral((lateral.clone(), eq(simple.id, lateral_id)));
+    assert_eq!(
+        inner_lateral.to_sql().sql(),
+        r#"SELECT "simple"."id", "lateral_simple"."name" FROM "simple" INNER JOIN LATERAL (SELECT "lateral_inner"."id", "lateral_inner"."name" FROM "simple" AS "lateral_inner" WHERE "lateral_inner"."id" = "simple"."id") AS "lateral_simple" ON "simple"."id" = "lateral_simple"."id""#
+    );
+
+    let cross_lateral = db
+        .select((simple.id, lateral_name))
+        .from(simple)
+        .cross_join_lateral(lateral);
+    assert_eq!(
+        cross_lateral.to_sql().sql(),
+        r#"SELECT "simple"."id", "lateral_simple"."name" FROM "simple" CROSS JOIN LATERAL (SELECT "lateral_inner"."id", "lateral_inner"."name" FROM "simple" AS "lateral_inner" WHERE "lateral_inner"."id" = "simple"."id") AS "lateral_simple""#
+    );
 }
 
 // Validate that the generated Select model can be used directly

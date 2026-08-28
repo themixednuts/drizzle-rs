@@ -16,6 +16,44 @@ use uuid::Uuid;
 
 use crate::common::schema::postgres::{ComplexId, ComplexWithInvitedBy, ComplexWithPosts};
 
+crate::common::query::shared_relational_query_suite!(
+    postgres,
+    PostgresTable,
+    PostgresSchema,
+    drizzle::postgres::types::Int4,
+    drizzle_postgres::common::PostgresTransactionType::default()
+);
+crate::common::query::shared_view_query_suite!(
+    postgres,
+    PostgresTable,
+    PostgresView,
+    PostgresSchema
+);
+
+#[PostgresTable(TEMPORARY, NAME = "query_temp_metadata")]
+struct QueryTempMetadata {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[PostgresTable(SCHEMA = "tenant", NAME = "query_tenant_metadata")]
+struct QueryTenantMetadata {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[test]
+fn query_table_metadata_only_qualifies_explicit_postgres_schemas() {
+    assert_eq!(
+        <QueryTempMetadata as drizzle::core::query::QueryTable>::TABLE.schema,
+        None
+    );
+    assert_eq!(
+        <QueryTenantMetadata as drizzle::core::query::QueryTable>::TABLE.schema,
+        Some("tenant")
+    );
+}
+
 // =============================================================================
 // Schemas for different test scenarios
 // =============================================================================
@@ -535,6 +573,25 @@ struct PostView {
     id: Uuid,
     title: String,
     author_id: Option<Uuid>,
+}
+
+#[PostgresView(EXISTING, NAME = "qualified_post_view", SCHEMA = "analytics")]
+struct QualifiedPostView {
+    id: Uuid,
+    title: String,
+    author_id: Option<Uuid>,
+}
+
+#[test]
+fn query_view_schema_metadata_only_qualifies_explicit_schemas() {
+    assert_eq!(
+        <PostView as drizzle::core::query::QueryTable>::TABLE_SCHEMA,
+        None
+    );
+    assert_eq!(
+        <QualifiedPostView as drizzle::core::query::QueryTable>::TABLE_SCHEMA,
+        Some("analytics")
+    );
 }
 
 #[derive(PostgresSchema)]

@@ -50,8 +50,8 @@ use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::aws_data_api::{Row, encode_param, row_from_parts};
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
-use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::traits::PostgresTable;
+use drizzle_postgres::transaction::TransactionConfig;
 use drizzle_postgres::values::PostgresValue;
 use smallvec::SmallVec;
 
@@ -235,27 +235,30 @@ impl<Schema> Drizzle<Schema> {
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let mut rows = self.rows::<T, R>(query).await?;
-        rows.next()?.ok_or(DrizzleError::NotFound)
+        rows.next().transpose()?.ok_or(DrizzleError::NotFound)
     }
 
     /// Run a transaction. Returns `Ok(value)` to commit, `Err(...)` to rollback.
     ///
-    /// `tx_type` selects the `ISOLATION LEVEL`. The Data API implicitly starts
-    /// each transaction via the service-level `BeginTransaction` call; the
-    /// isolation level is communicated as a preamble statement.
+    /// The Data API implicitly starts each transaction via the service-level
+    /// `BeginTransaction` call; PostgreSQL options are communicated as a
+    /// preamble statement. If the callback future is cancelled after the
+    /// service allocates a transaction ID, dropping its handle schedules a
+    /// best-effort rollback on the current Tokio runtime.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError`] if the Data API begin/commit call fails, or if the inner closure returns an error.
     pub async fn transaction<F, R>(
         &self,
-        tx_type: PostgresTransactionType,
+        config: impl Into<TransactionConfig>,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
+        let config = config.into();
         drizzle_core::drizzle_trace_tx!("begin", "postgres.aws_data_api");
 
         let mut begin = self
@@ -281,14 +284,26 @@ impl<Schema> Drizzle<Schema> {
             Arc::clone(&self.secret_arn),
             self.database.as_ref().map(Arc::clone),
             tx_id,
-            tx_type,
+            config,
             self.schema,
         );
 
-        // Failure to set isolation level should abort.
-        if let Err(e) = tx.execute(isolation_preamble(tx_type)).await {
-            let _ = tx.rollback().await;
-            return Err(e);
+        let mut options = Vec::new();
+        if let Some(isolation) = config.isolation() {
+            options.push(format!("ISOLATION LEVEL {isolation}"));
+        }
+        if let Some(access) = config.access() {
+            options.push(access.to_string());
+        }
+        if config.is_deferrable() {
+            options.push("DEFERRABLE".to_owned());
+        }
+        if !options.is_empty() {
+            let preamble = format!("SET TRANSACTION {}", options.join(" "));
+            if let Err(error) = tx.execute(preamble.as_str()).await {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
         }
 
         match f(&tx).await {
@@ -384,7 +399,7 @@ impl<Schema> Drizzle<Schema> {
             .await?;
 
         let outcome = self
-            .transaction(PostgresTransactionType::default(), async |tx| {
+            .transaction(TransactionConfig::default(), async |tx| {
                 tx.execute(
                     format!(
                         "SELECT pg_advisory_xact_lock({})",
@@ -455,19 +470,6 @@ pub fn encode_params(params: &[&PostgresValue<'_>]) -> Vec<SqlParameter> {
         .enumerate()
         .map(|(i, v)| encode_param((i + 1).to_string(), v))
         .collect()
-}
-
-const fn isolation_preamble(tx_type: PostgresTransactionType) -> &'static str {
-    match tx_type {
-        PostgresTransactionType::ReadUncommitted => {
-            "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"
-        }
-        PostgresTransactionType::ReadCommitted => "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
-        PostgresTransactionType::RepeatableRead => {
-            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"
-        }
-        PostgresTransactionType::Serializable => "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
-    }
 }
 
 /// Decode rows from an `ExecuteStatementOutput` into a Vec<Row>, sharing the

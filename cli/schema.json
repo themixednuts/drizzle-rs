@@ -166,11 +166,46 @@
       },
       "additionalProperties": false
     },
+    "mysqlHostCredentials": {
+      "type": "object",
+      "description": "Host-based credentials for MySQL",
+      "required": ["host", "database"],
+      "properties": {
+        "host": { "$ref": "#/definitions/configValue" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 3306 },
+        "user": { "$ref": "#/definitions/configValue" },
+        "password": { "$ref": "#/definitions/configValue" },
+        "database": { "$ref": "#/definitions/configValue" },
+        "ssl": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "string", "enum": ["required", "verify-ca", "verify-identity", "disable"] }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "mysqlUrlCredentials": {
+      "type": "object",
+      "description": "MySQL URL credentials",
+      "required": ["url"],
+      "properties": {
+        "url": { "$ref": "#/definitions/configValue" }
+      },
+      "additionalProperties": false
+    },
     "dbCredentials": {
       "description": "Database credentials",
       "oneOf": [
         { "$ref": "#/definitions/urlCredentials" },
         { "$ref": "#/definitions/hostCredentials" }
+      ]
+    },
+    "mysqlDbCredentials": {
+      "description": "MySQL database credentials",
+      "oneOf": [
+        { "$ref": "#/definitions/mysqlUrlCredentials" },
+        { "$ref": "#/definitions/mysqlHostCredentials" }
       ]
     },
     "sqliteConfig": {
@@ -307,6 +342,47 @@
       },
       "additionalProperties": false
     },
+    "mysqlConfig": {
+      "type": "object",
+      "required": ["dialect"],
+      "properties": {
+        "dialect": {
+          "description": "Database dialect",
+          "type": "string",
+          "const": "mysql"
+        },
+        "driver": {
+          "description": "Database driver",
+          "type": "string",
+          "enum": ["mysql-sync", "mysql-async"]
+        },
+        "schema": { "$ref": "#/definitions/schemaPath" },
+        "out": {
+          "description": "Output directory for migrations",
+          "type": "string",
+          "default": "./drizzle"
+        },
+        "breakpoints": {
+          "description": "Whether to use SQL breakpoints in generated migrations",
+          "type": "boolean",
+          "default": true
+        },
+        "tablesFilter": {
+          "description": "Table filter for push/introspect commands (glob patterns)",
+          "$ref": "#/definitions/filter"
+        },
+        "verbose": {
+          "description": "Verbose output",
+          "type": "boolean",
+          "default": false
+        },
+        "casing": { "$ref": "#/definitions/casing" },
+        "migrations": { "$ref": "#/definitions/migrations" },
+        "introspect": { "$ref": "#/definitions/introspect" },
+        "dbCredentials": { "$ref": "#/definitions/mysqlDbCredentials" }
+      },
+      "additionalProperties": false
+    },
     "multiDbConfig": {
       "type": "object",
       "required": ["databases"],
@@ -318,7 +394,8 @@
             "oneOf": [
               { "$ref": "#/definitions/sqliteConfig" },
               { "$ref": "#/definitions/tursoConfig" },
-              { "$ref": "#/definitions/postgresConfig" }
+              { "$ref": "#/definitions/postgresConfig" },
+              { "$ref": "#/definitions/mysqlConfig" }
             ]
           },
           "minProperties": 1
@@ -331,6 +408,7 @@
     { "$ref": "#/definitions/sqliteConfig" },
     { "$ref": "#/definitions/tursoConfig" },
     { "$ref": "#/definitions/postgresConfig" },
+    { "$ref": "#/definitions/mysqlConfig" },
     { "$ref": "#/definitions/multiDbConfig" }
   ]
 }

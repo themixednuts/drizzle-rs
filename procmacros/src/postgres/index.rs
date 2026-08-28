@@ -4,9 +4,11 @@ use quote::quote;
 use syn::{DeriveInput, Error, Expr, ExprPath, Ident, Meta, Result, Token, Type, parse::Parse};
 
 /// Attributes for the `PostgresIndex` attribute macro
-/// Syntax: #[`PostgresIndex`] or #[PostgresIndex(unique)] or #[PostgresIndex(unique, method = "btree")]
+/// Syntax: #[`PostgresIndex`], #[PostgresIndex(name = "users_email_idx")], or
+/// #[PostgresIndex(unique, method = "btree")].
 #[derive(Default)]
 pub struct IndexAttributes {
+    pub name: Option<String>,
     pub unique: bool,
     pub concurrent: bool,
     /// Explicit `method = "..."` (btree, hash, gin, gist, spgist, brin).
@@ -22,6 +24,7 @@ pub struct IndexAttributes {
 fn create_index_prefix(unique: bool, concurrent: bool, index_name: &str) -> String {
     let unique_kw = if unique { "UNIQUE " } else { "" };
     let concurrent_kw = if concurrent { "CONCURRENTLY " } else { "" };
+    let index_name = index_name.replace('"', "\"\"");
     format!("CREATE {unique_kw}INDEX {concurrent_kw}\"{index_name}\" ON \"")
 }
 
@@ -69,6 +72,39 @@ impl Parse for IndexAttributes {
 
             let meta: Meta = input.parse()?;
             match meta {
+                Meta::NameValue(name_value)
+                    if name_value
+                        .path
+                        .get_ident()
+                        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case("name")) =>
+                {
+                    let Expr::Lit(literal) = &name_value.value else {
+                        return Err(Error::new_spanned(
+                            &name_value.value,
+                            "PostgreSQL index `name` expects a string literal",
+                        ));
+                    };
+                    let syn::Lit::Str(name) = &literal.lit else {
+                        return Err(Error::new_spanned(
+                            &literal.lit,
+                            "PostgreSQL index `name` expects a string literal",
+                        ));
+                    };
+                    if attrs.name.is_some() {
+                        return Err(Error::new_spanned(
+                            name_value,
+                            "PostgresIndex accepts `name` only once",
+                        ));
+                    }
+                    let value = name.value();
+                    if value.trim().is_empty() {
+                        return Err(Error::new_spanned(
+                            name,
+                            "PostgreSQL index `name` cannot be empty",
+                        ));
+                    }
+                    attrs.name = Some(value);
+                }
                 Meta::Path(path) if path.is_ident("unique") => {
                     attrs.unique = true;
                 }
@@ -116,6 +152,7 @@ impl Parse for IndexAttributes {
                         meta,
                         "Unrecognized index attribute.\n\
                          Supported attributes:\n\
+                         - name: Explicit physical index name\n\
                          - unique: Create unique index\n\
                          - concurrent: Create index concurrently\n\
                          - method: Index method (btree, hash, gin, gist, spgist, brin)\n\
@@ -209,7 +246,10 @@ pub fn postgres_index_attr_macro(
     };
 
     // Generate index name from struct name
-    let index_name = generate_index_name(struct_ident, &column_info);
+    let index_name = attr
+        .name
+        .clone()
+        .unwrap_or_else(|| generate_index_name(struct_ident, &column_info));
 
     // Build IndexColumnDef array for DDL using the column's NAME const
     // Uses a const block to validate that the column path implements SQLSchema
@@ -434,6 +474,14 @@ mod tests {
     }
 
     #[test]
+    fn create_index_prefix_escapes_physical_name() {
+        assert_eq!(
+            create_index_prefix(false, false, "users\"email"),
+            "CREATE INDEX \"users\"\"email\" ON \""
+        );
+    }
+
+    #[test]
     fn duplicate_partial_index_predicates_are_rejected() {
         assert!(
             syn::parse_str::<IndexAttributes>("where = \"active\", where = \"current\"").is_err()
@@ -443,6 +491,61 @@ mod tests {
     #[test]
     fn empty_partial_index_predicate_is_rejected() {
         assert!(syn::parse_str::<IndexAttributes>("where = \"  \"").is_err());
+    }
+
+    #[test]
+    fn parses_explicit_index_name() {
+        let attrs = syn::parse_str::<IndexAttributes>("name = \"users_by_email\"").unwrap();
+        let upper = syn::parse_str::<IndexAttributes>("NAME = \"users_by_email\"").unwrap();
+
+        assert_eq!(attrs.name.as_deref(), Some("users_by_email"));
+        assert_eq!(upper.name.as_deref(), Some("users_by_email"));
+    }
+
+    #[test]
+    fn rejects_empty_index_name() {
+        let error = syn::parse_str::<IndexAttributes>("name = \"  \"")
+            .err()
+            .expect("empty name should fail");
+
+        assert_eq!(error.to_string(), "PostgreSQL index `name` cannot be empty");
+    }
+
+    #[test]
+    fn rejects_duplicate_index_names() {
+        let error =
+            syn::parse_str::<IndexAttributes>("name = \"users_by_email\", NAME = \"other_name\"")
+                .err()
+                .expect("duplicate name should fail");
+
+        assert_eq!(error.to_string(), "PostgresIndex accepts `name` only once");
+    }
+
+    #[test]
+    fn explicit_name_reaches_all_generated_index_metadata() {
+        let attrs = syn::parse_str::<IndexAttributes>("name = \"users_by_email\"").unwrap();
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = postgres_index_attr_macro(&attrs, &input)
+            .unwrap()
+            .to_string();
+
+        // DDL SQL, DDL_INDEX, DrizzleIndex::INDEX_NAME, and SQLSchema::NAME.
+        assert_eq!(expanded.matches("users_by_email").count(), 4);
+        assert!(!expanded.contains("users_email_idx"));
+    }
+
+    #[test]
+    fn omitted_name_keeps_derived_name() {
+        let input: DeriveInput = parse_quote! {
+            pub struct UsersEmailIdx(Users::email);
+        };
+        let expanded = postgres_index_attr_macro(&IndexAttributes::default(), &input)
+            .unwrap()
+            .to_string();
+
+        assert!(expanded.contains("users_email_idx"));
     }
 
     #[test]

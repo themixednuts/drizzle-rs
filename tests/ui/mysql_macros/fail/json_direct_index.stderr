@@ -1,0 +1,5 @@
+error: MySQL JSON columns cannot be indexed directly; index a generated scalar column instead
+ --> tests/ui/mysql_macros/fail/json_direct_index.rs:8:5
+  |
+8 |     payload: serde_json::Value,
+  |     ^^^^^^^

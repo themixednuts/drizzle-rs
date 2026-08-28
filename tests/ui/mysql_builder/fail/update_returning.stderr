@@ -1,0 +1,5 @@
+error[E0599]: no method named `returning` found for struct `QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+  --> tests/ui/mysql_builder/fail/update_returning.rs:11:80
+   |
+11 |     let _ = builder.update(users).set(UpdateUsers::default().with_name("Bob")).returning(users.id);
+   |                                                                                ^^^^^^^^^ method not found in `QueryBuilder<'_, Schema, UpdateSetClauseSet, Users>`

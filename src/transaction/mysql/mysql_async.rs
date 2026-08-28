@@ -1,0 +1,431 @@
+//! Async MySQL transactions backed by `mysql_async`.
+
+use core::sync::atomic::{AtomicBool, Ordering};
+
+use drizzle_core::{
+    error::{DrizzleError, QueryContext, Result, ResultExt},
+    row::FromDrizzleRow,
+    traits::ToSQL,
+};
+use drizzle_mysql::{
+    AccessMode, IsolationLevel as DrizzleIsolationLevel, MySQLMutationResult, MySQLRow,
+    TransactionConfig,
+    builder::{
+        self, DeleteBuilder, DeleteInitial, InsertBuilder, InsertInitial, QueryBuilder,
+        SelectBuilder, SelectInitial, UpdateBuilder, UpdateInitial,
+    },
+    traits::MySQLTable,
+    values::MySQLValue,
+};
+use mysql_async::{
+    IsolationLevel, Row, Transaction as DriverTransaction, TxOpts, prelude::Queryable,
+};
+
+use crate::{
+    builder::mysql::{
+        common::{self, DrizzleBuilder},
+        driver_common::{QueryOutput, render},
+        mysql_async::{
+            AsyncRunner, Rows, driver_error, execute_request_observing,
+            initialize_session_observing, query_first_request_observing, query_request_observing,
+        },
+    },
+    transaction::savepoint::{AsyncSavepointState, async_savepoint},
+};
+
+fn consumed() -> DrizzleError {
+    DrizzleError::TransactionError("MySQL transaction already consumed".into())
+}
+
+fn aborted() -> DrizzleError {
+    DrizzleError::TransactionError(
+        "MySQL transaction is unusable after the server aborted it".into(),
+    )
+}
+
+fn transaction_was_aborted(error: &mysql_async::Error) -> bool {
+    error.is_fatal()
+        || matches!(error, mysql_async::Error::Server(error) if error.code == 1205 || error.state.starts_with("40"))
+}
+
+pub(crate) fn options(config: TransactionConfig) -> TxOpts {
+    let mut options = TxOpts::default();
+    if let Some(isolation) = config.isolation() {
+        options.with_isolation_level(match isolation {
+            DrizzleIsolationLevel::ReadUncommitted => IsolationLevel::ReadUncommitted,
+            DrizzleIsolationLevel::ReadCommitted => IsolationLevel::ReadCommitted,
+            DrizzleIsolationLevel::RepeatableRead => IsolationLevel::RepeatableRead,
+            DrizzleIsolationLevel::Serializable => IsolationLevel::Serializable,
+        });
+    }
+    if let Some(access) = config.access() {
+        options.with_readonly(matches!(access, AccessMode::ReadOnly));
+    }
+    options.with_consistent_snapshot(config.consistent_snapshot());
+    options
+}
+
+/// A scoped async MySQL transaction.
+///
+/// The transaction remains scoped to `Drizzle::transaction`. If that future
+/// is cancelled, `mysql_async` rolls the active transaction back before the
+/// connection is reused.
+pub struct Transaction<'connection, Schema = ()> {
+    transaction: tokio::sync::Mutex<Option<DriverTransaction<'connection>>>,
+    schema: Schema,
+    savepoints: AsyncSavepointState,
+    poisoned: AtomicBool,
+    session_ready: AtomicBool,
+}
+
+impl<Schema> core::fmt::Debug for Transaction<'_, Schema> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("Transaction")
+            .field(
+                "active",
+                &self
+                    .transaction
+                    .try_lock()
+                    .map(|transaction| transaction.is_some())
+                    .unwrap_or(true),
+            )
+            .field("poisoned", &self.poisoned.load(Ordering::Acquire))
+            .field("savepoints", &self.savepoints)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'connection, Schema> Transaction<'connection, Schema> {
+    pub(crate) fn new(
+        transaction: DriverTransaction<'connection>,
+        schema: Schema,
+        session_ready: bool,
+    ) -> Self {
+        Self {
+            transaction: tokio::sync::Mutex::new(Some(transaction)),
+            schema,
+            savepoints: AsyncSavepointState::new(),
+            poisoned: AtomicBool::new(false),
+            session_ready: AtomicBool::new(session_ready),
+        }
+    }
+
+    fn ensure_usable(&self) -> Result<()> {
+        self.savepoints.ensure_usable()?;
+        if self.poisoned.load(Ordering::Acquire) {
+            Err(aborted())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn observe_error(&self, error: &mysql_async::Error) {
+        if transaction_was_aborted(error) {
+            self.poisoned.store(true, Ordering::Release);
+        }
+    }
+
+    async fn ensure_session(&self) -> Result<()> {
+        self.ensure_usable()?;
+        if self.session_ready.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        let mut transaction = self.transaction.lock().await;
+        initialize_session_observing(transaction.as_mut().ok_or_else(consumed)?, |error| {
+            self.observe_error(error);
+        })
+        .await?;
+        self.session_ready.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub(crate) async fn initialize(&self) -> Result<()> {
+        self.ensure_session().await
+    }
+
+    /// Borrows the schema attached to this transaction.
+    #[must_use]
+    pub const fn schema(&self) -> &Schema {
+        &self.schema
+    }
+
+    pub(crate) async fn execute_rendered<'q>(
+        &self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<MySQLMutationResult> {
+        self.ensure_session().await?;
+        let (sql, values) = render(query);
+        let mut transaction = self.transaction.lock().await;
+        execute_request_observing(
+            transaction.as_mut().ok_or_else(consumed)?,
+            &sql,
+            &values,
+            |error| self.observe_error(error),
+        )
+        .await
+    }
+
+    pub(crate) async fn query_rendered<'q>(
+        &self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        self.ensure_session().await?;
+        let (sql, values) = render(query);
+        let mut transaction = self.transaction.lock().await;
+        let rows = query_request_observing(
+            transaction.as_mut().ok_or_else(consumed)?,
+            &sql,
+            &values,
+            |error| self.observe_error(error),
+        )
+        .await?;
+        Ok(QueryOutput::new(sql, values, rows))
+    }
+
+    pub(crate) async fn query_first_rendered<'q>(
+        &self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        self.ensure_session().await?;
+        let (sql, values) = render(query);
+        let mut transaction = self.transaction.lock().await;
+        let rows = query_first_request_observing(
+            transaction.as_mut().ok_or_else(consumed)?,
+            &sql,
+            &values,
+            |error| self.observe_error(error),
+        )
+        .await?
+        .into_iter()
+        .collect();
+        Ok(QueryOutput::new(sql, values, rows))
+    }
+
+    async fn execute_raw(&self, sql: &str) -> Result<()> {
+        self.ensure_usable()?;
+        drizzle_core::drizzle_trace_query!(sql, 0);
+        let mut transaction = self.transaction.lock().await;
+        transaction
+            .as_mut()
+            .ok_or_else(consumed)?
+            .query_drop(sql)
+            .await
+            .map_err(|error| {
+                self.poisoned.store(true, Ordering::Release);
+                driver_error(error)
+            })
+            .with_query(|| QueryContext::new::<MySQLValue<'_>>(sql, &[]))
+    }
+
+    pub(crate) async fn commit(self) -> Result<()> {
+        let unusable = self.ensure_usable().err();
+        let transaction = self.transaction.into_inner().ok_or_else(consumed)?;
+        if let Some(reason) = unusable {
+            return match transaction.rollback().await {
+                Ok(()) => Err(reason),
+                Err(error) => Err(DrizzleError::TransactionError(
+                    format!("{reason}; rollback failed: {error}").into(),
+                )),
+            };
+        }
+        transaction.commit().await.map_err(driver_error)
+    }
+
+    pub(crate) async fn rollback(self) -> Result<()> {
+        self.transaction
+            .into_inner()
+            .ok_or_else(consumed)?
+            .rollback()
+            .await
+            .map_err(driver_error)
+    }
+
+    /// Runs `body` in a nested savepoint.
+    ///
+    /// Returning `Ok` releases the savepoint. Returning `Err` rolls it back
+    /// without ending the surrounding transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns the callback error, or an error from savepoint creation,
+    /// release, or rollback.
+    pub async fn savepoint<F, R>(&self, body: F) -> Result<R>
+    where
+        F: AsyncFnOnce(&Self) -> Result<R>,
+    {
+        self.ensure_usable()?;
+        async_savepoint(
+            &self.savepoints,
+            |sql| async move { self.execute_raw(&sql).await },
+            body(self),
+        )
+        .await
+    }
+
+    /// Executes typed SQL and returns normalized MySQL mutation metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transaction is unusable or execution fails.
+    pub async fn execute<'q>(
+        &self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<MySQLMutationResult> {
+        let result = self.execute_rendered(query).await;
+        self.session_ready.store(false, Ordering::Release);
+        result
+    }
+
+    /// Executes typed SQL and decodes every returned row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
+    pub async fn all<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Vec<R>>
+    where
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        self.rows::<_, R>(query).await?.collect()
+    }
+
+    /// Executes typed MySQL SQL and returns a decoded iterator over its
+    /// materialized rows.
+    ///
+    /// The database result is fully consumed before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or row decoding fails.
+    pub async fn rows<'q, T, R>(&self, query: T) -> Result<Rows<R>>
+    where
+        T: ToSQL<'q, MySQLValue<'q>>,
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        Ok(self.query_rendered(query).await?.rows::<R>())
+    }
+
+    /// Executes typed SQL and decodes its first row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if execution or decoding fails, or no row is returned.
+    pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
+    where
+        for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
+    {
+        self.query_first_rendered(query).await?.decode_first_row()
+    }
+
+    /// Creates a typed relational query scoped to this transaction.
+    #[cfg(feature = "query")]
+    pub fn query<'db, 'q, Table>(
+        &'db self,
+        _table: Table,
+    ) -> common::DrizzleQueryBuilder<'db, 'q, &'db Self, Schema, Table>
+    where
+        Table: drizzle_core::query::QueryTable,
+    {
+        common::DrizzleQueryBuilder {
+            runner: self,
+            builder: drizzle_core::query::QueryBuilder::new(),
+            state: core::marker::PhantomData,
+        }
+    }
+
+    mysql_builder_constructors!(&'db Transaction<'connection, Schema>, [&'db self], self);
+}
+
+#[cfg(feature = "query")]
+impl<Schema> common::RelationalPreparedDriver for &Transaction<'_, Schema> {
+    type PreparedDriver = crate::builder::mysql::mysql_async::RelationalPrepared;
+}
+
+/// A query attached to an async MySQL transaction.
+pub type TransactionBuilder<'db, 'connection, Schema, Builder, State> =
+    common::DrizzleBuilder<'db, &'db Transaction<'connection, Schema>, Schema, Builder, State>;
+
+impl<'connection, Schema> AsyncRunner for &Transaction<'connection, Schema> {
+    async fn execute_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<MySQLMutationResult> {
+        Transaction::execute_rendered(self, query).await
+    }
+
+    async fn query_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        Transaction::query_rendered(self, query).await
+    }
+
+    async fn query_first_rendered<'q>(
+        self,
+        query: impl ToSQL<'q, MySQLValue<'q>>,
+    ) -> Result<QueryOutput<'q>> {
+        Transaction::query_first_rendered(self, query).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use drizzle_mysql::{AccessMode, IsolationLevel as ConfigIsolationLevel, TransactionConfig};
+    use mysql_async::IsolationLevel;
+
+    use super::{options, transaction_was_aborted};
+
+    #[test]
+    fn transaction_config_maps_to_mysql_driver_options() {
+        let driver_options = options(
+            TransactionConfig::builder()
+                .repeatable_read()
+                .read_only()
+                .snapshot()
+                .build(),
+        );
+
+        assert_eq!(
+            driver_options.isolation_level(),
+            Some(IsolationLevel::RepeatableRead)
+        );
+        assert_eq!(driver_options.readonly(), Some(true));
+        assert!(driver_options.consistent_snapshot());
+
+        let runtime = options(
+            TransactionConfig::new()
+                .isolation_level(ConfigIsolationLevel::Serializable)
+                .access_mode(AccessMode::ReadWrite),
+        );
+        assert_eq!(
+            runtime.isolation_level(),
+            Some(IsolationLevel::Serializable)
+        );
+        assert_eq!(runtime.readonly(), Some(false));
+        assert!(!runtime.consistent_snapshot());
+    }
+
+    #[test]
+    fn only_transaction_ending_errors_poison_the_wrapper() {
+        let duplicate = mysql_async::Error::Server(mysql_async::ServerError {
+            state: "23000".into(),
+            message: "duplicate".into(),
+            code: 1062,
+        });
+        let deadlock = mysql_async::Error::Server(mysql_async::ServerError {
+            state: "40001".into(),
+            message: "deadlock".into(),
+            code: 1213,
+        });
+        let lock_timeout = mysql_async::Error::Server(mysql_async::ServerError {
+            state: "HY000".into(),
+            message: "lock wait timeout".into(),
+            code: 1205,
+        });
+
+        assert!(!transaction_was_aborted(&duplicate));
+        assert!(transaction_was_aborted(&deadlock));
+        assert!(transaction_was_aborted(&lock_timeout));
+    }
+}

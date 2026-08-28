@@ -1,0 +1,31 @@
+error[E0277]: the trait bound `UsersName: drizzle_core::row::SingleColGroupCheck<Cons<UsersActive, Nil>, _>` is not satisfied
+  --> tests/ui/mysql_builder/fail/invalid_group_prepare.rs:24:10
+   |
+24 |         .prepare();
+   |          ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<UsersActive, Nil>, _>` is not implemented for `UsersName`
+  --> tests/ui/mysql_builder/fail/invalid_group_prepare.rs:4:1
+   |
+ 4 | #[MySQLTable]
+   | ^^^^^^^^^^^^^
+   = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
+             `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+             `Scoped<SelectCols<Cols>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>, Proof>`
+             `Scoped<SelectCols<Cols>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>, Proof>`
+             `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+             `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+   = note: required for `(UsersName, SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull, Agg>)` to implement `drizzle_core::row::ScalarColumnsIn<Cons<UsersActive, Nil>, (_, drizzle_core::row::AggSkip)>`
+   = note: required for `Scoped<SelectCols<(UsersName, SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull, Agg>)>, Cons<Users, Nil>>` to implement `drizzle_core::row::MarkerAggValidFor<Cons<UsersActive, Nil>, (_, drizzle_core::row::AggSkip)>`
+note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::prepare`
+  --> mysql/src/builder/select.rs
+   |
+   |     pub fn prepare<ScopeProof, AggProof>(
+   |            ------- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::prepare`
+   = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)

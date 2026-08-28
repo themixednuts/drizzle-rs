@@ -94,6 +94,22 @@ impl private::Sealed for Null {}
 impl Nullability for NonNull {}
 impl Nullability for Null {}
 
+/// Compile-time relation between a column's nullability and an assigned value.
+///
+/// Non-null expressions can be assigned to every column. Nullable expressions
+/// can only be assigned to nullable columns.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "a nullable expression cannot be assigned to a non-null column",
+    label = "this assignment could produce NULL",
+    note = "handle the NULL case in the expression or make the target column nullable"
+)]
+pub trait AcceptsNullability<Source: Nullability>: Nullability {}
+
+impl AcceptsNullability<NonNull> for NonNull {}
+impl AcceptsNullability<NonNull> for Null {}
+impl AcceptsNullability<Null> for Null {}
+
 // =============================================================================
 // Aggregate Kind Markers
 // =============================================================================
@@ -223,6 +239,10 @@ impl CombineAggStatus<Self> for MixedAgg {
 /// Implemented for column ZSTs (always Scalar), `SQLExpr`, and expression wrappers.
 pub trait HasAggStatus {
     type Status;
+}
+
+impl<T: HasAggStatus + ?Sized> HasAggStatus for &T {
+    type Status = T::Status;
 }
 
 // =============================================================================

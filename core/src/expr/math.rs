@@ -13,7 +13,14 @@ use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{DataType, Integral, Numeric};
-use crate::{PostgresDialect, SQLiteDialect};
+use crate::{Dialect, MySQLDialect, PostgresDialect, SQLiteDialect};
+use drizzle_types::mysql::types::{
+    BigInt as MyBigInt, BigIntUnsigned as MyBigIntUnsigned, Decimal as MyDecimal,
+    Double as MyDouble, Float as MyFloat, Int as MyInt, IntUnsigned as MyIntUnsigned,
+    MediumInt as MyMediumInt, MediumIntUnsigned as MyMediumIntUnsigned, SmallInt as MySmallInt,
+    SmallIntUnsigned as MySmallIntUnsigned, TinyInt as MyTinyInt,
+    TinyIntUnsigned as MyTinyIntUnsigned, Year as MyYear,
+};
 use drizzle_types::postgres::types::{Float4, Float8, Int2, Int4, Int8, Numeric as PgNumeric};
 use drizzle_types::sqlite::types::{
     Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
@@ -25,16 +32,40 @@ use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
     message = "this math function is not available for this dialect",
     label = "use a dialect-specific alternative"
 )]
-pub trait SQLiteMathSupport {}
+pub trait Log2Policy {
+    type Nullable: Nullability;
+}
+
+/// Nullability policy for math functions whose numeric domain is narrower
+/// than their SQL input type.
+#[doc(hidden)]
+pub trait DomainMathPolicy<Input: Nullability> {
+    type Nullable: Nullability;
+}
 
 #[diagnostic::on_unimplemented(
     message = "this math function is not available for this dialect",
     label = "use a dialect-specific alternative"
 )]
-pub trait PostgresMathSupport {}
+pub trait PiSupport {}
 
-impl SQLiteMathSupport for SQLiteDialect {}
-impl PostgresMathSupport for PostgresDialect {}
+impl Log2Policy for SQLiteDialect {
+    type Nullable = super::Null;
+}
+impl Log2Policy for MySQLDialect {
+    type Nullable = super::Null;
+}
+impl<Input: Nullability> DomainMathPolicy<Input> for SQLiteDialect {
+    type Nullable = super::Null;
+}
+impl<Input: Nullability> DomainMathPolicy<Input> for MySQLDialect {
+    type Nullable = super::Null;
+}
+impl<Input: Nullability> DomainMathPolicy<Input> for PostgresDialect {
+    type Nullable = Input;
+}
+impl PiSupport for PostgresDialect {}
+impl PiSupport for MySQLDialect {}
 
 /// Dialect-specific return type for `RANDOM()`.
 ///
@@ -54,6 +85,10 @@ impl RandomPolicy for SQLiteDialect {
 
 impl RandomPolicy for PostgresDialect {
     type Random = drizzle_types::postgres::types::Float8;
+}
+
+impl RandomPolicy for MySQLDialect {
+    type Random = drizzle_types::mysql::types::Double;
 }
 
 #[diagnostic::on_unimplemented(
@@ -91,6 +126,36 @@ impl RoundingPolicy<PostgresDialect> for Float8 {
 }
 impl RoundingPolicy<PostgresDialect> for PgNumeric {
     type Output = Float8;
+}
+
+macro_rules! mysql_rounding_policy {
+    ($output:ty; $($ty:ty),+ $(,)?) => {
+        $(
+            impl RoundingPolicy<MySQLDialect> for $ty {
+                type Output = $output;
+            }
+        )+
+    };
+}
+
+mysql_rounding_policy!(MyBigInt; MyTinyInt, MySmallInt, MyMediumInt, MyInt, MyBigInt,);
+mysql_rounding_policy!(MyBigIntUnsigned;
+    MyTinyIntUnsigned,
+    MySmallIntUnsigned,
+    MyMediumIntUnsigned,
+    MyIntUnsigned,
+    MyBigIntUnsigned,
+    MyYear,
+);
+
+impl RoundingPolicy<MySQLDialect> for MyFloat {
+    type Output = MyDouble;
+}
+impl RoundingPolicy<MySQLDialect> for MyDouble {
+    type Output = Self;
+}
+impl RoundingPolicy<MySQLDialect> for MyDecimal {
+    type Output = Self;
 }
 
 // =============================================================================
@@ -274,7 +339,7 @@ where
 /// # let _ = r####"
 /// use drizzle_core::expr::trunc;
 ///
-/// // SELECT TRUNC(users.price)
+/// // SELECT TRUNC(users.price), or TRUNCATE(users.price, 0) on MySQL
 /// let truncated = trunc(users.price);
 /// # "####;
 /// ```
@@ -293,7 +358,11 @@ where
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("TRUNC", expr.into_sql()))
+    let expr = expr.into_sql();
+    SQLExpr::new(match V::DIALECT {
+        Dialect::MySQL => SQL::func("TRUNCATE", expr.push(Token::COMMA).append(SQL::raw("0"))),
+        Dialect::SQLite | Dialect::PostgreSQL => SQL::func("TRUNC", expr),
+    })
 }
 
 // =============================================================================
@@ -302,7 +371,8 @@ where
 
 /// SQRT - returns the square root of a number.
 ///
-/// Returns a dialect-aware double type, preserves nullability.
+/// Returns a dialect-aware double type. SQLite and MySQL return `NULL` for a
+/// negative argument, while PostgreSQL reports an error.
 ///
 /// # Example
 ///
@@ -314,11 +384,19 @@ where
 /// let root = sqrt(users.area);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn sqrt<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -374,7 +452,7 @@ where
 
 /// EXP - returns e raised to the power of the argument.
 ///
-/// Returns a dialect-aware double type, preserves nullability.
+/// Returns a dialect-aware double type and preserves nullability.
 ///
 /// # Example
 ///
@@ -399,7 +477,8 @@ where
 
 /// LN - returns the natural logarithm of a number.
 ///
-/// Returns a dialect-aware double type, preserves nullability.
+/// SQLite and MySQL return `NULL` outside the logarithm domain. PostgreSQL
+/// reports an error for invalid non-NULL input.
 ///
 /// # Example
 ///
@@ -411,11 +490,19 @@ where
 /// let natural_log = ln(users.value);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn ln<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -424,7 +511,8 @@ where
 
 /// LOG10 - returns the base-10 logarithm of a number.
 ///
-/// Returns a dialect-aware double type, preserves nullability.
+/// SQLite and MySQL return `NULL` outside the logarithm domain. PostgreSQL
+/// reports an error for invalid non-NULL input.
 ///
 /// # Example
 ///
@@ -436,11 +524,19 @@ where
 /// let log_base_10 = log10(users.value);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn log10<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -469,11 +565,15 @@ pub fn log<'a, V, E1, E2>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Double,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    <V::DialectMarker as DomainMathPolicy<
+        <E1::Nullable as NullOr<E2::Nullable>>::Output,
+    >>::Nullable,
     <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker:
+        DomainMathPolicy<<E1::Nullable as NullOr<E2::Nullable>>::Output>,
     E1: Expr<'a, V>,
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
@@ -567,7 +667,7 @@ where
 // CONSTANTS AND RANDOM
 // =============================================================================
 
-/// PI - returns the mathematical constant pi (`PostgreSQL`).
+/// PI - returns the mathematical constant pi (`PostgreSQL` and `MySQL`).
 ///
 /// # Example
 ///
@@ -584,7 +684,7 @@ pub fn pi<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresMathSupport,
+    V::DialectMarker: PiSupport,
 {
     SQLExpr::new(SQL::raw("PI()"))
 }
@@ -593,7 +693,7 @@ where
 ///
 /// Return type is dialect-aware:
 /// - `SQLite`: integer in [-2^63, 2^63)
-/// - `PostgreSQL`: float in [0, 1)
+/// - `PostgreSQL` and `MySQL`: float in [0, 1)
 ///
 /// # Example
 ///
@@ -601,7 +701,7 @@ where
 /// # let _ = r####"
 /// use drizzle_core::expr::random;
 ///
-/// // SELECT RANDOM()
+/// // SELECT RANDOM() on SQLite/PostgreSQL, SELECT RAND() on MySQL
 /// let rnd = random::<SQLiteValue>();
 /// # "####;
 /// ```
@@ -612,17 +712,22 @@ where
     V: SQLParam + 'a,
     V::DialectMarker: RandomPolicy,
 {
-    SQLExpr::new(SQL::raw("RANDOM()"))
+    SQLExpr::new(SQL::raw(match V::DIALECT {
+        Dialect::MySQL => "RAND()",
+        Dialect::SQLite | Dialect::PostgreSQL => "RANDOM()",
+    }))
 }
 
 // =============================================================================
-// SQLite-only Math Functions
+// Dialect-gated Math Functions
 // =============================================================================
 
 /// LOG2 - returns the base-2 logarithm of a number.
 ///
-/// Available in `SQLite` when compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`.
-/// Returns a dialect-aware double type, preserves nullability.
+/// Available in `SQLite` when compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`,
+/// and natively in `MySQL`.
+/// Returns a nullable dialect-aware double because invalid domains produce
+/// `NULL` in both dialects.
 ///
 /// # Example
 ///
@@ -634,12 +739,19 @@ where
 /// let log_base_2 = log2(users.value);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn log2<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    <V::DialectMarker as Log2Policy>::Nullable,
+    E::Aggregate,
+>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteMathSupport,
+    V::DialectMarker: Log2Policy,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {

@@ -9,11 +9,18 @@
 //! - `count`: Works with any type
 //! - `min`, `max`: Work with any type (ordered types in SQL)
 
-use crate::dialect::DialectTypes;
+use crate::dialect::{Dialect, DialectTypes};
 use crate::sql::SQL;
 use crate::traits::SQLParam;
 use crate::types::{Array, Numeric};
-use crate::{PostgresDialect, SQLiteDialect};
+use crate::{MySQLDialect, PostgresDialect, SQLiteDialect};
+use drizzle_types::mysql::types::{
+    BigInt as MyBigInt, BigIntUnsigned as MyBigIntUnsigned, Decimal as MyDecimal,
+    Double as MyDouble, Float as MyFloat, Int as MyInt, IntUnsigned as MyIntUnsigned,
+    MediumInt as MyMediumInt, MediumIntUnsigned as MyMediumIntUnsigned, SmallInt as MySmallInt,
+    SmallIntUnsigned as MySmallIntUnsigned, TinyInt as MyTinyInt,
+    TinyIntUnsigned as MyTinyIntUnsigned, Year as MyYear,
+};
 use drizzle_types::postgres::types::{
     Boolean as PgBoolean, Float4, Float8, Int2, Int4, Int8, Numeric as PgNumeric,
 };
@@ -68,6 +75,12 @@ pub trait PostgresAggregateSupport {}
     label = "use a dialect-specific alternative"
 )]
 pub trait SQLiteAggregateSupport {}
+
+#[diagnostic::on_unimplemented(
+    message = "GROUP_CONCAT is not available for this dialect",
+    label = "use the dialect's native string aggregate"
+)]
+pub trait GroupConcatSupport {}
 
 #[diagnostic::on_unimplemented(
     message = "no COUNT return type defined for this dialect",
@@ -127,6 +140,10 @@ impl CountPolicy for PostgresDialect {
     type Count = drizzle_types::postgres::types::Int8;
 }
 
+impl CountPolicy for MySQLDialect {
+    type Count = drizzle_types::mysql::types::BigInt;
+}
+
 #[diagnostic::on_unimplemented(
     message = "no floating-point return type defined for this dialect",
     label = "PERCENT_RANK/CUME_DIST result type is not configured for this dialect marker"
@@ -144,6 +161,68 @@ impl FloatPolicy for SQLiteDialect {
 impl FloatPolicy for PostgresDialect {
     type Float = drizzle_types::postgres::types::Float8;
 }
+
+impl FloatPolicy for MySQLDialect {
+    type Float = drizzle_types::mysql::types::Double;
+}
+
+macro_rules! mysql_aggregate_policy {
+    ($output:ty; $($ty:ty),+ $(,)?) => {
+        $(
+            impl AggregatePolicy<MySQLDialect> for $ty {
+                type Sum = $output;
+                type Avg = $output;
+            }
+        )+
+    };
+}
+
+mysql_aggregate_policy!(MyDecimal;
+    MyTinyInt,
+    MyTinyIntUnsigned,
+    MySmallInt,
+    MySmallIntUnsigned,
+    MyMediumInt,
+    MyMediumIntUnsigned,
+    MyInt,
+    MyIntUnsigned,
+    MyBigInt,
+    MyBigIntUnsigned,
+    MyYear,
+    MyDecimal,
+);
+
+mysql_aggregate_policy!(MyDouble; MyFloat, MyDouble);
+
+macro_rules! mysql_statistical_aggregate_policy {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl StatisticalAggregatePolicy<MySQLDialect> for $ty {
+                type StddevPop = MyDouble;
+                type StddevSamp = MyDouble;
+                type VarPop = MyDouble;
+                type VarSamp = MyDouble;
+            }
+        )+
+    };
+}
+
+mysql_statistical_aggregate_policy!(
+    MyTinyInt,
+    MyTinyIntUnsigned,
+    MySmallInt,
+    MySmallIntUnsigned,
+    MyMediumInt,
+    MyMediumIntUnsigned,
+    MyInt,
+    MyIntUnsigned,
+    MyBigInt,
+    MyBigIntUnsigned,
+    MyYear,
+    MyDecimal,
+    MyFloat,
+    MyDouble,
+);
 
 impl AggregatePolicy<SQLiteDialect> for SqliteInteger {
     type Sum = Self;
@@ -203,6 +282,8 @@ impl BooleanAggregatePolicy<PostgresDialect> for PgBoolean {}
 
 impl PostgresAggregateSupport for PostgresDialect {}
 impl SQLiteAggregateSupport for SQLiteDialect {}
+impl GroupConcatSupport for SQLiteDialect {}
+impl GroupConcatSupport for MySQLDialect {}
 
 impl AggregatePolicy<PostgresDialect> for Int2 {
     type Sum = Int8;
@@ -567,7 +648,7 @@ where
     SQLExpr::new(SQL::func("VAR_SAMP", expr.into_expr_sql()))
 }
 
-/// VARIANCE - `PostgreSQL` alias for sample variance (`VAR_SAMP`).
+/// Sample variance. Emits `VARIANCE` on PostgreSQL and `VAR_SAMP` on MySQL.
 pub fn variance<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarSamp, Null, Agg>
@@ -576,7 +657,13 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("VARIANCE", expr.into_expr_sql()))
+    SQLExpr::new(SQL::func(
+        match V::DIALECT {
+            Dialect::MySQL => "VAR_SAMP",
+            Dialect::SQLite | Dialect::PostgreSQL => "VARIANCE",
+        },
+        expr.into_expr_sql(),
+    ))
 }
 
 /// `BOOL_AND` - true if all non-null inputs are true (`PostgreSQL`).
@@ -674,7 +761,7 @@ where
 // GROUP_CONCAT / STRING_AGG
 // =============================================================================
 
-/// `GROUP_CONCAT` - concatenates values into a string (`SQLite`).
+/// `GROUP_CONCAT` - concatenates values into a string (`SQLite` and `MySQL`).
 ///
 /// Returns Text type, nullable.
 pub fn group_concat<'a, V, E>(
@@ -682,7 +769,7 @@ pub fn group_concat<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteAggregateSupport,
+    V::DialectMarker: GroupConcatSupport,
     E: Expr<'a, V>,
     E::SQLType: crate::types::Textual,
 {

@@ -7,6 +7,7 @@
 //! `migrations/src/parser/attrs.rs`; producer parity against the real macros
 //! lives in the root package (`tests/parser_parity.rs`).
 
+use drizzle_migrations::mysql::MySQLEntity;
 use drizzle_migrations::parser::SchemaParser;
 use drizzle_migrations::postgres::ddl::PostgresEntity;
 use drizzle_migrations::schema::Snapshot;
@@ -22,7 +23,7 @@ fn sqlite_entities(code: &str) -> Vec<SqliteEntity> {
     );
     match Snapshot::from_parse_result(&result, Dialect::SQLite, None) {
         Snapshot::Sqlite(s) => s.ddl,
-        Snapshot::Postgres(_) => panic!("expected SQLite snapshot"),
+        Snapshot::Postgres(_) | Snapshot::MySQL(_) => panic!("expected SQLite snapshot"),
     }
 }
 
@@ -35,7 +36,156 @@ fn postgres_entities(code: &str) -> Vec<PostgresEntity> {
     );
     match Snapshot::from_parse_result(&result, Dialect::PostgreSQL, None) {
         Snapshot::Postgres(s) => s.ddl,
-        Snapshot::Sqlite(_) => panic!("expected Postgres snapshot"),
+        Snapshot::Sqlite(_) | Snapshot::MySQL(_) => panic!("expected Postgres snapshot"),
+    }
+}
+
+/// Parsing source text, retaining restricted fields, and building a non-empty
+/// snapshot are shared contracts. Keep the dialect list explicit so a new
+/// parser backend cannot quietly miss this regression suite.
+#[test]
+fn shared_parser_contracts_cover_all_table_dialects() {
+    for (dialect, table_attribute) in [
+        (Dialect::SQLite, "SQLiteTable"),
+        (Dialect::PostgreSQL, "PostgresTable"),
+        (Dialect::MySQL, "MySQLTable"),
+    ] {
+        let code = format!(
+            r#"
+#[drizzle::{table_attribute}]
+pub struct Tricky {{
+    pub(crate) id: i64,
+    #[column(default = "{{}}")]
+    pub payload: String,
+    pub(super) trailing: i64,
+}}
+"#
+        );
+        let result = SchemaParser::parse(&code);
+        assert!(
+            result.errors.is_empty(),
+            "{dialect:?} parse errors: {:?}",
+            result.errors
+        );
+
+        let table = result.table("Tricky", dialect).expect("parsed table");
+        assert_eq!(
+            table
+                .fields
+                .iter()
+                .map(|field| field.name.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "payload", "trailing"]
+        );
+
+        let snapshot = Snapshot::from_parse_result(&result, dialect, None);
+        assert_eq!(snapshot.dialect(), dialect);
+        assert!(!snapshot.is_empty());
+    }
+}
+
+#[test]
+fn shared_schema_constraint_contracts_cover_all_table_dialects() {
+    for (dialect, table_attribute, schema_derive) in [
+        (Dialect::SQLite, "SQLiteTable", "SQLiteSchema"),
+        (Dialect::PostgreSQL, "PostgresTable", "PostgresSchema"),
+        (Dialect::MySQL, "MySQLTable", "MySQLSchema"),
+    ] {
+        let code = format!(
+            r#"
+#[{table_attribute}(NAME = "parents")]
+pub struct Parents {{
+    #[column(PRIMARY)]
+    pub id: i64,
+}}
+
+#[{table_attribute}(NAME = "children")]
+pub struct Children {{
+    #[column(PRIMARY)]
+    pub id: i64,
+    #[column(UNIQUE, DEFAULT = 7)]
+    pub sequence: i64,
+    #[column(REFERENCES = Parents::id, ON_DELETE = CASCADE, ON_UPDATE = NO_ACTION)]
+    pub parent_id: i64,
+}}
+
+#[{table_attribute}(NAME = "outside_schema")]
+pub struct OutsideSchema {{
+    pub id: i64,
+}}
+
+#[derive({schema_derive})]
+pub struct AppSchema {{
+    pub parents: Parents,
+    pub children: Children,
+}}
+"#
+        );
+        let result = SchemaParser::parse(&code);
+        assert!(
+            result.errors.is_empty(),
+            "{dialect:?} parse errors: {:?}",
+            result.errors
+        );
+
+        let children = result.table("Children", dialect).expect("children table");
+        assert_eq!(children.spec.explicit_name.as_deref(), Some("children"));
+        let sequence = children
+            .fields
+            .iter()
+            .find(|field| field.name == "sequence")
+            .expect("sequence field");
+        assert!(sequence.spec.unique);
+        assert_eq!(
+            sequence.spec.default,
+            Some(drizzle_migrations::parser::ParsedDefault::Int(
+                "7".to_string()
+            ))
+        );
+        let parent_id = children
+            .fields
+            .iter()
+            .find(|field| field.name == "parent_id")
+            .expect("parent_id field");
+        assert_eq!(
+            parent_id
+                .spec
+                .references
+                .as_ref()
+                .map(|reference| (reference.table.as_str(), reference.column.as_str())),
+            Some(("Parents", "id"))
+        );
+        assert_eq!(parent_id.spec.on_delete.as_deref(), Some("CASCADE"));
+        assert_eq!(parent_id.spec.on_update.as_deref(), Some("NO ACTION"));
+
+        let snapshot = Snapshot::from_parse_result(&result, dialect, None);
+        let table_names: Vec<&str> = match &snapshot {
+            Snapshot::Sqlite(snapshot) => snapshot
+                .ddl
+                .iter()
+                .filter_map(|entity| match entity {
+                    SqliteEntity::Table(table) => Some(table.name.as_ref()),
+                    _ => None,
+                })
+                .collect(),
+            Snapshot::Postgres(snapshot) => snapshot
+                .ddl
+                .iter()
+                .filter_map(|entity| match entity {
+                    PostgresEntity::Table(table) => Some(table.name.as_ref()),
+                    _ => None,
+                })
+                .collect(),
+            Snapshot::MySQL(snapshot) => snapshot
+                .ddl
+                .iter()
+                .filter_map(|entity| match entity {
+                    MySQLEntity::Table(table) => Some(table.name.as_ref()),
+                    _ => None,
+                })
+                .collect(),
+        };
+        assert_eq!(table_names, ["parents", "children"]);
     }
 }
 

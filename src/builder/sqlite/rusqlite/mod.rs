@@ -47,9 +47,9 @@
 //! # let conn = ::rusqlite::Connection::open_in_memory()?;
 //! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
 //! # db.create()?;
-//! use drizzle::sqlite::connection::SQLiteTransactionType;
+//! use drizzle::sqlite::TransactionConfig;
 //!
-//! let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+//! let count = db.transaction(TransactionConfig::Deferred, |tx| {
 //!     tx.insert(user)
 //!         .values([InsertUser::new("Alice")])
 //!         .execute()?;
@@ -68,14 +68,14 @@
 //! ```no_run
 //! # use drizzle::sqlite::rusqlite::Drizzle;
 //! # use drizzle::sqlite::prelude::*;
-//! # use drizzle::sqlite::connection::SQLiteTransactionType;
+//! # use drizzle::sqlite::TransactionConfig;
 //! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
 //! # #[derive(SQLiteSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let conn = ::rusqlite::Connection::open_in_memory()?;
 //! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
 //! # db.create()?;
-//! db.transaction(SQLiteTransactionType::Deferred, |tx| {
+//! db.transaction(TransactionConfig::Deferred, |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
 //!
 //!     // This savepoint fails and rolls back, but Alice is still inserted
@@ -149,10 +149,7 @@ use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::SQLiteValue;
 use rusqlite::{Connection, params_from_iter};
 
-use drizzle_sqlite::{
-    builder::{self, QueryBuilder},
-    connection::SQLiteTransactionType,
-};
+use drizzle_sqlite::builder::{self, QueryBuilder};
 
 use crate::builder::sqlite::common;
 use crate::builder::sqlite::rows::Rows;
@@ -256,6 +253,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         .with_query(|| QueryContext::new(&sql_str, &params))?
     }
 
+    fn start(
+        &mut self,
+        config: drizzle_sqlite::TransactionConfig,
+    ) -> drizzle_core::error::Result<Transaction<'_, Schema>>
+    where
+        Schema: Copy,
+    {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.rusqlite");
+        let tx = self.conn.transaction_with_behavior(config.into())?;
+        Ok(Transaction::new(tx, config, self.schema))
+    }
+
     /// Executes a transaction with the given callback.
     ///
     /// Returns the value produced by the callback on success. The transaction
@@ -265,14 +274,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// ```no_run
     /// # use drizzle::sqlite::rusqlite::Drizzle;
     /// # use drizzle::sqlite::prelude::*;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
+    /// # use drizzle::sqlite::TransactionConfig;
     /// # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
     /// # #[derive(SQLiteSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let conn = ::rusqlite::Connection::open_in_memory()?;
     /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
     /// # db.create()?;
-    /// let count = db.transaction(SQLiteTransactionType::Deferred, |tx| {
+    /// let count = db.transaction(TransactionConfig::Deferred, |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
     ///     Ok(users.len())
@@ -282,17 +291,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// ```
     pub fn transaction<F, R>(
         &mut self,
-        tx_type: SQLiteTransactionType,
+        config: drizzle_sqlite::TransactionConfig,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
         F: FnOnce(&Transaction<Schema>) -> drizzle_core::error::Result<R>,
     {
-        drizzle_core::drizzle_trace_tx!("begin", "sqlite.rusqlite");
-        let tx = self.conn.transaction_with_behavior(tx_type.into())?;
-
-        let transaction = Transaction::new(tx, tx_type, self.schema);
+        let transaction = self.start(config)?;
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&transaction)));
 
@@ -898,9 +904,10 @@ where
     let mut rendered = Vec::new();
     builder.relations.render_into(&mut rendered);
     let query_sql = drizzle_core::query::build_query_sql(
-        T::TABLE_NAME,
+        T::TABLE,
         T::COLUMN_NAMES,
         T::BLOB_COLUMNS,
+        T::JSON_PROJECTIONS,
         rendered,
         builder.where_sql,
         builder.order_by_sql,
@@ -1054,9 +1061,10 @@ where
     let mut rendered = Vec::new();
     builder.relations.render_into(&mut rendered);
     let query_sql = drizzle_core::query::build_query_sql(
-        T::TABLE_NAME,
+        T::TABLE,
         &col_refs,
         T::BLOB_COLUMNS,
+        T::JSON_PROJECTIONS,
         rendered,
         builder.where_sql,
         builder.order_by_sql,

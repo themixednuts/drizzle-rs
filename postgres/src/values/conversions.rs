@@ -1,4 +1,4 @@
-//! From<T> and `TryFrom`<PostgresValue> implementations
+//! `From<T>` and `TryFrom<PostgresValue>` implementations.
 
 use super::PostgresValue;
 use crate::prelude::*;

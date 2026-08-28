@@ -1,0 +1,6 @@
+error: AUTO_INCREMENT requires a signed or unsigned MySQL integer column
+ --> tests/ui/mysql_macros/fail/auto_increment_non_integer.rs:5:5
+  |
+5 | /     #[column(UNIQUE, AUTO_INCREMENT)]
+6 | |     value: String,
+  | |_________________^

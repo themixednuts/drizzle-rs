@@ -33,6 +33,12 @@ use super::agg::{CountPolicy, FloatPolicy};
 use super::null::NullOr;
 use super::{Agg, Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
 
+/// Dialects that support an aggregate `FILTER (WHERE ...)` clause.
+pub trait AggregateFilterSupport {}
+
+impl AggregateFilterSupport for crate::SQLiteDialect {}
+impl AggregateFilterSupport for crate::PostgresDialect {}
+
 // =============================================================================
 // Frame Bounds
 // =============================================================================
@@ -214,6 +220,7 @@ where
     where
         C: Expr<'a, V>,
         C::SQLType: BooleanLike,
+        V::DialectMarker: AggregateFilterSupport,
     {
         let sql = self
             .into_sql()

@@ -23,7 +23,7 @@ where
     Ok(Cow::Owned(s))
 }
 
-/// Deserialize an Option<String> into Option<Cow<'static, str>>
+/// Deserializes an `Option<String>` into an `Option<Cow<'static, str>>`.
 ///
 /// # Errors
 ///

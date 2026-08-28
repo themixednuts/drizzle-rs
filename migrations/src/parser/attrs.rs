@@ -13,6 +13,7 @@
 //! the bottom) makes future macro/parser drift testable.
 
 use drizzle_types::Dialect;
+use drizzle_types::mysql::{MySQLType, TypeCategory as MySQLRustTypeCategory};
 use drizzle_types::sqlite::SQLiteType;
 use proc_macro2::Span;
 use quote::ToTokens;
@@ -23,8 +24,8 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, Lit, Meta, Token, Type};
 
 use super::types::{
-    ColumnSpec, CompositeFkSpec, IndexSpec, ParsedDefault, ParsedGenerated, ParsedIdentity,
-    ParsedReference, SerialKind, TableCheckSpec, TableSpec, TableUniqueSpec,
+    ColumnSpec, CompositeFkSpec, IndexSpec, MySQLIndexKeyPartSpec, ParsedDefault, ParsedGenerated,
+    ParsedIdentity, ParsedReference, SerialKind, TableCheckSpec, TableSpec, TableUniqueSpec,
 };
 
 /// Warning / error sinks threaded through interpretation.
@@ -148,6 +149,12 @@ pub(crate) fn postgres_index_name(struct_ident: &str) -> String {
     } else {
         format!("{snake}_idx")
     }
+}
+
+/// MySQL index name derivation (`mysql::index::mysql_index_attr_macro`):
+/// heck snake-case, with no SQLite-style suffix.
+pub(crate) fn mysql_index_name(struct_ident: &str) -> String {
+    heck::AsSnakeCase(struct_ident).to_string()
 }
 
 // =============================================================================
@@ -620,8 +627,9 @@ fn parse_sqlite_args(
                         args.explicit_type = Some(SQLiteType::Blob);
                         args.json = true;
                     }
-                    // Bare DEFAULT means `default_fn = Default::default`.
-                    "DEFAULT" => args.default_fn = true,
+                    "DEFAULT" | "DEFAULT_FN" | "DEFAULT_SQL" => diags
+                        .errors
+                        .push(format!("{field_desc}: {ident_str} requires a value")),
                     "ENUM" => args.enum_marker = true,
                     "PRIMARY" | "PRIMARY_KEY" => args.primary = true,
                     "AUTOINCREMENT" => args.autoincrement = true,
@@ -649,9 +657,8 @@ fn parse_sqlite_args(
                     "DEFAULT" => {
                         let default = default_from_expr(&assign.right, source);
                         if matches!(default, ParsedDefault::Unsupported(_)) {
-                            diags.warnings.push(format!(
-                                "{field_desc}: `default = {raw_value}` is not a literal the \
-                                 table macros emit into DDL; the default is ignored"
+                            diags.errors.push(format!(
+                                "{field_desc}: DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default"
                             ));
                         }
                         args.default_raw = Some((key, raw_value));
@@ -943,6 +950,694 @@ pub(crate) fn sqlite_column_spec(
 }
 
 // =============================================================================
+// MySQL column attributes (mirrors mysql::field::parse_column_attrs)
+// =============================================================================
+
+/// Parsed MySQL-only column state before it is folded into [`ColumnSpec`].
+/// Keeping the native type as [`MySQLType`] until the end prevents losing
+/// signedness and distinguishes inline `ENUM`/`SET` from an arbitrary SQL
+/// type string.
+#[derive(Default)]
+struct MySqlArgs {
+    explicit_type: Option<MySQLType>,
+    type_args: Vec<u16>,
+    primary: bool,
+    unique: bool,
+    not_null: bool,
+    autoincrement: bool,
+    enum_marker: bool,
+    set_values: Option<Vec<String>>,
+    default: Option<ParsedDefault>,
+    default_sql: Option<String>,
+    default_fn: bool,
+    generated: Option<ParsedGenerated>,
+    check: Option<String>,
+    references: Option<ParsedReference>,
+    on_delete: Option<String>,
+    on_update: Option<String>,
+    on_delete_raw: Option<String>,
+    on_update_raw: Option<String>,
+    name: Option<String>,
+    relation: Option<String>,
+    charset: Option<String>,
+    collate: Option<String>,
+    mysql_on_update: Option<String>,
+    comment: Option<String>,
+    named_values: Vec<(String, String)>,
+}
+
+fn mysql_string_value(
+    expr: &Expr,
+    field_desc: &str,
+    attr_name: &str,
+    diags: &mut Diags,
+) -> Option<String> {
+    let Some(value) = lit_str_value(expr) else {
+        diags.errors.push(format!(
+            "{field_desc}: {attr_name} requires a string literal"
+        ));
+        return None;
+    };
+    Some(value)
+}
+
+fn set_mysql_explicit_type(
+    args: &mut MySqlArgs,
+    ty: MySQLType,
+    field_desc: &str,
+    diags: &mut Diags,
+) {
+    if args.explicit_type.replace(ty).is_some() {
+        diags.errors.push(format!(
+            "{field_desc}: a MySQL column may specify only one SQL type"
+        ));
+    }
+}
+
+fn mysql_referential_action(value: &str) -> Option<String> {
+    match value.to_ascii_uppercase().replace('_', " ").as_str() {
+        "CASCADE" => Some("CASCADE".to_string()),
+        "SET NULL" => Some("SET NULL".to_string()),
+        "RESTRICT" => Some("RESTRICT".to_string()),
+        "NO ACTION" => Some("NO ACTION".to_string()),
+        // MySQL/InnoDB rejects SET DEFAULT. Do not reuse the SQLite/Postgres
+        // normalizer here: accepting it would make the parser less strict
+        // than the MySQL macro.
+        _ => None,
+    }
+}
+
+fn mysql_parse_type_args(list: &syn::MetaList, field_desc: &str, diags: &mut Diags) -> Vec<u16> {
+    let parsed = Punctuated::<syn::LitInt, Token![,]>::parse_terminated.parse2(list.tokens.clone());
+    match parsed {
+        Ok(values) => values
+            .into_iter()
+            .filter_map(|value| match value.base10_parse::<u16>() {
+                Ok(value) => Some(value),
+                Err(_) => {
+                    diags.errors.push(format!(
+                        "{field_desc}: MySQL type arguments must fit in an unsigned 16-bit integer"
+                    ));
+                    None
+                }
+            })
+            .collect(),
+        Err(_) => {
+            diags.errors.push(format!(
+                "{field_desc}: MySQL type arguments must be integer literals"
+            ));
+            Vec::new()
+        }
+    }
+}
+
+fn mysql_parse_generated(
+    list: &syn::MetaList,
+    field_desc: &str,
+    diags: &mut Diags,
+) -> Option<ParsedGenerated> {
+    let args = match Punctuated::<Expr, Token![,]>::parse_terminated.parse2(list.tokens.clone()) {
+        Ok(args) => args,
+        Err(err) => {
+            diags.errors.push(format!(
+                "{field_desc}: generated(...) could not be parsed: {err}"
+            ));
+            return None;
+        }
+    };
+    if args.len() != 2 {
+        diags.errors.push(format!(
+            "{field_desc}: generated(...) accepts exactly `stored|virtual, \"expression\"`"
+        ));
+        return None;
+    }
+    let Some(kind) = args.first().and_then(|expr| match expr {
+        Expr::Path(path) => path.path.get_ident().map(ToString::to_string),
+        _ => None,
+    }) else {
+        diags.errors.push(format!(
+            "{field_desc}: generated(...) expects `stored` or `virtual` as its first argument"
+        ));
+        return None;
+    };
+    let stored = match kind.to_ascii_lowercase().as_str() {
+        "stored" => true,
+        "virtual" => false,
+        _ => {
+            diags.errors.push(format!(
+                "{field_desc}: generated(...) expects `stored` or `virtual`"
+            ));
+            return None;
+        }
+    };
+    let Some(expression) = args.get(1).and_then(lit_str_value) else {
+        diags.errors.push(format!(
+            "{field_desc}: generated(...) expression must be a string literal"
+        ));
+        return None;
+    };
+    Some(ParsedGenerated { expression, stored })
+}
+
+fn mysql_parse_set_values(
+    list: &syn::MetaList,
+    field_desc: &str,
+    diags: &mut Diags,
+) -> Option<Vec<String>> {
+    let parsed =
+        match Punctuated::<syn::LitStr, Token![,]>::parse_terminated.parse2(list.tokens.clone()) {
+            Ok(values) => values,
+            Err(_) => {
+                diags.errors.push(format!(
+                    "{field_desc}: SET expects string values: SET(\"a\", \"b\")"
+                ));
+                return None;
+            }
+        };
+    if parsed.is_empty() {
+        diags.errors.push(format!(
+            "{field_desc}: MySQL SET requires at least one value"
+        ));
+        return None;
+    }
+    if parsed.len() > 64 {
+        diags.errors.push(format!(
+            "{field_desc}: MySQL SET supports at most 64 values"
+        ));
+        return None;
+    }
+    let mut values = Vec::with_capacity(parsed.len());
+    for value in parsed {
+        let value = value.value();
+        if value.is_empty() || value.contains(['\0', '\'', '\\']) {
+            diags.errors.push(format!(
+                "{field_desc}: MySQL inline SET labels must be non-empty and cannot contain NUL, quotes, or backslashes"
+            ));
+            return None;
+        }
+        values.push(value);
+    }
+    Some(values)
+}
+
+fn mysql_array_capacity(ty: &Type) -> Option<u16> {
+    let Type::Array(array) = ty else { return None };
+    let Expr::Lit(lit) = &array.len else {
+        return None;
+    };
+    let Lit::Int(value) = &lit.lit else {
+        return None;
+    };
+    value.base10_parse::<u16>().ok()
+}
+
+fn mysql_const_capacity(ty: &Type) -> Option<u16> {
+    let Type::Path(path) = ty else { return None };
+    let segment = path.path.segments.last()?;
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+    let expression = arguments.args.iter().rev().find_map(|argument| {
+        if let syn::GenericArgument::Const(expression) = argument {
+            Some(expression)
+        } else {
+            None
+        }
+    })?;
+    let Expr::Lit(lit) = expression else {
+        return None;
+    };
+    let Lit::Int(value) = &lit.lit else {
+        return None;
+    };
+    value.base10_parse::<u16>().ok()
+}
+
+fn mysql_inferred_type(ty: &Type) -> Option<(MySQLType, Vec<u16>)> {
+    let rendered = type_token_string(ty);
+    let category = MySQLRustTypeCategory::classify(&rendered);
+    match category {
+        MySQLRustTypeCategory::Uuid => Some((MySQLType::Binary, vec![16])),
+        MySQLRustTypeCategory::ArrayString if last_ident_is(ty, "CompactString") => {
+            Some((MySQLType::Text, Vec::new()))
+        }
+        MySQLRustTypeCategory::ArrayString => {
+            mysql_const_capacity(ty).map(|capacity| (MySQLType::Varchar, vec![capacity]))
+        }
+        MySQLRustTypeCategory::ByteArray => {
+            mysql_array_capacity(ty).map(|capacity| (MySQLType::Binary, vec![capacity]))
+        }
+        MySQLRustTypeCategory::CharArray => {
+            mysql_array_capacity(ty).map(|capacity| (MySQLType::Char, vec![capacity]))
+        }
+        MySQLRustTypeCategory::ArrayVec if last_ident_is(ty, "ArrayVec") => {
+            mysql_const_capacity(ty).map(|capacity| (MySQLType::Varbinary, vec![capacity]))
+        }
+        MySQLRustTypeCategory::ArrayVec => Some((MySQLType::Blob, Vec::new())),
+        _ => category.sql_type().map(|ty| (ty, Vec::new())),
+    }
+}
+
+fn mysql_render_type(ty: &MySQLType, args: &[u16]) -> String {
+    match ty {
+        MySQLType::Enum(_) => "ENUM".to_string(),
+        MySQLType::Set(values) => format!(
+            "SET({})",
+            values
+                .iter()
+                .map(|value| format!("'{value}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ if args.is_empty() => ty.sql().to_string(),
+        _ => {
+            let sql = ty.sql();
+            let (base, suffix) = sql
+                .strip_suffix(" UNSIGNED")
+                .map_or((sql, ""), |base| (base, " UNSIGNED"));
+            format!(
+                "{base}({}){suffix}",
+                args.iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    }
+}
+
+fn mysql_supports_character_options(ty: &MySQLType) -> bool {
+    matches!(
+        ty,
+        MySQLType::Char
+            | MySQLType::Varchar
+            | MySQLType::Tinytext
+            | MySQLType::Text
+            | MySQLType::Mediumtext
+            | MySQLType::Longtext
+            | MySQLType::Enum(_)
+            | MySQLType::Set(_)
+    )
+}
+
+fn mysql_validate_type_args(ty: &MySQLType, args: &[u16]) -> Option<&'static str> {
+    ty.validate_args(args)
+}
+
+fn mysql_validate_explicit_signedness(
+    rust_type: &Type,
+    sql_type: &MySQLType,
+    field_desc: &str,
+    diags: &mut Diags,
+) {
+    let rust_category = MySQLRustTypeCategory::classify(&type_token_string(rust_type));
+    let rust_unsigned = matches!(
+        rust_category,
+        MySQLRustTypeCategory::U8
+            | MySQLRustTypeCategory::U16
+            | MySQLRustTypeCategory::U32
+            | MySQLRustTypeCategory::U64
+            | MySQLRustTypeCategory::Usize
+    );
+    let rust_signed = matches!(
+        rust_category,
+        MySQLRustTypeCategory::I8
+            | MySQLRustTypeCategory::I16
+            | MySQLRustTypeCategory::I32
+            | MySQLRustTypeCategory::I64
+            | MySQLRustTypeCategory::Isize
+    );
+    let sql_signed = matches!(
+        sql_type,
+        MySQLType::Tinyint
+            | MySQLType::Smallint
+            | MySQLType::Mediumint
+            | MySQLType::Int
+            | MySQLType::Bigint
+    );
+
+    if sql_type.is_unsigned() && rust_signed {
+        diags.errors.push(format!(
+            "{field_desc}: {} is unsigned but the Rust field is signed; use the corresponding u8/u16/u32/u64 type",
+            sql_type.sql()
+        ));
+    }
+    if sql_signed && rust_unsigned {
+        diags.errors.push(format!(
+            "{field_desc}: {} is signed but the Rust field is unsigned; use the corresponding signed Rust type or an *_UNSIGNED SQL type",
+            sql_type.sql()
+        ));
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn mysql_column_spec(
+    field: &syn::Field,
+    source: &str,
+    table_desc: &str,
+    diags: &mut Diags,
+) -> ColumnSpec {
+    let mut spec = ColumnSpec {
+        nullable: is_option_type(&field.ty),
+        ..ColumnSpec::default()
+    };
+    let field_name = field
+        .ident
+        .as_ref()
+        .map_or_else(|| "<unnamed>".to_string(), std::string::ToString::to_string);
+    let field_desc = format!("{table_desc}.{field_name}");
+    let mut args = MySqlArgs::default();
+
+    for attr in &field.attrs {
+        if !attr.path().is_ident("column") {
+            continue;
+        }
+        let Meta::List(list) = &attr.meta else {
+            diags
+                .errors
+                .push(format!("{field_desc}: #[column] requires arguments"));
+            continue;
+        };
+        let metas =
+            match Punctuated::<Meta, Token![,]>::parse_terminated.parse2(list.tokens.clone()) {
+                Ok(metas) => metas,
+                Err(err) => {
+                    diags.errors.push(format!(
+                        "{field_desc}: failed to parse MySQL column attribute: {err}"
+                    ));
+                    continue;
+                }
+            };
+
+        for meta in metas {
+            let Some(ident) = meta.path().get_ident() else {
+                diags.errors.push(format!(
+                    "{field_desc}: expected a MySQL column attribute name"
+                ));
+                continue;
+            };
+            let name = ident.to_string();
+            let upper = name.to_ascii_uppercase();
+            match meta {
+                Meta::Path(_path) => match upper.as_str() {
+                    "PRIMARY" | "PRIMARY_KEY" => args.primary = true,
+                    "UNIQUE" => args.unique = true,
+                    "NOT_NULL" => args.not_null = true,
+                    "AUTO_INCREMENT" => args.autoincrement = true,
+                    "AUTOINCREMENT" => diags.errors.push(format!(
+                        "{field_desc}: AUTOINCREMENT is SQLite-only; MySQL uses AUTO_INCREMENT"
+                    )),
+                    "ENUM" => {
+                        if args.explicit_type.is_some() {
+                            diags.errors.push(format!(
+                                "{field_desc}: MySQL inline ENUM uses #[column(ENUM)] without a second SQL type override"
+                            ));
+                        }
+                        args.enum_marker = true;
+                    }
+                    "JSON" => {
+                        set_mysql_explicit_type(&mut args, MySQLType::Json, &field_desc, diags)
+                    }
+                    "JSONB" => diags.errors.push(format!(
+                        "{field_desc}: JSONB is PostgreSQL/SQLite-only; MySQL uses JSON"
+                    )),
+                    "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" | "IDENTITY" | "PGENUM" => {
+                        diags.errors.push(format!(
+                            "{field_desc}: {upper} is PostgreSQL-only; use a MySQL integer with AUTO_INCREMENT or inline ENUM"
+                        ));
+                    }
+                    "DEFERRABLE" | "INITIALLY_DEFERRED" => diags.errors.push(format!(
+                        "{field_desc}: MySQL foreign keys are not deferrable"
+                    )),
+                    _ => match MySQLType::parse_attribute(&upper) {
+                        Some(ty) => set_mysql_explicit_type(&mut args, ty, &field_desc, diags),
+                        None => diags.errors.push(format!(
+                            "{field_desc}: unrecognized MySQL column attribute `{name}`"
+                        )),
+                    },
+                },
+                Meta::NameValue(value) => {
+                    let raw_value = spanned_source(source, &value.value);
+                    args.named_values.push((name.clone(), raw_value.clone()));
+                    match upper.as_str() {
+                        "NAME" => {
+                            args.name = mysql_string_value(&value.value, &field_desc, "NAME", diags)
+                        }
+                        "DEFAULT" => {
+                            let default = default_from_expr(&value.value, source);
+                            if matches!(default, ParsedDefault::Unsupported(_)) {
+                                diags.errors.push(format!(
+                                    "{field_desc}: DEFAULT requires a string, number, boolean, or character literal; use DEFAULT_SQL for SQL expressions"
+                                ));
+                            } else {
+                                args.default = Some(default);
+                            }
+                        }
+                        "DEFAULT_SQL" => {
+                            args.default_sql =
+                                mysql_string_value(&value.value, &field_desc, "DEFAULT_SQL", diags);
+                        }
+                        "DEFAULT_FN" => args.default_fn = true,
+                        "CHECK" => {
+                            args.check =
+                                mysql_string_value(&value.value, &field_desc, "CHECK", diags)
+                        }
+                        "REFERENCES" => {
+                            args.references = reference_from_expr(&value.value);
+                            if args.references.is_none() {
+                                diags.errors.push(format!(
+                                    "{field_desc}: REFERENCES must be in the format Table::column"
+                                ));
+                            }
+                        }
+                        "RELATION" => {
+                            args.relation =
+                                mysql_string_value(&value.value, &field_desc, "RELATION", diags);
+                            if let Some(relation) = &args.relation
+                                && syn::parse_str::<Ident>(relation).is_err()
+                            {
+                                diags.errors.push(format!(
+                                    "{field_desc}: RELATION = \"{relation}\" must be a valid Rust identifier"
+                                ));
+                            }
+                        }
+                        "ON_DELETE" => {
+                            let action = if let Expr::Path(path) = &value.value {
+                                path.path.get_ident().map(ToString::to_string)
+                            } else {
+                                None
+                            };
+                            match action.and_then(|action| mysql_referential_action(&action)) {
+                                Some(action) => {
+                                    args.on_delete_raw = Some(raw_value);
+                                    args.on_delete = Some(action);
+                                }
+                                None => diags.errors.push(format!(
+                                    "{field_desc}: ON_DELETE expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
+                                )),
+                            }
+                        }
+                        "ON_UPDATE" => {
+                            if let Expr::Path(path) = &value.value {
+                                let action = path.path.get_ident().map(ToString::to_string);
+                                match action.and_then(|action| mysql_referential_action(&action)) {
+                                    Some(action) => {
+                                        args.on_update_raw = Some(raw_value);
+                                        args.on_update = Some(action);
+                                    }
+                                    None => diags.errors.push(format!(
+                                        "{field_desc}: ON_UPDATE as an identifier expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION; use a string for a timestamp expression"
+                                    )),
+                                }
+                            } else {
+                                args.mysql_on_update = mysql_string_value(
+                                    &value.value,
+                                    &field_desc,
+                                    "ON_UPDATE",
+                                    diags,
+                                );
+                            }
+                        }
+                        "CHARSET" | "CHARACTER_SET" => {
+                            args.charset = mysql_string_value(
+                                &value.value,
+                                &field_desc,
+                                "CHARACTER_SET",
+                                diags,
+                            );
+                        }
+                        "COLLATE" => {
+                            args.collate =
+                                mysql_string_value(&value.value, &field_desc, "COLLATE", diags)
+                        }
+                        "COMMENT" => {
+                            args.comment =
+                                mysql_string_value(&value.value, &field_desc, "COMMENT", diags)
+                        }
+                        _ => diags.errors.push(format!(
+                            "{field_desc}: unrecognized MySQL column attribute `{name}`"
+                        )),
+                    }
+                }
+                Meta::List(list) => match upper.as_str() {
+                    "GENERATED" => {
+                        args.generated = mysql_parse_generated(&list, &field_desc, diags)
+                    }
+                    "SET" => {
+                        if let Some(values) = mysql_parse_set_values(&list, &field_desc, diags) {
+                            set_mysql_explicit_type(
+                                &mut args,
+                                MySQLType::set_values(values.clone()),
+                                &field_desc,
+                                diags,
+                            );
+                            args.set_values = Some(values);
+                        }
+                    }
+                    _ => match MySQLType::parse_attribute(&upper) {
+                        Some(ty) => {
+                            args.type_args = mysql_parse_type_args(&list, &field_desc, diags);
+                            set_mysql_explicit_type(&mut args, ty, &field_desc, diags);
+                        }
+                        None => diags.errors.push(format!(
+                            "{field_desc}: unrecognized MySQL column attribute `{name}`"
+                        )),
+                    },
+                },
+            }
+        }
+    }
+
+    if (args.on_delete_raw.is_some() || args.on_update_raw.is_some()) && args.references.is_none() {
+        diags.errors.push(format!(
+            "{field_desc}: on_delete/on_update require a `references = Table::column` attribute"
+        ));
+    }
+    if args.relation.is_some() && args.references.is_none() {
+        diags.errors.push(format!(
+            "{field_desc}: relation requires a `references = Table::column` attribute"
+        ));
+    }
+    if args.not_null && spec.nullable {
+        diags.errors.push(format!(
+            "{field_desc}: Option<T> cannot be combined with NOT_NULL"
+        ));
+    }
+    if args.primary && spec.nullable {
+        diags.errors.push(format!(
+            "{field_desc}: MySQL primary-key fields cannot be nullable; remove Option<T>"
+        ));
+    }
+    if args.default.is_some() && args.default_fn {
+        diags.errors.push(format!(
+            "{field_desc}: DEFAULT/DEFAULT_SQL and DEFAULT_FN are mutually exclusive"
+        ));
+    }
+    if args.default_sql.is_some() && args.default_fn {
+        diags.errors.push(format!(
+            "{field_desc}: DEFAULT/DEFAULT_SQL and DEFAULT_FN are mutually exclusive"
+        ));
+    }
+
+    if args.enum_marker && args.explicit_type.is_some() {
+        diags.errors.push(format!(
+            "{field_desc}: MySQL inline ENUM uses #[column(ENUM)] without a second SQL type override"
+        ));
+    }
+
+    let base_type = unwrap_option(&field.ty);
+    let (mysql_type, type_args) = if args.enum_marker {
+        (MySQLType::enum_values(Vec::<String>::new()), Vec::new())
+    } else if let Some(ty) = args.explicit_type.take() {
+        if args.set_values.is_none() {
+            mysql_validate_explicit_signedness(base_type, &ty, &field_desc, diags);
+        }
+        (ty, args.type_args.clone())
+    } else if let Some(inferred) = mysql_inferred_type(base_type) {
+        inferred
+    } else {
+        spec.is_custom_type = true;
+        diags.errors.push(format!(
+            "{field_desc}: unsupported Rust type `{}` for MySQL; add #[derive(MySQLEnum)] and #[column(ENUM)], or specify a supported MySQL type",
+            type_token_string(base_type)
+        ));
+        (MySQLType::Text, Vec::new())
+    };
+    if let Some(message) = mysql_validate_type_args(&mysql_type, &type_args) {
+        diags.errors.push(format!("{field_desc}: {message}"));
+    }
+    if (args.charset.is_some() || args.collate.is_some())
+        && !mysql_supports_character_options(&mysql_type)
+    {
+        diags.errors.push(format!(
+            "{field_desc}: CHARACTER_SET/CHARSET and COLLATE apply only to MySQL character, text, ENUM, or SET columns"
+        ));
+    }
+    if args.mysql_on_update.is_some()
+        && !matches!(mysql_type, MySQLType::Datetime | MySQLType::Timestamp)
+    {
+        diags.errors.push(format!(
+            "{field_desc}: column ON_UPDATE applies only to MySQL DATETIME or TIMESTAMP columns"
+        ));
+    }
+    if args.autoincrement {
+        if !mysql_type.supports_auto_increment() {
+            diags.errors.push(format!(
+                "{field_desc}: AUTO_INCREMENT requires a signed or unsigned MySQL integer column"
+            ));
+        }
+        if args.generated.is_some() || args.default.is_some() || args.default_sql.is_some() {
+            diags.errors.push(format!(
+                "{field_desc}: AUTO_INCREMENT cannot be combined with DEFAULT or GENERATED"
+            ));
+        }
+        if !(args.primary || args.unique) {
+            diags.errors.push(format!(
+                "{field_desc}: MySQL requires an AUTO_INCREMENT column to be keyed; add PRIMARY or UNIQUE"
+            ));
+        }
+    }
+    if args.generated.is_some()
+        && (args.default.is_some()
+            || args.default_sql.is_some()
+            || args.default_fn
+            || args.mysql_on_update.is_some())
+    {
+        diags.errors.push(format!(
+            "{field_desc}: GENERATED columns cannot use DEFAULT, DEFAULT_FN, or ON_UPDATE"
+        ));
+    }
+
+    spec.primary = args.primary;
+    spec.unique = args.unique;
+    spec.not_null = args.not_null;
+    spec.autoincrement = args.autoincrement;
+    spec.enum_marker = args.enum_marker;
+    spec.default = args.default;
+    spec.default_sql = args.default_sql;
+    spec.has_default_fn = args.default_fn;
+    spec.generated = args.generated;
+    spec.check = args.check;
+    spec.references = args.references;
+    spec.on_delete = args.on_delete;
+    spec.on_update = args.on_update;
+    spec.on_delete_raw = args.on_delete_raw;
+    spec.on_update_raw = args.on_update_raw;
+    spec.explicit_name = args.name;
+    spec.relation = args.relation;
+    spec.charset = args.charset;
+    spec.collate = args.collate;
+    spec.mysql_on_update = args.mysql_on_update;
+    spec.comment = args.comment;
+    spec.named_values = args.named_values;
+    spec.mysql_inline_enum = spec.enum_marker;
+    spec.mysql_set_values = args.set_values;
+    spec.mysql_type = Some(mysql_render_type(&mysql_type, &type_args));
+
+    spec
+}
+
+// =============================================================================
 // Postgres column attributes (mirrors postgres::field::parse_column_attribute)
 // =============================================================================
 
@@ -964,6 +1659,11 @@ pub(crate) fn postgres_column_spec(
         .map_or_else(|| "<unnamed>".to_string(), std::string::ToString::to_string);
     let field_desc = format!("{table_desc}.{field_name}");
     let base_type = unwrap_option(&field.ty).clone();
+    let postgres_array_type = infer_postgres_array(&field.ty);
+    let supports_bounded_character_type = is_string_like(&base_type)
+        || is_array_string(&base_type)
+        || postgres_array_type == Some("TEXT");
+    let mut explicit_pg_type = None;
 
     // The Postgres macro only processes the *first* `#[column(...)]`
     // attribute (it breaks out of the attribute loop).
@@ -983,6 +1683,36 @@ pub(crate) fn postgres_column_spec(
             };
             let key = path_ident.to_string();
             match key.to_ascii_uppercase().as_str() {
+                "VARCHAR" | "CHAR" => {
+                    if !supports_bounded_character_type {
+                        return Err(meta.error(
+                            "VARCHAR/CHAR SQL type overrides require a Rust string type",
+                        ));
+                    }
+                    if explicit_pg_type.is_some() {
+                        return Err(meta.error(
+                            "a PostgreSQL column may specify only one SQL type",
+                        ));
+                    }
+                    let content;
+                    syn::parenthesized!(content in meta.input);
+                    let length: syn::LitInt = content.parse()?;
+                    if !content.is_empty() {
+                        return Err(meta.error(
+                            "VARCHAR/CHAR require exactly one length argument",
+                        ));
+                    }
+                    let length = length.base10_parse::<u32>()?;
+                    if length == 0 {
+                        return Err(meta.error(
+                            "VARCHAR/CHAR length must be greater than zero",
+                        ));
+                    }
+                    explicit_pg_type = Some(format!(
+                        "{}({length})",
+                        key.to_ascii_uppercase()
+                    ));
+                }
                 "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" => {
                     let (kind, required) = match key.to_ascii_uppercase().as_str() {
                         "SERIAL" => (SerialKind::Serial, "i32"),
@@ -1129,56 +1859,50 @@ pub(crate) fn postgres_column_spec(
                     }
                 }
                 "DEFAULT" => {
-                    if meta.input.peek(Token![=]) {
-                        meta.input.parse::<Token![=]>()?;
-                        if let Some(kind) = default_kind {
-                            return Err(meta.error(format!("default conflicts with existing {kind}")));
-                        }
-                        let expr: Expr = meta.input.parse()?;
-                        let raw_value = spanned_source(source, &expr);
-                        spec.named_values.push((key, raw_value.clone()));
-                        let default = default_from_expr(&expr, source);
-                        if matches!(default, ParsedDefault::Unsupported(_)) {
-                            return Err(meta.error(
-                                "unsupported default value; expected a string, integer, float, \
-                                 or boolean literal",
-                            ));
-                        }
-                        spec.default = Some(default);
-                        default_kind = Some("default");
+                    meta.input.parse::<Token![=]>()?;
+                    if let Some(kind) = default_kind {
+                        return Err(meta.error(format!("default conflicts with existing {kind}")));
                     }
+                    let expr: Expr = meta.input.parse()?;
+                    let raw_value = spanned_source(source, &expr);
+                    spec.named_values.push((key, raw_value.clone()));
+                    let default = default_from_expr(&expr, source);
+                    if matches!(default, ParsedDefault::Unsupported(_)) {
+                        return Err(meta.error(
+                            "unsupported default value; expected a string, integer, float, \
+                             or boolean literal",
+                        ));
+                    }
+                    spec.default = Some(default);
+                    default_kind = Some("default");
                 }
                 "DEFAULT_FN" => {
-                    if meta.input.peek(Token![=]) {
-                        meta.input.parse::<Token![=]>()?;
-                        if let Some(kind) = default_kind {
-                            return Err(
-                                meta.error(format!("default_fn conflicts with existing {kind}"))
-                            );
-                        }
-                        let expr: Expr = meta.input.parse()?;
-                        spec.named_values
-                            .push((key, spanned_source(source, &expr)));
-                        spec.has_default_fn = true;
-                        default_kind = Some("default_fn");
+                    meta.input.parse::<Token![=]>()?;
+                    if let Some(kind) = default_kind {
+                        return Err(
+                            meta.error(format!("default_fn conflicts with existing {kind}"))
+                        );
                     }
+                    let expr: Expr = meta.input.parse()?;
+                    spec.named_values
+                        .push((key, spanned_source(source, &expr)));
+                    spec.has_default_fn = true;
+                    default_kind = Some("default_fn");
                 }
                 "DEFAULT_SQL" => {
-                    if meta.input.peek(Token![=]) {
-                        meta.input.parse::<Token![=]>()?;
-                        if let Some(kind) = default_kind {
-                            return Err(
-                                meta.error(format!("default_sql conflicts with existing {kind}"))
-                            );
-                        }
-                        let lit: Lit = meta.input.parse()?;
-                        let Lit::Str(s) = lit else {
-                            return Err(meta.error("DEFAULT_SQL requires a string literal"));
-                        };
-                        spec.named_values.push((key, format!("{:?}", s.value())));
-                        spec.default_sql = Some(s.value());
-                        default_kind = Some("default_sql");
+                    meta.input.parse::<Token![=]>()?;
+                    if let Some(kind) = default_kind {
+                        return Err(
+                            meta.error(format!("default_sql conflicts with existing {kind}"))
+                        );
                     }
+                    let lit: Lit = meta.input.parse()?;
+                    let Lit::Str(s) = lit else {
+                        return Err(meta.error("DEFAULT_SQL requires a string literal"));
+                    };
+                    spec.named_values.push((key, format!("{:?}", s.value())));
+                    spec.default_sql = Some(s.value());
+                    default_kind = Some("default_sql");
                 }
                 "CHECK" => {
                     if meta.input.peek(Token![=]) {
@@ -1286,6 +2010,11 @@ pub(crate) fn postgres_column_spec(
                 "{field_desc}: relation requires a `references = Table::column` attribute"
             ));
         }
+        if explicit_pg_type.is_some() && (spec.json || spec.jsonb || spec.enum_marker) {
+            diags.errors.push(format!(
+                "{field_desc}: VARCHAR/CHAR cannot be combined with JSON, JSONB, or ENUM"
+            ));
+        }
     }
 
     // Resolve the PostgreSQL type exactly like the macro's precedence chain.
@@ -1299,7 +2028,9 @@ pub(crate) fn postgres_column_spec(
             .to_string(),
             None,
         )
-    } else if let Some(elem) = infer_postgres_array(&field.ty) {
+    } else if let Some(explicit) = explicit_pg_type {
+        (explicit, postgres_array_type.map(|_| 1))
+    } else if let Some(elem) = postgres_array_type {
         (elem.to_string(), Some(1))
     } else if spec.enum_marker {
         (type_token_string(&base_type), None)
@@ -1381,6 +2112,13 @@ fn lit_str_value(expr: &Expr) -> Option<String> {
     }
 }
 
+fn mysql_option_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
 fn parse_composite_fk(
     tokens: proc_macro2::TokenStream,
     dialect: Dialect,
@@ -1433,7 +2171,16 @@ fn parse_composite_fk(
             }
             Meta::NameValue(nv) if nv.path.is_ident("on_delete") => {
                 if let Some(value) = lit_str_value(&nv.value) {
-                    fk.on_delete = Some(value);
+                    if dialect == Dialect::MySQL {
+                        match mysql_referential_action(&value) {
+                            Some(action) => fk.on_delete = Some(action),
+                            None => diags.errors.push(format!(
+                                "{desc}: MySQL FOREIGN_KEY on_delete expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
+                            )),
+                        }
+                    } else {
+                        fk.on_delete = Some(value);
+                    }
                 } else {
                     diags.errors.push(format!(
                         "{desc}: FOREIGN_KEY on_delete must be a string literal"
@@ -1442,7 +2189,16 @@ fn parse_composite_fk(
             }
             Meta::NameValue(nv) if nv.path.is_ident("on_update") => {
                 if let Some(value) = lit_str_value(&nv.value) {
-                    fk.on_update = Some(value);
+                    if dialect == Dialect::MySQL {
+                        match mysql_referential_action(&value) {
+                            Some(action) => fk.on_update = Some(action),
+                            None => diags.errors.push(format!(
+                                "{desc}: MySQL FOREIGN_KEY on_update expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
+                            )),
+                        }
+                    } else {
+                        fk.on_update = Some(value);
+                    }
                 } else {
                     diags.errors.push(format!(
                         "{desc}: FOREIGN_KEY on_update must be a string literal"
@@ -1457,6 +2213,14 @@ fn parse_composite_fk(
             {
                 fk.deferrable = true;
                 fk.initially_deferred = true;
+            }
+            Meta::Path(path)
+                if dialect == Dialect::MySQL
+                    && (path.is_ident("deferrable") || path.is_ident("initially_deferred")) =>
+            {
+                diags
+                    .errors
+                    .push(format!("{desc}: MySQL foreign keys are not deferrable"));
             }
             other => diags.errors.push(format!(
                 "{desc}: unrecognized FOREIGN_KEY argument `{}`",
@@ -1541,6 +2305,16 @@ fn parse_table_unique(
             {
                 unique.deferrable = true;
                 unique.initially_deferred = true;
+            }
+            Meta::Path(path)
+                if dialect == Dialect::MySQL
+                    && (path.is_ident("nulls_not_distinct")
+                        || path.is_ident("deferrable")
+                        || path.is_ident("initially_deferred")) =>
+            {
+                diags.errors.push(format!(
+                    "{desc}: this PostgreSQL UNIQUE option is not supported by MySQL"
+                ));
             }
             Meta::Path(path) => {
                 if let Some(ident) = path.get_ident() {
@@ -1684,6 +2458,17 @@ pub(crate) fn table_spec(
                                 .push(format!("{desc}: SCHEMA requires a string literal"));
                             continue;
                         }
+                        "DATABASE" | "SCHEMA" if dialect == Dialect::MySQL => {
+                            if let Some(value) = lit_str_value(&nv.value) {
+                                spec.named_values.push((key, format!("{value:?}")));
+                                spec.database = Some(value);
+                                continue;
+                            }
+                            diags
+                                .errors
+                                .push(format!("{desc}: DATABASE requires a string literal"));
+                            continue;
+                        }
                         "INHERITS" if dialect == Dialect::PostgreSQL => {
                             if let Some(value) = lit_str_value(&nv.value) {
                                 spec.named_values.push((key, format!("{value:?}")));
@@ -1704,6 +2489,68 @@ pub(crate) fn table_spec(
                             diags
                                 .errors
                                 .push(format!("{desc}: TABLESPACE requires a string literal"));
+                            continue;
+                        }
+                        "ENGINE" if dialect == Dialect::MySQL => {
+                            if let Some(value) = lit_str_value(&nv.value) {
+                                spec.named_values.push((key, format!("{value:?}")));
+                                if mysql_option_identifier(&value) {
+                                    spec.engine = Some(value);
+                                } else {
+                                    diags.errors.push(format!(
+                                        "{desc}: ENGINE must contain only ASCII letters, digits, or underscores"
+                                    ));
+                                }
+                                continue;
+                            }
+                            diags
+                                .errors
+                                .push(format!("{desc}: ENGINE requires a string literal"));
+                            continue;
+                        }
+                        "CHARSET" | "DEFAULT_CHARSET" if dialect == Dialect::MySQL => {
+                            if let Some(value) = lit_str_value(&nv.value) {
+                                spec.named_values.push((key, format!("{value:?}")));
+                                if mysql_option_identifier(&value) {
+                                    spec.charset = Some(value);
+                                } else {
+                                    diags.errors.push(format!(
+                                        "{desc}: CHARSET must contain only ASCII letters, digits, or underscores"
+                                    ));
+                                }
+                                continue;
+                            }
+                            diags
+                                .errors
+                                .push(format!("{desc}: CHARSET requires a string literal"));
+                            continue;
+                        }
+                        "COLLATE" if dialect == Dialect::MySQL => {
+                            if let Some(value) = lit_str_value(&nv.value) {
+                                spec.named_values.push((key, format!("{value:?}")));
+                                if mysql_option_identifier(&value) {
+                                    spec.collate = Some(value);
+                                } else {
+                                    diags.errors.push(format!(
+                                        "{desc}: COLLATE must contain only ASCII letters, digits, or underscores"
+                                    ));
+                                }
+                                continue;
+                            }
+                            diags
+                                .errors
+                                .push(format!("{desc}: COLLATE requires a string literal"));
+                            continue;
+                        }
+                        "COMMENT" if dialect == Dialect::MySQL => {
+                            if let Some(value) = lit_str_value(&nv.value) {
+                                spec.named_values.push((key, format!("{value:?}")));
+                                spec.comment = Some(value);
+                                continue;
+                            }
+                            diags
+                                .errors
+                                .push(format!("{desc}: COMMENT requires a string literal"));
                             continue;
                         }
                         // `crate = "..."` only affects generated code paths.
@@ -1731,7 +2578,9 @@ pub(crate) fn table_spec(
                             spec.unlogged = true;
                             continue;
                         }
-                        "TEMPORARY" if dialect == Dialect::PostgreSQL => {
+                        "TEMPORARY"
+                            if dialect == Dialect::PostgreSQL || dialect == Dialect::MySQL =>
+                        {
                             spec.temporary = true;
                             continue;
                         }
@@ -1860,6 +2709,72 @@ pub(crate) fn index_spec(
                             }
                         }
                         IndexArg::NameValue(key, lit)
+                            if dialect == Dialect::MySQL
+                                && key.eq_ignore_ascii_case("using") =>
+                        {
+                            match str_of(&lit).map(|value| value.to_ascii_lowercase()) {
+                                Some(value) if matches!(value.as_str(), "btree" | "hash") => {
+                                    if spec.mysql_using.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: MySQL index accepts `using` only once"
+                                        ));
+                                    }
+                                }
+                                Some(other) => diags.errors.push(format!(
+                                    "{desc}: invalid MySQL index `using` `{other}`; supported: btree, hash"
+                                )),
+                                None => diags.errors.push(format!(
+                                    "{desc}: MySQL index `using` expects a string literal"
+                                )),
+                            }
+                        }
+                        IndexArg::NameValue(key, lit)
+                            if dialect == Dialect::MySQL
+                                && key.eq_ignore_ascii_case("algorithm") =>
+                        {
+                            match str_of(&lit).map(|value| value.to_ascii_lowercase()) {
+                                Some(value)
+                                    if matches!(value.as_str(), "default" | "inplace" | "copy") =>
+                                {
+                                    if spec.mysql_algorithm.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: MySQL index accepts `algorithm` only once"
+                                        ));
+                                    }
+                                }
+                                Some(other) => diags.errors.push(format!(
+                                    "{desc}: invalid MySQL index `algorithm` `{other}`; supported: default, inplace, copy"
+                                )),
+                                None => diags.errors.push(format!(
+                                    "{desc}: MySQL index `algorithm` expects a string literal"
+                                )),
+                            }
+                        }
+                        IndexArg::NameValue(key, lit)
+                            if dialect == Dialect::MySQL && key.eq_ignore_ascii_case("lock") =>
+                        {
+                            match str_of(&lit).map(|value| value.to_ascii_lowercase()) {
+                                Some(value)
+                                    if matches!(
+                                        value.as_str(),
+                                        "default" | "none" | "shared" | "exclusive"
+                                    ) =>
+                                {
+                                    if spec.mysql_lock.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: MySQL index accepts `lock` only once"
+                                        ));
+                                    }
+                                }
+                                Some(other) => diags.errors.push(format!(
+                                    "{desc}: invalid MySQL index `lock` `{other}`; supported: default, none, shared, exclusive"
+                                )),
+                                None => diags.errors.push(format!(
+                                    "{desc}: MySQL index `lock` expects a string literal"
+                                )),
+                            }
+                        }
+                        IndexArg::NameValue(key, lit)
                             if dialect == Dialect::PostgreSQL && key == "tablespace" =>
                         {
                             if let Some(value) = str_of(&lit) {
@@ -1892,12 +2807,28 @@ pub(crate) fn index_spec(
                                 ));
                             }
                         }
-                        // Parser extension: the macros derive the name from
-                        // the struct ident and accept no `name` attribute,
-                        // but hand-written schema annotations may carry one.
-                        IndexArg::NameValue(key, lit) if key == "name" || key == "NAME" => {
-                            if let Some(value) = str_of(&lit) {
-                                spec.explicit_name = Some(value);
+                        IndexArg::NameValue(key, _)
+                            if dialect == Dialect::MySQL && key == "where" =>
+                        {
+                            diags.errors.push(format!(
+                                "{desc}: MySQL does not support partial indexes; remove `where = ...`"
+                            ));
+                        }
+                        IndexArg::NameValue(key, lit) if key.eq_ignore_ascii_case("name") => {
+                            match str_of(&lit) {
+                                Some(value) if value.trim().is_empty() => diags
+                                    .errors
+                                    .push(format!("{desc}: index `name` cannot be empty")),
+                                Some(value) => {
+                                    if spec.explicit_name.replace(value).is_some() {
+                                        diags.errors.push(format!(
+                                            "{desc}: index accepts `name` only once"
+                                        ));
+                                    }
+                                }
+                                None => diags.errors.push(format!(
+                                    "{desc}: index `name` expects a string literal"
+                                )),
                             }
                         }
                         IndexArg::Flag(name) => diags
@@ -1938,7 +2869,73 @@ pub(crate) fn index_spec(
         }
         let table = segments.first().unwrap().ident.to_string();
         let column = segments.last().unwrap().ident.to_string();
-        spec.column_refs.push((table, column));
+        spec.column_refs.push((table.clone(), column.clone()));
+        if dialect != Dialect::MySQL {
+            continue;
+        }
+
+        let mut part = MySQLIndexKeyPartSpec {
+            table,
+            column,
+            ..MySQLIndexKeyPartSpec::default()
+        };
+        for attr in &field.attrs {
+            if !attr.path().is_ident("index") {
+                continue;
+            }
+            if let Err(error) = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("asc") || meta.path.is_ident("desc") {
+                    if part.ascending.is_some() {
+                        return Err(meta.error("MySQL index key part accepts one direction"));
+                    }
+                    part.ascending = Some(meta.path.is_ident("asc"));
+                    return Ok(());
+                }
+                if meta.path.is_ident("prefix") {
+                    if part.prefix.is_some() {
+                        return Err(meta.error(
+                            "MySQL index key part accepts `prefix` only once",
+                        ));
+                    }
+                    let value: syn::LitInt = meta.value()?.parse()?;
+                    let length = value.base10_parse::<u32>()?;
+                    if length == 0 {
+                        return Err(syn::Error::new_spanned(
+                            value,
+                            "MySQL index prefix length must be greater than zero",
+                        ));
+                    }
+                    part.prefix = Some(length);
+                    return Ok(());
+                }
+                if meta.path.is_ident("expr") {
+                    if part.expression.is_some() {
+                        return Err(meta.error("MySQL index key part accepts `expr` only once"));
+                    }
+                    let value: syn::LitStr = meta.value()?.parse()?;
+                    let expression = value.value();
+                    if expression.trim().is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            value,
+                            "MySQL index expression cannot be empty",
+                        ));
+                    }
+                    part.expression = Some(expression.trim().to_string());
+                    return Ok(());
+                }
+                Err(meta.error(
+                    "unsupported MySQL index key-part option; accepted options are `expr`, `prefix`, `asc`, and `desc`",
+                ))
+            }) {
+                diags.errors.push(format!("{desc}: {error}"));
+            }
+        }
+        if part.expression.is_some() && part.prefix.is_some() {
+            diags.errors.push(format!(
+                "{desc}: MySQL functional index expressions cannot have a prefix length"
+            ));
+        }
+        spec.mysql_key_parts.push(part);
     }
 
     if spec.column_refs.is_empty() {
@@ -1961,12 +2958,13 @@ pub(crate) fn index_spec(
 }
 
 // =============================================================================
-// View attributes (mirrors {sqlite,postgres}::view::ViewAttributes)
+// View attributes (mirrors {sqlite,postgres,mysql}::view::ViewAttributes)
 // =============================================================================
 
 pub(crate) struct ViewAttrData {
     pub name: Option<String>,
     pub schema: Option<String>,
+    pub database: Option<String>,
     pub definition: Option<String>,
     pub has_opaque_definition: bool,
     pub materialized: bool,
@@ -1974,6 +2972,9 @@ pub(crate) struct ViewAttrData {
     pub with_no_data: bool,
     pub using: Option<String>,
     pub tablespace: Option<String>,
+    pub mysql_algorithm: Option<String>,
+    pub mysql_sql_security: Option<String>,
+    pub mysql_check_option: Option<String>,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1983,9 +2984,12 @@ pub(crate) fn view_spec(
     desc: &str,
     diags: &mut Diags,
 ) -> ViewAttrData {
+    let mut saw_definition = false;
+    let mut saw_query = false;
     let mut data = ViewAttrData {
         name: None,
         schema: None,
+        database: None,
         definition: None,
         has_opaque_definition: false,
         materialized: false,
@@ -1993,6 +2997,9 @@ pub(crate) fn view_spec(
         with_no_data: false,
         using: None,
         tablespace: None,
+        mysql_algorithm: None,
+        mysql_sql_security: None,
+        mysql_check_option: None,
     };
 
     let Meta::List(list) = &attr.meta else {
@@ -2033,7 +3040,18 @@ pub(crate) fn view_spec(
                             }
                             continue;
                         }
+                        "DATABASE" | "SCHEMA" if dialect == Dialect::MySQL => {
+                            if let Some(value) = lit_str_value(&nv.value) {
+                                data.database = Some(value);
+                            } else {
+                                diags
+                                    .errors
+                                    .push(format!("{desc}: DATABASE requires a string literal"));
+                            }
+                            continue;
+                        }
                         "DEFINITION" => {
+                            saw_definition = true;
                             if let Some(value) = lit_str_value(&nv.value) {
                                 data.definition = Some(value);
                             } else {
@@ -2072,6 +3090,64 @@ pub(crate) fn view_spec(
                             ));
                             continue;
                         }
+                        "ALGORITHM" if dialect == Dialect::MySQL => {
+                            let Some(value) = lit_str_value(&nv.value) else {
+                                diags
+                                    .errors
+                                    .push(format!("{desc}: ALGORITHM requires a string literal"));
+                                continue;
+                            };
+                            let value = value.to_ascii_lowercase().replace([' ', '-'], "_");
+                            if matches!(
+                                value.as_str(),
+                                "undefined" | "merge" | "temptable" | "temp_table"
+                            ) {
+                                data.mysql_algorithm = Some(if value == "temp_table" {
+                                    "temptable".to_string()
+                                } else {
+                                    value
+                                });
+                            } else {
+                                diags.errors.push(format!(
+                                    "{desc}: ALGORITHM must be UNDEFINED, MERGE, or TEMPTABLE"
+                                ));
+                            }
+                            continue;
+                        }
+                        "SQL_SECURITY" | "SECURITY" if dialect == Dialect::MySQL => {
+                            let Some(value) = lit_str_value(&nv.value) else {
+                                diags.errors.push(format!(
+                                    "{desc}: SQL_SECURITY requires a string literal"
+                                ));
+                                continue;
+                            };
+                            let value = value.to_ascii_lowercase().replace([' ', '-'], "_");
+                            if matches!(value.as_str(), "definer" | "invoker") {
+                                data.mysql_sql_security = Some(value);
+                            } else {
+                                diags.errors.push(format!(
+                                    "{desc}: SQL_SECURITY must be DEFINER or INVOKER"
+                                ));
+                            }
+                            continue;
+                        }
+                        "CHECK_OPTION" | "WITH_CHECK_OPTION" if dialect == Dialect::MySQL => {
+                            let Some(value) = lit_str_value(&nv.value) else {
+                                diags.errors.push(format!(
+                                    "{desc}: CHECK_OPTION requires a string literal"
+                                ));
+                                continue;
+                            };
+                            let value = value.to_ascii_lowercase().replace([' ', '-'], "_");
+                            if matches!(value.as_str(), "cascaded" | "local") {
+                                data.mysql_check_option = Some(value);
+                            } else {
+                                diags.errors.push(format!(
+                                    "{desc}: CHECK_OPTION must be CASCADED or LOCAL"
+                                ));
+                            }
+                            continue;
+                        }
                         _ => {}
                     }
                 }
@@ -2084,6 +3160,7 @@ pub(crate) fn view_spec(
                 if let Some(ident) = inner.path.get_ident()
                     && ident.to_string().eq_ignore_ascii_case("query")
                 {
+                    saw_query = true;
                     data.has_opaque_definition = true;
                     diags.warnings.push(format!(
                         "{desc}: view `query(...)` definitions resolve at compile time; the view \
@@ -2107,6 +3184,10 @@ pub(crate) fn view_spec(
                             data.existing = true;
                             continue;
                         }
+                        "CHECK_OPTION" | "WITH_CHECK_OPTION" if dialect == Dialect::MySQL => {
+                            data.mysql_check_option = Some("cascaded".to_string());
+                            continue;
+                        }
                         "WITH_NO_DATA" if dialect == Dialect::PostgreSQL => {
                             data.with_no_data = true;
                             continue;
@@ -2119,6 +3200,19 @@ pub(crate) fn view_spec(
                     meta.to_token_stream()
                 ));
             }
+        }
+    }
+
+    if dialect == Dialect::MySQL {
+        if saw_definition && saw_query {
+            diags.errors.push(format!(
+                "{desc}: DEFINITION and query(...) are mutually exclusive"
+            ));
+        }
+        if data.existing && (saw_definition || saw_query) {
+            diags.errors.push(format!(
+                "{desc}: EXISTING cannot be combined with DEFINITION or query(...)"
+            ));
         }
     }
 
@@ -2284,6 +3378,13 @@ mod tests {
         (spec, diags)
     }
 
+    fn mysql_spec(code: &str) -> (ColumnSpec, Diags) {
+        let field = parse_field(code);
+        let mut diags = Diags::new();
+        let spec = mysql_column_spec(&field, code, "T", &mut diags);
+        (spec, diags)
+    }
+
     // ---- markers (case-insensitivity, P1) --------------------------------
 
     #[test]
@@ -2368,10 +3469,22 @@ mod tests {
     }
 
     #[test]
-    fn negative_default_matches_macro_drop() {
+    fn sqlite_non_literal_default_matches_macro_error() {
         let (spec, diags) = sqlite_spec("#[column(default = -1)] v: i64");
         assert!(matches!(spec.default, Some(ParsedDefault::Unsupported(_))));
-        assert!(!diags.warnings.is_empty());
+        assert!(!diags.errors.is_empty());
+    }
+
+    #[test]
+    fn database_and_application_defaults_require_values() {
+        for source in [
+            "#[column(DEFAULT)] v: i64",
+            "#[column(DEFAULT_FN)] v: i64",
+            "#[column(DEFAULT_SQL)] v: i64",
+        ] {
+            assert!(!sqlite_spec(source).1.errors.is_empty(), "{source}");
+            assert!(!pg_spec(source).1.errors.is_empty(), "{source}");
+        }
     }
 
     #[test]
@@ -2451,6 +3564,92 @@ mod tests {
     }
 
     #[test]
+    fn mysql_explicit_integer_type_requires_matching_signedness() {
+        let (_, signed_as_unsigned) = mysql_spec("#[column(INT_UNSIGNED)] value: i32");
+        assert!(signed_as_unsigned.errors.iter().any(|error| {
+            error.contains("INT UNSIGNED is unsigned but the Rust field is signed")
+        }));
+
+        let (_, unsigned_as_signed) = mysql_spec("#[column(INT)] value: u32");
+        assert!(
+            unsigned_as_signed
+                .errors
+                .iter()
+                .any(|error| { error.contains("INT is signed but the Rust field is unsigned") })
+        );
+
+        let (_, matching) = mysql_spec("#[column(INT_UNSIGNED)] value: u32");
+        assert!(matching.errors.is_empty(), "{:#?}", matching.errors);
+    }
+
+    #[test]
+    fn mysql_numeric_attributes_preserve_arguments_unsigned_and_real() {
+        let cases = [
+            (
+                "#[column(DECIMAL_UNSIGNED(20, 8))] value: String",
+                "DECIMAL(20, 8) UNSIGNED",
+            ),
+            (
+                "#[column(FLOAT_UNSIGNED(10, 2))] value: f32",
+                "FLOAT(10, 2) UNSIGNED",
+            ),
+            (
+                "#[column(DOUBLE_UNSIGNED(10, 2))] value: f64",
+                "DOUBLE(10, 2) UNSIGNED",
+            ),
+            ("#[column(REAL(10, 2))] value: f64", "REAL(10, 2)"),
+            (
+                "#[column(REAL_UNSIGNED(10, 2))] value: f64",
+                "REAL(10, 2) UNSIGNED",
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let (spec, diags) = mysql_spec(source);
+            assert!(diags.errors.is_empty(), "{source}: {:#?}", diags.errors);
+            assert_eq!(spec.mysql_type.as_deref(), Some(expected), "{source}");
+        }
+    }
+
+    #[test]
+    fn mysql_numeric_attributes_reject_invalid_arguments() {
+        let (_, float_diags) = mysql_spec("#[column(FLOAT(25))] value: f32");
+        assert!(
+            float_diags
+                .errors
+                .iter()
+                .any(|error| error.contains("use DOUBLE"))
+        );
+
+        for source in [
+            "#[column(DECIMAL_UNSIGNED(66))] value: String",
+            "#[column(FLOAT_UNSIGNED(25))] value: f32",
+            "#[column(FLOAT_UNSIGNED(256, 30))] value: f32",
+            "#[column(DOUBLE_UNSIGNED(10, 31))] value: f64",
+            "#[column(REAL(10, 11))] value: f64",
+            "#[column(REAL(10, 2, 1))] value: f64",
+            "#[column(DOUBLE(10))] value: f64",
+            "#[column(REAL(10))] value: f64",
+        ] {
+            let (_, diags) = mysql_spec(source);
+            assert!(!diags.errors.is_empty(), "{source} must be rejected");
+        }
+    }
+
+    #[test]
+    fn mysql_column_comment_requires_explicit_comment_attribute() {
+        let (documented, diags) = mysql_spec("/// Rust API documentation.\nvalue: String");
+        assert!(diags.errors.is_empty(), "{:#?}", diags.errors);
+        assert_eq!(documented.comment, None);
+
+        let (commented, diags) = mysql_spec(
+            "/// Rust API documentation.\n#[column(COMMENT = \"SQL metadata\")] value: String",
+        );
+        assert!(diags.errors.is_empty(), "{:#?}", diags.errors);
+        assert_eq!(commented.comment.as_deref(), Some("SQL metadata"));
+    }
+
+    #[test]
     fn pg_vec_maps_to_array() {
         let (spec, _) = pg_spec("tags: Vec<String>");
         assert_eq!(spec.pg_type.as_deref(), Some("TEXT"));
@@ -2459,6 +3658,24 @@ mod tests {
         let (blob, _) = pg_spec("data: Vec<u8>");
         assert_eq!(blob.pg_type.as_deref(), Some("BYTEA"));
         assert_eq!(blob.pg_dimensions, None);
+    }
+
+    #[test]
+    fn pg_bounded_character_overrides_preserve_rust_shape() {
+        let (string, string_diags) = pg_spec("#[column(VARCHAR(255))] value: String");
+        assert!(string_diags.errors.is_empty(), "{:#?}", string_diags.errors);
+        assert_eq!(string.pg_type.as_deref(), Some("VARCHAR(255)"));
+        assert_eq!(string.pg_dimensions, None);
+
+        let (_, chars_diags) = pg_spec("#[column(CHAR(8))] value: [char; 8]");
+        assert!(chars_diags.errors.iter().any(|error| {
+            error.contains("VARCHAR/CHAR SQL type overrides require a Rust string type")
+        }));
+
+        let (array, array_diags) = pg_spec("#[column(VARCHAR(64))] value: Vec<String>");
+        assert!(array_diags.errors.is_empty(), "{:#?}", array_diags.errors);
+        assert_eq!(array.pg_type.as_deref(), Some("VARCHAR(64)"));
+        assert_eq!(array.pg_dimensions, Some(1));
     }
 
     #[test]
@@ -2560,6 +3777,42 @@ mod tests {
         let item: syn::ItemStruct =
             syn::parse_str(&format!("{code}\nstruct T {{ id: i64 }}")).expect("valid struct");
         item.attrs.into_iter().next().expect("one attribute")
+    }
+
+    fn parse_index(code: &str, dialect: Dialect) -> (IndexSpec, Diags) {
+        let item: syn::ItemStruct = syn::parse_str(code).expect("valid index struct");
+        let attr = item.attrs.first().expect("one index attribute");
+        let mut diags = Diags::new();
+        let spec = index_spec(attr, &item, dialect, "index", &mut diags);
+        (spec, diags)
+    }
+
+    #[test]
+    fn index_names_are_case_insensitive_and_validated_for_every_dialect() {
+        for (macro_name, dialect) in [
+            ("SQLiteIndex", Dialect::SQLite),
+            ("PostgresIndex", Dialect::PostgreSQL),
+            ("MySQLIndex", Dialect::MySQL),
+        ] {
+            let (spec, diags) = parse_index(
+                &format!("#[{macro_name}(NaMe = \"physical_name\")] struct T(Table::column);"),
+                dialect,
+            );
+            assert_eq!(spec.explicit_name.as_deref(), Some("physical_name"));
+            assert!(diags.errors.is_empty(), "{macro_name}: {:#?}", diags.errors);
+        }
+
+        let (_, duplicate) = parse_index(
+            "#[SQLiteIndex(name = \"first\", NAME = \"second\")] struct T(Table::column);",
+            Dialect::SQLite,
+        );
+        assert_eq!(duplicate.errors.len(), 1);
+
+        let (_, empty) = parse_index(
+            "#[PostgresIndex(NAME = \"  \" )] struct T(Table::column);",
+            Dialect::PostgreSQL,
+        );
+        assert_eq!(empty.errors.len(), 1);
     }
 
     #[test]

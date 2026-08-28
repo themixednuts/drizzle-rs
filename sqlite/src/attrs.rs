@@ -163,7 +163,7 @@ pub const ENUM: ColumnMarker = ColumnMarker;
 // Default Value Parameters
 //------------------------------------------------------------------------------
 
-/// Specifies a function to generate default values at runtime.
+/// Specifies an application-side function that generates omitted insert values.
 ///
 /// The function is called for each insert when no value is provided.
 ///
@@ -175,12 +175,10 @@ pub const ENUM: ColumnMarker = ColumnMarker;
 /// # "####;
 /// ```
 ///
-/// ## Difference from DEFAULT
-/// - `default_fn`: Calls the function at runtime for each insert (e.g., UUID generation)
-/// - `default`: Uses a fixed compile-time value
+/// Unlike [`DEFAULT`], this does not add a database `DEFAULT` clause.
 pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
-/// Specifies a fixed default value for new rows.
+/// Specifies a literal database `DEFAULT` clause for new rows.
 ///
 /// ## Example
 /// ```rust
@@ -193,7 +191,7 @@ pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 /// # "####;
 /// ```
 ///
-/// For runtime-generated values (UUIDs, timestamps), use [`DEFAULT_FN`] instead.
+/// For application-generated values such as UUIDs, use [`DEFAULT_FN`] instead.
 pub const DEFAULT: ColumnMarker = ColumnMarker;
 
 /// Specifies a raw SQL default expression for new rows.

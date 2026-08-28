@@ -219,6 +219,90 @@ where
     }
 }
 
+#[cfg(feature = "compact-str")]
+impl<'a, V> ToSQL<'a, V> for compact_str::CompactString
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a, V> ToSQL<'a, V> for bytes::Bytes
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a, V> ToSQL<'a, V> for bytes::BytesMut
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, V, const N: usize> ToSQL<'a, V> for arrayvec::ArrayString<N>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(*self))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
+#[cfg(feature = "arrayvec")]
+impl<'a, V, const N: usize> ToSQL<'a, V> for arrayvec::ArrayVec<u8, N>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
+#[cfg(feature = "smallvec-types")]
+impl<'a, V, const N: usize> ToSQL<'a, V> for smallvec::SmallVec<[u8; N]>
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(self.clone()))
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        SQL::param(V::from(self))
+    }
+}
+
 impl<'a, V> ToSQL<'a, V> for Cow<'a, str>
 where
     V: SQLParam + 'a + From<&'a str> + From<String> + Into<Cow<'a, V>>,
@@ -293,7 +377,7 @@ macro_rules! impl_tosql_param_copy {
 }
 
 impl_tosql_param_copy!(
-    i8, i16, i32, i64, f32, f64, bool, u8, u16, u32, u64, isize, usize
+    i8, i16, i32, i64, f32, f64, bool, char, u8, u16, u32, u64, isize, usize
 );
 
 impl<'a, V, T> ToSQL<'a, V> for Option<T>
@@ -309,6 +393,16 @@ where
 
 #[cfg(feature = "uuid")]
 impl<'a, V> ToSQL<'a, V> for Uuid
+where
+    V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        SQL::param(V::from(*self))
+    }
+}
+
+#[cfg(feature = "rust-decimal")]
+impl<'a, V> ToSQL<'a, V> for rust_decimal::Decimal
 where
     V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
 {

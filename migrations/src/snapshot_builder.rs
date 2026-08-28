@@ -26,6 +26,7 @@
 //!   `public` but which a hand-written trait impl could override — the
 //!   parser cannot evaluate user trait impls.
 
+use crate::mysql::MySQLSnapshot;
 use crate::parser::{
     ColumnSpec, ParseResult, ParsedDefault, ParsedField, ParsedIndex, ParsedTable,
 };
@@ -51,11 +52,6 @@ impl Snapshot {
     /// config still affects introspection codegen (field naming), which is a
     /// separate flow.
     ///
-    /// # Panics
-    ///
-    /// Panics for [`Dialect::MySQL`], which has no snapshot representation yet
-    /// (same contract as [`Snapshot::empty`]). All upstream flows guard the
-    /// dialect before calling (`build::run`, CLI dialect validation).
     #[must_use]
     pub fn from_parse_result(
         result: &ParseResult,
@@ -66,9 +62,7 @@ impl Snapshot {
         match dialect {
             Dialect::SQLite => Self::Sqlite(build_sqlite_snapshot(result)),
             Dialect::PostgreSQL => Self::Postgres(build_postgres_snapshot(result)),
-            Dialect::MySQL => {
-                panic!("MySQL snapshot generation is not supported yet")
-            }
+            Dialect::MySQL => Self::MySQL(build_mysql_snapshot(result)),
         }
     }
 }
@@ -138,9 +132,9 @@ impl NameMaps {
 ///
 /// Mirrors runtime semantics: only schema members end up in
 /// `Schema::to_snapshot()`. Applied to tables (and transitively to the
-/// indexes/policies that target them); views and enums always pass through
-/// because the introspection codegen intentionally omits them from generated
-/// schema structs.
+/// indexes/policies that target them). SQLite/PostgreSQL views and enums pass
+/// through because their introspection codegen omits them from generated
+/// schema structs. MySQL views are schema items and are filtered separately.
 fn schema_members(result: &ParseResult, dialect: Dialect) -> Option<HashSet<&str>> {
     result
         .schema
@@ -181,6 +175,24 @@ fn indexes_for<'a>(
         .collect();
     indexes.sort_by_key(|i| i.order);
     indexes
+}
+
+fn views_for(result: &ParseResult, dialect: Dialect) -> Vec<&crate::parser::ParsedView> {
+    let members = (dialect == Dialect::MySQL)
+        .then(|| schema_members(result, dialect))
+        .flatten();
+    let mut views: Vec<_> = result
+        .views
+        .values()
+        .filter(|view| view.dialect == dialect)
+        .filter(|view| {
+            members
+                .as_ref()
+                .is_none_or(|members| members.contains(view.name.as_str()))
+        })
+        .collect();
+    views.sort_by_key(|view| view.order);
+    views
 }
 
 // =============================================================================
@@ -448,7 +460,7 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
             .unwrap_or_else(|| parsed.name.to_snake_case());
         let mut view = View::new(name);
         view.definition = parsed.definition.clone().map(Cow::Owned);
-        view.is_existing = parsed.existing;
+        view.is_existing = parsed.existing || parsed.has_opaque_definition;
         snapshot.add_entity(SqliteEntity::View(view));
     }
 
@@ -896,7 +908,7 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
         let mut view = View::new(schema, name);
         view.definition = parsed.definition.clone().map(Cow::Owned);
         view.materialized = parsed.materialized;
-        view.is_existing = parsed.existing;
+        view.is_existing = parsed.existing || parsed.has_opaque_definition;
         view.with_no_data = if parsed.with_no_data {
             Some(true)
         } else {
@@ -930,6 +942,384 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
 }
 
 // =============================================================================
+// MySQL
+// =============================================================================
+
+/// SQL default string for a `MySQL` column, matching
+/// `mysql::field::default_from_expr`. Generated and auto-increment columns
+/// have no SQL default; `DEFAULT_SQL` is already a trusted SQL expression.
+fn mysql_default(spec: &ColumnSpec) -> Option<String> {
+    if spec.generated.is_some() || spec.autoincrement {
+        return None;
+    }
+    if let Some(default_sql) = &spec.default_sql {
+        return Some(default_sql.clone());
+    }
+    match spec.default.as_ref()? {
+        ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
+        ParsedDefault::Bool(value) => Some(if *value { "TRUE" } else { "FALSE" }.to_string()),
+        ParsedDefault::Str(value) => Some(format!(
+            "'{}'",
+            value.replace('\\', "\\\\").replace('\'', "''")
+        )),
+        ParsedDefault::Unsupported(_) => None,
+    }
+}
+
+fn mysql_referential_action(action: Option<&str>) -> Option<crate::mysql::ReferentialAction> {
+    use crate::mysql::ReferentialAction;
+
+    action.and_then(|action| match action.to_ascii_uppercase().as_str() {
+        "CASCADE" => Some(ReferentialAction::Cascade),
+        "SET NULL" => Some(ReferentialAction::SetNull),
+        "RESTRICT" => Some(ReferentialAction::Restrict),
+        "NO ACTION" => Some(ReferentialAction::NoAction),
+        // The parser reports any other spelling. Keeping this match total
+        // makes a directly-constructed ParseResult harmless as well.
+        _ => None,
+    })
+}
+
+/// Return the final segment of `T`, including the inner `T` in `Option<T>`.
+/// It is deliberately small because parser input is already valid Rust type
+/// syntax; only enum-name lookup needs this textual bridge.
+fn mysql_rust_type_name(field_type: &str) -> &str {
+    let mut ty = field_type.trim();
+    if let Some(inner) = ty
+        .strip_prefix("Option")
+        .and_then(|rest| rest.trim_start().strip_prefix('<'))
+        .and_then(|inner| inner.trim_end().strip_suffix('>'))
+    {
+        ty = inner.trim();
+    }
+    ty.rsplit("::").next().unwrap_or(ty).trim()
+}
+
+fn mysql_index_method(value: Option<&str>) -> Option<crate::mysql::IndexMethod> {
+    match value.map(|value| value.to_ascii_lowercase())?.as_str() {
+        "btree" => Some(crate::mysql::IndexMethod::Btree),
+        "hash" => Some(crate::mysql::IndexMethod::Hash),
+        _ => None,
+    }
+}
+
+fn mysql_index_algorithm(value: Option<&str>) -> Option<crate::mysql::IndexAlgorithm> {
+    match value.map(|value| value.to_ascii_lowercase())?.as_str() {
+        "default" => Some(crate::mysql::IndexAlgorithm::Default),
+        "inplace" => Some(crate::mysql::IndexAlgorithm::Inplace),
+        "copy" => Some(crate::mysql::IndexAlgorithm::Copy),
+        _ => None,
+    }
+}
+
+fn mysql_index_lock(value: Option<&str>) -> Option<crate::mysql::IndexLock> {
+    match value.map(|value| value.to_ascii_lowercase())?.as_str() {
+        "default" => Some(crate::mysql::IndexLock::Default),
+        "none" => Some(crate::mysql::IndexLock::None),
+        "shared" => Some(crate::mysql::IndexLock::Shared),
+        "exclusive" => Some(crate::mysql::IndexLock::Exclusive),
+        _ => None,
+    }
+}
+
+fn mysql_view_algorithm(value: Option<&str>) -> Option<crate::mysql::ViewAlgorithm> {
+    match value?.to_ascii_lowercase().as_str() {
+        "undefined" => Some(crate::mysql::ViewAlgorithm::Undefined),
+        "merge" => Some(crate::mysql::ViewAlgorithm::Merge),
+        "temptable" => Some(crate::mysql::ViewAlgorithm::Temptable),
+        _ => None,
+    }
+}
+
+fn mysql_view_sql_security(value: Option<&str>) -> Option<crate::mysql::ViewSqlSecurity> {
+    match value?.to_ascii_lowercase().as_str() {
+        "definer" => Some(crate::mysql::ViewSqlSecurity::Definer),
+        "invoker" => Some(crate::mysql::ViewSqlSecurity::Invoker),
+        _ => None,
+    }
+}
+
+fn mysql_view_check_option(value: Option<&str>) -> Option<crate::mysql::ViewCheckOption> {
+    match value?.to_ascii_lowercase().as_str() {
+        "cascaded" => Some(crate::mysql::ViewCheckOption::Cascaded),
+        "local" => Some(crate::mysql::ViewCheckOption::Local),
+        _ => None,
+    }
+}
+
+/// Build a `MySQL` v6 entity-array snapshot from parsed schema source.
+///
+/// Every entity carries the table's selected database. The parser rejects a
+/// schema that names more than one database; the collection validation below
+/// is a second, structured boundary that also prevents a cross-database FK
+/// from entering a snapshot produced outside normal parsing.
+#[allow(clippy::too_many_lines)]
+fn build_mysql_snapshot(result: &ParseResult) -> MySQLSnapshot {
+    use crate::mysql::{
+        CheckConstraint, Column, ForeignKey, Generated, GeneratedType, Index, IndexColumn,
+        InlineEnum, InlineType, MySQLDDL, MySQLEntity, PrimaryKey, Table, UniqueConstraint, View,
+    };
+
+    let mut snapshot = MySQLSnapshot::new();
+    let tables = tables_for(result, Dialect::MySQL);
+    let kept: HashSet<&str> = tables.iter().map(|table| table.name.as_str()).collect();
+    let maps = NameMaps::build(&tables);
+
+    // Struct ident -> explicit selected database. An absent table definition
+    // deliberately remains absent: the collection validation then reports a
+    // missing FK target rather than fabricating a cross-database reference.
+    let table_databases: HashMap<&str, Option<&str>> = tables
+        .iter()
+        .map(|table| (table.name.as_str(), table.spec.database.as_deref()))
+        .collect();
+    let enum_values: HashMap<&str, Vec<String>> = result
+        .enums
+        .values()
+        .filter(|parsed| parsed.dialect == Dialect::MySQL)
+        .map(|parsed| (parsed.name.as_str(), parsed.variants.clone()))
+        .collect();
+
+    for table in &tables {
+        let table_name = maps.table(&table.name);
+        let database = table.spec.database.clone();
+
+        let mut mysql_table = Table::new(table_name.clone());
+        mysql_table.database = database.clone().map(Cow::Owned);
+        mysql_table.temporary = table.spec.temporary;
+        mysql_table.engine = table.spec.engine.clone().map(Cow::Owned);
+        mysql_table.charset = table.spec.charset.clone().map(Cow::Owned);
+        mysql_table.collation = table.spec.collate.clone().map(Cow::Owned);
+        mysql_table.comment = table.spec.comment.clone().map(Cow::Owned);
+        snapshot.add_entity(MySQLEntity::Table(mysql_table));
+
+        let mut pk_columns = Vec::new();
+
+        for field in &table.fields {
+            let column_name = maps.field(&table.name, &field.name);
+            let spec = &field.spec;
+            let mut column = Column::new(
+                table_name.clone(),
+                column_name.clone(),
+                spec.mysql_type.clone().unwrap_or_default(),
+            );
+            column.database = database.clone().map(Cow::Owned);
+            column.not_null = !spec.nullable || spec.not_null;
+            column.autoincrement = spec.autoincrement;
+            column.primary_key = spec.primary;
+            column.unique = spec.unique && !spec.primary;
+            column.default = mysql_default(spec).map(Cow::Owned);
+            column.on_update = spec.mysql_on_update.clone().map(Cow::Owned);
+            column.generated = spec.generated.as_ref().map(|generated| Generated {
+                expression: Cow::Owned(generated.expression.clone()),
+                generation_type: if generated.stored {
+                    GeneratedType::Stored
+                } else {
+                    GeneratedType::Virtual
+                },
+            });
+            column.inline_type = if spec.mysql_inline_enum {
+                enum_values
+                    .get(mysql_rust_type_name(&field.ty))
+                    .cloned()
+                    .map(InlineEnum::new)
+                    .map(InlineType::Enum)
+            } else {
+                spec.mysql_set_values
+                    .clone()
+                    .map(InlineEnum::new)
+                    .map(InlineType::Set)
+            };
+            if let Some(InlineType::Enum(values)) = &column.inline_type {
+                column.sql_type = Cow::Owned(format!(
+                    "ENUM({})",
+                    values
+                        .values
+                        .iter()
+                        .map(|value| format!("'{value}'"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            column.charset = spec.charset.clone().map(Cow::Owned);
+            column.collation = spec.collate.clone().map(Cow::Owned);
+            column.comment = spec.comment.clone().map(Cow::Owned);
+            snapshot.add_entity(MySQLEntity::Column(column));
+
+            if spec.primary {
+                pk_columns.push(column_name.clone());
+            }
+
+            if let Some(check) = &spec.check {
+                snapshot.add_entity(MySQLEntity::CheckConstraint(CheckConstraint {
+                    database: database.clone().map(Cow::Owned),
+                    table: Cow::Owned(table_name.clone()),
+                    name: Cow::Owned(format!("{table_name}_{column_name}_check")),
+                    expression: Cow::Owned(check.clone()),
+                    enforced: None,
+                }));
+            }
+
+            if let Some(reference) = &spec.references {
+                let foreign_database = table_databases
+                    .get(reference.table.as_str())
+                    .and_then(|database| *database)
+                    .map(|database| Cow::Owned(database.to_string()));
+                snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey {
+                    database: database.clone().map(Cow::Owned),
+                    table: Cow::Owned(table_name.clone()),
+                    name: Cow::Owned(format!("{table_name}_{column_name}_fkey")),
+                    columns: vec![Cow::Owned(column_name.clone())],
+                    foreign_database,
+                    foreign_table: Cow::Owned(maps.table(&reference.table)),
+                    foreign_columns: vec![Cow::Owned(
+                        maps.field(&reference.table, &reference.column),
+                    )],
+                    on_delete: mysql_referential_action(spec.on_delete.as_deref()),
+                    on_update: mysql_referential_action(spec.on_update.as_deref()),
+                }));
+            }
+        }
+
+        if !pk_columns.is_empty() {
+            snapshot.add_entity(MySQLEntity::PrimaryKey(PrimaryKey {
+                database: database.clone().map(Cow::Owned),
+                table: Cow::Owned(table_name.clone()),
+                name: None,
+                columns: pk_columns.into_iter().map(Cow::Owned).collect(),
+            }));
+        }
+
+        for foreign_key in &table.spec.composite_fks {
+            let columns: Vec<String> = foreign_key
+                .source_columns
+                .iter()
+                .map(|column| maps.field(&table.name, column))
+                .collect();
+            let foreign_database = table_databases
+                .get(foreign_key.target_table.as_str())
+                .and_then(|database| *database)
+                .map(|database| Cow::Owned(database.to_string()));
+            let name = format!(
+                "{table_name}_{}_fkey",
+                columns.first().cloned().unwrap_or_default()
+            );
+            snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey {
+                database: database.clone().map(Cow::Owned),
+                table: Cow::Owned(table_name.clone()),
+                name: Cow::Owned(name),
+                columns: columns.into_iter().map(Cow::Owned).collect(),
+                foreign_database,
+                foreign_table: Cow::Owned(maps.table(&foreign_key.target_table)),
+                foreign_columns: foreign_key
+                    .target_columns
+                    .iter()
+                    .map(|column| Cow::Owned(maps.field(&foreign_key.target_table, column)))
+                    .collect(),
+                on_delete: mysql_referential_action(foreign_key.on_delete.as_deref()),
+                on_update: mysql_referential_action(foreign_key.on_update.as_deref()),
+            }));
+        }
+
+        for unique in &table.spec.unique_constraints {
+            let columns: Vec<String> = unique
+                .columns
+                .iter()
+                .map(|column| maps.field(&table.name, column))
+                .collect();
+            let name = unique
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("{table_name}_{}_key", columns.join("_")));
+            snapshot.add_entity(MySQLEntity::UniqueConstraint(UniqueConstraint {
+                database: database.clone().map(Cow::Owned),
+                table: Cow::Owned(table_name.clone()),
+                name: Cow::Owned(name),
+                columns: columns.into_iter().map(Cow::Owned).collect(),
+            }));
+        }
+
+        let check_count = table.spec.check_constraints.len();
+        for (index, check) in table.spec.check_constraints.iter().enumerate() {
+            let name = check.name.clone().unwrap_or_else(|| {
+                if check_count == 1 {
+                    format!("{table_name}_check")
+                } else {
+                    format!("{table_name}_check{}", index + 1)
+                }
+            });
+            snapshot.add_entity(MySQLEntity::CheckConstraint(CheckConstraint {
+                database: database.clone().map(Cow::Owned),
+                table: Cow::Owned(table_name.clone()),
+                name: Cow::Owned(name),
+                expression: Cow::Owned(check.expr.clone()),
+                enforced: None,
+            }));
+        }
+    }
+
+    for index in indexes_for(result, Dialect::MySQL, &kept) {
+        let table_struct = index.table_name().unwrap_or_default();
+        let table_name = maps.table(table_struct);
+        let database = table_databases
+            .get(table_struct)
+            .and_then(|database| *database)
+            .map(|database| Cow::Owned(database.to_string()));
+        let name = index
+            .spec
+            .explicit_name
+            .clone()
+            .unwrap_or_else(|| crate::parser::mysql_index_name(&index.name));
+        let columns = index
+            .spec
+            .mysql_key_parts
+            .iter()
+            .map(|part| {
+                let mut column = part.expression.as_ref().map_or_else(
+                    || IndexColumn::column(maps.field(&part.table, &part.column)),
+                    |expression| IndexColumn::expression(expression.clone()),
+                );
+                column.length = part.prefix;
+                column.ascending = part.ascending;
+                column
+            })
+            .collect();
+        snapshot.add_entity(MySQLEntity::Index(Index {
+            database,
+            table: Cow::Owned(table_name),
+            name: Cow::Owned(name),
+            columns,
+            unique: index.spec.unique,
+            using: mysql_index_method(index.spec.mysql_using.as_deref()),
+            algorithm: mysql_index_algorithm(index.spec.mysql_algorithm.as_deref()),
+            lock: mysql_index_lock(index.spec.mysql_lock.as_deref()),
+            comment: None,
+            visible: None,
+        }));
+    }
+
+    for parsed in views_for(result, Dialect::MySQL) {
+        let name = parsed
+            .explicit_name
+            .clone()
+            .unwrap_or_else(|| parsed.name.to_snake_case());
+        let mut view = View::new(name, parsed.definition.clone().unwrap_or_default());
+        view.database = parsed.database.clone().map(Cow::Owned);
+        view.definition = parsed.definition.clone().map(Cow::Owned);
+        view.algorithm = mysql_view_algorithm(parsed.mysql_algorithm.as_deref());
+        view.sql_security = mysql_view_sql_security(parsed.mysql_sql_security.as_deref());
+        view.check_option = mysql_view_check_option(parsed.mysql_check_option.as_deref());
+        view.is_existing = parsed.existing || parsed.has_opaque_definition;
+        snapshot.add_entity(MySQLEntity::View(view));
+    }
+
+    let ddl = MySQLDDL::try_from_entities(snapshot.ddl.clone()).expect(
+        "parser-produced MySQL snapshots must contain one database scope and complete table parents",
+    );
+    snapshot.ddl = ddl.to_entities();
+    snapshot
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -947,7 +1337,7 @@ mod tests {
         );
         match Snapshot::from_parse_result(&result, Dialect::SQLite, None) {
             Snapshot::Sqlite(s) => s,
-            Snapshot::Postgres(_) => panic!("expected SQLite snapshot"),
+            Snapshot::Postgres(_) | Snapshot::MySQL(_) => panic!("expected SQLite snapshot"),
         }
     }
 
@@ -960,8 +1350,271 @@ mod tests {
         );
         match Snapshot::from_parse_result(&result, Dialect::PostgreSQL, None) {
             Snapshot::Postgres(s) => s,
-            Snapshot::Sqlite(_) => panic!("expected Postgres snapshot"),
+            Snapshot::Sqlite(_) | Snapshot::MySQL(_) => panic!("expected Postgres snapshot"),
         }
+    }
+
+    fn mysql_snapshot(code: &str) -> MySQLSnapshot {
+        let result = SchemaParser::parse(code);
+        assert!(
+            result.errors.is_empty(),
+            "parse errors: {:?}",
+            result.errors
+        );
+        match Snapshot::from_parse_result(&result, Dialect::MySQL, None) {
+            Snapshot::MySQL(snapshot) => snapshot,
+            Snapshot::Sqlite(_) | Snapshot::Postgres(_) => panic!("expected MySQL snapshot"),
+        }
+    }
+
+    #[test]
+    fn opaque_query_views_are_unmanaged_for_every_dialect() {
+        let sqlite = sqlite_snapshot(
+            r#"
+#[SQLiteView(query(select(Users::id), from(Users)))]
+pub struct UserIds { pub id: i64 }
+"#,
+        );
+        let sqlite_view = sqlite
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                crate::sqlite::SqliteEntity::View(view) => Some(view),
+                _ => None,
+            })
+            .expect("SQLite query view");
+        assert!(sqlite_view.is_existing);
+        assert!(sqlite_view.definition.is_none());
+
+        let postgres = postgres_snapshot(
+            r#"
+#[PostgresView(query(select(Users::id), from(Users)))]
+pub struct UserIds { pub id: i64 }
+"#,
+        );
+        let postgres_view = postgres
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                crate::postgres::PostgresEntity::View(view) => Some(view),
+                _ => None,
+            })
+            .expect("PostgreSQL query view");
+        assert!(postgres_view.is_existing);
+        assert!(postgres_view.definition.is_none());
+
+        let mysql = mysql_snapshot(
+            r#"
+#[MySQLView(query(select(Users::id), from(Users)))]
+pub struct UserIds { pub id: i64 }
+"#,
+        );
+        let mysql_view = mysql
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                crate::mysql::MySQLEntity::View(view) => Some(view),
+                _ => None,
+            })
+            .expect("MySQL query view");
+        assert!(mysql_view.is_existing);
+        assert!(mysql_view.definition.is_none());
+    }
+
+    #[test]
+    fn test_mysql_snapshot_preserves_structured_schema_metadata() {
+        use crate::mysql::{
+            GeneratedType, IndexAlgorithm, IndexLock, IndexMethod, InlineType, MySQLEntity,
+            ReferentialAction, ViewAlgorithm, ViewCheckOption, ViewSqlSecurity,
+        };
+
+        let snapshot = mysql_snapshot(
+            r#"
+#[derive(MySQLEnum)]
+pub enum AccountKind {
+    Person,
+    Service,
+}
+
+#[MySQLTable(DATABASE = "app", NAME = "tenants", ENGINE = "InnoDB")]
+pub struct Tenants {
+    #[column(PRIMARY, AUTO_INCREMENT)]
+    pub id: u64,
+}
+
+#[MySQLTable(
+    DATABASE = "app",
+    NAME = "account_records",
+    TEMPORARY,
+    ENGINE = "InnoDB",
+    DEFAULT_CHARSET = "utf8mb4",
+    COLLATE = "utf8mb4_0900_ai_ci",
+    COMMENT = "account data",
+    UNIQUE(columns(kind, roles), name = "account_kind_roles_key"),
+    CHECK(expr = "login_count >= 0")
+)]
+pub struct AccountRecords {
+    #[column(PRIMARY, AUTO_INCREMENT)]
+    pub id: u64,
+    #[column(REFERENCES = Tenants::id, ON_DELETE = CASCADE, ON_UPDATE = RESTRICT)]
+    pub tenant_id: u64,
+    #[column(ENUM, CHARSET = "utf8mb4", COLLATE = "utf8mb4_bin", COMMENT = "kind label")]
+    pub kind: AccountKind,
+    #[column(SET("reader", "writer"))]
+    pub roles: String,
+    #[column(DEFAULT = 0)]
+    pub login_count: u32,
+    #[column(TIMESTAMP, DEFAULT_SQL = "CURRENT_TIMESTAMP", ON_UPDATE = "CURRENT_TIMESTAMP")]
+    pub updated_at: String,
+    #[column(generated(STORED, "CHAR_LENGTH(roles)"))]
+    pub roles_length: u32,
+}
+
+#[MySQLIndex(unique, using = "hash", algorithm = "inplace", lock = "none")]
+pub struct AccountKindIndex(AccountRecords::kind);
+
+#[MySQLView(
+    DATABASE = "app",
+    NAME = "active_accounts",
+    DEFINITION = "SELECT id FROM account_records WHERE login_count > 0",
+    ALGORITHM = "MERGE",
+    SQL_SECURITY = "INVOKER",
+    CHECK_OPTION = "CASCADED"
+)]
+pub struct ActiveAccounts {
+    pub id: u64,
+}
+"#,
+        );
+
+        let table = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                MySQLEntity::Table(table) if table.name.as_ref() == "account_records" => {
+                    Some(table)
+                }
+                _ => None,
+            })
+            .expect("account_records table");
+        assert_eq!(table.database.as_deref(), Some("app"));
+        assert!(table.temporary);
+        assert_eq!(table.engine.as_deref(), Some("InnoDB"));
+        assert_eq!(table.charset.as_deref(), Some("utf8mb4"));
+        assert_eq!(table.collation.as_deref(), Some("utf8mb4_0900_ai_ci"));
+        assert_eq!(table.comment.as_deref(), Some("account data"));
+
+        let column = |name: &str| {
+            snapshot
+                .ddl
+                .iter()
+                .find_map(|entity| match entity {
+                    MySQLEntity::Column(column) if column.name.as_ref() == name => Some(column),
+                    _ => None,
+                })
+                .expect("column")
+        };
+        let kind = column("kind");
+        assert_eq!(kind.charset.as_deref(), Some("utf8mb4"));
+        assert_eq!(kind.collation.as_deref(), Some("utf8mb4_bin"));
+        assert_eq!(kind.comment.as_deref(), Some("kind label"));
+        assert!(matches!(
+            kind.inline_type.as_ref(),
+            Some(InlineType::Enum(values))
+                if values.values.iter().map(std::convert::AsRef::as_ref).collect::<Vec<_>>()
+                    == ["Person", "Service"]
+        ));
+        assert!(matches!(
+            column("roles").inline_type.as_ref(),
+            Some(InlineType::Set(values))
+                if values.values.iter().map(std::convert::AsRef::as_ref).collect::<Vec<_>>()
+                    == ["reader", "writer"]
+        ));
+        assert_eq!(
+            column("updated_at").default.as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        assert_eq!(
+            column("updated_at").on_update.as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        let generated = column("roles_length")
+            .generated
+            .as_ref()
+            .expect("generated");
+        assert_eq!(generated.expression.as_ref(), "CHAR_LENGTH(roles)");
+        assert_eq!(generated.generation_type, GeneratedType::Stored);
+
+        let foreign_key = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                MySQLEntity::ForeignKey(foreign_key) => Some(foreign_key),
+                _ => None,
+            })
+            .expect("foreign key");
+        assert_eq!(foreign_key.database.as_deref(), Some("app"));
+        assert_eq!(foreign_key.foreign_database.as_deref(), Some("app"));
+        assert_eq!(foreign_key.name.as_ref(), "account_records_tenant_id_fkey");
+        assert_eq!(foreign_key.on_delete, Some(ReferentialAction::Cascade));
+        assert_eq!(foreign_key.on_update, Some(ReferentialAction::Restrict));
+
+        let index = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                MySQLEntity::Index(index) => Some(index),
+                _ => None,
+            })
+            .expect("index");
+        assert_eq!(index.name.as_ref(), "account_kind_index");
+        assert!(index.unique);
+        assert_eq!(index.using, Some(IndexMethod::Hash));
+        assert_eq!(index.algorithm, Some(IndexAlgorithm::Inplace));
+        assert_eq!(index.lock, Some(IndexLock::None));
+
+        let view = snapshot
+            .ddl
+            .iter()
+            .find_map(|entity| match entity {
+                MySQLEntity::View(view) => Some(view),
+                _ => None,
+            })
+            .expect("view");
+        assert_eq!(view.database.as_deref(), Some("app"));
+        assert_eq!(view.name.as_ref(), "active_accounts");
+        assert_eq!(
+            view.definition.as_deref(),
+            Some("SELECT id FROM account_records WHERE login_count > 0")
+        );
+        assert_eq!(view.algorithm, Some(ViewAlgorithm::Merge));
+        assert_eq!(view.definer, None);
+        assert_eq!(view.sql_security, Some(ViewSqlSecurity::Invoker));
+        assert_eq!(view.check_option, Some(ViewCheckOption::Cascaded));
+        assert_eq!(view.charset, None);
+        assert_eq!(view.collation, None);
+        assert!(!view.is_existing);
+
+        // Snapshot serialization is normalized through MySQLDDL rather than
+        // depending on source-item order: tables, columns, keys/indexes,
+        // foreign keys, then checks are always emitted in category order.
+        let category = |entity: &MySQLEntity| match entity {
+            MySQLEntity::Table(_) => 0,
+            MySQLEntity::Column(_) => 1,
+            MySQLEntity::PrimaryKey(_) => 2,
+            MySQLEntity::UniqueConstraint(_) => 3,
+            MySQLEntity::Index(_) => 4,
+            MySQLEntity::ForeignKey(_) => 5,
+            MySQLEntity::CheckConstraint(_) => 6,
+            MySQLEntity::View(_) => 7,
+        };
+        assert!(
+            snapshot
+                .ddl
+                .windows(2)
+                .all(|pair| category(&pair[0]) <= category(&pair[1])),
+            "MySQL snapshot entities must use canonical category order"
+        );
     }
 
     #[test]
@@ -1616,7 +2269,7 @@ pub struct UserAccounts {
             Snapshot::from_parse_result(&result, Dialect::SQLite, Some(Casing::CamelCase));
         let snap = match snapshot {
             Snapshot::Sqlite(s) => s,
-            Snapshot::Postgres(_) => panic!("expected SQLite snapshot"),
+            Snapshot::Postgres(_) | Snapshot::MySQL(_) => panic!("expected SQLite snapshot"),
         };
 
         assert!(
@@ -1752,7 +2405,7 @@ pub struct UsersEmailIdx(UsersTable::emailAddress);
             Snapshot::from_parse_result(&result, Dialect::SQLite, Some(Casing::SnakeCase));
         let snap = match snapshot {
             Snapshot::Sqlite(s) => s,
-            Snapshot::Postgres(_) => panic!("Expected SQLite snapshot"),
+            Snapshot::Postgres(_) | Snapshot::MySQL(_) => panic!("Expected SQLite snapshot"),
         };
 
         let table = snap.ddl.iter().find_map(|e| {
@@ -1823,7 +2476,7 @@ pub struct UsersCreatedIdx(UsersTable::createdAt);
             Snapshot::from_parse_result(&result, Dialect::PostgreSQL, Some(Casing::SnakeCase));
         let snap = match snapshot {
             Snapshot::Postgres(s) => s,
-            Snapshot::Sqlite(_) => panic!("Expected Postgres snapshot"),
+            Snapshot::Sqlite(_) | Snapshot::MySQL(_) => panic!("Expected Postgres snapshot"),
         };
 
         let table = snap.ddl.iter().find_map(|e| {

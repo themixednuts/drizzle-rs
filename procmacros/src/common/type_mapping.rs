@@ -154,61 +154,84 @@ pub fn generate_expr_impl(
 /// for any lifetime, allowing seamless use with query builders.
 pub fn generate_arithmetic_ops(
     struct_ident: &proc_macro2::Ident,
-    _value_type: TokenStream,
-    _sql_type: TokenStream,
-    _sql_nullable: TokenStream,
+    value_type: TokenStream,
+    sql_type: TokenStream,
+    sql_nullable: TokenStream,
 ) -> TokenStream {
     let expr = core_paths::expr();
+    let binary_op = |op_trait: &str, method: &str, operation: &str| {
+        let op_trait = quote::format_ident!("{op_trait}");
+        let method = quote::format_ident!("{method}");
+        let operation = quote::format_ident!("{operation}");
+        quote! {
+            impl<Rhs> ::core::ops::#op_trait<Rhs> for #struct_ident
+            where
+                Rhs: ::core::marker::Copy
+                    + #expr::ArithmeticRhs<
+                        <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                    >,
+                (): #expr::BuildColumnArithmetic<
+                    #struct_ident,
+                    Rhs,
+                    #expr::#operation,
+                    <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                    #sql_type,
+                    #sql_nullable,
+                >,
+            {
+                type Output = <() as #expr::BuildColumnArithmetic<
+                    #struct_ident,
+                    Rhs,
+                    #expr::#operation,
+                    <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                    #sql_type,
+                    #sql_nullable,
+                >>::Output;
+
+                fn #method(self, rhs: Rhs) -> Self::Output {
+                    <() as #expr::BuildColumnArithmetic<
+                        #struct_ident,
+                        Rhs,
+                        #expr::#operation,
+                        <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                        #sql_type,
+                        #sql_nullable,
+                    >>::build(self, rhs)
+                }
+            }
+        }
+    };
+
+    let add = binary_op("Add", "add", "OpAdd");
+    let sub = binary_op("Sub", "sub", "OpSub");
+    let mul = binary_op("Mul", "mul", "OpMul");
+    let div = binary_op("Div", "div", "OpDiv");
+    let rem = binary_op("Rem", "rem", "OpRem");
 
     quote! {
-        // Add operator: column + rhs
-        impl<Rhs: ::core::marker::Copy> ::core::ops::Add<Rhs> for #struct_ident {
-            type Output = #expr::ColumnBinOp<#struct_ident, Rhs, #expr::OpAdd>;
-
-            fn add(self, rhs: Rhs) -> Self::Output {
-                #expr::ColumnBinOp::new(self, rhs)
-            }
+        impl #expr::ArithmeticRhs<
+            <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+        > for #struct_ident {
+            type SQLType = #sql_type;
+            type Nullable = #sql_nullable;
         }
 
-        // Sub operator: column - rhs
-        impl<Rhs: ::core::marker::Copy> ::core::ops::Sub<Rhs> for #struct_ident {
-            type Output = #expr::ColumnBinOp<#struct_ident, Rhs, #expr::OpSub>;
+        #add
+        #sub
+        #mul
+        #div
+        #rem
 
-            fn sub(self, rhs: Rhs) -> Self::Output {
-                #expr::ColumnBinOp::new(self, rhs)
-            }
-        }
-
-        // Mul operator: column * rhs
-        impl<Rhs: ::core::marker::Copy> ::core::ops::Mul<Rhs> for #struct_ident {
-            type Output = #expr::ColumnBinOp<#struct_ident, Rhs, #expr::OpMul>;
-
-            fn mul(self, rhs: Rhs) -> Self::Output {
-                #expr::ColumnBinOp::new(self, rhs)
-            }
-        }
-
-        // Div operator: column / rhs
-        impl<Rhs: ::core::marker::Copy> ::core::ops::Div<Rhs> for #struct_ident {
-            type Output = #expr::ColumnBinOp<#struct_ident, Rhs, #expr::OpDiv>;
-
-            fn div(self, rhs: Rhs) -> Self::Output {
-                #expr::ColumnBinOp::new(self, rhs)
-            }
-        }
-
-        // Rem operator: column % rhs
-        impl<Rhs: ::core::marker::Copy> ::core::ops::Rem<Rhs> for #struct_ident {
-            type Output = #expr::ColumnBinOp<#struct_ident, Rhs, #expr::OpRem>;
-
-            fn rem(self, rhs: Rhs) -> Self::Output {
-                #expr::ColumnBinOp::new(self, rhs)
-            }
-        }
-
-        // Neg operator: -column
-        impl ::core::ops::Neg for #struct_ident {
-            type Output = #expr::ColumnNeg<#struct_ident>;
+        impl ::core::ops::Neg for #struct_ident
+        where
+            #sql_type: drizzle::core::types::NegOutput,
+        {
+            type Output = #expr::ColumnNeg<
+                #struct_ident,
+                <#value_type<'static> as drizzle::core::SQLParam>::DialectMarker,
+                <#sql_type as drizzle::core::types::NegOutput>::Output,
+                #sql_nullable,
+            >;
 
             fn neg(self) -> Self::Output {
                 #expr::ColumnNeg::new(self)

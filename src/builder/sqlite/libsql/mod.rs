@@ -2,8 +2,7 @@
 //!
 //! # Quick start
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```no_run
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle::sqlite::libsql::Drizzle;
 //! use libsql::Builder;
@@ -35,51 +34,69 @@
 //!
 //!     Ok(())
 //! }
-//! # "####;
 //! ```
 //!
 //! # Transactions
 //!
 //! Return `Ok(value)` to commit, `Err(...)` to rollback.
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```no_run
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
-//! use drizzle::sqlite::connection::SQLiteTransactionType;
+//! use drizzle::sqlite::TransactionConfig;
+//! # #[SQLiteTable]
+//! # struct User {
+//! #     #[column(PRIMARY, AUTOINCREMENT)]
+//! #     id: i32,
+//! #     name: String,
+//! # }
+//! # #[derive(SQLiteSchema)]
+//! # struct AppSchema { user: User }
+//! # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
 //!
-//! let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//! let count = db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     Ok(users.len())
 //! }).await?;
-//! # "####;
+//! # let _: usize = count;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Savepoints
 //!
-//! Savepoints nest inside transactions — a failed savepoint rolls back
+//! Savepoints nest inside transactions. A failed savepoint rolls back
 //! without aborting the outer transaction.
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```no_run
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::libsql::Drizzle;
-//! # use drizzle::sqlite::connection::SQLiteTransactionType;
-//! db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+//! # use drizzle::sqlite::TransactionConfig;
+//! # #[SQLiteTable]
+//! # struct User {
+//! #     #[column(PRIMARY, AUTOINCREMENT)]
+//! #     id: i32,
+//! #     name: String,
+//! # }
+//! # #[derive(SQLiteSchema)]
+//! # struct AppSchema { user: User }
+//! # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
+//! db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
-//!     // This savepoint fails — only its changes roll back
+//!     // This savepoint fails, so only its changes roll back.
 //!     let _ = tx.savepoint(async |stx| {
 //!         stx.insert(user).values([InsertUser::new("Bad")]).execute().await?;
-//!         Err(drizzle::error::DrizzleError::Other("oops".into()))
+//!         Err::<(), _>(drizzle::error::DrizzleError::Other("oops".into()))
 //!     }).await;
 //!
 //!     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
 //!     assert_eq!(users.len(), 1); // only Alice
 //!     Ok(())
 //! }).await?;
-//! # "####;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Statement caching
@@ -108,7 +125,6 @@ use libsql::{Connection, Row};
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
     builder::{self, QueryBuilder},
-    connection::SQLiteTransactionType,
     values::SQLiteValue,
 };
 
@@ -301,30 +317,38 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// rolled back on `Err`. Unlike the sync rusqlite driver, `transaction`
     /// takes `&self` (not `&mut self`).
     ///
-    /// ```rust
-    /// # let _ = r####"
+    /// ```no_run
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::libsql::Drizzle;
-    /// # use drizzle::sqlite::connection::SQLiteTransactionType;
-    /// let count = db.transaction(SQLiteTransactionType::Deferred, async |tx| {
+    /// # use drizzle::sqlite::TransactionConfig;
+    /// # #[SQLiteTable]
+    /// # struct User {
+    /// #     #[column(PRIMARY, AUTOINCREMENT)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// # #[derive(SQLiteSchema)]
+    /// # struct AppSchema { user: User }
+    /// # async fn example(db: &Drizzle<AppSchema>, user: User) -> drizzle::Result<()> {
+    /// let count = db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
     ///     Ok(users.len())
     /// }).await?;
-    /// # "####;
+    /// # let _: usize = count;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn transaction<F, R>(
         &self,
-        tx_type: SQLiteTransactionType,
+        config: drizzle_sqlite::TransactionConfig,
         f: F,
     ) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
         F: AsyncFnOnce(&Transaction<Schema>) -> Result<R, DrizzleError>,
     {
-        drizzle_core::drizzle_trace_tx!("begin", "sqlite.libsql");
-        let tx = self.conn.transaction_with_behavior(tx_type.into()).await?;
-        let transaction = Transaction::new(tx, tx_type, self.schema);
+        let transaction = self.start(config).await?;
 
         let result = f(&transaction).await;
         match result {
@@ -339,6 +363,18 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 Err(e)
             }
         }
+    }
+
+    async fn start(
+        &self,
+        config: drizzle_sqlite::TransactionConfig,
+    ) -> drizzle_core::error::Result<Transaction<Schema>>
+    where
+        Schema: Copy,
+    {
+        drizzle_core::drizzle_trace_tx!("begin", "sqlite.libsql");
+        let tx = self.conn.transaction_with_behavior(config.into()).await?;
+        Ok(Transaction::new(tx, config, self.schema))
     }
 }
 
@@ -1010,9 +1046,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         let mut rendered = Vec::new();
         builder.relations.render_into(&mut rendered);
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             T::COLUMN_NAMES,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,
@@ -1147,9 +1184,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         builder.relations.render_into(&mut rendered);
         let col_refs: Vec<&str> = column_names.clone();
         let query_sql = drizzle_core::query::build_query_sql(
-            T::TABLE_NAME,
+            T::TABLE,
             &col_refs,
             T::BLOB_COLUMNS,
+            T::JSON_PROJECTIONS,
             rendered,
             builder.where_sql,
             builder.order_by_sql,

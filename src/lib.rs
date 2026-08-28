@@ -1,60 +1,4 @@
-//! # Drizzle for Rust
-//!
-//! A type-safe SQL query builder for Rust, supporting `SQLite` and `PostgreSQL`.
-//!
-//! ## Quick Start
-//!
-//! ```rust
-//! # #[cfg(feature = "rusqlite")]
-//! # fn main() -> drizzle::Result<()> {
-//! use drizzle::sqlite::prelude::*;
-//! use drizzle::sqlite::rusqlite::Drizzle;
-//!
-//! #[SQLiteTable(name = "Users")]
-//! struct User {
-//!     #[column(primary)]
-//!     id: i32,
-//!     name: String,
-//!     email: Option<String>,
-//! }
-//!
-//! #[derive(SQLiteSchema)]
-//! struct Schema {
-//!     user: User,
-//! }
-//!
-//! let conn = rusqlite::Connection::open_in_memory()?;
-//! let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::new());
-//!
-//! db.create()?;
-//! db.insert(user)
-//!     .values([InsertUser::new("John Doe").with_email("john@example.com")])
-//!     .execute()?;
-//!
-//! let users: Vec<SelectUser> = db.select(()).from(user).all()?;
-//! # Ok(())
-//! # }
-//! # #[cfg(not(feature = "rusqlite"))]
-//! # fn main() {}
-//! ```
-//!
-//! ## Database Support
-//!
-//! | Database   | Driver         | Feature Flag     | Status |
-//! |------------|----------------|------------------|--------|
-//! | `SQLite`     | rusqlite       | `rusqlite`       | ✅     |
-//! | `SQLite`     | libsql         | `libsql`         | ✅     |
-//! | `SQLite`     | turso          | `turso`          | ✅     |
-//! | `PostgreSQL` | postgres       | `postgres-sync`  | ✅     |
-//! | `PostgreSQL` | tokio-postgres | `tokio-postgres` | ✅     |
-//! | `PostgreSQL` | tokio-postgres over Cloudflare Hyperdrive (wasm32) | `hyperdrive` | ✅     |
-//!
-//! For schema declarations, import the database prelude:
-//! - `drizzle::sqlite::prelude::*`
-//! - `drizzle::postgres::prelude::*`
-//!
-//! For expressions and conditions, import from `drizzle::core::expr`.
-
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg, rustdoc_internals))]
 #![allow(
@@ -131,6 +75,8 @@ pub mod error {
 /// DDL types and schema definitions.
 pub mod ddl {
     #[doc(inline)]
+    pub use drizzle_types::mysql;
+    #[doc(inline)]
     pub use drizzle_types::postgres;
     #[doc(inline)]
     pub use drizzle_types::sqlite;
@@ -148,9 +94,9 @@ pub mod core {
     /// SQL building blocks.
     #[doc(inline)]
     pub use drizzle_core::{
-        ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, ForeignKeyRef, OrderBy, Param,
-        ParamBind, ParamSet, Placeholder, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef,
-        Token, TypedPlaceholder, asc, desc,
+        ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, Derived, DerivedField, ForeignKeyRef,
+        OrderBy, Param, ParamBind, ParamSet, Placeholder, PrimaryKeyRef, SQL, SQLChunk,
+        TableDialect, TableRef, TableSqlRef, Token, TypedPlaceholder, asc, desc,
     };
 
     /// Conversion trait for SQL generation.
@@ -189,6 +135,12 @@ pub mod core {
     #[doc(hidden)]
     pub use drizzle_core::schema::SQLEnumInfo;
 
+    #[doc(hidden)]
+    pub use drizzle_core::{
+        ColumnScope, InsertColumn, InsertSelectAllColumns, InsertSelectTable, OpaqueScope,
+        ProjectionInScope, ScopeContains,
+    };
+
     /// Bind parameter type mapping trait.
     #[doc(inline)]
     pub use drizzle_core::ValueTypeForDialect;
@@ -219,9 +171,9 @@ pub mod core {
     pub use drizzle_core::row::{
         AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
         FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-        MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup, ResolveRow,
-        RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom, SelectCols,
-        SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+        LeftLateralSelection, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup,
+        ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom,
+        SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
     };
 }
 
@@ -235,7 +187,8 @@ pub mod sqlite {
     };
     #[doc(inline)]
     pub use drizzle_sqlite::{
-        attrs, builder, common, connection, expr, helpers, pragma, traits, types, values,
+        SQLiteTransactionType, TransactionConfig, attrs, builder, common, connection, expr,
+        helpers, pragma, traits, types, values,
     };
 
     #[cfg(feature = "rusqlite")]
@@ -306,6 +259,7 @@ pub mod sqlite {
             SQLiteEnum, SQLiteFromRow, SQLiteIndex, SQLiteSchema, SQLiteTable, SQLiteView,
         };
         // SQLite types
+        pub use drizzle_sqlite::TransactionConfig;
         pub use drizzle_sqlite::attrs::*;
         pub use drizzle_sqlite::common::SQLiteSchemaType;
         pub use drizzle_sqlite::traits::{DrizzleSQLiteColumn, SQLiteColumn, SQLiteTable};
@@ -327,7 +281,10 @@ pub mod postgres {
     #[doc(hidden)]
     pub use drizzle_postgres::driver_types;
     #[doc(inline)]
-    pub use drizzle_postgres::{attrs, builder, common, expr, helpers, traits, types, values};
+    pub use drizzle_postgres::{
+        AccessMode, IsolationLevel, TransactionConfig, attrs, builder, common, expr, helpers,
+        traits, transaction, types, values,
+    };
 
     #[cfg(all(
         feature = "postgres-sync",
@@ -423,13 +380,117 @@ pub mod postgres {
         pub use drizzle_postgres::values::{
             OwnedPostgresValue, PostgresInsertValue, PostgresUpdateValue, PostgresValue,
         };
+        pub use drizzle_postgres::{AccessMode, IsolationLevel, TransactionConfig};
     }
 }
 
-/// `MySQL` types and macros (WIP).
+/// `MySQL` dialect, query builders, values, and adapters.
+///
+/// ```
+/// use drizzle::ddl::mysql::{MySQLType, MySQLTypeCategory};
+/// use drizzle::mysql::{
+///     MySQLDialect, MySQLMutationResult, MySQLValue, OwnedMySQLValue, TransactionConfig,
+/// };
+/// ```
+///
+/// First-class compatibility targets Oracle MySQL 8.0.31 and newer. MariaDB
+/// and SingleStore are not part of this compatibility contract. The concrete
+/// adapters inherit TLS configuration from the upstream `mysql` or
+/// `mysql_async` resource supplied by the application.
+///
+/// Both adapters set each connection's session time zone to UTC and remove
+/// `NO_UNSIGNED_SUBTRACTION` and `REAL_AS_FLOAT` before typed queries. This makes
+/// temporal decoding and numeric types agree with the static Rust types.
+///
+/// MySQL upserts use `InsertBuilder::on_duplicate_key_update`. SQL `RETURNING`,
+/// full joins, partial-index predicates, and PostgreSQL `UPDATE ... FROM` are
+/// intentionally absent. Offset-only queries render MySQL's maximum-limit
+/// sentinel, and typed string concatenation renders `CONCAT(...)`, never `||`.
+///
+/// ```compile_fail
+/// use drizzle::mysql::builder::UpdateFromSet;
+/// ```
 #[cfg(feature = "mysql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
-pub mod mysql {}
+pub mod mysql {
+    #[doc(inline)]
+    pub use drizzle_macros::{
+        MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable, MySQLView,
+    };
+    #[doc(inline)]
+    pub use drizzle_mysql::values::{MySQLValue, OwnedMySQLValue};
+    #[doc(inline)]
+    pub use drizzle_mysql::{
+        AccessMode, IndexKeyPart, IndexOrder, IsolationLevel, MySQLDialect, MySQLMutationResult,
+        ParamBind, TransactionConfig, ViewAlgorithm, ViewCheckOption, ViewSqlSecurity, attrs,
+        builder, common, driver, helpers, index, traits, transaction, types, values,
+    };
+
+    /// Blocking adapter backed by the `mysql` crate.
+    ///
+    /// It owns the exact `mysql::Conn` or checked-out `mysql::PooledConn` passed
+    /// to `Drizzle::new`; construction does not perform I/O. See
+    /// [`Drizzle`](mysql_sync::Drizzle) for connection and transaction examples.
+    #[cfg(feature = "mysql-sync")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "mysql-sync")))]
+    pub mod mysql_sync {
+        #[doc(inline)]
+        pub use crate::builder::mysql::mysql_sync::{Drizzle, DrizzleBuilder, Rows, prepared};
+        #[doc(inline)]
+        pub use crate::transaction::mysql::mysql_sync::Transaction;
+    }
+
+    /// Async adapter backed by the `mysql_async` crate.
+    ///
+    /// It accepts an owned `mysql_async::Conn` or lazy `mysql_async::Pool`.
+    /// Pool-backed operations check out a connection per operation; call
+    /// [`Drizzle::disconnect`](mysql_async::Drizzle::disconnect) before the
+    /// owning Tokio runtime stops.
+    #[cfg(feature = "mysql-async")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "mysql-async")))]
+    pub mod mysql_async {
+        #[doc(inline)]
+        pub use crate::builder::mysql::mysql_async::{Drizzle, DrizzleBuilder, Rows, prepared};
+        #[doc(inline)]
+        pub use crate::transaction::mysql::mysql_async::Transaction;
+    }
+
+    /// `MySQL` prelude for schema declarations.
+    pub mod prelude {
+        // Core types and traits
+        pub use crate::core::ToSQL;
+        pub use crate::core::{Joinable, Relation, SchemaHasTable};
+        pub use crate::core::{
+            OrderBy, Param, ParamBind, ParamSet, Placeholder, SQL, SQLChunk, Token,
+            TypedPlaceholder,
+        };
+        pub use crate::core::{OwnedPreparedStatement, PreparedStatement};
+        pub use drizzle_core::tag;
+        pub use drizzle_core::traits::*;
+        pub use drizzle_mysql::helpers::{MySQLIndexHintExt, asc, desc, output_alias};
+        // MySQL macros
+        pub use drizzle_macros::{
+            MySQLEnum, MySQLFromRow, MySQLIndex, MySQLSchema, MySQLTable, MySQLView,
+        };
+        // MySQL types
+        pub use drizzle_mysql::MySQLMutationResult;
+        pub use drizzle_mysql::attrs::*;
+        pub use drizzle_mysql::common::MySQLSchemaType;
+        pub use drizzle_mysql::common::MySQLViewInfo;
+        pub use drizzle_mysql::traits::{
+            DrizzleMySQLColumn, MySQLColumn, MySQLEnum, MySQLIndexColumn, MySQLTable,
+        };
+        pub use drizzle_mysql::values::{
+            MySQLInsertValue, MySQLUpdateValue, MySQLValue, OwnedMySQLValue,
+        };
+        pub use drizzle_mysql::{AccessMode, IsolationLevel, TransactionConfig};
+        pub use drizzle_mysql::{
+            IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata,
+            MySQLIndexMethod,
+        };
+        pub use drizzle_mysql::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
+    }
+}
 
 // =============================================================================
 // Compile-fail tests (verified during `cargo test --doc`)

@@ -121,7 +121,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             field_info.has_default || field_info.default_fn.is_some(),
         );
 
-        // Only use default_fn for Rust DEFAULT constant, not SQL default literals
+        // Only DEFAULT_FN generates an application-side value.
         let default_const = quote! { None };
 
         let default_fn_body = field_info.default_fn.as_ref().map_or_else(
@@ -280,7 +280,11 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             generate_custom_comparison_operand_impls(field_info, &zst_ident, &postgres_value);
 
         // Generate arithmetic operators for numeric columns
-        let arithmetic_ops = if postgres_column_type_is_numeric(&field_info.column_type) {
+        let arithmetic_ops = if !field_info.is_enum
+            && !field_info.is_pgenum
+            && field_info.dimensions.is_none()
+            && postgres_column_type_is_numeric(&field_info.column_type)
+        {
             generate_arithmetic_ops(
                 &zst_ident,
                 postgres_value,
@@ -298,6 +302,11 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
         } else {
             quote! {}
         };
+        let insert_column_impl = (field_info.generated_column.is_none()
+            && !matches!(field_info.identity_mode, Some(IdentityMode::Always)))
+        .then(|| crate::common::insert_select::generate_column_impl(&zst_ident, struct_ident));
+        let column_scope_impl =
+            crate::common::insert_select::generate_column_scope_impl(&zst_ident, struct_ident);
 
         // Grouping by a table's sole primary key functionally determines the
         // whole row (SQL:1999 — Postgres implements this natively), so
@@ -385,6 +394,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
             }
 
             impl #column_of<#struct_ident> for #zst_ident {}
+            #column_scope_impl
             impl #column_value_type for #zst_ident {
                 type ValueType = #value_type;
             }
@@ -401,6 +411,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
                 type Identity = #zst_ident;
             }
             #column_not_null_impl
+            #insert_column_impl
 
             impl<'a> ToSQL<'a, PostgresValue<'a>> for #zst_ident {
                 fn to_sql(&self) -> SQL<'a, PostgresValue<'a>> {

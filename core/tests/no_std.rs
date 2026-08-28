@@ -6,7 +6,7 @@
 
 extern crate alloc;
 
-use drizzle_core::{SQL, SQLParam, Token};
+use drizzle_core::{SQL, SQLParam, TableRef, Token};
 
 // Define a mock value type for testing
 #[derive(Clone, Debug)]
@@ -15,6 +15,22 @@ pub struct TestValue;
 impl SQLParam for TestValue {
     const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::SQLite;
     type DialectMarker = drizzle_core::dialect::SQLiteDialect;
+}
+
+#[derive(Clone, Debug)]
+pub struct PostgresTestValue;
+
+impl SQLParam for PostgresTestValue {
+    const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::PostgreSQL;
+    type DialectMarker = drizzle_core::dialect::PostgresDialect;
+}
+
+#[derive(Clone, Debug)]
+pub struct MySQLTestValue;
+
+impl SQLParam for MySQLTestValue {
+    const DIALECT: drizzle_core::dialect::Dialect = drizzle_core::dialect::Dialect::MySQL;
+    type DialectMarker = drizzle_core::dialect::MySQLDialect;
 }
 
 #[test]
@@ -99,6 +115,66 @@ fn test_sql_builder_pattern_no_std() {
     assert_eq!(
         result,
         "SELECT \"id\", \"name\" FROM \"users\" WHERE \"active\" = 1"
+    );
+}
+
+fn joined_star_sql<V: SQLParam>() -> alloc::string::String {
+    let users = TableRef::sql("users", &["id", "name"]);
+    let posts = TableRef::sql("posts", &["id", "user_id"]);
+    let sql: SQL<'_, V> = SQL::from(Token::SELECT)
+        .push(Token::FROM)
+        .append(SQL::table(users))
+        .append(SQL::raw("INNER JOIN"))
+        .append(SQL::table(posts))
+        .push(Token::ON)
+        .append(SQL::raw("1 = 1"));
+
+    sql.sql()
+}
+
+#[test]
+fn test_select_star_expands_joined_tables_for_every_dialect() {
+    assert_eq!(
+        joined_star_sql::<TestValue>(),
+        "SELECT \"users\".\"id\", \"users\".\"name\", \"posts\".\"id\", \"posts\".\"user_id\" FROM \"users\" INNER JOIN \"posts\" ON 1 = 1"
+    );
+    assert_eq!(
+        joined_star_sql::<PostgresTestValue>(),
+        "SELECT \"users\".\"id\", \"users\".\"name\", \"posts\".\"id\", \"posts\".\"user_id\" FROM \"users\" INNER JOIN \"posts\" ON 1 = 1"
+    );
+    assert_eq!(
+        joined_star_sql::<MySQLTestValue>(),
+        "SELECT `users`.`id`, `users`.`name`, `posts`.`id`, `posts`.`user_id` FROM `users` INNER JOIN `posts` ON 1 = 1"
+    );
+}
+
+fn set_operation_star_sql<V: SQLParam>() -> alloc::string::String {
+    let users = TableRef::sql("users", &["id", "name"]);
+    let posts = TableRef::sql("posts", &["id", "user_id"]);
+    let sql: SQL<'_, V> = SQL::from(Token::SELECT)
+        .push(Token::FROM)
+        .append(SQL::table(users))
+        .push(Token::UNION)
+        .push(Token::SELECT)
+        .push(Token::FROM)
+        .append(SQL::table(posts));
+
+    sql.sql()
+}
+
+#[test]
+fn test_select_star_stops_at_set_operation_for_every_dialect() {
+    assert_eq!(
+        set_operation_star_sql::<TestValue>(),
+        "SELECT \"users\".\"id\", \"users\".\"name\" FROM \"users\" UNION SELECT \"posts\".\"id\", \"posts\".\"user_id\" FROM \"posts\""
+    );
+    assert_eq!(
+        set_operation_star_sql::<PostgresTestValue>(),
+        "SELECT \"users\".\"id\", \"users\".\"name\" FROM \"users\" UNION SELECT \"posts\".\"id\", \"posts\".\"user_id\" FROM \"posts\""
+    );
+    assert_eq!(
+        set_operation_star_sql::<MySQLTestValue>(),
+        "SELECT `users`.`id`, `users`.`name` FROM `users` UNION SELECT `posts`.`id`, `posts`.`user_id` FROM `posts`"
     );
 }
 

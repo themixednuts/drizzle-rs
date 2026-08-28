@@ -1,6 +1,7 @@
 //! Generic `Snapshot<E>` — shared CRUD + serde IO across dialects.
 //!
-//! Per-dialect snapshot types (`SQLiteSnapshot`, `PostgresSnapshot`) are
+//! Per-dialect snapshot types (`SQLiteSnapshot`, `PostgresSnapshot`, and
+//! `MySQLSnapshot`) are
 //! type aliases of this generic struct. The dialect-neutral pieces — the
 //! field set (`version`, `dialect`, `id`, `prev_ids`, `ddl`, `renames`),
 //! the JSON round-trip, the file load/save — live here once. Dialect-
@@ -23,17 +24,18 @@ use serde::{Deserialize, Serialize};
 /// `dialect` strings without knowing which dialect it's working with.
 pub trait SnapshotEntity {
     /// Dialect identifier serialized into the `dialect` field
-    /// (e.g. `"sqlite"`, `"postgres"`).
+    /// (e.g. `"sqlite"`, `"postgres"`, or `"mysql"`).
     const DIALECT: &'static str;
     /// Snapshot format version serialized into the `version` field
-    /// (e.g. `"7"` for SQLite, `"8"` for Postgres).
+    /// (e.g. `"7"` for SQLite, `"8"` for Postgres, or `"6"` for MySQL).
     const SNAPSHOT_VERSION: &'static str;
 }
 
 /// Generic schema snapshot keyed on an entity type.
 ///
-/// The `entity_type`-tagged DDL array is the v7+ drizzle-kit format;
-/// `Vec<E>` lets each dialect supply its own entity enum.
+/// The `entity_type`-tagged DDL array is the current drizzle-kit format
+/// (its version is dialect-specific); `Vec<E>` lets each dialect supply its
+/// own entity enum.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot<E> {
