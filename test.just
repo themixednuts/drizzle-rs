@@ -48,6 +48,7 @@ mysql-sync *ARGS:
     docker compose exec -T mysql sh -c 'until mysql -h 127.0.0.1 -udrizzle -pdrizzle drizzle_test -e "SELECT 1" >/dev/null 2>&1; do sleep 1; done'
     echo "MySQL is ready!"
     cargo test -p drizzle --no-default-features --features mysql-sync {{ARGS}}
+    cargo test -p drizzle --no-default-features --features mysql-sync,serde --test compile_fail mysql_macros_ui
     cargo test -p drizzle --no-default-features --features mysql-sync,serde --test compile_fail mysql_builder_ui
     cargo test -p drizzle --no-default-features --features "mysql-sync,{{_mysql-ext}}" {{ARGS}}
     cargo test -p drizzle-cli --no-default-features --features mysql-sync --test parity_integration {{ARGS}}

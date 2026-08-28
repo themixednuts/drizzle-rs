@@ -10,7 +10,7 @@ fn must_fail(glob: &str) {
     t.compile_fail(glob);
 }
 
-#[cfg(feature = "mysql")]
+#[cfg(all(feature = "mysql", not(feature = "query")))]
 #[test]
 fn mysql_macros_ui() {
     must_pass("tests/ui/mysql_macros/pass/*.rs");
