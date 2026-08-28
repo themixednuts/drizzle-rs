@@ -356,24 +356,9 @@ fn column_to_sql(field: &FieldInfo, inline_pk: bool, inline_unique: bool) -> Str
     }
 
     if field.generated_column.is_none()
-        && let Some(ref default_expr) = field.default_value
-        && let syn::Expr::Lit(expr_lit) = default_expr
+        && let Some(ref default) = field.default
     {
-        let default_str = match &expr_lit.lit {
-            syn::Lit::Int(i) => format!(" DEFAULT {i}"),
-            syn::Lit::Float(f) => format!(" DEFAULT {f}"),
-            syn::Lit::Bool(b) => format!(" DEFAULT {}", if b.value() { "1" } else { "0" }),
-            syn::Lit::Str(s) => format!(" DEFAULT '{}'", s.value().replace('\'', "''")),
-            _ => String::new(),
-        };
-        if !default_str.is_empty() {
-            sql.push_str(&default_str);
-        }
-    }
-    if field.generated_column.is_none()
-        && let Some(ref default_sql) = field.default_sql
-    {
-        let _ = write!(sql, " DEFAULT {default_sql}");
+        let _ = write!(sql, " DEFAULT {default}");
     }
 
     if let Some(ref generated) = field.generated_column {
@@ -510,24 +495,9 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
                 }
             }
             if field.generated_column.is_none()
-                && let Some(ref default_sql) = field.default_sql
+                && let Some(ref default) = field.default
             {
-                modifiers.push(quote! { .default_value(#default_sql) });
-            }
-            if field.generated_column.is_none()
-                && let Some(syn::Expr::Lit(expr_lit)) = field.default_value.as_ref()
-            {
-                // Convert the expression to a string for DDL
-                let default_str = match &expr_lit.lit {
-                    syn::Lit::Int(i) => i.to_string(),
-                    syn::Lit::Float(f) => f.to_string(),
-                    syn::Lit::Bool(b) => if b.value() { "1" } else { "0" }.to_string(),
-                    syn::Lit::Str(s) => format!("'{}'", s.value().replace('\'', "''")),
-                    _ => String::new(),
-                };
-                if !default_str.is_empty() {
-                    modifiers.push(quote! { .default_value(#default_str) });
-                }
+                modifiers.push(quote! { .default_value(#default) });
             }
             if let Some(ref collate_name) = field.collate {
                 modifiers.push(quote! { .collate(#collate_name) });
@@ -845,8 +815,13 @@ mod tests {
             relation_name: None,
             constraint: Constraint::None,
             collate: None,
-            default_value: default,
-            default_sql: None,
+            default: default
+                .as_ref()
+                .map(|expr| crate::sqlite::field::render_default(expr).unwrap()),
+            default_literal: default.as_ref().and_then(|expr| match expr {
+                syn::Expr::Lit(literal) => Some(literal.clone()),
+                _ => None,
+            }),
             default_fn: None,
             generated_column: None,
             check_constraint: None,

@@ -302,7 +302,7 @@ pub struct Posts {
 }
 
 /// P4 + P9: string defaults are SQL-quoted (not Rust-quoted) and
-/// `default_sql` is honored with the macro's normalization.
+/// SQL expressions in `default` use the macro's normalization.
 #[test]
 fn defaults_render_like_the_macros() {
     let entities = sqlite_entities(
@@ -311,9 +311,9 @@ fn defaults_render_like_the_macros() {
 pub struct Defaults {
     #[column(default = "hello")]
     pub greeting: String,
-    #[column(default_sql = "strftime('%s','now')")]
+    #[column(default = strftime("%s", "now"))]
     pub epoch: i64,
-    #[column(default_sql = "CURRENT_TIMESTAMP")]
+    #[column(default = CURRENT_TIMESTAMP)]
     pub created: String,
 }
 "#,
@@ -333,7 +333,7 @@ pub struct Defaults {
     assert_eq!(default_of("greeting").as_deref(), Some("'hello'"));
     assert_eq!(
         default_of("epoch").as_deref(),
-        Some("(strftime('%s','now'))")
+        Some("(strftime('%s', 'now'))")
     );
     assert_eq!(default_of("created").as_deref(), Some("CURRENT_TIMESTAMP"));
 }

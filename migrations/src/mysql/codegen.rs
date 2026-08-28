@@ -11,7 +11,7 @@ use super::ddl::{
     IndexMethod, InlineType, ReferentialAction, Table, UniqueConstraint, View, ViewAlgorithm,
     ViewCheckOption, ViewSqlSecurity,
 };
-use crate::utils::escape_for_rust_literal;
+use crate::utils::{default_expression, escape_for_rust_literal};
 use drizzle_types::mysql::{MySQLType, MySQLTypeCategory};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -1621,10 +1621,8 @@ fn enum_variant_identifier(value: &str) -> Option<String> {
 }
 
 fn default_attribute(default: &str) -> String {
-    // Snapshot defaults are already SQL expressions. `DEFAULT_SQL` is the
-    // only macro form that retains their exact spelling (including quoted
-    // strings, functions, bit literals, and whitespace).
-    format!("DEFAULT_SQL = \"{}\"", rust_literal(default))
+    let expression = default_expression(default).unwrap_or_else(|| default.to_string());
+    format!("DEFAULT = {expression}")
 }
 
 fn type_supports_on_update(category: &MySQLTypeCategory) -> bool {

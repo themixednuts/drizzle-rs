@@ -220,22 +220,18 @@ fn normalize_sqlite_default_sql(expression: &str) -> String {
 }
 
 /// SQL default string for a `SQLite` column, matching
-/// `sqlite::table::traits::sqlite_default_sql` (string defaults become
+/// SQLite macro rendering (string defaults become
 /// SQL-quoted `'...'` with `''` doubling; booleans become `1`/`0`).
 fn sqlite_default(spec: &ColumnSpec) -> Option<String> {
     if spec.generated.is_some() {
         // The macro rejects generated + default combinations at compile time.
         return None;
     }
-    if let Some(default_sql) = &spec.default_sql {
-        return Some(normalize_sqlite_default_sql(default_sql));
-    }
     match spec.default.as_ref()? {
         ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
         ParsedDefault::Bool(b) => Some(if *b { "1" } else { "0" }.to_string()),
         ParsedDefault::Str(s) => Some(format!("'{}'", s.replace('\'', "''"))),
-        // Non-literal defaults are dropped by the macros.
-        ParsedDefault::Unsupported(_) => None,
+        ParsedDefault::Sql(sql) => Some(normalize_sqlite_default_sql(sql)),
     }
 }
 
@@ -473,21 +469,17 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
 
 /// SQL default string for a `PostgreSQL` column, matching
 /// `postgres::field::parse_column_attribute` / `default_to_string` (string
-/// defaults become `'...'` with `''` doubling; booleans stay `true`/`false`;
-/// `default_sql` passes through verbatim; serial/identity/generated columns
-/// have no default).
+/// defaults become `'...'` with `''` doubling; serial/identity/generated
+/// columns have no default).
 fn postgres_default(spec: &ColumnSpec) -> Option<String> {
     if spec.serial.is_some() || spec.identity.is_some() || spec.generated.is_some() {
         return None;
     }
-    if let Some(default_sql) = &spec.default_sql {
-        return Some(default_sql.clone());
-    }
     match spec.default.as_ref()? {
         ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
-        ParsedDefault::Bool(b) => Some(b.to_string()),
+        ParsedDefault::Bool(b) => Some(if *b { "TRUE" } else { "FALSE" }.to_string()),
         ParsedDefault::Str(s) => Some(format!("'{}'", s.replace('\'', "''"))),
-        ParsedDefault::Unsupported(_) => None,
+        ParsedDefault::Sql(sql) => Some(sql.clone()),
     }
 }
 
@@ -947,13 +939,10 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
 
 /// SQL default string for a `MySQL` column, matching
 /// `mysql::field::default_from_expr`. Generated and auto-increment columns
-/// have no SQL default; `DEFAULT_SQL` is already a trusted SQL expression.
+/// have no SQL default.
 fn mysql_default(spec: &ColumnSpec) -> Option<String> {
     if spec.generated.is_some() || spec.autoincrement {
         return None;
-    }
-    if let Some(default_sql) = &spec.default_sql {
-        return Some(default_sql.clone());
     }
     match spec.default.as_ref()? {
         ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
@@ -962,7 +951,7 @@ fn mysql_default(spec: &ColumnSpec) -> Option<String> {
             "'{}'",
             value.replace('\\', "\\\\").replace('\'', "''")
         )),
-        ParsedDefault::Unsupported(_) => None,
+        ParsedDefault::Sql(sql) => Some(sql.clone()),
     }
 }
 
@@ -1464,7 +1453,7 @@ pub struct AccountRecords {
     pub roles: String,
     #[column(DEFAULT = 0)]
     pub login_count: u32,
-    #[column(TIMESTAMP, DEFAULT_SQL = "CURRENT_TIMESTAMP", ON_UPDATE = "CURRENT_TIMESTAMP")]
+    #[column(TIMESTAMP, DEFAULT = CURRENT_TIMESTAMP, ON_UPDATE = "CURRENT_TIMESTAMP")]
     pub updated_at: String,
     #[column(generated(STORED, "CHAR_LENGTH(roles)"))]
     pub roles_length: u32,
@@ -1765,7 +1754,7 @@ pub struct IdxPlanJobs(Jobs::id);
     #[test]
     fn test_sqlite_string_defaults_are_sql_quoted() {
         // P4: string defaults become SQL-quoted with '' doubling, matching
-        // the macro's rendering; P9: default_sql passes through with the
+        // the macro's rendering; SQL expressions pass through with the
         // macro's normalization.
         use crate::sqlite::SqliteEntity;
 
@@ -1776,9 +1765,9 @@ pub struct Defaults {
     pub greeting: String,
     #[column(default = "it's")]
     pub quoted: String,
-    #[column(default_sql = "CURRENT_TIMESTAMP")]
+    #[column(default = CURRENT_TIMESTAMP)]
     pub created_at: String,
-    #[column(default_sql = "strftime('%s','now')")]
+    #[column(default = strftime("%s", "now"))]
     pub epoch: i64,
     #[column(default = true)]
     pub active: bool,
@@ -1809,7 +1798,7 @@ pub struct Defaults {
         );
         assert_eq!(
             default_of("epoch").as_deref(),
-            Some("(strftime('%s','now'))")
+            Some("(strftime('%s', 'now'))")
         );
         assert_eq!(default_of("active").as_deref(), Some("1"));
     }

@@ -19,9 +19,7 @@ use drizzle_types::Dialect;
 // Structured column / table specs (macro-equivalent interpretation)
 // =============================================================================
 
-/// A parsed `default = <literal>` value, mirroring the literal kinds the
-/// table macros accept (`sqlite::field::build_sql_definition` /
-/// `postgres::field::parse_column_attribute`).
+/// A parsed database-side `DEFAULT` value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedDefault {
     /// Integer literal token text (e.g. `42`).
@@ -32,9 +30,8 @@ pub enum ParsedDefault {
     Bool(bool),
     /// String literal *value* (unescaped, without the Rust quotes).
     Str(String),
-    /// Any other expression (e.g. `default = -1`). The macros silently drop
-    /// these; the snapshot builder mirrors that and emits a warning.
-    Unsupported(String),
+    /// A SQL expression rendered from non-string Rust syntax.
+    Sql(String),
 }
 
 /// A `references = Table::column` target.
@@ -108,11 +105,8 @@ pub struct ColumnSpec {
     pub identity: Option<ParsedIdentity>,
     /// `generated(...)`.
     pub generated: Option<ParsedGenerated>,
-    /// `default = <literal>`.
+    /// `default = <literal-or-expression>`.
     pub default: Option<ParsedDefault>,
-    /// `default_sql = "..."` raw SQL (not normalized; the snapshot builder
-    /// applies the dialect-specific normalization the macros use).
-    pub default_sql: Option<String>,
     /// `default_fn = ...` present (runtime-only default; no DDL impact).
     pub has_default_fn: bool,
     /// `check = "..."` column-level check expression.
@@ -668,7 +662,7 @@ impl ParsedField {
                 ParsedDefault::Int(s) | ParsedDefault::Float(s) => Some(s.clone()),
                 ParsedDefault::Bool(b) => Some(b.to_string()),
                 ParsedDefault::Str(s) => Some(format!("{s:?}")),
-                ParsedDefault::Unsupported(raw) => Some(raw.clone()),
+                ParsedDefault::Sql(sql) => Some(sql.clone()),
             })
     }
 

@@ -1,0 +1,5 @@
+error: unrecognized SQLite column attribute `defualt`
+ --> tests/ui/sqlite_macro_errors/fail/unknown_column_attribute.rs:5:14
+  |
+5 |     #[column(defualt = 1)]
+  |              ^^^^^^^

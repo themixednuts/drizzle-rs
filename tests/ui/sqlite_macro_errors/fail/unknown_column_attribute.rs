@@ -2,8 +2,7 @@ use drizzle::sqlite::prelude::*;
 
 #[SQLiteTable]
 struct Users {
-    id: i32,
-    #[column(default = if true { 1 } else { 2 })]
+    #[column(defualt = 1)]
     value: i32,
 }
 

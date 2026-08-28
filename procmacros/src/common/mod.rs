@@ -6,6 +6,7 @@
 pub mod constraint;
 pub mod constraints;
 mod context;
+mod default;
 mod diagnostics;
 pub mod enum_utils;
 pub mod generators;
@@ -23,6 +24,7 @@ pub mod view_query;
 
 pub use constraint::Constraint;
 pub use context::ModelType;
+pub use default::render_default;
 pub use diagnostics::{references_required_message, relation_requires_references_message};
 #[cfg(feature = "sqlite")]
 pub use helpers::has_json_attribute;

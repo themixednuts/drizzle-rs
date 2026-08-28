@@ -1340,11 +1340,7 @@ fn test_sqlite_codegen_new_macro_surfaces() {
             .code
             .contains("generated(stored, \"lower(name)\")")
     );
-    assert!(
-        generated
-            .code
-            .contains("default_sql = \"CURRENT_TIMESTAMP\"")
-    );
+    assert!(generated.code.contains("default = CURRENT_TIMESTAMP"));
     assert!(generated.code.contains("collate = \"NOCASE\""));
 }
 

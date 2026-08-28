@@ -37,8 +37,12 @@ struct SQLiteMacroDdl {
     name: String,
     #[column(CHECK = "score >= 0")]
     score: i32,
-    #[column(default_sql = "CURRENT_TIMESTAMP")]
+    #[column(default = CURRENT_TIMESTAMP)]
     created_at: String,
+    #[column(default = "guest")]
+    role: String,
+    #[column(default = strftime("%s", "now"))]
+    created_at_unix: i64,
     #[column(generated(stored, "length(name)"))]
     name_len_stored: i32,
     #[column(generated(virtual, "length(name)"))]
@@ -102,7 +106,7 @@ fn strict_without_rowid_uses_comma_between_table_options() {
 
 #[test]
 fn sqlite_macro_ddl_features_create_table_sql() {
-    let expected = "CREATE TABLE `macro_ddl` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL,\n\t`score` INTEGER NOT NULL,\n\t`created_at` TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,\n\t`name_len_stored` INTEGER GENERATED ALWAYS AS (length(name)) STORED NOT NULL,\n\t`name_len_virtual` INTEGER GENERATED ALWAYS AS (length(name)) VIRTUAL NOT NULL,\n\tCONSTRAINT `macro_ddl_name_score_unique` UNIQUE(`name`, `score`),\n\tCONSTRAINT `macro_ddl_created_name_uq` UNIQUE(`created_at`, `name`),\n\tCONSTRAINT `macro_ddl_score_check` CHECK(score >= 0)\n);";
+    let expected = "CREATE TABLE `macro_ddl` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL,\n\t`score` INTEGER NOT NULL,\n\t`created_at` TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,\n\t`role` TEXT DEFAULT 'guest' NOT NULL,\n\t`created_at_unix` INTEGER DEFAULT (strftime('%s', 'now')) NOT NULL,\n\t`name_len_stored` INTEGER GENERATED ALWAYS AS (length(name)) STORED NOT NULL,\n\t`name_len_virtual` INTEGER GENERATED ALWAYS AS (length(name)) VIRTUAL NOT NULL,\n\tCONSTRAINT `macro_ddl_name_score_unique` UNIQUE(`name`, `score`),\n\tCONSTRAINT `macro_ddl_created_name_uq` UNIQUE(`created_at`, `name`),\n\tCONSTRAINT `macro_ddl_score_check` CHECK(score >= 0)\n);";
     assert_eq!(SQLiteMacroDdl::create_table_sql(), expected);
 
     let const_sql = <SQLiteMacroDdl as drizzle::core::SQLSchema<

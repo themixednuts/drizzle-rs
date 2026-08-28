@@ -215,7 +215,7 @@ pub(super) fn generate_table_impls(
                     || quote! { ::core::option::Option::None },
                     |default| {
                         let default_str = match default {
-                            MySQLDefault::Literal(s) | MySQLDefault::RawSql(s) => s.clone(),
+                            MySQLDefault::Literal(s) | MySQLDefault::Expression(s) => s.clone(),
                         };
                         quote! { ::core::option::Option::Some(#default_str) }
                     },

@@ -5,7 +5,6 @@ use std::fmt::Write;
 use std::{collections::HashSet, fmt::Display};
 use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Result, Token, Type};
 
-use crate::common::make_uppercase_path;
 use crate::common::{
     is_option_type, option_inner_type, references_required_message,
     relation_requires_references_message, type_is_array_char, type_is_array_string,
@@ -16,6 +15,7 @@ use crate::common::{
     type_is_primitive_date_time, type_is_string_like, type_is_time_date, type_is_time_time,
     type_is_uuid, type_is_vec_u8, unwrap_option, vec_inner_type,
 };
+use crate::common::{make_uppercase_path, render_default};
 
 // Note: drizzle_types::postgres::TypeCategory exists but has different feature gates.
 // The local TypeCategory is kept for now to maintain feature flag consistency.
@@ -620,14 +620,8 @@ pub enum PostgreSQLFlag {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum PostgreSQLDefault {
-    /// Literal value (e.g., '`default_value`')
-    Literal(String),
-    /// Function call (e.g., `NOW()`)
-    Function(String),
-    /// Raw SQL expression emitted directly after DEFAULT.
-    RawSql(String),
-    /// Expression using Rust code (evaluated at compile time)
-    Expression(TokenStream),
+    /// SQL emitted after `DEFAULT`.
+    Sql(String),
 }
 
 /// References specification for `PostgreSQL` foreign keys
@@ -1399,28 +1393,11 @@ impl FieldInfo {
                                 format!("default conflicts with existing {kind}"),
                             ));
                         }
-                        let lit: Lit = meta.input.parse()?;
-                        match lit {
-                            Lit::Str(s) => {
-                                let escaped = s.value().replace('\'', "''");
-                                default = Some(PostgreSQLDefault::Literal(format!("'{escaped}'")));
-                            }
-                            Lit::Int(i) => {
-                                default = Some(PostgreSQLDefault::Literal(i.to_string()));
-                            }
-                            Lit::Float(f) => {
-                                default = Some(PostgreSQLDefault::Literal(f.to_string()));
-                            }
-                            Lit::Bool(b) => {
-                                default = Some(PostgreSQLDefault::Literal(b.value.to_string()));
-                            }
-                            _ => {
-                                return Err(syn::Error::new_spanned(
-                                    lit,
-                                    "unsupported default value; expected a string, integer, float, or boolean literal",
-                                ));
-                            }
-                        }
+                        let expr: Expr = meta.input.parse()?;
+                        default = Some(PostgreSQLDefault::Sql(render_default(
+                            &expr,
+                            drizzle_types::Dialect::PostgreSQL,
+                        )?));
                         default_kind = Some("default");
                         marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT"));
                     }
@@ -1436,26 +1413,6 @@ impl FieldInfo {
                         default_fn = Some(quote! { #expr });
                         default_kind = Some("default_fn");
                         marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_FN"));
-                    }
-                    "DEFAULT_SQL" => {
-                        meta.input.parse::<Token![=]>()?;
-                        if let Some(kind) = default_kind {
-                            return Err(syn::Error::new_spanned(
-                                path_ident,
-                                format!("default_sql conflicts with existing {kind}"),
-                            ));
-                        }
-                        let lit: Lit = meta.input.parse()?;
-                        if let Lit::Str(s) = lit {
-                            default = Some(PostgreSQLDefault::RawSql(s.value()));
-                            default_kind = Some("default_sql");
-                            marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_SQL"));
-                        } else {
-                            return Err(syn::Error::new_spanned(
-                                lit,
-                                "DEFAULT_SQL requires a string literal, e.g. default_sql = \"now()\"",
-                            ));
-                        }
                     }
                     "CHECK" => {
                         if meta.input.peek(Token![=]) {
@@ -1566,7 +1523,7 @@ impl FieldInfo {
                             &meta.path,
                             format!("unknown #[column] attribute `{path_ident}`.\n\
                                      Supported: primary, unique, serial, bigserial, smallserial, identity, \
-                                     generated, json, jsonb, enum, name, default, default_fn, default_sql, check, references, \
+                                     generated, json, jsonb, enum, name, default, default_fn, check, references, \
                                      relation, on_delete, on_update, deferrable, initially_deferred"),
                         ));
                     }
@@ -1578,15 +1535,13 @@ impl FieldInfo {
         if default_fn.is_some() && default.is_some() {
             return Err(syn::Error::new(
                 span,
-                "default/default_sql and default_fn are mutually exclusive",
+                "default and default_fn are mutually exclusive",
             ));
         }
-        if matches!(default, Some(PostgreSQLDefault::RawSql(_)))
-            && (is_generated_identity || generated_column.is_some())
-        {
+        if default.is_some() && (is_generated_identity || generated_column.is_some()) {
             return Err(syn::Error::new(
                 span,
-                "default_sql cannot be combined with identity or generated columns",
+                "default cannot be combined with identity or generated columns",
             ));
         }
 
@@ -1772,14 +1727,9 @@ impl FieldInfo {
 impl FieldInfo {
     /// Convert default value to a string for DDL metadata (when possible).
     fn default_to_string(&self) -> Option<String> {
-        match &self.default {
-            Some(
-                PostgreSQLDefault::Literal(lit)
-                | PostgreSQLDefault::Function(lit)
-                | PostgreSQLDefault::RawSql(lit),
-            ) => Some(lit.clone()),
-            Some(PostgreSQLDefault::Expression(_)) | None => None,
-        }
+        self.default
+            .as_ref()
+            .map(|PostgreSQLDefault::Sql(sql)| sql.clone())
     }
 
     /// Convert this field to a drizzle-schema Column type.
@@ -2023,13 +1973,8 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
         && let Some(default_value) = ctx.default
     {
         match default_value {
-            PostgreSQLDefault::Literal(lit)
-            | PostgreSQLDefault::Function(lit)
-            | PostgreSQLDefault::RawSql(lit) => {
+            PostgreSQLDefault::Sql(lit) => {
                 let _ = write!(sql, " DEFAULT {lit}");
-            }
-            PostgreSQLDefault::Expression(_) => {
-                // Expression defaults are handled at runtime
             }
         }
     }
@@ -2228,7 +2173,7 @@ mod tests {
 
     #[test]
     fn sql_definition_suppresses_defaults_for_generated_columns() {
-        let default = PostgreSQLDefault::Literal("42".to_string());
+        let default = PostgreSQLDefault::Sql("42".to_string());
 
         let serial_type = PostgreSQLType::Serial;
         let mut serial = base_context("id", &serial_type);

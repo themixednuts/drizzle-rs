@@ -28,6 +28,10 @@ struct PgSimpleAliasResult {
 struct DefaultMetadata {
     #[column(DEFAULT = 7)]
     database_value: i32,
+    #[column(DEFAULT = current_user)]
+    database_user: String,
+    #[column(DEFAULT = lower("DRAFT"))]
+    database_label: String,
     #[column(DEFAULT_FN = || 7)]
     application_value: i32,
 }
@@ -36,7 +40,12 @@ struct DefaultMetadata {
 fn column_metadata_distinguishes_database_and_application_defaults() {
     let columns = <DefaultMetadata as DrizzleTable>::TABLE_REF.columns;
     assert!(columns[0].has_default());
-    assert!(!columns[1].has_default());
+    assert!(columns[1].has_default());
+    assert!(columns[2].has_default());
+    assert!(!columns[3].has_default());
+    let sql = DefaultMetadata::create_table_sql();
+    assert!(sql.contains("DEFAULT current_user"));
+    assert!(sql.contains("DEFAULT lower('DRAFT')"));
 }
 
 #[PostgresView(
@@ -172,7 +181,7 @@ struct PgMacroConstraintChild {
     #[column(REFERENCES = PgMacroConstraintParent::id, DEFERRABLE, INITIALLY_DEFERRED)]
     parent_ref: i32,
     slug: String,
-    #[column(default_sql = "'draft'")]
+    #[column(default = "draft")]
     status: String,
     score: i32,
 }
@@ -230,7 +239,7 @@ struct PgMacroExecChild {
     #[column(REFERENCES = PgMacroExecParent::id, DEFERRABLE)]
     parent_id: i32,
     slug: String,
-    #[column(default_sql = "'draft'")]
+    #[column(default = "draft")]
     status: String,
     score: i32,
 }
