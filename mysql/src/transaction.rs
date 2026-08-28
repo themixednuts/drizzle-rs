@@ -98,7 +98,9 @@ impl TransactionConfig {
     #[must_use]
     pub const fn isolation_level(mut self, level: IsolationLevel) -> Self {
         self.isolation_level = Some(level);
-        self.consistent_snapshot = false;
+        if !matches!(level, IsolationLevel::RepeatableRead) {
+            self.consistent_snapshot = false;
+        }
         self
     }
 
@@ -165,7 +167,9 @@ impl ConfigBuilder {
 impl<Isolation> ConfigBuilder<Isolation> {
     const fn isolation<Next>(mut self, level: IsolationLevel) -> ConfigBuilder<Next> {
         self.config.isolation_level = Some(level);
-        self.config.consistent_snapshot = false;
+        if !matches!(level, IsolationLevel::RepeatableRead) {
+            self.config.consistent_snapshot = false;
+        }
         ConfigBuilder {
             config: self.config,
             state: PhantomData,
@@ -292,6 +296,15 @@ mod tests {
     }
 
     #[test]
+    fn repeated_runtime_isolation_preserves_snapshot() {
+        let config = TransactionConfig::new()
+            .with_consistent_snapshot()
+            .isolation_level(IsolationLevel::RepeatableRead);
+
+        assert!(config.consistent_snapshot());
+    }
+
+    #[test]
     fn changing_isolation_clears_snapshot() {
         let config = TransactionConfig::builder()
             .repeatable_read()
@@ -301,5 +314,16 @@ mod tests {
 
         assert_eq!(config.isolation(), Some(IsolationLevel::Serializable));
         assert!(!config.consistent_snapshot());
+    }
+
+    #[test]
+    fn repeated_builder_isolation_preserves_snapshot() {
+        let config = TransactionConfig::builder()
+            .repeatable_read()
+            .snapshot()
+            .repeatable_read()
+            .build();
+
+        assert!(config.consistent_snapshot());
     }
 }

@@ -91,7 +91,9 @@ impl TransactionConfig {
     #[must_use]
     pub const fn isolation_level(mut self, level: IsolationLevel) -> Self {
         self.isolation_level = Some(level);
-        self.deferrable = false;
+        if !matches!(level, IsolationLevel::Serializable) {
+            self.deferrable = false;
+        }
         self.legacy_read_committed = false;
         self
     }
@@ -100,7 +102,9 @@ impl TransactionConfig {
     #[must_use]
     pub const fn access_mode(mut self, mode: AccessMode) -> Self {
         self.access_mode = Some(mode);
-        self.deferrable = false;
+        if !matches!(mode, AccessMode::ReadOnly) {
+            self.deferrable = false;
+        }
         self
     }
 
@@ -183,7 +187,9 @@ impl ConfigBuilder {
 impl<Isolation, Access> ConfigBuilder<Isolation, Access> {
     const fn isolation<Next>(mut self, level: IsolationLevel) -> ConfigBuilder<Next, Access> {
         self.config.isolation_level = Some(level);
-        self.config.deferrable = false;
+        if !matches!(level, IsolationLevel::Serializable) {
+            self.config.deferrable = false;
+        }
         self.config.legacy_read_committed = false;
         ConfigBuilder {
             config: self.config,
@@ -193,7 +199,9 @@ impl<Isolation, Access> ConfigBuilder<Isolation, Access> {
 
     const fn access<Next>(mut self, mode: AccessMode) -> ConfigBuilder<Isolation, Next> {
         self.config.access_mode = Some(mode);
-        self.config.deferrable = false;
+        if !matches!(mode, AccessMode::ReadOnly) {
+            self.config.deferrable = false;
+        }
         ConfigBuilder {
             config: self.config,
             state: PhantomData,
@@ -342,6 +350,38 @@ mod tests {
 
         assert!(!config.is_deferrable());
         assert!(!config.uses_server_default_isolation());
+    }
+
+    #[test]
+    fn compatible_runtime_setters_preserve_deferrable() {
+        let config = TransactionConfig::new()
+            .deferrable()
+            .isolation_level(IsolationLevel::Serializable)
+            .access_mode(AccessMode::ReadOnly);
+
+        assert!(config.is_deferrable());
+    }
+
+    #[test]
+    fn compatible_builder_transitions_preserve_deferrable() {
+        let config = TransactionConfig::builder()
+            .serializable()
+            .read_only()
+            .deferrable()
+            .serializable()
+            .read_only()
+            .build();
+
+        assert!(config.is_deferrable());
+    }
+
+    #[test]
+    fn access_mode_preserves_legacy_server_default_isolation() {
+        let config = TransactionConfig::from(PostgresTransactionType::ReadCommitted)
+            .access_mode(AccessMode::ReadOnly);
+
+        assert_eq!(config.isolation(), Some(IsolationLevel::ReadCommitted));
+        assert!(config.uses_server_default_isolation());
     }
 
     #[test]
