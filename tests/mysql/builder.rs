@@ -319,6 +319,17 @@ fn derived_sources_support_lateral_joins() {
     );
 
     let source = posts_for_user();
+    let (post_user_id, _) = source.fields();
+    let all = builder()
+        .select(())
+        .from(users)
+        .inner_join_lateral((source, eq(post_user_id, users.id)));
+    assert_eq!(
+        all.to_sql().sql(),
+        "SELECT `users`.`id`, `users`.`name`, `users`.`active`, `user_posts`.* FROM `users` INNER JOIN LATERAL (SELECT `posts`.`user_id`, `posts`.`title` FROM `posts` WHERE `posts`.`user_id` = `users`.`id`) AS `user_posts` ON `user_posts`.`user_id` = `users`.`id`"
+    );
+
+    let source = posts_for_user();
     let (_, title) = source.fields();
     let cross = builder()
         .select((users.id, title))

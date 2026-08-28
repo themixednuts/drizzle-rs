@@ -6,14 +6,16 @@ error[E0277]: the trait bound `(Posts, PostsUserId): JoinArg<'_, Users>` is not 
    |          |
    |          required by a bound introduced by this call
    |
-help: the trait `JoinArg<'_, T>` is implemented for `(U, C)`
+help: the trait `JoinArg<'_, T>` is conditionally implemented for `(U, C)`
   --> core/src/join.rs
    |
    | /         impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
    | |         where
    | |             U: $JoinSourceTrait,
    | |             C: $ConditionTrait,
-   | |_______________________________^
+   | |________________---------------^
+   |                  |
+   |                  unsatisfied requirement introduced here: `PostsUserId: drizzle::mysql::helpers::JoinCondition<'_>`
    |
   ::: mysql/src/helpers.rs
    |

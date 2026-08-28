@@ -86,11 +86,19 @@ where
     Query: ToSQL<'a, V>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        self.query.to_sql().parens().alias(Name::NAME)
+        self.query
+            .to_sql()
+            .parens()
+            .push(Token::AS)
+            .append(SQL::table(crate::TableRef::sql(Name::NAME, &[])))
     }
 
     fn into_sql(self) -> SQL<'a, V> {
-        self.query.into_sql().parens().alias(Name::NAME)
+        self.query
+            .into_sql()
+            .parens()
+            .push(Token::AS)
+            .append(SQL::table(crate::TableRef::sql(Name::NAME, &[])))
     }
 }
 

@@ -618,7 +618,16 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         alias: Option<&str>,
     ) {
         if table.column_names.is_empty() {
-            let _ = buf.write_char('*');
+            if let Some(alias) = alias {
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, alias);
+            } else {
+                if let Some(schema) = table.schema {
+                    chunk::write_dialect_quoted_ident(V::DIALECT, buf, schema);
+                    let _ = buf.write_char('.');
+                }
+                chunk::write_dialect_quoted_ident(V::DIALECT, buf, table.name);
+            }
+            let _ = buf.write_str(".*");
             return;
         }
 
