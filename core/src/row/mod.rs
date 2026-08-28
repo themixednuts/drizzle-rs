@@ -33,6 +33,7 @@ mod turso;
 use core::marker::PhantomData;
 
 use crate::error::DrizzleError;
+use crate::prelude::{String, Vec};
 use crate::{Cons, Nil};
 
 // =============================================================================
