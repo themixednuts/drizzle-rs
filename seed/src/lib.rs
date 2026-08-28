@@ -64,7 +64,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
-use drizzle_core::{OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
+use drizzle_core::{ColumnDialect, OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use std::borrow::Cow;
@@ -784,12 +784,33 @@ fn build_insert_sql<V>(table: &TableRef, rows: &[Vec<SQL<'static, V>>]) -> Owned
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
 {
-    let columns = table.columns;
+    let columns = table
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, column)| {
+            let generated_expression = match column.dialect {
+                ColumnDialect::SQLite {
+                    generated_expression,
+                    ..
+                }
+                | ColumnDialect::PostgreSQL {
+                    generated_expression,
+                    ..
+                }
+                | ColumnDialect::MySQL {
+                    generated_expression,
+                    ..
+                } => generated_expression,
+            };
+            generated_expression.is_none()
+        })
+        .collect::<Vec<_>>();
 
     let column_idents = SQL::join(
         columns
             .iter()
-            .map(|c| SQL::<'static, V>::ident(c.name.to_string())),
+            .map(|(_, column)| SQL::<'static, V>::ident(column.name.to_string())),
         Token::COMMA,
     );
 
@@ -804,7 +825,11 @@ where
         if row_idx > 0 {
             values_sql = values_sql.push(Token::COMMA);
         }
-        let row_sql = SQL::join(row.iter().cloned(), Token::COMMA);
+        debug_assert_eq!(row.len(), table.columns.len());
+        let row_sql = SQL::join(
+            columns.iter().map(|(index, _)| row[*index].clone()),
+            Token::COMMA,
+        );
         values_sql = values_sql.append(row_sql.parens());
     }
 
@@ -1095,6 +1120,13 @@ impl Generator for Arc<dyn Generator> {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "sqlite")]
+    type SeedTestValue = OwnedSQLiteValue;
+    #[cfg(all(not(feature = "sqlite"), feature = "postgres"))]
+    type SeedTestValue = OwnedPostgresValue;
+    #[cfg(all(not(feature = "sqlite"), not(feature = "postgres"), feature = "mysql"))]
+    type SeedTestValue = OwnedMySQLValue;
+
     #[test]
     fn arc_generator_delegation() {
         use rand::SeedableRng;
@@ -1221,6 +1253,73 @@ mod tests {
         // With limit 2, we should fit 2 rows per batch.
         let ranges = batch_ranges_by_param_limit(&rows, 2);
         assert_eq!(ranges.unwrap(), vec![(0, 2), (2, 3)]);
+    }
+
+    #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+    #[test]
+    fn insert_sql_omits_generated_columns_for_every_dialect() {
+        let generated_dialects = [
+            ColumnDialect::SQLite {
+                autoincrement: false,
+                default: None,
+                generated_expression: Some("LENGTH(app_default)"),
+                generated_stored: true,
+                collate: None,
+            },
+            ColumnDialect::PostgreSQL {
+                postgres_type: "INTEGER",
+                dimensions: None,
+                is_serial: false,
+                is_bigserial: false,
+                is_generated_identity: false,
+                is_identity_always: false,
+                default: None,
+                generated_expression: Some("LENGTH(app_default)"),
+                generated_stored: true,
+                collate: None,
+                comment: None,
+            },
+            ColumnDialect::MySQL {
+                auto_increment: false,
+                default: None,
+                generated_expression: Some("CHAR_LENGTH(app_default)"),
+                generated_stored: true,
+                charset: None,
+                collate: None,
+                on_update: None,
+            },
+        ];
+
+        for generated_dialect in generated_dialects {
+            let columns = Box::leak(Box::new([
+                ColumnRef::sql("seed_values", "db_default"),
+                ColumnRef::sql("seed_values", "app_default"),
+                ColumnRef {
+                    table: "seed_values",
+                    name: "computed",
+                    sql_type: "INTEGER",
+                    flags: drizzle_core::ColumnFlags::empty(),
+                    dialect: generated_dialect,
+                },
+            ]));
+            let mut table =
+                TableRef::sql("seed_values", &["db_default", "app_default", "computed"]);
+            table.columns = columns;
+            let rows = [vec![
+                SQL::<'static, SeedTestValue>::token(Token::DEFAULT),
+                SQL::raw("'application-default'"),
+                SQL::raw("'generated-value'"),
+            ]];
+
+            let sql = build_insert_sql(&table, &rows).to_sql().sql();
+
+            assert!(sql.contains("db_default"), "{generated_dialect:?}");
+            assert!(sql.contains("DEFAULT"), "{generated_dialect:?}");
+            assert!(sql.contains("app_default"), "{generated_dialect:?}");
+            assert!(sql.contains("application-default"), "{generated_dialect:?}");
+            assert!(!sql.contains("computed"), "{generated_dialect:?}");
+            assert!(!sql.contains("generated-value"), "{generated_dialect:?}");
+        }
     }
 
     #[cfg(all(feature = "postgres", feature = "chrono"))]

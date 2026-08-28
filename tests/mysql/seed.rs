@@ -305,8 +305,9 @@ fn mysql_seed_uses_native_rendering_and_values() {
     assert!(sql.starts_with("INSERT INTO `seed_specific`"));
     assert!(sql.contains("`name`"));
     assert!(sql.contains('?'));
-    assert!(sql.contains("`name_length`"));
-    assert_eq!(sql.matches("DEFAULT").count(), 3);
+    assert!(!sql.contains("`name_length`"));
+    assert!(!sql.contains("DEFAULT"));
+    assert_eq!(params.len(), 18);
     assert!(
         params
             .iter()
