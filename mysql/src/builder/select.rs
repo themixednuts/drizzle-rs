@@ -286,7 +286,10 @@ where
         AfterRightJoin
     );
 
-    /// Adds a cross join without an ON condition.
+    /// Adds a cross join.
+    ///
+    /// A bare source renders `CROSS JOIN`. For backwards compatibility,
+    /// `(source, predicate)` renders the equivalent `INNER JOIN ... ON ...`.
     #[allow(clippy::type_complexity)]
     pub fn cross_join<Arg: helpers::CrossJoinArg<'a, T>>(
         self,
@@ -332,7 +335,7 @@ where
 
     /// Adds a LEFT JOIN LATERAL clause.
     #[allow(clippy::type_complexity)]
-    pub fn left_join_lateral<Arg>(
+    pub fn left_join_lateral<Arg, SelectionProof>(
         self,
         arg: Arg,
     ) -> SelectBuilder<
@@ -348,7 +351,7 @@ where
         Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
         M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
             + drizzle_core::ScopePush<Arg::JoinedTable>
-            + drizzle_core::LeftLateralSelection,
+            + drizzle_core::LeftLateralSelection<SelectionProof>,
     {
         SelectBuilder::from_sql(
             self.sql
@@ -627,20 +630,22 @@ where
 /// This trait is sealed so INSERT ... SELECT and set operations cannot accept
 /// arbitrary SQL or DML builders.
 #[doc(hidden)]
-pub trait IntoSelect<'a, S, R>: private::SealedSelect {
+pub trait CompletedSelect<'a, S, R>: private::SealedSelect {
     type Marker;
+    type Grouped;
 
     fn into_select_sql(self) -> drizzle_core::SQL<'a, MySQLValue<'a>>;
 }
 
 /// Safe extension seam for driver wrappers around a completed MySQL select.
 ///
-/// Implementations must unwrap to the sealed [`IntoSelect`] type; they cannot
+/// Implementations must unwrap to the sealed [`CompletedSelect`] type; they cannot
 /// manufacture an arbitrary SQL fragment or row marker.
 #[doc(hidden)]
 pub trait IntoSelectQuery<'a, S, R> {
     type Marker;
-    type Select: IntoSelect<'a, S, R, Marker = Self::Marker>;
+    type Grouped;
+    type Select: CompletedSelect<'a, S, R, Marker = Self::Marker, Grouped = Self::Grouped>;
 
     fn into_select_query(self) -> Self::Select;
 }
@@ -650,11 +655,12 @@ impl<'a, S, State, T, M, R, G> private::SealedSelect for SelectBuilder<'a, S, St
 {
 }
 
-impl<'a, S, State, T, M, R, G> IntoSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
+impl<'a, S, State, T, M, R, G> CompletedSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: private::Completed,
 {
     type Marker = M;
+    type Grouped = G;
 
     fn into_select_sql(self) -> drizzle_core::SQL<'a, MySQLValue<'a>> {
         self.sql
@@ -666,6 +672,7 @@ where
     State: private::Completed,
 {
     type Marker = M;
+    type Grouped = G;
     type Select = Self;
 
     fn into_select_query(self) -> Self::Select {

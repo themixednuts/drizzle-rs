@@ -1,0 +1,26 @@
+error[E0277]: the trait bound `Nil: ScopeContains<TargetsApplicationDefault, _>` is not satisfied
+  --> tests/ui/insert_select/sqlite/fail/default_fn_is_database_required.rs:26:57
+   |
+26 |     let _ = builder.insert(targets).columns(targets.id).select(selected);
+   |                                                         ^^^^^^ the trait `ScopeContains<TargetsApplicationDefault, _>` is not implemented for `Nil`
+   |
+help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
+  --> core/src/row/mod.rs
+   |
+   |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, drizzle_core::row::ScopeHere>`
+   |
+   | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
+   | |     Tail: ScopeContains<Table, Witness>
+   | |_______________________________________^ `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+   = note: required for `Cons<TargetsId, Nil>` to implement `ScopeContains<TargetsApplicationDefault, drizzle_core::row::ScopeThere<_>>`
+   = note: required for `Cons<TargetsId, Nil>` to implement `drizzle_core::row::ScopeSatisfies<Cons<TargetsApplicationDefault, Nil>, (drizzle_core::row::ScopeThere<_>, ())>`
+   = note: required for `Cons<TargetsId, Nil>` to implement `drizzle_core::builder::insert_select::IncludesRequired<Cons<TargetsApplicationDefault, Nil>, (drizzle_core::row::ScopeThere<_>, ())>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
+  --> sqlite/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+   |            ------ required by a bound in this associated function
+...
+   |         Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`

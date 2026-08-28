@@ -260,6 +260,7 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
             let is_text_cast = matches!(
                 &field.column_type,
                 drizzle_types::mysql::MySQLType::Decimal
+                    | drizzle_types::mysql::MySQLType::DecimalUnsigned
                     | drizzle_types::mysql::MySQLType::Date
                     | drizzle_types::mysql::MySQLType::Time
                     | drizzle_types::mysql::MySQLType::Datetime

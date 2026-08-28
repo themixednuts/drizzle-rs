@@ -79,6 +79,7 @@ sqlite-matrix:
     echo "=== SQLite matrix ==="
     # rusqlite: bare then full
     cargo test --workspace --exclude bench-runner --features rusqlite
+    cargo test -p drizzle --no-default-features --features std,sqlite,serde --test compile_fail insert_select_sqlite_ui
     cargo test --workspace --exclude bench-runner --features "rusqlite,{{_sqlite-ext}}"
     # libsql: bare then full
     cargo test --workspace --exclude bench-runner --features libsql
@@ -95,6 +96,7 @@ pg-matrix:
     echo "=== PostgreSQL matrix ==="
     # postgres-sync: bare then full
     cargo test --workspace --exclude bench-runner --features postgres-sync
+    cargo test -p drizzle --no-default-features --features std,postgres,serde --test compile_fail insert_select_postgres_ui
     cargo test --workspace --exclude bench-runner --features "postgres-sync,{{_pg-ext}}"
     # tokio-postgres: bare then full
     cargo test --workspace --exclude bench-runner --features tokio-postgres

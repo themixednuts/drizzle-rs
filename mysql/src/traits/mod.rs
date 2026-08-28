@@ -5,7 +5,7 @@ mod value;
 #[doc(hidden)]
 pub use column::optional_str_eq;
 pub use column::{MySQLColumn, MySQLIndexColumn};
-pub use table::{MySQLInsertSelectTarget, MySQLTable};
+pub use table::MySQLTable;
 #[cfg(feature = "query")]
 #[doc(hidden)]
 pub use value::MySQLJsonStorage;

@@ -60,14 +60,19 @@ macro_rules! drizzle_pg_builder_join_impl {
         drizzle_pg_builder_join_impl!(natural_full_outer, drizzle_core::AfterFullJoin);
         drizzle_pg_builder_join_impl!(inner, drizzle_core::AfterJoin);
         drizzle_pg_builder_join_impl!(@lateral inner_join_lateral, AfterJoin);
-        drizzle_pg_builder_join_impl!(@lateral left_join_lateral, AfterLeftJoin, drizzle_core::LeftLateralSelection);
+        drizzle_pg_builder_join_impl!(
+            @lateral
+            left_join_lateral,
+            AfterLeftJoin,
+            SelectionProof
+        );
         drizzle_pg_builder_join_impl!(@cross_lateral);
     };
-    (@lateral $method:ident, $join_trait:ident $(, $extra:path)?) => {
+    (@lateral $method:ident, $join_trait:ident $(, $proof:ident)?) => {
         /// Adds a JOIN LATERAL clause with an ON condition.
         #[inline]
         #[allow(clippy::type_complexity)]
-        pub fn $method<J>(self, arg: J) -> DrizzleBuilder<
+        pub fn $method<J $(, $proof)?>(self, arg: J) -> DrizzleBuilder<
             'd,
             Runner,
             Schema,
@@ -86,7 +91,7 @@ macro_rules! drizzle_pg_builder_join_impl {
             J: drizzle_core::LateralArg<'a, drizzle_postgres::values::PostgresValue<'a>>,
             M: drizzle_core::$join_trait<R, J::JoinedTable>
                 + drizzle_core::ScopePush<J::JoinedTable>
-                $(+ $extra)?,
+                $(+ drizzle_core::LeftLateralSelection<$proof>)?,
         {
             let builder = self.builder.$method(arg);
             DrizzleBuilder {

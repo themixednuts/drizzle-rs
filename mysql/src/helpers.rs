@@ -86,7 +86,11 @@ where
     }
 }
 
-/// A source or legacy tuple accepted by a cross join.
+/// A source or legacy tuple accepted by [`crate::builder::SelectBuilder::cross_join`].
+///
+/// A bare source renders `CROSS JOIN`. The legacy `(source, predicate)`
+/// form renders the equivalent portable `INNER JOIN ... ON ...`, because
+/// PostgreSQL does not allow an `ON` clause after `CROSS JOIN`.
 #[doc(hidden)]
 pub trait CrossJoinArg<'a, FromTable>: cross_join_arg_private::Sealed {
     type JoinedTable;
@@ -131,7 +135,7 @@ where
     fn into_cross_join_sql(self) -> SQL<'a, MySQLValue<'a>> {
         let (source, condition) = self;
         Join::new()
-            .cross()
+            .inner()
             .into_sql()
             .append(source.into_join_source_sql())
             .push(Token::ON)
@@ -443,7 +447,9 @@ where
         .append(helpers::offset(offset))
 }
 
-fn unqualified_columns<'a>(mut columns: SQL<'a, MySQLValue<'a>>) -> SQL<'a, MySQLValue<'a>> {
+pub(crate) fn unqualified_columns<'a>(
+    mut columns: SQL<'a, MySQLValue<'a>>,
+) -> SQL<'a, MySQLValue<'a>> {
     for chunk in &mut columns.chunks {
         if let SQLChunk::Column(column) = chunk {
             *chunk = SQLChunk::ident_static(column.name);

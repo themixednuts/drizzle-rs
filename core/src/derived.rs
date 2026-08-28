@@ -304,6 +304,24 @@ where
     type Identity = Self;
 }
 
+impl<'a, V, Name, Output, Projection, Query>
+    crate::traits::ColumnOf<Derived<'a, V, Name, Projection, Query>> for DerivedField<Name, Output>
+where
+    V: SQLParam,
+{
+}
+
+impl<'a, V, Name, Output, Projection, Query, Scope, Witness>
+    crate::row::ProjectionInScope<
+        Scope,
+        crate::row::ColumnScope<Derived<'a, V, Name, Projection, Query>, Witness>,
+    > for DerivedField<Name, Output>
+where
+    V: SQLParam,
+    Scope: crate::row::ScopeContains<Derived<'a, V, Name, Projection, Query>, Witness>,
+{
+}
+
 impl<'a, V, Name, Output> IntoGroupBy<'a, V> for DerivedField<Name, Output>
 where
     V: SQLParam + 'a,

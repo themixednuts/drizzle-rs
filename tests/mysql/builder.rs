@@ -44,6 +44,15 @@ struct DefaultsOnly {
     id: u64,
 }
 
+#[MySQLTable(NAME = "generated_posts")]
+struct GeneratedPosts {
+    #[column(PRIMARY, AUTO_INCREMENT)]
+    id: u64,
+    title: String,
+    #[column(generated(STORED, "CHAR_LENGTH(title)"))]
+    title_len: u32,
+}
+
 #[MySQLIndex]
 struct UsersNameIdx(Users::name);
 
@@ -67,8 +76,18 @@ struct DefaultsSchema {
     defaults_only: DefaultsOnly,
 }
 
+#[derive(MySQLSchema)]
+struct GeneratedSchema {
+    generated_posts: GeneratedPosts,
+}
+
 fn builder() -> QueryBuilder<'static, Schema, drizzle::mysql::builder::BuilderInit> {
     QueryBuilder::new::<Schema>()
+}
+
+fn generated_builder()
+-> QueryBuilder<'static, GeneratedSchema, drizzle::mysql::builder::BuilderInit> {
+    QueryBuilder::new::<GeneratedSchema>()
 }
 
 #[test]
@@ -236,7 +255,7 @@ fn joins_render_only_mysql_supported_kinds() {
             .select(users.id)
             .from(users)
             .cross_join((posts, condition())))
-        .contains(" CROSS JOIN `posts` ON ")
+        .contains(" INNER JOIN `posts` ON ")
     );
     assert!(
         builder()
@@ -429,15 +448,18 @@ fn ctes_prefix_select_update_and_delete() {
         "WITH `active_users` AS (SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users` WHERE `users`.`active` = ?) DELETE FROM `users` WHERE `users`.`id` = ?"
     );
 
-    let insert = builder().insert(users).select(
-        builder()
-            .with(&cte)
-            .select((cte.id, cte.name, cte.active))
-            .from(&cte),
-    );
+    let insert = builder()
+        .insert(users)
+        .columns((users.id, users.name, users.active))
+        .select_raw(
+            builder()
+                .with(&cte)
+                .select((cte.id, cte.name, cte.active))
+                .from(&cte),
+        );
     assert_eq!(
         insert.to_sql().sql(),
-        "INSERT INTO `users` WITH `active_users` AS (SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users` WHERE `users`.`active` = ?) SELECT `active_users`.`id`, `active_users`.`name`, `active_users`.`active` FROM `active_users`"
+        "INSERT INTO `users` (`id`, `name`, `active`) WITH `active_users` AS (SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users` WHERE `users`.`active` = ?) SELECT `active_users`.`id`, `active_users`.`name`, `active_users`.`active` FROM `active_users`"
     );
 }
 
@@ -474,7 +496,62 @@ fn insert_update_and_delete_follow_mysql_clause_order() {
     let insert_selected = builder().insert(users).select(selected);
     assert_eq!(
         insert_selected.to_sql().sql(),
-        "INSERT INTO `users` SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users`"
+        "INSERT INTO `users` (`id`, `name`, `active`) SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users`"
+    );
+
+    let Schema { users, posts } = Schema::new();
+    let partial_insert_selected = builder()
+        .insert(posts)
+        .columns((posts.user_id, posts.title))
+        .select(builder().select((users.id, users.name)).from(users));
+    assert_eq!(
+        partial_insert_selected.to_sql().sql(),
+        "INSERT INTO `posts` (`user_id`, `title`) SELECT `users`.`id`, `users`.`name` FROM `users`"
+    );
+
+    let borrowed_insert_selected = builder()
+        .insert(&posts)
+        .columns((posts.user_id, posts.title))
+        .select(builder().select((users.id, users.name)).from(users));
+    assert_eq!(
+        borrowed_insert_selected.to_sql().sql(),
+        "INSERT INTO `posts` (`user_id`, `title`) SELECT `users`.`id`, `users`.`name` FROM `users`"
+    );
+
+    let GeneratedSchema { generated_posts } = GeneratedSchema::new();
+    let single_column_insert_selected = generated_builder()
+        .insert(generated_posts)
+        .columns(generated_posts.title)
+        .select(
+            generated_builder()
+                .select(generated_posts.title)
+                .from(generated_posts),
+        );
+    assert_eq!(
+        single_column_insert_selected.to_sql().sql(),
+        "INSERT INTO `generated_posts` (`title`) SELECT `generated_posts`.`title` FROM `generated_posts`"
+    );
+
+    let GeneratedSchema { generated_posts } = GeneratedSchema::new();
+    let generated_insert_selected = generated_builder().insert(generated_posts).select(
+        generated_builder()
+            .select((generated_posts.id, generated_posts.title))
+            .from(generated_posts),
+    );
+    assert_eq!(
+        generated_insert_selected.to_sql().sql(),
+        "INSERT INTO `generated_posts` (`id`, `title`) SELECT `generated_posts`.`id`, `generated_posts`.`title` FROM `generated_posts`"
+    );
+
+    let Schema { users, posts } = Schema::new();
+    let ignored_partial_insert_selected = builder()
+        .insert(posts)
+        .ignore()
+        .columns((posts.user_id, posts.title))
+        .select(builder().select((users.id, users.name)).from(users));
+    assert_eq!(
+        ignored_partial_insert_selected.to_sql().sql(),
+        "INSERT IGNORE INTO `posts` (`user_id`, `title`) SELECT `users`.`id`, `users`.`name` FROM `users`"
     );
 
     let update = builder()
@@ -497,6 +574,15 @@ fn insert_update_and_delete_follow_mysql_clause_order() {
         delete.to_sql().sql(),
         "DELETE FROM `users` WHERE `users`.`active` = ? ORDER BY `users`.`id` ASC LIMIT ?"
     );
+}
+
+#[test]
+#[should_panic(expected = "an INSERT target column cannot appear more than once")]
+fn insert_select_rejects_duplicate_target_columns() {
+    let GeneratedSchema { generated_posts } = GeneratedSchema::new();
+    let _ = generated_builder()
+        .insert(generated_posts)
+        .columns((generated_posts.title, generated_posts.title));
 }
 
 #[test]
@@ -580,7 +666,7 @@ fn select_index_hints_are_tied_to_their_generated_table_metadata() {
     );
     assert_eq!(
         hinted_insert.to_sql().sql(),
-        "INSERT INTO `users` SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users` USE INDEX (`users_name_idx`)"
+        "INSERT INTO `users` (`id`, `name`, `active`) SELECT `users`.`id`, `users`.`name`, `users`.`active` FROM `users` USE INDEX (`users_name_idx`)"
     );
 
     let explicit_join = builder()

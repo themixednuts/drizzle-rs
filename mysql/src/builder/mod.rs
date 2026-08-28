@@ -58,10 +58,11 @@ pub mod update;
 pub use cte::{CTEDefinition, CTEView};
 pub use delete::{DeleteBuilder, DeleteInitial, DeleteLimitSet, DeleteOrderSet, DeleteWhereSet};
 pub use insert::{
-    InsertBuilder, InsertIgnoreSet, InsertInitial, InsertOnDuplicateKeyUpdateSet, InsertValuesSet,
+    InsertBuilder, InsertColumnsSet, InsertIgnoreSet, InsertInitial, InsertOnDuplicateKeyUpdateSet,
+    InsertValuesSet,
 };
 pub use select::{
-    ForShare, ForUpdate, IntoSelect, IntoSelectQuery, NoWait, SelectBuilder, SelectForSet,
+    CompletedSelect, ForShare, ForUpdate, IntoSelectQuery, NoWait, SelectBuilder, SelectForSet,
     SelectFromSet, SelectGroupSet, SelectHavingSet, SelectIndexHintSet, SelectInitial,
     SelectJoinSet, SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
     SkipLocked, Wait,

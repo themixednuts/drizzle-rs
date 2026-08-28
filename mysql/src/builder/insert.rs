@@ -1,10 +1,11 @@
-use super::select::IntoSelect;
-use crate::{
-    traits::{MySQLInsertSelectTarget, MySQLTable},
-    values::MySQLValue,
+use super::select::{CompletedSelect, IntoSelectQuery};
+use crate::{traits::MySQLTable, values::MySQLValue};
+use drizzle_core::{
+    IncludesRequired, InsertSelectCompatible, InsertSelectTable, InsertTargetColumns,
+    PartialInsertSelectCompatible, ToSQL,
 };
 
-pub use drizzle_core::builder::{InsertInitial, InsertValuesSet};
+pub use drizzle_core::builder::{InsertColumnsSet, InsertInitial, InsertValuesSet};
 
 /// Marker for `INSERT IGNORE` before its row source is supplied.
 #[derive(Debug, Clone, Copy, Default)]
@@ -18,62 +19,6 @@ impl drizzle_core::ExecutableState for InsertOnDuplicateKeyUpdateSet {}
 
 pub type InsertBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
-
-/// Pairwise compatibility between target columns and SELECT expressions.
-#[doc(hidden)]
-pub trait InsertSelectColumns<'a, Source> {}
-
-impl<'a> InsertSelectColumns<'a, drizzle_core::Nil> for drizzle_core::Nil {}
-
-impl<'a, TargetExpr, TargetTail, SourceExpr, SourceTail>
-    InsertSelectColumns<'a, drizzle_core::Cons<SourceExpr, SourceTail>>
-    for drizzle_core::Cons<TargetExpr, TargetTail>
-where
-    TargetExpr: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
-    SourceExpr: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
-    TargetExpr::SQLType: drizzle_core::types::Assignable<SourceExpr::SQLType>,
-    TargetExpr::Nullable:
-        drizzle_core::expr::NullAnd<SourceExpr::Nullable, Output = SourceExpr::Nullable>,
-    TargetTail: InsertSelectColumns<'a, SourceTail>,
-{
-}
-
-/// A completed SELECT projection that can fill every target table column in
-/// declaration order.
-#[doc(hidden)]
-pub trait InsertSelectCompatible<'a, Target, Row> {}
-
-impl<'a, M, Scope, Target, Row> InsertSelectCompatible<'a, Target, Row>
-    for drizzle_core::Scoped<M, Scope>
-where
-    M: InsertSelectCompatible<'a, Target, Row>,
-{
-}
-
-impl<'a, Target, Row> InsertSelectCompatible<'a, Target, Row> for drizzle_core::SelectStar
-where
-    Target: drizzle_core::HasSelectModel,
-    Row: drizzle_core::TypeEq<<Target as drizzle_core::HasSelectModel>::SelectModel>,
-{
-}
-
-impl<'a, Target, Row, Specified> InsertSelectCompatible<'a, Target, Row>
-    for drizzle_core::SelectAs<Specified>
-where
-    Target: drizzle_core::HasSelectModel,
-    Row: drizzle_core::TypeEq<<Target as drizzle_core::HasSelectModel>::SelectModel>,
-{
-}
-
-impl<'a, Target, Row, Cols> InsertSelectCompatible<'a, Target, Row>
-    for drizzle_core::SelectCols<Cols>
-where
-    Target: MySQLInsertSelectTarget,
-    Cols: drizzle_core::SelectedExpressionList,
-    Target::Columns:
-        InsertSelectColumns<'a, <Cols as drizzle_core::SelectedExpressionList>::Expressions>,
-{
-}
 
 impl<'a, S, T, M, R> InsertBuilder<'a, S, InsertValuesSet, T, M, R> {
     /// Compiles named or anonymous placeholders into MySQL's ordered
@@ -136,6 +81,21 @@ where
     State: InsertRowSourceState,
     Table: MySQLTable<'a>,
 {
+    /// Chooses an explicit ordered target-column list for an INSERT SELECT.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the same target column appears more than once.
+    pub fn columns<Columns>(
+        self,
+        columns: Columns,
+    ) -> InsertBuilder<'a, Schema, InsertColumnsSet<Columns::Columns>, Table>
+    where
+        Columns: InsertTargetColumns<'a, MySQLValue<'a>, Table>,
+    {
+        InsertBuilder::from_sql(self.sql.append(columns.into_target_columns_sql()))
+    }
+
     pub fn value<T>(
         self,
         value: Table::Insert<T>,
@@ -156,12 +116,69 @@ where
 
     /// Inserts the result of a SELECT. A WITH clause, when present, belongs to
     /// the SELECT and therefore renders after the INSERT target in MySQL.
-    pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    pub fn select<Q, R, ScopeProof, AggProof>(
+        self,
+        query: Q,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where
-        Table: MySQLInsertSelectTarget,
-        Q: super::select::IntoSelectQuery<'a, Schema, R>,
-        Q::Marker: InsertSelectCompatible<'a, Table, R>,
+        Table: InsertSelectTable,
+        Q: IntoSelectQuery<'a, Schema, R>,
+        Q::Marker: InsertSelectCompatible<'a, MySQLValue<'a>, Table, R>
+            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
+    {
+        InsertBuilder::from_sql(
+            self.sql
+                .append(Table::insert_columns_sql::<MySQLValue<'a>>())
+                .append(query.into_select_query().into_select_sql()),
+        )
+    }
+
+    /// Inserts an unchecked raw SELECT without an explicit target list.
+    ///
+    /// This opts out of projection shape, type, nullability, source-scope, and
+    /// aggregate validation.
+    pub fn select_raw<Q>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Q: ToSQL<'a, MySQLValue<'a>>,
+    {
+        InsertBuilder::from_sql(self.sql.append(query.into_sql()))
+    }
+}
+
+impl<'a, Schema, Table, Targets> InsertBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>
+where
+    Table: MySQLTable<'a>,
+{
+    /// Inserts an explicit SELECT projection into the chosen target columns.
+    pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+        self,
+        query: Q,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Targets: IncludesRequired<Table::RequiredColumns, RequiredProof>,
+        Table: InsertSelectTable,
+        Q: IntoSelectQuery<'a, Schema, R>,
+        Q::Marker: PartialInsertSelectCompatible<'a, MySQLValue<'a>, Targets>
+            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         InsertBuilder::from_sql(self.sql.append(query.into_select_query().into_select_sql()))
+    }
+
+    /// Inserts an unchecked raw SELECT into the chosen target columns.
+    ///
+    /// This opts out of projection shape, type, nullability, source-scope, and
+    /// aggregate validation.
+    pub fn select_raw<Q, RequiredProof>(
+        self,
+        query: Q,
+    ) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+    where
+        Table: InsertSelectTable,
+        Targets: IncludesRequired<Table::RequiredColumns, RequiredProof>,
+        Q: ToSQL<'a, MySQLValue<'a>>,
+    {
+        InsertBuilder::from_sql(self.sql.append(query.into_sql()))
     }
 }

@@ -1,33 +1,33 @@
-error[E0277]: the trait bound `Cons<UsersName, Nil>: drizzle::mysql::builder::insert::InsertSelectColumns<'_, Nil>` is not satisfied
+error[E0277]: the trait bound `Cons<UsersName, Nil>: drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Nil>` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_shape_mismatch.rs:19:42
    |
 19 |     let _ = builder.insert(users).select(ids);
-   |                                   ------ ^^^ the trait `drizzle::mysql::builder::insert::InsertSelectColumns<'_, Nil>` is not implemented for `Cons<UsersName, Nil>`
+   |                                   ------ ^^^ unsatisfied trait bound
    |                                   |
    |                                   required by a bound introduced by this call
    |
-help: the trait `InsertSelectColumns<'_, Nil>` is not implemented for `Cons<UsersName, Nil>`
-      but trait `InsertSelectColumns<'_, Cons<_, Nil>>` is implemented for it
-  --> mysql/src/builder/insert.rs
+help: the trait `InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Nil>` is not implemented for `Cons<UsersName, Nil>`
+      but trait `InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<_, Nil>>` is implemented for it
+  --> core/src/builder/insert_select.rs
    |
-   | / impl<'a, TargetExpr, TargetTail, SourceExpr, SourceTail>
-   | |     InsertSelectColumns<'a, drizzle_core::Cons<SourceExpr, SourceTail>>
-   | |     for drizzle_core::Cons<TargetExpr, TargetTail>
+   | / impl<'a, V, TargetExpr, TargetTail, SourceExpr, SourceTail>
+   | |     InsertSelectColumns<'a, V, Cons<SourceExpr, SourceTail>> for Cons<TargetExpr, TargetTail>
    | | where
+   | |     V: SQLParam,
 ...  |
-   | |         drizzle_core::expr::NullAnd<SourceExpr::Nullable, Output = SourceExpr::Nullable>,
-   | |     TargetTail: InsertSelectColumns<'a, SourceTail>,
-   | |____________________________________________________^
+   | |     TargetExpr::Nullable: NullAnd<SourceExpr::Nullable, Output = SourceExpr::Nullable>,
+   | |     TargetTail: InsertSelectColumns<'a, V, SourceTail>,
+   | |_______________________________________________________^
    = help: for that trait implementation, expected `Cons<_, Nil>`, found `Nil`
-   = note: required for `Cons<UsersId, Cons<UsersName, Nil>>` to implement `drizzle::mysql::builder::insert::InsertSelectColumns<'_, Cons<UsersId, Nil>>`
-   = note: required for `SelectCols<(UsersId,)>` to implement `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, (u64,)>`
+   = note: required for `Cons<UsersId, Cons<UsersName, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<UsersId, Nil>>`
+   = note: required for `SelectCols<(UsersId,)>` to implement `drizzle_core::builder::insert_select::InsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Users, (u64,)>`
    = note: 1 redundant requirement hidden
-   = note: required for `Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>` to implement `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, (u64,)>`
+   = note: required for `Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Users, (u64,)>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
-   |     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+   |     pub fn select<Q, R, ScopeProof, AggProof>(
    |            ------ required by a bound in this associated function
 ...
-   |         Q::Marker: InsertSelectCompatible<'a, Table, R>,
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+   |         Q::Marker: InsertSelectCompatible<'a, MySQLValue<'a>, Table, R>
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`

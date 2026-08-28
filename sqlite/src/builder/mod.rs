@@ -24,8 +24,8 @@ pub use cte::{CTEDefinition, CTEView};
 // Export state markers for easier use
 pub use delete::{DeleteInitial, DeleteReturningSet, DeleteWhereSet};
 pub use insert::{
-    InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet, InsertValuesSet,
-    OnConflictBuilder,
+    InsertColumnsSet, InsertDoUpdateSet, InsertInitial, InsertOnConflictSet, InsertReturningSet,
+    InsertValuesSet, OnConflictBuilder,
 };
 pub use select::{
     SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,

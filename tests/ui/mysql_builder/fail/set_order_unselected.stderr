@@ -1,21 +1,21 @@
-error[E0277]: the trait bound `Nil: drizzle_core::row::ScopeContains<UsersId, _>` is not satisfied
+error[E0277]: the trait bound `Nil: ScopeContains<UsersId, _>` is not satisfied
   --> tests/ui/mysql_builder/fail/set_order_unselected.rs:22:28
    |
 22 |     let _ = query.order_by(users.id);
-   |                   -------- ^^^^^^^^ the trait `drizzle_core::row::ScopeContains<UsersId, _>` is not implemented for `Nil`
+   |                   -------- ^^^^^^^^ the trait `ScopeContains<UsersId, _>` is not implemented for `Nil`
    |                   |
    |                   required by a bound introduced by this call
    |
-help: `Cons<Head, Tail>` implements trait `drizzle_core::row::ScopeContains<Table, Witness>`
+help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
   --> core/src/row/mod.rs
    |
    |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle_core::row::ScopeContains<Head, drizzle_core::row::ScopeHere>`
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, drizzle_core::row::ScopeHere>`
    |
    | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
    | |     Tail: ScopeContains<Table, Witness>
-   | |_______________________________________^ `drizzle_core::row::ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
-   = note: required for `Cons<UsersName, Nil>` to implement `drizzle_core::row::ScopeContains<UsersId, drizzle_core::row::ScopeThere<_>>`
+   | |_______________________________________^ `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+   = note: required for `Cons<UsersName, Nil>` to implement `ScopeContains<UsersId, drizzle_core::row::ScopeThere<_>>`
    = note: required for `Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>` to implement `helpers::set_order_private::ProjectionAllows<'_, UsersId, Users, drizzle_core::row::ScopeThere<_>>`
    = note: required for `Cons<UsersId, Nil>` to implement `helpers::set_order_private::ProjectionListAllowed<'_, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, Users, (drizzle_core::row::ScopeThere<_>, ())>`
    = note: required for `UsersId` to implement `drizzle::mysql::helpers::SetOrderBy<'_, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, Users, (drizzle_core::row::ScopeThere<_>, ())>`

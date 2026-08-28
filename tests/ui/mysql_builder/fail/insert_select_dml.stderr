@@ -1,49 +1,85 @@
-error[E0277]: the trait bound `(): drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, ()>` is not satisfied
+error[E0277]: the trait bound `(): drizzle_core::builder::insert_select::InsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Users, ()>` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
    |
 20 |     let _ = builder.insert(users).select(delete);
-   |                                   ------ ^^^^^^ the trait `drizzle::mysql::builder::insert::InsertSelectCompatible<'_, Users, ()>` is not implemented for `()`
+   |                                   ------ ^^^^^^ unsatisfied trait bound
    |                                   |
    |                                   required by a bound introduced by this call
    |
-help: the following other types implement trait `drizzle::mysql::builder::insert::InsertSelectCompatible<'a, Target, Row>`
-  --> mysql/src/builder/insert.rs
+   = help: the trait `drizzle_core::builder::insert_select::InsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Users, ()>` is not implemented for `()`
+help: the following other types implement trait `drizzle_core::builder::insert_select::InsertSelectCompatible<'a, V, Target, Row>`
+  --> core/src/builder/insert_select.rs
    |
-   | / impl<'a, M, Scope, Target, Row> InsertSelectCompatible<'a, Target, Row>
-   | |     for drizzle_core::Scoped<M, Scope>
+   | / impl<'a, V, M, Scope, Target, Row> InsertSelectCompatible<'a, V, Target, Row> for Scoped<M, Scope>
    | | where
-   | |     M: InsertSelectCompatible<'a, Target, Row>,
-   | |_______________________________________________^ `Scoped<M, Scope>`
+   | |     V: SQLParam,
+   | |     M: InsertSelectCompatible<'a, V, Target, Row>,
+   | |__________________________________________________^ `Scoped<M, Scope>`
 ...
-   | / impl<'a, Target, Row> InsertSelectCompatible<'a, Target, Row> for drizzle_core::SelectStar
+   | / impl<'a, V, Target, Row> InsertSelectCompatible<'a, V, Target, Row> for SelectStar
    | | where
-   | |     Target: drizzle_core::HasSelectModel,
-   | |     Row: drizzle_core::TypeEq<<Target as drizzle_core::HasSelectModel>::SelectModel>,
-   | |_____________________________________________________________________________________^ `SelectStar`
+   | |     V: SQLParam,
+   | |     Target: HasSelectModel + InsertSelectAllColumns,
+   | |     Row: TypeEq<Target::SelectModel>,
+   | |_____________________________________^ `SelectStar`
 ...
-   | / impl<'a, Target, Row, Specified> InsertSelectCompatible<'a, Target, Row>
-   | |     for drizzle_core::SelectAs<Specified>
+   | / impl<'a, V, Target, Row, Selected> InsertSelectCompatible<'a, V, Target, Row>
+   | |     for SelectCols<Selected>
    | | where
-   | |     Target: drizzle_core::HasSelectModel,
-   | |     Row: drizzle_core::TypeEq<<Target as drizzle_core::HasSelectModel>::SelectModel>,
-   | |_____________________________________________________________________________________^ `SelectAs<Specified>`
+   | |     V: SQLParam,
+   | |     Target: InsertSelectTable,
+   | |     Selected: SelectedExpressionList,
+   | |     Target::Columns: InsertSelectColumns<'a, V, Selected::Expressions>,
+   | |_______________________________________________________________________^ `SelectCols<Selected>`
 ...
-   | / impl<'a, Target, Row, Cols> InsertSelectCompatible<'a, Target, Row>
-   | |     for drizzle_core::SelectCols<Cols>
+   | / impl<'a, V, Target, Row, Selected> InsertSelectCompatible<'a, V, Target, Row> for SelectAs<Selected>
    | | where
-   | |     Target: MySQLInsertSelectTarget,
-   | |     Cols: drizzle_core::SelectedExpressionList,
-   | |     Target::Columns:
-   | |         InsertSelectColumns<'a, <Cols as drizzle_core::SelectedExpressionList>::Expressions>,
-   | |_____________________________________________________________________________________________^ `SelectCols<Cols>`
+   | |     V: SQLParam,
+   | |     Target: HasSelectModel + InsertSelectAllColumns,
+   | |     Row: TypeEq<Target::SelectModel>,
+   | |_____________________________________^ `SelectAs<Selected>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
-   |     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+   |     pub fn select<Q, R, ScopeProof, AggProof>(
    |            ------ required by a bound in this associated function
 ...
-   |         Q::Marker: InsertSelectCompatible<'a, Table, R>,
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+   |         Q::Marker: InsertSelectCompatible<'a, MySQLValue<'a>, Table, R>
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+
+error[E0277]: the trait bound `(): drizzle_core::builder::insert_select::InsertSourceInScope<_>` is not satisfied
+  --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
+   |
+20 |     let _ = builder.insert(users).select(delete);
+   |                                   ------ ^^^^^^ the trait `drizzle_core::builder::insert_select::InsertSourceInScope<_>` is not implemented for `()`
+   |                                   |
+   |                                   required by a bound introduced by this call
+   |
+help: the following other types implement trait `drizzle_core::builder::insert_select::InsertSourceInScope<Proof>`
+  --> core/src/builder/insert_select.rs
+   |
+   |   impl<Scope> InsertSourceInScope<()> for Scoped<SelectStar, Scope> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Scoped<SelectStar, Scope>` implements `drizzle_core::builder::insert_select::InsertSourceInScope<()>`
+   |
+   | / impl<Row, Scope, Proof> InsertSourceInScope<Proof> for Scoped<SelectAs<Row>, Scope>
+   | | where
+   | |     Row: SelectRequiredTables,
+   | |     Scope: ScopeSatisfies<Row::RequiredTables, Proof>,
+   | |______________________________________________________^ `Scoped<SelectAs<Row>, Scope>` implements `drizzle_core::builder::insert_select::InsertSourceInScope<Proof>`
+...
+   | / impl<Selected, Scope, Proof> InsertSourceInScope<Proof> for Scoped<SelectCols<Selected>, Scope>
+   | | where
+   | |     Selected: SelectedExpressionList,
+   | |     Selected::Expressions: ProjectionsInScope<Scope, Proof>,
+   | |____________________________________________________________^ `Scoped<SelectCols<Selected>, Scope>` implements `drizzle_core::builder::insert_select::InsertSourceInScope<Proof>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R, ScopeProof, AggProof>(
+   |            ------ required by a bound in this associated function
+...
+   |             + drizzle_core::InsertSourceInScope<ScopeProof>
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
 
 error[E0277]: the trait bound `DeleteWhereSet: select::private::Completed` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
@@ -67,8 +103,8 @@ error[E0277]: the trait bound `DeleteWhereSet: select::private::Completed` is no
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
-   |     pub fn select<Q, R>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
+   |     pub fn select<Q, R, ScopeProof, AggProof>(
    |            ------ required by a bound in this associated function
 ...
-   |         Q: super::select::IntoSelectQuery<'a, Schema, R>,
-   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
+   |         Q: IntoSelectQuery<'a, Schema, R>,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`

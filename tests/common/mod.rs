@@ -6,6 +6,7 @@
     feature = "mysql"
 ))]
 
+pub mod conditions;
 pub mod crud_join;
 pub mod derived;
 pub mod helpers;

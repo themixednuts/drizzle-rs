@@ -250,7 +250,7 @@ pub(super) fn generate_table_impls(
                 )
                 .with(
                     crate::common::ref_gen::ColumnRefFlags::HAS_DEFAULT,
-                    f.has_default,
+                    f.default.is_some(),
                 );
             ColumnRefInput {
                 column_name: f.column_name.clone(),
@@ -475,9 +475,30 @@ pub(super) fn generate_table_impls(
     let has_select_model = core_paths::has_select_model();
     let into_select_target = core_paths::into_select_target();
     let select_star = core_paths::select_star();
-    let insert_select_columns = column_zst_idents.iter().rev().fold(
-        quote! { #type_set_nil },
-        |tail, column| quote! { #type_set_cons<#column, #tail> },
+    let insertable: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .zip(column_zst_idents)
+        .filter(|(field, _)| field.generated_column.is_none())
+        .collect();
+    let insertable_columns: Vec<_> = insertable.iter().map(|(_, column)| *column).collect();
+    let insert_column_names: Vec<_> = insertable
+        .iter()
+        .map(|(field, _)| &field.column_name)
+        .collect();
+    let required_insert_columns: Vec<_> = insertable
+        .iter()
+        .filter(|(field, _)| {
+            !field.is_nullable && field.default.is_none() && !field.is_auto_increment
+        })
+        .map(|(_, column)| *column)
+        .collect();
+    let insert_select_impls = crate::common::insert_select::generate_table_impls(
+        struct_ident,
+        &insertable_columns,
+        &required_insert_columns,
+        &insert_column_names,
+        insertable_columns.len() == column_zst_idents.len(),
     );
     let mysql_inline_type_match_arms: Vec<TokenStream> = ctx
         .field_infos
@@ -572,9 +593,7 @@ pub(super) fn generate_table_impls(
         impl #into_select_target for #struct_ident {
             type Marker = #select_star;
         }
-        impl drizzle::mysql::traits::MySQLInsertSelectTarget for #struct_ident {
-            type Columns = #insert_select_columns;
-        }
+        #insert_select_impls
         #mysql_table_impl
         #to_sql_impl
         #relations_impl

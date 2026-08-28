@@ -409,12 +409,16 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().inner(), condition)
         }
 
-        /// Helper function to create a CROSS JOIN clause
+        /// Compatibility helper for a conditional cross join.
+        ///
+        /// This renders the portable equivalent `INNER JOIN ... ON ...`.
+        /// Use the dialect builder's bare `.cross_join(source)` for an
+        /// unconditional `CROSS JOIN`.
         pub fn cross_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(table, $crate::Join::new().cross(), condition)
+            join_internal(table, $crate::Join::new().inner(), condition)
         }
     };
 }

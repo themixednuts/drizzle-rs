@@ -18,14 +18,15 @@ fn mysql_macros_ui() {
 }
 
 // Enabling relational queries exposes a second public `QueryBuilder`, which
-// changes only rustc's path formatting for the dialect-builder diagnostics.
-// CI runs this suite once on the native MySQL builder feature graph and runs
-// the shared relational suite separately with `query` enabled.
+// changes only rustc's path formatting for dialect-builder diagnostics. Run
+// these suites once on their native builder graphs; the relational suites run
+// separately with `query` enabled.
 #[cfg(all(feature = "mysql", not(feature = "query")))]
 #[test]
 fn mysql_builder_ui() {
     must_pass("tests/ui/mysql_builder/pass/*.rs");
     must_fail("tests/ui/mysql_builder/fail/*.rs");
+    must_fail("tests/ui/insert_select/mysql/fail/*.rs");
 }
 
 #[cfg(feature = "mysql")]
@@ -40,6 +41,12 @@ fn update_assignments_mysql_ui() {
 fn update_assignments_postgres_ui() {
     must_pass("tests/ui/update_assignments/postgres/pass/*.rs");
     must_fail("tests/ui/update_assignments/postgres/fail/*.rs");
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn postgres_macro_errors_ui() {
+    must_fail("tests/ui/postgres_macro_errors/fail/*.rs");
 }
 
 #[cfg(feature = "rusqlite")]
@@ -60,6 +67,18 @@ fn derived_left_lateral_ui() {
     must_fail("tests/ui/derived_tables/shared/fail/*.rs");
 }
 
+#[cfg(feature = "mysql")]
+#[test]
+fn derived_mysql_builder_left_lateral_ui() {
+    must_fail("tests/ui/derived_tables/mysql/fail/*.rs");
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn derived_postgres_builder_left_lateral_ui() {
+    must_fail("tests/ui/derived_tables/postgres/fail/*.rs");
+}
+
 #[cfg(all(feature = "rusqlite", feature = "uuid"))]
 #[test]
 fn strict_decode_ui() {
@@ -71,6 +90,18 @@ fn strict_decode_ui() {
 fn cast_targets_sqlite_ui() {
     must_pass("tests/ui/cast_targets/sqlite/pass/*.rs");
     must_fail("tests/ui/cast_targets/sqlite/fail/*.rs");
+}
+
+#[cfg(all(feature = "sqlite", not(feature = "query")))]
+#[test]
+fn insert_select_sqlite_ui() {
+    must_fail("tests/ui/insert_select/sqlite/fail/*.rs");
+}
+
+#[cfg(all(feature = "postgres", not(feature = "query")))]
+#[test]
+fn insert_select_postgres_ui() {
+    must_fail("tests/ui/insert_select/postgres/fail/*.rs");
 }
 
 #[cfg(feature = "postgres")]

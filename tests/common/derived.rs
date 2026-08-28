@@ -182,6 +182,21 @@ macro_rules! shared_derived_table_suite {
                     ]
                 );
 
+                let rows: Vec<(String, String)> = db
+                    .select((users.name, posts.title))
+                    .from(users)
+                    .cross_join((posts, eq(users.id, posts.user_id)))
+                    .order_by((users.id, posts.id))
+                    .all();
+                assert_eq!(
+                    rows,
+                    vec![
+                        ("Ada".to_owned(), "compiler".to_owned()),
+                        ("Ada".to_owned(), "notes".to_owned()),
+                        ("Grace".to_owned(), "database".to_owned()),
+                    ]
+                );
+
                 let counts = db
                     .select((posts.user_id, count(posts.id).named::<SharedDerivedCount>()))
                     .from(posts)
@@ -201,6 +216,7 @@ macro_rules! shared_derived_table_suite {
 }
 
 /// Derived-table contracts shared by dialects that support LATERAL joins.
+#[cfg(any(feature = "mysql", feature = "postgres"))]
 macro_rules! shared_lateral_derived_table_suite {
     ($dialect:ident, $table:ident, $schema:ident) => {
         mod shared_lateral_derived_tables {
@@ -288,6 +304,35 @@ macro_rules! shared_lateral_derived_table_suite {
                     .from(posts)
                     .r#where(eq(posts.user_id, users.id))
                     .alias(SharedLateralPosts);
+                let source_user_id = source.fields().user_id;
+                let rows: Vec<(i32,)> = db
+                    .select(users.id)
+                    .from(users)
+                    .left_join_lateral((source, eq(source_user_id, users.id)))
+                    .order_by(users.id)
+                    .all();
+                assert_eq!(rows, vec![(1,), (2,)]);
+
+                let source = db
+                    .select(())
+                    .from(posts)
+                    .r#where(eq(posts.user_id, users.id))
+                    .alias(SharedLateralPosts);
+                let source_user_id = source.fields().user_id;
+                let rows: Vec<(i32,)> = db
+                    .select(users.id)
+                    .from(users)
+                    .inner_join((posts, eq(posts.user_id, users.id)))
+                    .left_join_lateral((source, eq(source_user_id, users.id)))
+                    .order_by(users.id)
+                    .all();
+                assert_eq!(rows, vec![(1,)]);
+
+                let source = db
+                    .select(())
+                    .from(posts)
+                    .r#where(eq(posts.user_id, users.id))
+                    .alias(SharedLateralPosts);
                 let rows: Vec<(SelectSharedLateralUser, SelectSharedLateralPost)> = db
                     .select(())
                     .from(users)
@@ -303,4 +348,6 @@ macro_rules! shared_lateral_derived_table_suite {
     };
 }
 
-pub(crate) use {shared_derived_table_suite, shared_lateral_derived_table_suite};
+pub(crate) use shared_derived_table_suite;
+#[cfg(any(feature = "mysql", feature = "postgres"))]
+pub(crate) use shared_lateral_derived_table_suite;

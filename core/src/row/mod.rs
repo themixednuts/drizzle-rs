@@ -170,7 +170,107 @@ pub trait MarkerScopeValidFor<Proof> {}
 impl<M, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<M, Scope>
 where
     M: MarkerRequiredTables,
-    Scope: ScopeSatisfies<<M as MarkerRequiredTables>::RequiredTables, Proof>,
+    Scope: ScopeSatisfies<M::RequiredTables, Proof>,
+{
+}
+
+/// Proof marker for a column found in a SELECT source scope.
+#[doc(hidden)]
+pub struct ColumnScope<Table, Witness>(PhantomData<(Table, Witness)>);
+
+/// Proof marker for a typed expression whose source columns are opaque.
+#[doc(hidden)]
+pub struct OpaqueScope;
+
+/// Proof marker for a binary expression's operands.
+#[doc(hidden)]
+pub struct BinaryScope<Left, Right>(PhantomData<(Left, Right)>);
+
+/// Proof marker for an expression wrapper.
+#[doc(hidden)]
+pub struct WrappedScope<Proof>(PhantomData<Proof>);
+
+/// Validates one explicit SELECT expression against its source scope.
+#[doc(hidden)]
+pub trait ProjectionInScope<Scope, Proof> {}
+
+impl<Lhs, Rhs, Op, D, T, N, Scope, LeftProof, RightProof>
+    ProjectionInScope<Scope, BinaryScope<LeftProof, RightProof>>
+    for crate::expr::ColumnBinOp<Lhs, Rhs, Op, D, T, N>
+where
+    Lhs: ProjectionInScope<Scope, LeftProof>,
+    Rhs: ProjectionInScope<Scope, RightProof>,
+{
+}
+
+impl<T, D, SQLType, Nullable, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>>
+    for crate::expr::ColumnNeg<T, D, SQLType, Nullable>
+where
+    T: ProjectionInScope<Scope, Proof>,
+{
+}
+
+impl<E, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for crate::expr::AliasedExpr<E> where
+    E: ProjectionInScope<Scope, Proof>
+{
+}
+
+impl<E, Name, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>>
+    for crate::expr::NamedExpr<E, Name>
+where
+    E: ProjectionInScope<Scope, Proof>,
+{
+}
+
+macro_rules! impl_scope_opaque {
+    ($($ty:ty),+ $(,)?) => {
+        $(impl<Scope> ProjectionInScope<Scope, OpaqueScope> for $ty {})+
+    };
+}
+
+impl_scope_opaque!(
+    bool,
+    i8,
+    i16,
+    i32,
+    i64,
+    i128,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    u128,
+    usize,
+    f32,
+    f64,
+    String,
+    &str,
+    Vec<u8>,
+    &[u8]
+);
+
+impl<T, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for Option<T> where
+    T: ProjectionInScope<Scope, Proof>
+{
+}
+
+impl<T, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for &T where
+    T: ProjectionInScope<Scope, Proof>
+{
+}
+
+/// Validates every expression in an explicit SELECT projection.
+#[doc(hidden)]
+pub trait ProjectionsInScope<Scope, Proof> {}
+
+impl<Scope> ProjectionsInScope<Scope, ()> for Nil {}
+
+impl<Head, Tail, Scope, HeadProof, TailProof> ProjectionsInScope<Scope, (HeadProof, TailProof)>
+    for Cons<Head, Tail>
+where
+    Head: ProjectionInScope<Scope, HeadProof>,
+    Tail: ProjectionsInScope<Scope, TailProof>,
 {
 }
 
@@ -1646,21 +1746,58 @@ pub trait AfterLeftJoin<CurrentRow, JoinedTable> {
 /// Select projections whose row type can represent an unmatched lateral row.
 ///
 /// `SELECT *` decodes the joined source as `Option<JoinedTable::SelectModel>`.
-/// Explicit projections currently cannot adjust only the expressions that
-/// originate from the nullable side, so they are rejected instead of
-/// producing an unsound non-null row type.
+/// Explicit columns are accepted only when they all belong to the current
+/// left-hand scope. A projection that reads the lateral source is rejected
+/// because its output would need to become nullable on unmatched rows.
 #[doc(hidden)]
-pub trait LeftLateralSelection: left_lateral_private::Sealed {}
+pub trait LeftLateralSelection<Proof = ()>: left_lateral_private::Sealed {}
+
+#[doc(hidden)]
+pub trait ColumnInScope<Scope, Proof> {}
+
+impl<Column, Scope, Table, Witness> ColumnInScope<Scope, (Table, Witness)> for Column
+where
+    Column: crate::traits::ColumnOf<Table>,
+    Scope: ScopeContains<Table, Witness>,
+{
+}
+
+#[doc(hidden)]
+pub trait ColumnsInScope<Scope, Proof> {}
+
+impl<Scope> ColumnsInScope<Scope, ()> for Nil {}
+
+impl<Head, Tail, Scope, HeadProof, TailProof> ColumnsInScope<Scope, (HeadProof, TailProof)>
+    for Cons<Head, Tail>
+where
+    Head: ColumnInScope<Scope, HeadProof>,
+    Tail: ColumnsInScope<Scope, TailProof>,
+{
+}
 
 mod left_lateral_private {
     pub trait Sealed {}
 
     impl Sealed for super::SelectStar {}
     impl<Scope> Sealed for super::Scoped<super::SelectStar, Scope> {}
+    impl<Columns, Scope> Sealed for super::Scoped<super::SelectCols<Columns>, Scope> {}
+    impl<Row, Scope> Sealed for super::Scoped<super::SelectAs<Row>, Scope> {}
 }
 
 impl LeftLateralSelection for SelectStar {}
 impl<Scope> LeftLateralSelection for Scoped<SelectStar, Scope> {}
+
+impl<Columns, Scope, Proof> LeftLateralSelection<Proof> for Scoped<SelectCols<Columns>, Scope>
+where
+    Columns: SelectedExpressionList,
+    Columns::Expressions: ColumnsInScope<Scope, Proof>,
+{
+}
+
+impl<Row, Scope, Proof> LeftLateralSelection<Proof> for Scoped<SelectAs<Row>, Scope> where
+    Self: MarkerScopeValidFor<Proof>
+{
+}
 
 /// Determines the new row type after a RIGHT JOIN.
 pub trait AfterRightJoin<CurrentRow, JoinedTable> {

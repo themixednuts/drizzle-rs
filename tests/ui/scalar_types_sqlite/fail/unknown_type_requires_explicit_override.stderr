@@ -68,6 +68,32 @@ note: required by a bound in `drizzle::core::SQLColumn::Type`
   |                ^^^^^^^^^^^^^^ required by this bound in `SQLColumn::Type`
   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)
 
+error[E0277]: `Opaque` cannot be used as a SQLite column type
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:6:1
+  |
+6 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:4:1
+  |
+4 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: add #[derive(SQLiteEnum)] for enum types, or use a supported primitive type
+
+error[E0277]: `Opaque` cannot be used as a SQLite column type
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:6:1
+  |
+6 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:4:1
+  |
+4 | struct Opaque;
+  | ^^^^^^^^^^^^^
+  = note: add #[derive(SQLiteEnum)] for enum types, or use a supported primitive type
+
 error[E0277]: the trait bound `Opaque: FromSQLiteValue` is not satisfied
  --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:9:14
   |

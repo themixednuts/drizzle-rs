@@ -81,6 +81,19 @@ fn main() {
         .on_duplicate_key_update(UpdateUsers::default().with_name("updated"));
     let selected = builder.select((users.id, users.name)).from(users);
     let _ = builder.insert(users).select(selected);
+    let Schema { users, posts } = Schema::new();
+    let selected = builder.select((users.id, users.name)).from(users);
+    let _ = builder
+        .insert(posts)
+        .columns((posts.user_id, posts.title))
+        .select(selected);
+    let Schema { users, posts } = Schema::new();
+    let selected = builder.select((users.id, users.name)).from(users);
+    let _ = builder
+        .insert(posts)
+        .ignore()
+        .columns((posts.user_id, posts.title))
+        .select(selected);
     let _ = builder
         .update(users)
         .set(UpdateUsers::default().with_name("Bob"))

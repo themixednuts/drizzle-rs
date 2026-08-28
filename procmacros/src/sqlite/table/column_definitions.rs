@@ -117,7 +117,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             info.has_default || info.default_fn.is_some(),
         );
 
-        // Only use default_fn for Rust DEFAULT constant, not SQL default literals
+        // Only DEFAULT_FN generates an application-side value.
         let default_const = quote! { ::std::option::Option::None };
 
         let default_fn_body = info.default_fn.as_ref().map_or_else(
@@ -286,6 +286,8 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
                 type ValueType = #value_type;
             }
         };
+        let column_scope_impl =
+            crate::common::insert_select::generate_column_scope_impl(&zst_ident, struct_ident);
         let column_not_null_impl = if !info.is_nullable || info.is_primary() {
             quote! {
                 impl #column_not_null for #zst_ident {}
@@ -293,6 +295,10 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         } else {
             quote! {}
         };
+        let insert_column_impl = info
+            .generated_column
+            .is_none()
+            .then(|| crate::common::insert_select::generate_column_impl(&zst_ident, struct_ident));
 
         // Grouping by a table's sole primary key functionally determines the
         // whole row (SQL:1999), so `.group_by(table.pk)` produces the
@@ -323,7 +329,9 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             #sql_column_impl
             #sqlite_column_impl
             #column_membership_impl
+            #column_scope_impl
             #column_not_null_impl
+            #insert_column_impl
             impl #expr_value_type for #zst_ident {
                 type ValueType = #rust_type;
             }

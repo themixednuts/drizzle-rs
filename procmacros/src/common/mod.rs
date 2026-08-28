@@ -10,6 +10,7 @@ mod diagnostics;
 pub mod enum_utils;
 pub mod generators;
 mod helpers;
+pub mod insert_select;
 pub mod model_markers;
 pub mod paths;
 #[cfg(feature = "query")]

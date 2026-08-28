@@ -190,7 +190,7 @@ pub fn generate_table_impls(
                 )
                 .with(
                     crate::common::ref_gen::ColumnRefFlags::HAS_DEFAULT,
-                    f.has_default,
+                    f.default_value.is_some() || f.default_sql.is_some(),
                 );
             ColumnRefInput {
                 column_name: f.column_name.clone(),
@@ -411,6 +411,37 @@ pub fn generate_table_impls(
     let has_select_model = core_paths::has_select_model();
     let into_select_target = core_paths::into_select_target();
     let select_star = core_paths::select_star();
+    let insertable: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .zip(column_zst_idents)
+        .filter(|(field, _)| field.generated_column.is_none())
+        .collect();
+    let insertable_columns: Vec<_> = insertable.iter().map(|(_, column)| *column).collect();
+    let insertable_names: Vec<_> = insertable
+        .iter()
+        .map(|(field, _)| &field.column_name)
+        .collect();
+    let required_columns: Vec<_> = ctx
+        .field_infos
+        .iter()
+        .zip(column_zst_idents)
+        .filter(|(field, _)| {
+            field.generated_column.is_none()
+                && !field.is_nullable
+                && field.default_value.is_none()
+                && field.default_sql.is_none()
+                && !ctx.can_field_autoincrement(field)
+        })
+        .map(|(_, column)| column)
+        .collect();
+    let insert_select_impls = crate::common::insert_select::generate_table_impls(
+        struct_ident,
+        &insertable_columns,
+        &required_columns,
+        &insertable_names,
+        insertable_columns.len() == column_zst_idents.len(),
+    );
 
     Ok(quote! {
         #foreign_key_impls
@@ -448,6 +479,7 @@ pub fn generate_table_impls(
         impl #into_select_target for #struct_ident {
             type Marker = #select_star;
         }
+        #insert_select_impls
         #sqlite_table_impl
         #to_sql_impl
         #relations_impl

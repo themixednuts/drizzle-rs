@@ -34,6 +34,27 @@ struct PgAliasResult {
     user_name: String,
 }
 
+#[test]
+fn conditional_cross_join_renders_portable_inner_join() {
+    struct JoinedSimple;
+    impl drizzle::core::Tag for JoinedSimple {
+        const NAME: &'static str = "joined_simple";
+    }
+
+    let SimpleSchema { simple } = SimpleSchema::new();
+    let joined = Simple::alias::<JoinedSimple>();
+    let sql = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>()
+        .select(simple.id)
+        .from(simple)
+        .cross_join((joined, eq(simple.id, joined.id)))
+        .to_sql();
+
+    assert_eq!(
+        sql.sql(),
+        r#"SELECT "simple"."id" FROM "simple" INNER JOIN "simple" AS "joined_simple" ON "simple"."id" = "joined_simple"."id""#
+    );
+}
+
 #[derive(Debug, PostgresFromRow)]
 struct PgCoalesceResult {
     email: String,

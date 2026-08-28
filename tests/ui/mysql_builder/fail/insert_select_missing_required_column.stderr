@@ -1,0 +1,28 @@
+error[E0277]: the trait bound `Nil: ScopeContains<PostsTitle, _>` is not satisfied
+  --> tests/ui/mysql_builder/fail/insert_select_missing_required_column.rs:30:10
+   |
+30 |         .select(selected);
+   |          ^^^^^^ the trait `ScopeContains<PostsTitle, _>` is not implemented for `Nil`
+   |
+help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
+  --> core/src/row/mod.rs
+   |
+   |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, drizzle_core::row::ScopeHere>`
+   |
+   | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
+   | |     Tail: ScopeContains<Table, Witness>
+   | |_______________________________________^ `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+   = note: required for `Cons<PostsUserId, Nil>` to implement `ScopeContains<PostsTitle, drizzle_core::row::ScopeThere<_>>`
+   = note: required for `Cons<PostsUserId, Nil>` to implement `drizzle_core::row::ScopeSatisfies<Cons<PostsTitle, Nil>, (drizzle_core::row::ScopeThere<_>, ())>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Cons<PostsUserId, Nil>` to implement `drizzle_core::row::ScopeSatisfies<Cons<PostsUserId, Cons<PostsTitle, Nil>>, (drizzle_core::row::ScopeHere, (drizzle_core::row::ScopeThere<_>, ()))>`
+   = note: required for `Cons<PostsUserId, Nil>` to implement `drizzle_core::builder::insert_select::IncludesRequired<Cons<PostsUserId, Cons<PostsTitle, Nil>>, (drizzle_core::row::ScopeHere, (drizzle_core::row::ScopeThere<_>, ()))>`
+note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
+  --> mysql/src/builder/insert.rs
+   |
+   |     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+   |            ------ required by a bound in this associated function
+...
+   |         Targets: IncludesRequired<Table::RequiredColumns, RequiredProof>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`

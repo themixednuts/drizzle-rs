@@ -66,6 +66,30 @@ fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
 }
 
 #[drizzle::test]
+fn partial_insert_select_round_trips(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, posts, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0),
+            InsertUser::new("Bob", true, Role::Member, vec![], 0, 0.0),
+        ])
+        .execute();
+
+    let selected = db.select((users.id, users.name)).from(users).detach();
+    let inserted = db
+        .insert(posts)
+        .columns((posts.user_id, posts.title))
+        .select(selected)
+        .execute();
+    assert_eq!(inserted.affected_rows(), 2);
+
+    let rows: Vec<SelectPost> = db.select(()).from(posts).order_by(asc(posts.user_id)).all();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].title, "Alice");
+    assert_eq!(rows[1].title, "Bob");
+}
+
+#[drizzle::test]
 fn detached_builder_executes_through_the_mysql_driver(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;
     db.insert(users)

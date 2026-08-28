@@ -82,6 +82,13 @@ jobs:
       - name: Run tests
         run: just test::sqlite "${{ matrix.features }}"
 
+      - name: Run SQLite INSERT SELECT compile-time tests
+        if: matrix.features == 'rusqlite'
+        run: >-
+          cargo test -p drizzle --no-default-features
+          --features std,sqlite,serde
+          --test compile_fail insert_select_sqlite_ui
+
       - name: Run example
         if: contains(matrix.features, 'uuid')  && startsWith(matrix.features, 'rusqlite')
         run: cargo run --example rusqlite --features "rusqlite,uuid,serde"
@@ -130,6 +137,13 @@ jobs:
 
       - name: Run tests
         run: just test::pg "${{ matrix.features }}"
+
+      - name: Run PostgreSQL INSERT SELECT compile-time tests
+        if: matrix.features == 'postgres-sync'
+        run: >-
+          cargo test -p drizzle --no-default-features
+          --features std,postgres,serde
+          --test compile_fail insert_select_postgres_ui
 
   test-mysql:
     name: "Test MySQL (${{ matrix.name }})"

@@ -194,6 +194,12 @@ pub mod core {
     #[doc(hidden)]
     pub use drizzle_core::schema::SQLEnumInfo;
 
+    #[doc(hidden)]
+    pub use drizzle_core::{
+        ColumnScope, InsertColumn, InsertSelectAllColumns, InsertSelectTable, OpaqueScope,
+        ProjectionInScope, ScopeContains,
+    };
+
     /// Bind parameter type mapping trait.
     #[doc(inline)]
     pub use drizzle_core::ValueTypeForDialect;
@@ -452,8 +458,8 @@ pub mod postgres {
 /// `mysql_async` resource supplied by the application.
 ///
 /// Both adapters set each connection's session time zone to UTC and remove
-/// `NO_UNSIGNED_SUBTRACTION` before typed queries. This makes temporal decoding
-/// and unsigned arithmetic agree with the static Rust types.
+/// `NO_UNSIGNED_SUBTRACTION` and `REAL_AS_FLOAT` before typed queries. This makes
+/// temporal decoding and numeric types agree with the static Rust types.
 ///
 /// MySQL upserts use `InsertBuilder::on_duplicate_key_update`. SQL `RETURNING`,
 /// full joins, partial-index predicates, and PostgreSQL `UPDATE ... FROM` are

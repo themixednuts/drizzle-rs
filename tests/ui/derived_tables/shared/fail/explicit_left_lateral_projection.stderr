@@ -1,16 +1,21 @@
-error[E0277]: the trait bound `Scoped<SelectCols<(UserId, DerivedTitle)>, Cons<Users, Nil>>: drizzle::core::LeftLateralSelection` is not satisfied
+error[E0277]: the trait bound `Cons<UserId, Cons<DerivedTitle, Nil>>: drizzle_core::row::ColumnsInScope<Cons<Users, Nil>, Users>` is not satisfied
   --> tests/ui/derived_tables/shared/fail/explicit_left_lateral_projection.rs:14:33
    |
 14 |     require_safe_left_lateral::<ExplicitProjection>();
-   |                                 ^^^^^^^^^^^^^^^^^^ the trait `drizzle::core::LeftLateralSelection` is not implemented for `Scoped<SelectCols<(UserId, DerivedTitle)>, Cons<Users, Nil>>`
+   |                                 ^^^^^^^^^^^^^^^^^^ the trait `drizzle_core::row::ColumnsInScope<Cons<Users, Nil>, Users>` is not implemented for `Cons<UserId, Cons<DerivedTitle, Nil>>`
    |
-help: the trait `drizzle::core::LeftLateralSelection` is implemented for `Scoped<SelectStar, Scope>`
+help: the trait `drizzle_core::row::ColumnsInScope<Scope, (HeadProof, TailProof)>` is implemented for `Cons<Head, Tail>`
   --> core/src/row/mod.rs
    |
-   | impl<Scope> LeftLateralSelection for Scoped<SelectStar, Scope> {}
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | / impl<Head, Tail, Scope, HeadProof, TailProof> ColumnsInScope<Scope, (HeadProof, TailProof)>
+   | |     for Cons<Head, Tail>
+   | | where
+   | |     Head: ColumnInScope<Scope, HeadProof>,
+   | |     Tail: ColumnsInScope<Scope, TailProof>,
+   | |___________________________________________^
+   = note: required for `Scoped<SelectCols<(UserId, DerivedTitle)>, Cons<Users, Nil>>` to implement `drizzle::core::LeftLateralSelection<Users>`
 note: required by a bound in `require_safe_left_lateral`
   --> tests/ui/derived_tables/shared/fail/explicit_left_lateral_projection.rs:11:41
    |
-11 | fn require_safe_left_lateral<Selection: LeftLateralSelection>() {}
-   |                                         ^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_safe_left_lateral`
+11 | fn require_safe_left_lateral<Selection: LeftLateralSelection<Users>>() {}
+   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_safe_left_lateral`

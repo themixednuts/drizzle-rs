@@ -8,7 +8,7 @@ struct DerivedTitle;
 
 type ExplicitProjection = Scoped<SelectCols<(UserId, DerivedTitle)>, Cons<Users, Nil>>;
 
-fn require_safe_left_lateral<Selection: LeftLateralSelection>() {}
+fn require_safe_left_lateral<Selection: LeftLateralSelection<Users>>() {}
 
 fn main() {
     require_safe_left_lateral::<ExplicitProjection>();

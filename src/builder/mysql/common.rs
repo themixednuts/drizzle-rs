@@ -7,16 +7,17 @@ use core::marker::PhantomData;
 use drizzle_core::{SQLIndex, SQLTable, ToSQL};
 use drizzle_mysql::{
     builder::{
-        self, CTEView, DeleteBuilder, DeleteInitial, DeleteLimitSet, DeleteOrderSet,
-        DeleteWhereSet, ForShare, ForUpdate, InsertBuilder, InsertIgnoreSet, InsertInitial,
-        InsertOnDuplicateKeyUpdateSet, InsertValuesSet, IntoSelect, IntoSelectQuery, NoWait,
-        QueryBuilder, SelectBuilder, SelectForSet, SelectFromSet, SelectGroupSet, SelectHavingSet,
-        SelectIndexHintSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
-        SelectOrderSet, SelectSetOpSet, SelectWhereSet, SkipLocked, UpdateBuilder, UpdateInitial,
-        UpdateLimitSet, UpdateOrderSet, UpdateSetClauseSet, UpdateWhereSet, Wait,
+        self, CTEView, CompletedSelect, DeleteBuilder, DeleteInitial, DeleteLimitSet,
+        DeleteOrderSet, DeleteWhereSet, ForShare, ForUpdate, InsertBuilder, InsertColumnsSet,
+        InsertIgnoreSet, InsertInitial, InsertOnDuplicateKeyUpdateSet, InsertValuesSet,
+        IntoSelectQuery, NoWait, QueryBuilder, SelectBuilder, SelectForSet, SelectFromSet,
+        SelectGroupSet, SelectHavingSet, SelectIndexHintSet, SelectInitial, SelectJoinSet,
+        SelectLimitSet, SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+        SkipLocked, UpdateBuilder, UpdateInitial, UpdateLimitSet, UpdateOrderSet,
+        UpdateSetClauseSet, UpdateWhereSet, Wait,
     },
     common::MySQLSchemaType,
-    traits::{MySQLInsertSelectTarget, MySQLTable},
+    traits::MySQLTable,
     values::MySQLValue,
 };
 
@@ -854,7 +855,7 @@ macro_rules! select_method {
             self.map(|builder| builder.inner_join_lateral(arg))
         }
 
-        pub fn left_join_lateral<Arg>(
+        pub fn left_join_lateral<Arg, SelectionProof>(
             self,
             arg: Arg,
         ) -> DrizzleBuilder<
@@ -876,7 +877,7 @@ macro_rules! select_method {
             Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
             M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
                 + drizzle_core::ScopePush<Arg::JoinedTable>
-                + drizzle_core::LeftLateralSelection,
+                + drizzle_core::LeftLateralSelection<SelectionProof>,
         {
             self.map(|builder| builder.left_join_lateral(arg))
         }
@@ -1240,9 +1241,11 @@ where
 impl<'q, Runner, Schema, State, T, M, R, G> IntoSelectQuery<'q, Schema, R>
     for DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
-    SelectBuilder<'q, Schema, State, T, M, R, G>: IntoSelect<'q, Schema, R, Marker = M>,
+    SelectBuilder<'q, Schema, State, T, M, R, G>:
+        CompletedSelect<'q, Schema, R, Marker = M, Grouped = G>,
 {
     type Marker = M;
+    type Grouped = G;
     type Select = SelectBuilder<'q, Schema, State, T, M, R, G>;
 
     fn into_select_query(self) -> Self::Select {
@@ -1357,7 +1360,7 @@ macro_rules! insert_sources {
                 self.map(|builder| builder.values(values))
             }
 
-            pub fn select<Q, R>(
+            pub fn select<Q, R, ScopeProof, AggProof>(
                 self,
                 query: Q,
             ) -> DrizzleBuilder<
@@ -1368,11 +1371,50 @@ macro_rules! insert_sources {
                 InsertValuesSet,
             >
             where
-                Table: MySQLInsertSelectTarget,
+                Table: drizzle_core::InsertSelectTable,
                 Q: IntoSelectQuery<'q, Schema, R>,
-                Q::Marker: builder::insert::InsertSelectCompatible<'q, Table, R>,
+                Q::Marker: drizzle_core::InsertSelectCompatible<'q, MySQLValue<'q>, Table, R>
+                    + drizzle_core::InsertSourceInScope<ScopeProof>
+                    + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
             {
                 self.map(|builder| builder.select(query))
+            }
+
+            pub fn select_raw<Q>(
+                self,
+                query: Q,
+            ) -> DrizzleBuilder<
+                'db,
+                Runner,
+                Schema,
+                InsertBuilder<'q, Schema, InsertValuesSet, Table>,
+                InsertValuesSet,
+            >
+            where
+                Q: ToSQL<'q, MySQLValue<'q>>,
+            {
+                self.map(|builder| builder.select_raw(query))
+            }
+
+            /// Chooses an explicit ordered target-column list for an INSERT SELECT.
+            ///
+            /// # Panics
+            ///
+            /// Panics when the same target column appears more than once.
+            pub fn columns<Columns>(
+                self,
+                columns: Columns,
+            ) -> DrizzleBuilder<
+                'db,
+                Runner,
+                Schema,
+                InsertBuilder<'q, Schema, InsertColumnsSet<Columns::Columns>, Table>,
+                InsertColumnsSet<Columns::Columns>,
+            >
+            where
+                Columns: drizzle_core::InsertTargetColumns<'q, MySQLValue<'q>, Table>,
+            {
+                self.map(|builder| builder.columns(columns))
             }
         }
     };
@@ -1380,6 +1422,57 @@ macro_rules! insert_sources {
 
 insert_sources!(InsertInitial);
 insert_sources!(InsertIgnoreSet);
+
+impl<'db, 'q, Runner, Schema, Table, Targets>
+    DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        InsertBuilder<'q, Schema, InsertColumnsSet<Targets>, Table>,
+        InsertColumnsSet<Targets>,
+    >
+where
+    Table: MySQLTable<'q>,
+{
+    pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
+        self,
+        query: Q,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        InsertBuilder<'q, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: drizzle_core::InsertSelectTable,
+        Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
+        Q: IntoSelectQuery<'q, Schema, R>,
+        Q::Marker: drizzle_core::PartialInsertSelectCompatible<'q, MySQLValue<'q>, Targets>
+            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
+    {
+        self.map(|builder| builder.select(query))
+    }
+
+    pub fn select_raw<Q, RequiredProof>(
+        self,
+        query: Q,
+    ) -> DrizzleBuilder<
+        'db,
+        Runner,
+        Schema,
+        InsertBuilder<'q, Schema, InsertValuesSet, Table>,
+        InsertValuesSet,
+    >
+    where
+        Table: drizzle_core::InsertSelectTable,
+        Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
+        Q: ToSQL<'q, MySQLValue<'q>>,
+    {
+        self.map(|builder| builder.select_raw(query))
+    }
+}
 
 impl<'db, 'q, Runner, Schema, Table>
     DrizzleBuilder<

@@ -88,8 +88,11 @@ pub mod types;
 // Re-export key types and traits
 pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
 pub use builder::{
-    BuilderInit, ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, JoinAllowed,
-    LimitAllowed, OffsetAllowed, OrderByAllowed, WhereAllowed,
+    BuilderInit, ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, IncludesRequired,
+    InsertColumn, InsertColumnsSet, InsertSelectAllColumns, InsertSelectColumns,
+    InsertSelectCompatible, InsertSelectTable, InsertSourceInScope, InsertTargetColumnList,
+    InsertTargetColumns, InsertTargetMarker, JoinAllowed, LimitAllowed, OffsetAllowed,
+    OrderByAllowed, PartialInsertSelectCompatible, WhereAllowed,
 };
 pub use derived::{
     Derived, DerivedField, DerivedProjection, DerivedSelection, ProjectionOutput, TableProjection,
@@ -110,6 +113,8 @@ pub use row::{
     SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables, SelectStar, SelectedExpressionList,
     WrapNullable,
 };
+#[doc(hidden)]
+pub use row::{ColumnScope, OpaqueScope, ProjectionInScope, ScopeContains};
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{
     ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,
