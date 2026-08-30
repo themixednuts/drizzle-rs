@@ -17,7 +17,10 @@ use crate::common::{
     type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like, type_is_time_date,
     type_is_time_time, type_is_uuid, type_is_vec_u8,
 };
-use drizzle_types::mysql::{MySQLType, TypeCategory as MySQLRustTypeCategory};
+use drizzle_types::{
+    Dialect,
+    mysql::{MySQLType, TypeCategory as MySQLRustTypeCategory},
+};
 
 use super::escape_string as escape_mysql_string;
 
@@ -33,7 +36,7 @@ pub enum TypeCategory {
 #[derive(Debug, Clone)]
 pub enum MySQLDefault {
     Literal(String),
-    RawSql(String),
+    Expression(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,7 +261,7 @@ impl FieldInfo {
         if parsed.default.is_some() && parsed.default_fn.is_some() {
             return Err(Error::new_spanned(
                 field,
-                "DEFAULT/DEFAULT_SQL and DEFAULT_FN are mutually exclusive",
+                "DEFAULT and DEFAULT_FN are mutually exclusive",
             ));
         }
         if matches!(column_type, MySQLType::Json) {
@@ -546,7 +549,7 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
             "JSONB" => {
                 return Err(Error::new_spanned(
                     path,
-                    "JSONB is PostgreSQL/SQLite-only; MySQL uses JSON",
+                    "JSONB is PostgreSQL-only; MySQL uses JSON",
                 ));
             }
             "SERIAL" => {
@@ -582,12 +585,6 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
         Meta::NameValue(value) => match upper.as_str() {
             "NAME" => out.name = Some(expect_string(&value.value, "NAME")?),
             "DEFAULT" => out.default = Some(default_from_expr(&value.value)?),
-            "DEFAULT_SQL" => {
-                out.default = Some(MySQLDefault::RawSql(expect_string(
-                    &value.value,
-                    "DEFAULT_SQL",
-                )?));
-            }
             "DEFAULT_FN" => out.default_fn = Some(value.value.to_token_stream()),
             "CHECK" => out.check = Some(expect_string(&value.value, "CHECK")?),
             "REFERENCES" => out.reference = Some(parse_reference_expr(&value.value)?),
@@ -1037,11 +1034,20 @@ fn build_sql_definition(definition: SqlDefinition<'_>) -> String {
         && let Some(default) = default
     {
         match default {
-            MySQLDefault::Literal(value) | MySQLDefault::RawSql(value) => {
+            MySQLDefault::Literal(value) => {
                 if requires_expression_default(ty) {
                     let _ = write!(sql, " DEFAULT ({value})");
                 } else {
                     let _ = write!(sql, " DEFAULT {value}");
+                }
+            }
+            MySQLDefault::Expression(value) => {
+                if matches!(ty, MySQLType::Datetime | MySQLType::Timestamp)
+                    && value.eq_ignore_ascii_case("CURRENT_TIMESTAMP")
+                {
+                    let _ = write!(sql, " DEFAULT {value}");
+                } else {
+                    let _ = write!(sql, " DEFAULT ({value})");
                 }
             }
         }
@@ -1087,28 +1093,12 @@ fn render_type(ty: &MySQLType, args: &[u16]) -> String {
 }
 
 fn default_from_expr(expr: &Expr) -> Result<MySQLDefault> {
-    let Expr::Lit(lit) = expr else {
-        return Err(Error::new_spanned(
-            expr,
-            "DEFAULT requires a string, number, boolean, or character literal; use DEFAULT_SQL for SQL expressions",
-        ));
-    };
-    let rendered = match &lit.lit {
-        Lit::Str(value) => format!("'{}'", escape_mysql_string(&value.value())),
-        Lit::ByteStr(value) => format!("X'{}'", hex(value.value())),
-        Lit::Byte(value) => value.value().to_string(),
-        Lit::Char(value) => format!("'{}'", escape_mysql_string(&value.value().to_string())),
-        Lit::Int(value) => value.base10_digits().to_string(),
-        Lit::Float(value) => value.base10_digits().to_string(),
-        Lit::Bool(value) => (if value.value { "TRUE" } else { "FALSE" }).to_string(),
-        _ => {
-            return Err(Error::new_spanned(
-                expr,
-                "unsupported MySQL DEFAULT literal",
-            ));
-        }
-    };
-    Ok(MySQLDefault::Literal(rendered))
+    let sql = crate::common::render_default(expr, Dialect::MySQL)?;
+    Ok(if matches!(expr, Expr::Lit(_)) {
+        MySQLDefault::Literal(sql)
+    } else {
+        MySQLDefault::Expression(sql)
+    })
 }
 
 fn expect_string(expr: &Expr, attribute: &str) -> Result<String> {
@@ -1197,14 +1187,6 @@ fn validate_inline_label(value: &syn::LitStr) -> Result<()> {
     } else {
         Ok(())
     }
-}
-
-fn hex(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect()
 }
 
 fn parse_quote_path(name: &str) -> ExprPath {

@@ -139,27 +139,12 @@ fn generate_json_conversion<D: DriverConfig>(
         ));
     }
 
-    let accessor = match info.column_type {
-        SQLiteType::Text => D::text_accessor(idx),
-        SQLiteType::Blob => D::blob_accessor(idx),
-        _ => {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::json::INVALID_COLUMN_TYPE,
-            ));
-        }
-    };
-
-    let deserialize = match info.column_type {
-        SQLiteType::Text => quote!(serde_json::from_str(v)),
-        SQLiteType::Blob => quote!(serde_json::from_slice(v)),
-        _ => unreachable!(),
-    };
+    let accessor = D::text_accessor(idx);
 
     // Both optional and non-optional JSON fields use the same pattern since
     // the JSON deserialization needs to handle the Option wrapper uniformly
     let _ = is_optional;
-    Ok(quote!(#accessor.map(|v| #deserialize).transpose()?))
+    Ok(quote!(#accessor.map(|v| serde_json::from_str(v)).transpose()?))
 }
 
 #[allow(dead_code)]

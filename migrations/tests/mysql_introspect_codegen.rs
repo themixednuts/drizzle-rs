@@ -221,11 +221,7 @@ fn mysql_codegen_round_trips_macro_representable_ddl() {
     );
     assert!(generated.code.contains("MySQLEnum"));
     assert!(generated.code.contains("SET(\"reader\", \"writer\")"));
-    assert!(
-        generated
-            .code
-            .contains("DEFAULT_SQL = \"CURRENT_TIMESTAMP\"")
-    );
+    assert!(generated.code.contains("DEFAULT = CURRENT_TIMESTAMP"));
     assert!(generated.code.contains("ON_UPDATE = \"CURRENT_TIMESTAMP\""));
     assert!(
         generated

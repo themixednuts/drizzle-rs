@@ -17,16 +17,16 @@ macro_rules! markers {
     };
 }
 
-/// Adds a literal database `DEFAULT` clause and leaves omitted insert values to MySQL.
+/// Adds a database `DEFAULT` clause and leaves omitted insert values to MySQL.
+///
+/// String literals become quoted SQL values. SQL keywords and function calls
+/// are emitted as database expressions.
 pub const DEFAULT: AttributeMarker = AttributeMarker;
 
 /// Generates an omitted insert value in the Rust application.
 ///
 /// This does not add a database `DEFAULT` clause.
 pub const DEFAULT_FN: AttributeMarker = AttributeMarker;
-
-/// Adds the supplied SQL expression as a database `DEFAULT` clause.
-pub const DEFAULT_SQL: AttributeMarker = AttributeMarker;
 
 markers!(
     NAME,

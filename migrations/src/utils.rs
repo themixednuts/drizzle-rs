@@ -80,6 +80,51 @@ pub fn escape_for_rust_literal(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Convert a database-reported SQL default into the Rust-like expression
+/// accepted by `#[column(DEFAULT = ...)]`.
+///
+/// SQL string literals become Rust string literals so the schema macro can
+/// distinguish them from unquoted SQL keywords and function calls. PostgreSQL
+/// casts are removed because the column type already supplies that context.
+pub(crate) fn default_expression(sql: &str) -> Option<String> {
+    let mut rust = String::with_capacity(sql.len());
+    let mut chars = sql.trim().chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            let mut value = String::new();
+            loop {
+                let next = chars.next()?;
+                if next == '\'' {
+                    if chars.peek() == Some(&'\'') {
+                        chars.next();
+                        value.push('\'');
+                    } else {
+                        break;
+                    }
+                } else {
+                    value.push(next);
+                }
+            }
+            rust.push_str(&format!("{value:?}"));
+        } else if ch == ':' && chars.peek() == Some(&':') {
+            chars.next();
+            while chars.peek().is_some_and(|next| next.is_whitespace()) {
+                chars.next();
+            }
+            while chars.peek().is_some_and(|next| {
+                next.is_ascii_alphanumeric() || matches!(next, '_' | '.' | '[' | ']')
+            }) {
+                chars.next();
+            }
+        } else {
+            rust.push(ch);
+        }
+    }
+
+    syn::parse_str::<syn::Expr>(&rust).ok().map(|_| rust)
+}
+
 /// Unescape a string from SQL default value
 #[must_use]
 pub fn unescape_from_sql_default(input: &str, mode: EscapeMode) -> String {
@@ -296,6 +341,23 @@ mod tests {
         assert_eq!(
             escape_for_rust_literal(r#"SELECT * FROM "users" WHERE name = 'test'"#),
             r#"SELECT * FROM \"users\" WHERE name = 'test'"#
+        );
+    }
+
+    #[test]
+    fn database_defaults_become_rust_expressions() {
+        assert_eq!(
+            default_expression("CURRENT_TIMESTAMP").as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        assert_eq!(default_expression("now()").as_deref(), Some("now()"));
+        assert_eq!(
+            default_expression("strftime('%s','now')").as_deref(),
+            Some(r#"strftime("%s","now")"#)
+        );
+        assert_eq!(
+            default_expression("nextval('users_id_seq'::regclass)").as_deref(),
+            Some(r#"nextval("users_id_seq")"#)
         );
     }
 }

@@ -156,7 +156,7 @@ pub fn generate_table_impls(
         .iter()
         .map(|f| {
             let autoincrement = f.is_autoincrement;
-            let default = sqlite_default_sql(f).map_or_else(
+            let default = f.default.as_ref().map_or_else(
                 || quote! { ::core::option::Option::None },
                 |default| quote! { ::core::option::Option::Some(#default) },
             );
@@ -190,7 +190,7 @@ pub fn generate_table_impls(
                 )
                 .with(
                     crate::common::ref_gen::ColumnRefFlags::HAS_DEFAULT,
-                    f.default_value.is_some() || f.default_sql.is_some(),
+                    f.default.is_some(),
                 );
             ColumnRefInput {
                 column_name: f.column_name.clone(),
@@ -429,8 +429,7 @@ pub fn generate_table_impls(
         .filter(|(field, _)| {
             field.generated_column.is_none()
                 && !field.is_nullable
-                && field.default_value.is_none()
-                && field.default_sql.is_none()
+                && field.default.is_none()
                 && !ctx.can_field_autoincrement(field)
         })
         .map(|(_, column)| column)
@@ -486,24 +485,6 @@ pub fn generate_table_impls(
         #capability_impls
         #table_unique_capability_impls
     })
-}
-
-fn sqlite_default_sql(field: &crate::sqlite::field::FieldInfo<'_>) -> Option<String> {
-    if let Some(default_sql) = &field.default_sql {
-        return Some(default_sql.clone());
-    }
-
-    let syn::Expr::Lit(expr_lit) = field.default_value.as_ref()? else {
-        return None;
-    };
-
-    match &expr_lit.lit {
-        syn::Lit::Int(i) => Some(i.to_string()),
-        syn::Lit::Float(f) => Some(f.to_string()),
-        syn::Lit::Bool(b) => Some(if b.value() { "1" } else { "0" }.to_string()),
-        syn::Lit::Str(s) => Some(format!("'{}'", s.value().replace('\'', "''"))),
-        _ => None,
-    }
 }
 
 fn parenthesized_sql_expression(expression: &str) -> String {

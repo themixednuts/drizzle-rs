@@ -451,7 +451,7 @@ fn test_postgres_codegen_new_macro_surfaces() {
     assert!(generated.code.contains(
         "check(name = \"accounts_score_tenant_check\", expr = \"score >= 0 AND tenant_id > 0\")"
     ));
-    assert!(generated.code.contains("default_sql = \"now()\""));
+    assert!(generated.code.contains("default = now()"));
     assert!(
         generated
             .code

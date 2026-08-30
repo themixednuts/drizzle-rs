@@ -6,8 +6,6 @@ struct BareDefaults {
     literal: i32,
     #[column(DEFAULT_FN)]
     application: i32,
-    #[column(DEFAULT_SQL)]
-    expression: i32,
 }
 
 fn main() {}

@@ -3,6 +3,7 @@ pub mod attributes;
 pub mod column_definitions;
 pub mod context;
 mod ddl;
+mod json;
 pub mod models;
 pub mod traits;
 
@@ -151,6 +152,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let model_definitions =
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern);
     let alias_definitions = generate_aliased_table(&ctx);
+    let json_impls = json::generate_json_impls(&ctx)?;
 
     // Generate table marker const for IDE hover documentation
     let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);
@@ -203,6 +205,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         #table_impls
         #model_definitions
         #alias_definitions
+        #json_impls
         #const_ddl
         #query_api_impls
     };

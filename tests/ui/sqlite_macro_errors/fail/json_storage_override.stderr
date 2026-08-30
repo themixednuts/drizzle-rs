@@ -1,0 +1,5 @@
+error: JSON cannot be combined with another SQLite type; use #[column(JSON)]
+ --> tests/ui/sqlite_macro_errors/fail/json_storage_override.rs:5:20
+  |
+5 |     #[column(BLOB, JSON)]
+  |                    ^^^^

@@ -5,13 +5,6 @@
 
 /// Error messages for JSON field configuration
 pub mod json {
-    pub const INVALID_COLUMN_TYPE: &str = "JSON fields must use either TEXT or BLOB column types.\n\
-         \n\
-         - TEXT storage: Human-readable JSON string format\n\
-         - BLOB storage: Binary JSON format (more efficient)\n\
-         \n\
-         Example: #[column(json)] or #[column(blob, json)]";
-
     pub const SERDE_REQUIRED: &str = "JSON fields require the 'serde' feature to be enabled.\n\
          \n\
          Add to Cargo.toml:\n\

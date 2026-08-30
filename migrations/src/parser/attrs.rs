@@ -493,8 +493,6 @@ struct SqliteArgs {
     json: bool,
     enum_marker: bool,
     default: Option<ParsedDefault>,
-    default_raw: Option<(String, String)>,
-    default_sql: Option<String>,
     default_fn: bool,
     generated: Option<ParsedGenerated>,
     check: Option<String>,
@@ -575,17 +573,17 @@ fn reference_from_expr(expr: &Expr) -> Option<ParsedReference> {
     })
 }
 
-fn default_from_expr(expr: &Expr, source: &str) -> ParsedDefault {
+fn default_from_expr(expr: &Expr, dialect: Dialect) -> syn::Result<ParsedDefault> {
     if let Expr::Lit(expr_lit) = expr {
         match &expr_lit.lit {
-            Lit::Int(i) => return ParsedDefault::Int(i.to_string()),
-            Lit::Float(f) => return ParsedDefault::Float(f.to_string()),
-            Lit::Bool(b) => return ParsedDefault::Bool(b.value()),
-            Lit::Str(s) => return ParsedDefault::Str(s.value()),
+            Lit::Int(i) => return Ok(ParsedDefault::Int(i.to_string())),
+            Lit::Float(f) => return Ok(ParsedDefault::Float(f.to_string())),
+            Lit::Bool(b) => return Ok(ParsedDefault::Bool(b.value())),
+            Lit::Str(s) => return Ok(ParsedDefault::Str(s.value())),
             _ => {}
         }
     }
-    ParsedDefault::Unsupported(spanned_source(source, expr))
+    super::default::render(expr, dialect).map(ParsedDefault::Sql)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -620,14 +618,19 @@ fn parse_sqlite_args(
                 let ident_str = ident.to_string();
                 match ident_str.to_ascii_uppercase().as_str() {
                     "JSON" => {
+                        if args.explicit_type.is_some() {
+                            diags.errors.push(format!(
+                                "{field_desc}: JSON cannot be combined with another SQLite type; use #[column(JSON)]"
+                            ));
+                            continue;
+                        }
                         args.explicit_type = Some(SQLiteType::Text);
                         args.json = true;
                     }
-                    "JSONB" => {
-                        args.explicit_type = Some(SQLiteType::Blob);
-                        args.json = true;
-                    }
-                    "DEFAULT" | "DEFAULT_FN" | "DEFAULT_SQL" => diags
+                    "JSONB" => diags.errors.push(format!(
+                        "{field_desc}: JSONB is PostgreSQL-only; SQLite uses #[column(JSON)]"
+                    )),
+                    "DEFAULT" | "DEFAULT_FN" => diags
                         .errors
                         .push(format!("{field_desc}: {ident_str} requires a value")),
                     "ENUM" => args.enum_marker = true,
@@ -636,7 +639,13 @@ fn parse_sqlite_args(
                     "UNIQUE" => args.unique = true,
                     _ => {
                         if let Some(ty) = SQLiteType::from_attribute_name(&ident_str) {
-                            args.explicit_type = Some(ty);
+                            if args.explicit_type.is_some() {
+                                diags.errors.push(format!(
+                                    "{field_desc}: a SQLite column may specify only one SQL type"
+                                ));
+                            } else {
+                                args.explicit_type = Some(ty);
+                            }
                         }
                         // Unknown bare flags are collected silently by the
                         // macro; mirrored here (no diagnostic).
@@ -654,29 +663,10 @@ fn parse_sqlite_args(
                 let raw_value = spanned_source(source, &*assign.right);
                 args.named_values.push((key.clone(), raw_value.clone()));
                 match key.to_ascii_uppercase().as_str() {
-                    "DEFAULT" => {
-                        let default = default_from_expr(&assign.right, source);
-                        if matches!(default, ParsedDefault::Unsupported(_)) {
-                            diags.errors.push(format!(
-                                "{field_desc}: DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default"
-                            ));
-                        }
-                        args.default_raw = Some((key, raw_value));
-                        args.default = Some(default);
-                    }
-                    "DEFAULT_SQL" => {
-                        if let Expr::Lit(syn::ExprLit {
-                            lit: Lit::Str(lit_str),
-                            ..
-                        }) = &*assign.right
-                        {
-                            args.default_sql = Some(lit_str.value());
-                        } else {
-                            diags.errors.push(format!(
-                                "{field_desc}: default_sql requires a string literal"
-                            ));
-                        }
-                    }
+                    "DEFAULT" => match default_from_expr(&assign.right, Dialect::SQLite) {
+                        Ok(default) => args.default = Some(default),
+                        Err(error) => diags.errors.push(format!("{field_desc}: {error}")),
+                    },
                     "DEFAULT_FN" => args.default_fn = true,
                     "REFERENCES" => {
                         args.references = reference_from_expr(&assign.right);
@@ -766,8 +756,9 @@ fn parse_sqlite_args(
                                 .push(format!("{field_desc}: CHECK requires a string literal"));
                         }
                     }
-                    // Unknown `key = value` pairs are ignored by the macro.
-                    _ => {}
+                    _ => diags.errors.push(format!(
+                        "{field_desc}: unrecognized SQLite column attribute `{key}`"
+                    )),
                 }
             }
             Expr::Call(call) => {
@@ -865,13 +856,20 @@ pub(crate) fn sqlite_column_spec(
 
         // Legacy per-type attribute (`#[text]`, `#[integer(primary)]`, ...).
         let legacy_type = SQLiteType::from_attribute_name(&ident);
+        let is_legacy = legacy_type.is_some();
         let is_column = ident == "column";
         if legacy_type.is_none() && !is_column {
             continue;
         }
 
         if let Some(ty) = legacy_type {
-            explicit_type = explicit_type.or(Some(ty));
+            if explicit_type.is_some() {
+                diags.errors.push(format!(
+                    "{field_desc}: a SQLite column may specify only one SQL type"
+                ));
+            } else {
+                explicit_type = Some(ty);
+            }
         }
 
         let args = match &attr.meta {
@@ -880,11 +878,25 @@ pub(crate) fn sqlite_column_spec(
             Meta::NameValue(_) => continue,
         };
 
+        if is_legacy && args.json {
+            diags.errors.push(format!(
+                "{field_desc}: SQLite JSON columns use #[column(JSON)]"
+            ));
+        }
+
         // Merge with the macro's first-attribute-wins semantics.
         if !seen_column_data {
             seen_column_data = true;
         }
-        explicit_type = explicit_type.or(args.explicit_type);
+        if let Some(ty) = args.explicit_type {
+            if explicit_type.is_some() && !is_legacy {
+                diags.errors.push(format!(
+                    "{field_desc}: a SQLite column may specify only one SQL type"
+                ));
+            } else if !is_legacy {
+                explicit_type = Some(ty);
+            }
+        }
         spec.primary |= args.primary;
         spec.autoincrement |= args.autoincrement;
         spec.unique |= args.unique;
@@ -893,7 +905,6 @@ pub(crate) fn sqlite_column_spec(
         if spec.default.is_none() {
             spec.default = args.default;
         }
-        spec.default_sql = spec.default_sql.take().or(args.default_sql);
         spec.has_default_fn |= args.default_fn;
         if spec.generated.is_none() {
             spec.generated = args.generated;
@@ -968,7 +979,6 @@ struct MySqlArgs {
     enum_marker: bool,
     set_values: Option<Vec<String>>,
     default: Option<ParsedDefault>,
-    default_sql: Option<String>,
     default_fn: bool,
     generated: Option<ParsedGenerated>,
     check: Option<String>,
@@ -1359,7 +1369,7 @@ pub(crate) fn mysql_column_spec(
                         set_mysql_explicit_type(&mut args, MySQLType::Json, &field_desc, diags)
                     }
                     "JSONB" => diags.errors.push(format!(
-                        "{field_desc}: JSONB is PostgreSQL/SQLite-only; MySQL uses JSON"
+                        "{field_desc}: JSONB is PostgreSQL-only; MySQL uses JSON"
                     )),
                     "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" | "IDENTITY" | "PGENUM" => {
                         diags.errors.push(format!(
@@ -1383,20 +1393,12 @@ pub(crate) fn mysql_column_spec(
                         "NAME" => {
                             args.name = mysql_string_value(&value.value, &field_desc, "NAME", diags)
                         }
-                        "DEFAULT" => {
-                            let default = default_from_expr(&value.value, source);
-                            if matches!(default, ParsedDefault::Unsupported(_)) {
-                                diags.errors.push(format!(
-                                    "{field_desc}: DEFAULT requires a string, number, boolean, or character literal; use DEFAULT_SQL for SQL expressions"
-                                ));
-                            } else {
-                                args.default = Some(default);
+                        "DEFAULT" => match default_from_expr(&value.value, Dialect::MySQL) {
+                            Ok(default) => args.default = Some(default),
+                            Err(error) => {
+                                diags.errors.push(format!("{field_desc}: {error}"));
                             }
-                        }
-                        "DEFAULT_SQL" => {
-                            args.default_sql =
-                                mysql_string_value(&value.value, &field_desc, "DEFAULT_SQL", diags);
-                        }
+                        },
                         "DEFAULT_FN" => args.default_fn = true,
                         "CHECK" => {
                             args.check =
@@ -1530,12 +1532,7 @@ pub(crate) fn mysql_column_spec(
     }
     if args.default.is_some() && args.default_fn {
         diags.errors.push(format!(
-            "{field_desc}: DEFAULT/DEFAULT_SQL and DEFAULT_FN are mutually exclusive"
-        ));
-    }
-    if args.default_sql.is_some() && args.default_fn {
-        diags.errors.push(format!(
-            "{field_desc}: DEFAULT/DEFAULT_SQL and DEFAULT_FN are mutually exclusive"
+            "{field_desc}: DEFAULT and DEFAULT_FN are mutually exclusive"
         ));
     }
 
@@ -1586,7 +1583,7 @@ pub(crate) fn mysql_column_spec(
                 "{field_desc}: AUTO_INCREMENT requires a signed or unsigned MySQL integer column"
             ));
         }
-        if args.generated.is_some() || args.default.is_some() || args.default_sql.is_some() {
+        if args.generated.is_some() || args.default.is_some() {
             diags.errors.push(format!(
                 "{field_desc}: AUTO_INCREMENT cannot be combined with DEFAULT or GENERATED"
             ));
@@ -1598,10 +1595,7 @@ pub(crate) fn mysql_column_spec(
         }
     }
     if args.generated.is_some()
-        && (args.default.is_some()
-            || args.default_sql.is_some()
-            || args.default_fn
-            || args.mysql_on_update.is_some())
+        && (args.default.is_some() || args.default_fn || args.mysql_on_update.is_some())
     {
         diags.errors.push(format!(
             "{field_desc}: GENERATED columns cannot use DEFAULT, DEFAULT_FN, or ON_UPDATE"
@@ -1614,7 +1608,6 @@ pub(crate) fn mysql_column_spec(
     spec.autoincrement = args.autoincrement;
     spec.enum_marker = args.enum_marker;
     spec.default = args.default;
-    spec.default_sql = args.default_sql;
     spec.has_default_fn = args.default_fn;
     spec.generated = args.generated;
     spec.check = args.check;
@@ -1866,14 +1859,7 @@ pub(crate) fn postgres_column_spec(
                     let expr: Expr = meta.input.parse()?;
                     let raw_value = spanned_source(source, &expr);
                     spec.named_values.push((key, raw_value.clone()));
-                    let default = default_from_expr(&expr, source);
-                    if matches!(default, ParsedDefault::Unsupported(_)) {
-                        return Err(meta.error(
-                            "unsupported default value; expected a string, integer, float, \
-                             or boolean literal",
-                        ));
-                    }
-                    spec.default = Some(default);
+                    spec.default = Some(default_from_expr(&expr, Dialect::PostgreSQL)?);
                     default_kind = Some("default");
                 }
                 "DEFAULT_FN" => {
@@ -1888,21 +1874,6 @@ pub(crate) fn postgres_column_spec(
                         .push((key, spanned_source(source, &expr)));
                     spec.has_default_fn = true;
                     default_kind = Some("default_fn");
-                }
-                "DEFAULT_SQL" => {
-                    meta.input.parse::<Token![=]>()?;
-                    if let Some(kind) = default_kind {
-                        return Err(
-                            meta.error(format!("default_sql conflicts with existing {kind}"))
-                        );
-                    }
-                    let lit: Lit = meta.input.parse()?;
-                    let Lit::Str(s) = lit else {
-                        return Err(meta.error("DEFAULT_SQL requires a string literal"));
-                    };
-                    spec.named_values.push((key, format!("{:?}", s.value())));
-                    spec.default_sql = Some(s.value());
-                    default_kind = Some("default_sql");
                 }
                 "CHECK" => {
                     if meta.input.peek(Token![=]) {
@@ -1995,19 +1966,24 @@ pub(crate) fn postgres_column_spec(
         if let Err(err) = result {
             diags.errors.push(format!("{field_desc}: {err}"));
         }
-        if spec.has_default_fn && (spec.default.is_some() || spec.default_sql.is_some()) {
+        if spec.has_default_fn && spec.default.is_some() {
             diags.errors.push(format!(
-                "{field_desc}: default/default_sql and default_fn are mutually exclusive"
+                "{field_desc}: default and default_fn are mutually exclusive"
             ));
         }
-        if spec.default_sql.is_some() && (spec.identity.is_some() || spec.generated.is_some()) {
+        if spec.default.is_some() && (spec.identity.is_some() || spec.generated.is_some()) {
             diags.errors.push(format!(
-                "{field_desc}: default_sql cannot be combined with identity or generated columns"
+                "{field_desc}: default cannot be combined with identity or generated columns"
             ));
         }
         if spec.relation.is_some() && spec.references.is_none() {
             diags.errors.push(format!(
                 "{field_desc}: relation requires a `references = Table::column` attribute"
+            ));
+        }
+        if spec.json && spec.jsonb {
+            diags.errors.push(format!(
+                "{field_desc}: JSON and JSONB are mutually exclusive PostgreSQL types"
             ));
         }
         if explicit_pg_type.is_some() && (spec.json || spec.jsonb || spec.enum_marker) {
@@ -3469,28 +3445,27 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_non_literal_default_matches_macro_error() {
+    fn sqlite_expression_default_is_sql() {
         let (spec, diags) = sqlite_spec("#[column(default = -1)] v: i64");
-        assert!(matches!(spec.default, Some(ParsedDefault::Unsupported(_))));
-        assert!(!diags.errors.is_empty());
+        assert_eq!(spec.default, Some(ParsedDefault::Sql("-1".to_string())));
+        assert!(diags.errors.is_empty());
     }
 
     #[test]
     fn database_and_application_defaults_require_values() {
-        for source in [
-            "#[column(DEFAULT)] v: i64",
-            "#[column(DEFAULT_FN)] v: i64",
-            "#[column(DEFAULT_SQL)] v: i64",
-        ] {
+        for source in ["#[column(DEFAULT)] v: i64", "#[column(DEFAULT_FN)] v: i64"] {
             assert!(!sqlite_spec(source).1.errors.is_empty(), "{source}");
             assert!(!pg_spec(source).1.errors.is_empty(), "{source}");
         }
     }
 
     #[test]
-    fn default_sql_captured() {
-        let (spec, _) = sqlite_spec(r##"#[column(default_sql = "CURRENT_TIMESTAMP")] v: String"##);
-        assert_eq!(spec.default_sql.as_deref(), Some("CURRENT_TIMESTAMP"));
+    fn default_expression_captured() {
+        let (spec, _) = sqlite_spec(r##"#[column(default = strftime("%s", "now"))] v: String"##);
+        assert_eq!(
+            spec.default,
+            Some(ParsedDefault::Sql("strftime('%s', 'now')".to_string()))
+        );
     }
 
     // ---- string-aware parsing (P7) ---------------------------------------
@@ -3758,8 +3733,43 @@ mod tests {
         assert_eq!(spec.sqlite_type.as_deref(), Some("TEXT"));
         let (legacy, _) = sqlite_spec("#[text] id: uuid::Uuid");
         assert_eq!(legacy.sqlite_type.as_deref(), Some("TEXT"));
-        let (json, _) = sqlite_spec("#[column(jsonb)] doc: MyDoc");
-        assert_eq!(json.sqlite_type.as_deref(), Some("BLOB"));
+        let (_, jsonb_diags) = sqlite_spec("#[column(jsonb)] doc: MyDoc");
+        assert!(
+            jsonb_diags
+                .errors
+                .iter()
+                .any(|error| error.contains("PostgreSQL-only"))
+        );
+    }
+
+    #[test]
+    fn sqlite_json_has_one_spelling_and_storage() {
+        let (json, diags) = sqlite_spec("#[column(JSON)] doc: MyDoc");
+        assert_eq!(json.sqlite_type.as_deref(), Some("TEXT"));
+        assert!(diags.errors.is_empty());
+
+        for source in [
+            "#[column(BLOB, JSON)] doc: MyDoc",
+            "#[column(JSON, BLOB)] doc: MyDoc",
+            "#[column(BLOB)] #[column(JSON)] doc: MyDoc",
+            "#[column(JSON)] #[blob] doc: MyDoc",
+            "#[blob(JSON)] doc: MyDoc",
+            "#[text(JSON)] doc: MyDoc",
+        ] {
+            let (_, diags) = sqlite_spec(source);
+            assert!(!diags.errors.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn postgres_json_types_are_mutually_exclusive() {
+        let (_, diags) = pg_spec("#[column(JSON, JSONB)] doc: String");
+        assert!(
+            diags
+                .errors
+                .iter()
+                .any(|error| error.contains("mutually exclusive"))
+        );
     }
 
     #[test]

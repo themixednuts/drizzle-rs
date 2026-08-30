@@ -1,48 +1,19 @@
-//! libsql field assignment generation for `FromRow` derive.
-//!
-//! Uses the shared `DrizzleRow::get_column` infrastructure for unified type conversion.
-
-use super::shared::{self, DriverJsonAccessor};
+use super::shared;
 use proc_macro2::TokenStream;
-use quote::quote;
 use syn::Field;
 
-/// libsql-specific JSON accessor configuration
-pub struct LibsqlDriver;
-
-impl DriverJsonAccessor for LibsqlDriver {
-    fn json_accessor(idx: TokenStream) -> TokenStream {
-        quote! {
-            {
-                let json_str: String = row.get::<String>((#idx) as i32)?;
-                serde_json::from_str(&json_str)
-                    .map_err(|e| drizzle::error::DrizzleError::ConversionError(e.to_string().into()))
-            }
-        }
-    }
-
-    fn error_type() -> TokenStream {
-        quote!(DrizzleError)
-    }
-
-    fn supports_name_lookup() -> bool {
-        true
-    }
-}
-
-/// Generate libsql field assignment for `FromRow` derive
 pub fn generate_field_assignment(
     idx: usize,
     field: &Field,
     field_name: Option<&syn::Ident>,
 ) -> TokenStream {
-    shared::generate_field_assignment::<LibsqlDriver>(idx, field, field_name)
+    shared::generate_field_assignment(idx, field, field_name, true)
 }
 
 pub fn generate_field_assignment_with_index_expr(
-    idx_expr: TokenStream,
+    idx: TokenStream,
     field: &Field,
     field_name: Option<&syn::Ident>,
 ) -> TokenStream {
-    shared::generate_field_assignment_with_index::<LibsqlDriver>(idx_expr, field, field_name)
+    shared::generate_field_assignment_with_index(idx, field, field_name)
 }

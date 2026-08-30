@@ -82,48 +82,18 @@ pub fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
                 });
 
             let value_expr = if info.type_category() == TypeCategory::Json {
-                match info.column_type {
-                    SQLiteType::Text => {
-                        if is_select_optional {
-                            quote! {
-                                {
-                                    let v: Option<String> = row.get(#idx_expr)?;
-                                    v.map(|s| serde_json::from_str(&s)).transpose()?
-                                }
-                            }
-                        } else {
-                            quote! {
-                                {
-                                    let v: String = row.get(#idx_expr)?;
-                                    serde_json::from_str(&v)?
-                                }
-                            }
+                if is_select_optional {
+                    quote! {
+                        {
+                            let v: Option<String> = row.get(#idx_expr)?;
+                            v.map(|s| serde_json::from_str(&s)).transpose()?
                         }
                     }
-                    SQLiteType::Blob => {
-                        if is_select_optional {
-                            quote! {
-                                {
-                                    let v: Option<Vec<u8>> = row.get(#idx_expr)?;
-                                    v.map(|b| serde_json::from_slice(&b)).transpose()?
-                                }
-                            }
-                        } else {
-                            quote! {
-                                {
-                                    let v: Vec<u8> = row.get(#idx_expr)?;
-                                    serde_json::from_slice(&v)?
-                                }
-                            }
-                        }
-                    }
-                    _ => {
-                        quote! {
-                            {
-                                return Err(#drizzle_error::ConversionError(
-                                    "JSON fields must use TEXT or BLOB storage".into(),
-                                ));
-                            }
+                } else {
+                    quote! {
+                        {
+                            let v: String = row.get(#idx_expr)?;
+                            serde_json::from_str(&v)?
                         }
                     }
                 }
@@ -366,65 +336,35 @@ fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> TokenStream 
 
 /// Generate rusqlite JSON implementations (FromSql/ToSql)
 pub fn generate_json_impls(
-    json_type_storage: &std::collections::HashMap<String, (SQLiteType, &FieldInfo)>,
+    json_types: &std::collections::BTreeMap<String, &FieldInfo>,
 ) -> Result<Vec<TokenStream>> {
-    if json_type_storage.is_empty() {
+    if json_types.is_empty() {
         return Ok(vec![]);
     }
 
-    json_type_storage
-        .iter()
-        .map(|(_, (storage_type, info))| {
+    json_types
+        .values()
+        .map(|info| {
             let struct_name = info.base_type;
-            let (from_impl, to_impl) = match storage_type {
-                SQLiteType::Text => (
-                    quote! {
-                        match value {
-                            drizzle::sqlite::rusqlite::types::ValueRef::Text(items) => serde_json::from_slice(items)
-                                .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
-                            _ => Err(drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
-                        }
-                    },
-                    quote! {
-                        let json_data = serde_json::to_string(self)
-                            .map_err(|e| drizzle::sqlite::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(drizzle::sqlite::rusqlite::types::ToSqlOutput::Owned(drizzle::sqlite::rusqlite::types::Value::Text(json_data)))
-                    },
-                ),
-                SQLiteType::Blob => (
-                    quote! {
-                        match value {
-                            drizzle::sqlite::rusqlite::types::ValueRef::Blob(items) => serde_json::from_slice(items)
-                                .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
-                            _ => Err(drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
-                        }
-                    },
-                    quote! {
-                        let json_data = serde_json::to_vec(self)
-                            .map_err(|e| drizzle::sqlite::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(drizzle::sqlite::rusqlite::types::ToSqlOutput::Owned(drizzle::sqlite::rusqlite::types::Value::Blob(json_data)))
-                    },
-                ),
-                _ => {
-                    return Err(syn::Error::new_spanned(
-                        info.ident,
-                        errors::json::INVALID_COLUMN_TYPE,
-                    ))
-                }
-            };
 
             Ok(quote! {
                 impl drizzle::sqlite::rusqlite::types::FromSql for #struct_name {
                     fn column_result(
                         value: drizzle::sqlite::rusqlite::types::ValueRef<'_>,
                     ) -> drizzle::sqlite::rusqlite::types::FromSqlResult<Self> {
-                        #from_impl
+                        match value {
+                            drizzle::sqlite::rusqlite::types::ValueRef::Text(items) => serde_json::from_slice(items)
+                                .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
+                            _ => Err(drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
+                        }
                     }
                 }
 
                 impl drizzle::sqlite::rusqlite::types::ToSql for #struct_name {
                     fn to_sql(&self) -> drizzle::sqlite::rusqlite::Result<drizzle::sqlite::rusqlite::types::ToSqlOutput<'_>> {
-                        #to_impl
+                        let json_data = serde_json::to_string(self)
+                            .map_err(|e| drizzle::sqlite::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                        Ok(drizzle::sqlite::rusqlite::types::ToSqlOutput::Owned(drizzle::sqlite::rusqlite::types::Value::Text(json_data)))
                     }
                 }
             })

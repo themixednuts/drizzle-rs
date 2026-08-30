@@ -1,0 +1,5 @@
+error: JSONB is PostgreSQL-only; SQLite uses #[column(JSON)]
+ --> tests/ui/sqlite_macro_errors/fail/jsonb_is_postgres_only.rs:5:14
+  |
+5 |     #[column(JSONB)]
+  |              ^^^^^

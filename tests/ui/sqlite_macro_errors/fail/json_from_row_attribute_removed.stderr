@@ -1,0 +1,5 @@
+error: cannot find attribute `json` in this scope
+ --> tests/ui/sqlite_macro_errors/fail/json_from_row_attribute_removed.rs:5:7
+  |
+5 |     #[json]
+  |       ^^^^

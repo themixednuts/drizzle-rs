@@ -6,7 +6,7 @@
 
 use super::collection::SQLiteDDL;
 use super::ddl::{CheckConstraint, Column, ForeignKey, Index, Table, UniqueConstraint, View};
-use crate::utils::escape_for_rust_literal;
+use crate::utils::{default_expression, escape_for_rust_literal};
 use drizzle_types::sqlite::SQLTypeCategory;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -569,10 +569,8 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
         if let Some(d) = format_default_value(default, &column.sql_type) {
             attrs.push(format!("default = {d}"));
         } else if !default.trim().eq_ignore_ascii_case("null") {
-            attrs.push(format!(
-                "default_sql = \"{}\"",
-                escape_for_rust_literal(default)
-            ));
+            let expression = default_expression(default).unwrap_or_else(|| default.to_string());
+            attrs.push(format!("default = {expression}"));
         }
     }
 
@@ -663,7 +661,7 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
 
     let unquoted = unquote_sql_string(default);
 
-    // Skip function calls or complex expressions; these use default_sql.
+    // Function calls and complex expressions use the expression form of DEFAULT.
     // Quoted string literals are exempt — `'a(b)'` is a plain string default.
     if unquoted.is_none() && default.contains('(') && default.contains(')') {
         return None;
@@ -1154,7 +1152,7 @@ pub struct AppSchema {
             format_default_value("'a(b)'", "text"),
             Some("\"a(b)\"".to_string())
         );
-        // Unquoted expressions with parens fall through to default_sql.
+        // Unquoted expressions with parens use the expression form of DEFAULT.
         assert_eq!(format_default_value("abs(-1)", "text"), None);
         // Double-quoted works too.
         assert_eq!(

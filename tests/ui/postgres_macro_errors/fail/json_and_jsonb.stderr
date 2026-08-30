@@ -1,0 +1,6 @@
+error: JSON and JSONB are mutually exclusive PostgreSQL types
+ --> tests/ui/postgres_macro_errors/fail/json_and_jsonb.rs:5:5
+  |
+5 | /     #[column(JSON, JSONB)]
+6 | |     value: String,
+  | |_________________^

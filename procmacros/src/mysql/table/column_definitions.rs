@@ -314,7 +314,9 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &charset,
             &collate,
         );
-        let index_column_impl = if info.is_custom_type {
+        let index_column_impl = if info.is_custom_type
+            && !matches!(info.column_type, drizzle_types::mysql::MySQLType::Json)
+        {
             let drizzle_mysql_column = mysql_paths::drizzle_mysql_column();
             quote! {
                 impl drizzle::mysql::traits::MySQLIndexColumn for #zst_ident

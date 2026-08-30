@@ -189,10 +189,7 @@ pub(super) fn generate_table_impls(
                         || quote! { ::core::option::Option::None },
                         |default| {
                             let default_str = match default {
-                                PostgreSQLDefault::Literal(s)
-                                | PostgreSQLDefault::Function(s)
-                                | PostgreSQLDefault::RawSql(s) => s.clone(),
-                                PostgreSQLDefault::Expression(ts) => ts.to_string(),
+                                PostgreSQLDefault::Sql(s) => s.clone(),
                             };
                             quote! { ::core::option::Option::Some(#default_str) }
                         },

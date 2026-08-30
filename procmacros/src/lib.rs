@@ -1128,7 +1128,6 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Field Attributes
 ///
 /// - `#[column(Table::field)]` - Map to a specific table column (useful for JOINs)
-/// - `#[json]` - Deserialize JSON from TEXT column (requires `serde` feature)
 /// - No attribute - Maps to column with same name as the field
 ///
 /// # Struct Types
@@ -1139,6 +1138,10 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// Note: Turso rows currently do not expose column names, so named structs
 /// also decode by index with the `turso` driver.
+///
+/// `SQLiteFromRow` uses each backend's direct row conversion. Select a full
+/// table into its generated `Select{Table}` model when table-owned JSON or
+/// custom-column codecs must run.
 ///
 /// # Examples
 ///
@@ -1454,86 +1457,6 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # }
 /// ```
 ///
-/// ## With JSON (requires `serde` feature)
-///
-/// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
-/// # fn main() {
-/// // This example requires serde feature and specific rusqlite version compatibility
-/// use drizzle::sqlite::prelude::*;
-/// use drizzle_macros::SQLiteFromRow;
-/// use serde::{Serialize, Deserialize};
-///
-/// #[derive(Serialize, Deserialize, Debug, Default, Clone)]
-/// struct Profile {
-///     bio: String,
-///     website: Option<String>,
-/// }
-///
-/// #[derive(SQLiteFromRow, Debug, Default)]
-/// struct UserWithProfile {
-///     id: i32,
-///     name: String,
-///     #[json]  // Deserialize from JSON TEXT
-///     profile: Profile,
-/// }
-/// # }
-/// ```
-///
 /// ## Tuple Structs
 ///
 /// ```rust,no_run
@@ -1602,7 +1525,7 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # }
 /// ```
 #[cfg(feature = "sqlite")]
-#[proc_macro_derive(SQLiteFromRow, attributes(column, json, from))]
+#[proc_macro_derive(SQLiteFromRow, attributes(column, from))]
 pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
 

@@ -99,7 +99,7 @@ impl SQLiteType {
             || matches!(
                 (self, flag),
                 (Self::Integer, "autoincrement")
-                    | (Self::Text | Self::Blob, "json")
+                    | (Self::Text, "json")
                     | (Self::Text | Self::Integer, "enum")
             )
     }
@@ -140,13 +140,10 @@ impl SQLiteType {
                      Use: #[column(integer, primary, autoincrement)]"
                 }
                 "json" => {
-                    "JSON serialization is only supported for TEXT or BLOB column types.\n\
-                     \n\
-                     JSON data can be stored as TEXT (human-readable) or BLOB (binary). \
-                     The choice affects storage size and query capabilities.\n\
+                    "SQLite JSON columns use TEXT storage.\n\
                      \n\
                      See: https://sqlite.org/json1.html\n\
-                     Use: #[column(json)] or #[column(blob, json)]"
+                     Use: #[column(JSON)]"
                 }
                 "enum" => {
                     "Enum serialization is supported for TEXT (string) or INTEGER (discriminant) columns.\n\
@@ -216,6 +213,15 @@ fn normalize_default_sql(expression: &str) -> String {
     }
 }
 
+pub(crate) fn render_default(expr: &Expr) -> Result<String> {
+    let sql = crate::common::render_default(expr, drizzle_types::Dialect::SQLite)?;
+    if matches!(expr, Expr::Lit(_)) {
+        Ok(sql)
+    } else {
+        Ok(normalize_default_sql(&sql))
+    }
+}
+
 /// Comprehensive field information for code generation.
 ///
 /// The many `bool` fields here each represent an independent SQL column
@@ -273,8 +279,8 @@ pub struct FieldInfo<'a> {
     pub(crate) collate: Option<String>,
 
     // Attribute values
-    pub(crate) default_value: Option<Expr>,
-    pub(crate) default_sql: Option<String>,
+    pub(crate) default: Option<String>,
+    pub(crate) default_literal: Option<syn::ExprLit>,
     pub(crate) default_fn: Option<Expr>,
     pub(crate) generated_column: Option<GeneratedColumn>,
     pub(crate) check_constraint: Option<String>,
@@ -351,7 +357,6 @@ fn parse_item(input: ParseStream) -> Result<Expr> {
 #[derive(Default)]
 struct ParsedArgs {
     default_value: Option<Expr>,
-    default_sql: Option<String>,
     default_fn: Option<Expr>,
     generated_column: Option<GeneratedColumn>,
     check_constraint: Option<String>,
@@ -380,7 +385,6 @@ struct AttributeData {
     has_explicit_type: bool,
     flags: HashSet<String>,
     default_value: Option<Expr>,
-    default_sql: Option<String>,
     default_fn: Option<Expr>,
     generated_column: Option<GeneratedColumn>,
     check_constraint: Option<String>,
@@ -439,22 +443,24 @@ impl<'a> FieldInfo<'a> {
                         let upper = ident_str.to_ascii_uppercase();
                         match upper.as_str() {
                             "JSON" => {
-                                // JSON = TEXT storage with JSON serialization
+                                if args.explicit_type.is_some() {
+                                    return Err(Error::new_spanned(
+                                        ident,
+                                        "JSON cannot be combined with another SQLite type; use #[column(JSON)]",
+                                    ));
+                                }
                                 args.explicit_type = Some(SQLiteType::Text);
                                 args.flags.insert("json".to_string());
                                 args.marker_exprs.push(make_uppercase_path(ident, "JSON"));
                             }
                             "JSONB" => {
-                                // JSONB = BLOB storage with JSON serialization
-                                args.explicit_type = Some(SQLiteType::Blob);
-                                args.flags.insert("json".to_string());
-                                args.marker_exprs.push(make_uppercase_path(ident, "JSONB"));
-                            }
-                            "DEFAULT" => {
                                 return Err(Error::new_spanned(
                                     ident,
-                                    "DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default",
+                                    "JSONB is PostgreSQL-only; SQLite uses #[column(JSON)]",
                                 ));
+                            }
+                            "DEFAULT" => {
+                                return Err(Error::new_spanned(ident, "DEFAULT requires a value"));
                             }
                             "ENUM" => {
                                 args.flags.insert("enum".to_string());
@@ -479,6 +485,12 @@ impl<'a> FieldInfo<'a> {
                                 if let Some(sqlite_type) =
                                     SQLiteType::from_attribute_name(&ident_str)
                                 {
+                                    if args.explicit_type.is_some() {
+                                        return Err(Error::new_spanned(
+                                            ident,
+                                            "a SQLite column may specify only one SQL type",
+                                        ));
+                                    }
                                     args.explicit_type = Some(sqlite_type);
                                 } else {
                                     args.flags.insert(ident_str);
@@ -496,41 +508,10 @@ impl<'a> FieldInfo<'a> {
                         let upper = param_str.to_ascii_uppercase();
                         match upper.as_str() {
                             "DEFAULT" => {
-                                if !matches!(
-                                    &*assign.right,
-                                    Expr::Lit(syn::ExprLit {
-                                        lit: Lit::Str(_)
-                                            | Lit::Int(_)
-                                            | Lit::Float(_)
-                                            | Lit::Bool(_),
-                                        ..
-                                    })
-                                ) {
-                                    return Err(Error::new_spanned(
-                                        &assign.right,
-                                        "DEFAULT requires a string, integer, float, or boolean literal; use DEFAULT_SQL for SQL expressions or DEFAULT_FN for an application default",
-                                    ));
-                                }
+                                render_default(&assign.right)?;
                                 args.default_value = Some(*assign.right);
                                 args.marker_exprs
                                     .push(make_uppercase_path(param, "DEFAULT"));
-                            }
-                            "DEFAULT_SQL" => {
-                                if let Expr::Lit(syn::ExprLit {
-                                    lit: Lit::Str(lit_str),
-                                    ..
-                                }) = &*assign.right
-                                {
-                                    args.default_sql =
-                                        Some(normalize_default_sql(&lit_str.value()));
-                                    args.marker_exprs
-                                        .push(make_uppercase_path(param, "DEFAULT_SQL"));
-                                } else {
-                                    return Err(Error::new_spanned(
-                                        &assign.right,
-                                        "default_sql requires a string literal, e.g. default_sql = \"CURRENT_TIMESTAMP\"",
-                                    ));
-                                }
                             }
                             "DEFAULT_FN" => {
                                 args.default_fn = Some(*assign.right);
@@ -642,7 +623,12 @@ impl<'a> FieldInfo<'a> {
                                     ));
                                 }
                             }
-                            _ => {}
+                            _ => {
+                                return Err(Error::new_spanned(
+                                    param,
+                                    format!("unrecognized SQLite column attribute `{param_str}`"),
+                                ));
+                            }
                         }
                     }
                 }
@@ -756,6 +742,12 @@ impl<'a> FieldInfo<'a> {
 
             // Check for legacy type attribute (#[text], #[integer], etc.)
             if let Some(column_type) = SQLiteType::from_attribute_name(&attr_name) {
+                if data.has_explicit_type {
+                    return Err(Error::new_spanned(
+                        attr,
+                        "a SQLite column may specify only one SQL type",
+                    ));
+                }
                 data.column_type = column_type.clone();
                 data.has_explicit_type = true;
 
@@ -766,6 +758,12 @@ impl<'a> FieldInfo<'a> {
 
                 // Parse arguments for legacy syntax
                 let args = attr.parse_args_with(Self::parse_args)?;
+                if args.flags.contains("json") {
+                    return Err(Error::new_spanned(
+                        attr,
+                        "SQLite JSON columns use #[column(JSON)]",
+                    ));
+                }
                 // Validate flags against the explicit column type
                 args.flags
                     .iter()
@@ -773,7 +771,6 @@ impl<'a> FieldInfo<'a> {
 
                 data.flags.extend(args.flags);
                 data.default_value = data.default_value.or(args.default_value);
-                data.default_sql = data.default_sql.or(args.default_sql);
                 data.default_fn = data.default_fn.or(args.default_fn);
                 data.generated_column = data.generated_column.or(args.generated_column);
                 data.check_constraint = data.check_constraint.or(args.check_constraint);
@@ -806,6 +803,12 @@ impl<'a> FieldInfo<'a> {
                 let args = attr.parse_args_with(Self::parse_args)?;
                 // If explicit type was provided in args, use it
                 if let Some(explicit_type) = args.explicit_type {
+                    if data.has_explicit_type {
+                        return Err(Error::new_spanned(
+                            attr,
+                            "a SQLite column may specify only one SQL type",
+                        ));
+                    }
                     data.column_type = explicit_type.clone();
                     data.has_explicit_type = true;
 
@@ -818,7 +821,6 @@ impl<'a> FieldInfo<'a> {
 
                 data.flags.extend(args.flags);
                 data.default_value = data.default_value.or(args.default_value);
-                data.default_sql = data.default_sql.or(args.default_sql);
                 data.default_fn = data.default_fn.or(args.default_fn);
                 data.generated_column = data.generated_column.or(args.generated_column);
                 data.check_constraint = data.check_constraint.or(args.check_constraint);
@@ -885,9 +887,16 @@ impl<'a> FieldInfo<'a> {
         let is_json = attrs.flags.contains("json");
         let is_enum = attrs.flags.contains("enum");
         let is_uuid = type_is_uuid(base_type);
-        let has_default = attrs.default_value.is_some()
-            || attrs.default_sql.is_some()
-            || attrs.default_fn.is_some();
+        let has_default = attrs.default_value.is_some() || attrs.default_fn.is_some();
+        let default = attrs
+            .default_value
+            .as_ref()
+            .map(render_default)
+            .transpose()?;
+        let default_literal = attrs.default_value.as_ref().and_then(|expr| match expr {
+            Expr::Lit(literal) => Some(literal.clone()),
+            _ => None,
+        });
 
         // Determine the SQLite type:
         // 1. Use explicit type from attribute if provided
@@ -925,8 +934,7 @@ impl<'a> FieldInfo<'a> {
                 is_autoincrement,
                 is_uuid,
             },
-            attrs.default_value.as_ref(),
-            attrs.default_sql.as_deref(),
+            attrs.default_value.is_some(),
             attrs.default_fn.as_ref(),
             attrs.generated_column.as_ref(),
             field_name,
@@ -941,8 +949,7 @@ impl<'a> FieldInfo<'a> {
                 is_unique,
                 is_autoincrement,
             },
-            attrs.default_value.as_ref(),
-            attrs.default_sql.as_deref(),
+            default.as_deref(),
             attrs.generated_column.as_ref(),
         );
 
@@ -980,8 +987,8 @@ impl<'a> FieldInfo<'a> {
                 is_part_of_composite_pk,
             ),
             collate: attrs.collate,
-            default_value: attrs.default_value,
-            default_sql: attrs.default_sql,
+            default,
+            default_literal,
             default_fn: attrs.default_fn,
             generated_column: attrs.generated_column,
             check_constraint: attrs.check_constraint,
@@ -995,8 +1002,7 @@ impl<'a> FieldInfo<'a> {
     fn validate_constraints(
         column_type: &SQLiteType,
         props: ConstraintFlags,
-        default_value: Option<&Expr>,
-        default_sql: Option<&str>,
+        has_default: bool,
         default_fn: Option<&Expr>,
         generated_column: Option<&GeneratedColumn>,
         field_name: &Ident,
@@ -1015,19 +1021,14 @@ impl<'a> FieldInfo<'a> {
               Hint: Add 'primary' flag: '#[column(primary, autoincrement)]'",
             ),
             (
-                default_value.is_some() && default_fn.is_some(),
+                has_default && default_fn.is_some(),
                 "Cannot specify both 'default' (database default) and 'default_fn' (application default).\n\
               Choose one: either 'default = literal' or 'default_fn = function'\n\
               Examples:\n  #[column(default = \"hello\")] for a database DEFAULT clause\n  #[column(default_fn = String::new)] for an application-generated insert value",
             ),
             (
-                default_value.is_some() && default_sql.is_some(),
-                "Cannot specify both 'default' (literal default) and 'default_sql' (raw SQL default).\n\
-              Choose one: either 'default = literal' or 'default_sql = \"CURRENT_TIMESTAMP\"'",
-            ),
-            (
-                default_sql.is_some() && generated_column.is_some(),
-                "Cannot specify both 'default_sql' and 'generated' on the same column.\n\
+                has_default && generated_column.is_some(),
+                "Cannot specify both 'default' and 'generated' on the same column.\n\
               SQLite generated columns cannot also declare a DEFAULT expression.",
             ),
             (
@@ -1074,8 +1075,7 @@ fn build_sql_definition(
     column_name: &str,
     column_type: &SQLiteType,
     flags: SqlDefinitionFlags,
-    default_value: Option<&Expr>,
-    default_sql: Option<&str>,
+    default: Option<&str>,
     generated_column: Option<&GeneratedColumn>,
 ) -> String {
     let mut sql = format!("\"{}\" {}", column_name, column_type.to_sql_type());
@@ -1111,24 +1111,9 @@ fn build_sql_definition(
     }
 
     if generated_column.is_none()
-        && let Some(Expr::Lit(expr_lit)) = default_value
+        && let Some(default) = default
     {
-        let default_val = match &expr_lit.lit {
-            Lit::Int(i) => format!(" DEFAULT {i}"),
-            Lit::Float(f) => format!(" DEFAULT {f}"),
-            Lit::Bool(b) => format!(" DEFAULT {}", i64::from(b.value())),
-            Lit::Str(s) => {
-                let escaped = s.value().replace('\'', "''");
-                format!(" DEFAULT '{escaped}'")
-            }
-            _ => String::new(),
-        };
-        sql.push_str(&default_val);
-    }
-    if generated_column.is_none()
-        && let Some(default_sql) = default_sql
-    {
-        sql.push_str(&format!(" DEFAULT {default_sql}"));
+        sql.push_str(&format!(" DEFAULT {default}"));
     }
 
     sql
@@ -1289,27 +1274,6 @@ impl FieldInfo<'_> {
     // =========================================================================
 
     /// Convert default value expression to a JSON-compatible value
-    fn default_to_json_value(&self) -> Option<serde_json::Value> {
-        let Expr::Lit(expr_lit) = self.default_value.as_ref()? else {
-            return None;
-        };
-
-        Some(match &expr_lit.lit {
-            Lit::Int(i) => serde_json::Value::Number(
-                i.base10_digits()
-                    .parse::<i64>()
-                    .ok()
-                    .map(serde_json::Number::from)?,
-            ),
-            Lit::Float(f) => serde_json::Value::Number(serde_json::Number::from_f64(
-                f.base10_digits().parse::<f64>().ok()?,
-            )?),
-            Lit::Bool(b) => serde_json::Value::Bool(b.value()),
-            Lit::Str(s) => serde_json::Value::String(s.value()),
-            _ => return None,
-        })
-    }
-
     /// Convert this field to a drizzle-schema Column type.
     ///
     /// Uses the actual schema types for type-safe construction,
@@ -1328,18 +1292,8 @@ impl FieldInfo<'_> {
         if self.is_autoincrement {
             col = col.autoincrement();
         }
-        if let Some(default_sql) = &self.default_sql {
-            col = col.default_value(default_sql.clone());
-        } else if let Some(default) = self.default_to_json_value() {
-            // Convert serde_json::Value to a SQL literal for DDL storage.
-            // Strings are SQL-quoted (with '' doubling) and booleans become
-            // 1/0 to match the rendered DDL in table/ddl.rs.
-            let default_str = match &default {
-                serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "''")),
-                serde_json::Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
-                other => serde_json::to_string(other).unwrap_or_default(),
-            };
-            col = col.default_value(default_str);
+        if let Some(default) = &self.default {
+            col = col.default_value(default.clone());
         }
         if let Some(generated) = &self.generated_column {
             col.generated = Some(drizzle_types::sqlite::ddl::Generated {

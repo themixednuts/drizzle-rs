@@ -1,0 +1,34 @@
+error[E0277]: SQL type `drizzle::mysql::types::Json` is not assignable from `drizzle::mysql::types::Int`
+ --> tests/ui/mysql_macros/fail/json_requires_json_value.rs:3:1
+  |
+3 | #[MySQLTable]
+  | ^^^^^^^^^^^^^ this value type cannot be bound to the placeholder/column type
+  |
+  = help: the trait `Assignable<drizzle::mysql::types::Int>` is not implemented for `drizzle::mysql::types::Json`
+  = note: assignment is stricter than comparison compatibility; use a value matching the target SQL marker
+help: `drizzle::mysql::types::Json` implements trait `Assignable<Rhs>`
+ --> types/src/sql/coerce.rs
+  |
+  |           $(impl Assignable<$ty> for $ty {})+
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Assignable`
+...
+  |           $(impl Assignable<$src> for $target {})+
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Assignable<drizzle::mysql::types::Text>`
+...
+  | / impl_reflexive_assign!(
+  | |     crate::sqlite::types::Integer,
+  | |     crate::sqlite::types::Text,
+  | |     crate::sqlite::types::Real,
+... |
+  | |     crate::mysql::types::Any,
+  | | );
+  | |_- in this macro invocation
+...
+  |   assign_to!(crate::mysql::types::Json; crate::mysql::types::Text);
+  |   ---------------------------------------------------------------- in this macro invocation
+note: required by a bound in `assert_mysql_assignment`
+ --> tests/ui/mysql_macros/fail/json_requires_json_value.rs:3:1
+  |
+3 | #[MySQLTable]
+  | ^^^^^^^^^^^^^ required by this bound in `assert_mysql_assignment`
+  = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)

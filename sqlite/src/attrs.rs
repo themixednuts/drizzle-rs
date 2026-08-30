@@ -130,19 +130,6 @@ pub const UNIQUE: ColumnMarker = ColumnMarker;
 /// Requires the `serde` feature. The field type must implement `Serialize` and `Deserialize`.
 pub const JSON: ColumnMarker = ColumnMarker;
 
-/// Enables JSON serialization with BLOB storage.
-///
-/// ## Example
-/// ```rust
-/// # let _ = r####"
-/// #[column(jsonb)]
-/// config: AppConfig,
-/// # "####;
-/// ```
-///
-/// Requires the `serde` feature. The field type must implement `Serialize` and `Deserialize`.
-pub const JSONB: ColumnMarker = ColumnMarker;
-
 /// Marks this column as storing an enum type.
 ///
 /// ## Example
@@ -178,7 +165,7 @@ pub const ENUM: ColumnMarker = ColumnMarker;
 /// Unlike [`DEFAULT`], this does not add a database `DEFAULT` clause.
 pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
-/// Specifies a literal database `DEFAULT` clause for new rows.
+/// Specifies a database `DEFAULT` clause for new rows.
 ///
 /// ## Example
 /// ```rust
@@ -188,24 +175,19 @@ pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 ///
 /// #[column(default = "guest")]
 /// role: String,
+///
+/// #[column(default = CURRENT_TIMESTAMP)]
+/// created_at: String,
+///
+/// #[column(default = strftime("%s", "now"))]
+/// created_at_unix: i64,
 /// # "####;
 /// ```
 ///
 /// For application-generated values such as UUIDs, use [`DEFAULT_FN`] instead.
-pub const DEFAULT: ColumnMarker = ColumnMarker;
-
-/// Specifies a raw SQL default expression for new rows.
-///
-/// ## Example
-/// ```rust
-/// # let _ = r####"
-/// #[column(default_sql = "CURRENT_TIMESTAMP")]
-/// created_at: String,
-/// # "####;
-/// ```
 ///
 /// See: <https://sqlite.org/lang_createtable.html#the_default_clause>
-pub const DEFAULT_SQL: ColumnMarker = ColumnMarker;
+pub const DEFAULT: ColumnMarker = ColumnMarker;
 
 /// Marks this column as a generated column.
 ///

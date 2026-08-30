@@ -87,9 +87,9 @@ mod sqlite_parity {
         pub email: String,
         #[column(default = "guest")]
         pub display_name: String,
-        #[column(default_sql = "CURRENT_TIMESTAMP")]
+        #[column(default = CURRENT_TIMESTAMP)]
         pub created_at: String,
-        #[column(default_sql = "strftime('%s','now')")]
+        #[column(default = strftime("%s", "now"))]
         pub updated_at: i64,
         #[column(collate = NOCASE)]
         pub nickname: Option<String>,
@@ -613,7 +613,7 @@ mod mysql_parity {
         pub login_count: u32,
         #[column(
             TIMESTAMP,
-            DEFAULT_SQL = "CURRENT_TIMESTAMP",
+            DEFAULT = CURRENT_TIMESTAMP,
             ON_UPDATE = "CURRENT_TIMESTAMP"
         )]
         pub updated_at: String,

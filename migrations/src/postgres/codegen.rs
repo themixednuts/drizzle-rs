@@ -8,7 +8,7 @@ use super::collection::PostgresDDL;
 use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, Policy, Table, UniqueConstraint, View,
 };
-use crate::utils::escape_for_rust_literal;
+use crate::utils::{default_expression, escape_for_rust_literal};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -694,10 +694,8 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
         if let Some(formatted) = format_default_value(default, &column.sql_type) {
             attrs.push(format!("default = {formatted}"));
         } else if !default.trim().eq_ignore_ascii_case("null") {
-            attrs.push(format!(
-                "default_sql = \"{}\"",
-                escape_for_rust_literal(default)
-            ));
+            let expression = default_expression(default).unwrap_or_else(|| default.to_string());
+            attrs.push(format!("default = {expression}"));
         }
     }
 

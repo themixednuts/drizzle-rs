@@ -1,7 +1,6 @@
 use crate::sqlite::field::{FieldInfo, SQLiteType};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
-use syn::Expr;
 
 pub fn validate_strict_affinity(field_infos: &[FieldInfo], strict: bool) -> syn::Result<()> {
     let mut errors: Vec<syn::Error> = Vec::new();
@@ -113,7 +112,7 @@ pub fn generate_default_validations(field_infos: &[FieldInfo]) -> TokenStream {
     let validations: Vec<TokenStream> = field_infos
         .iter()
         .filter_map(|info| {
-            if let Some(Expr::Lit(expr_lit)) = &info.default_value {
+            if let Some(expr_lit) = &info.default_literal {
                 let base_type_tokens = &info.base_type; // already a syn::Type
                 let base_type: proc_macro2::TokenStream =
                     if base_type_tokens.to_token_stream().to_string() == "String" {
@@ -211,8 +210,8 @@ mod tests {
             relation_name: None,
             constraint,
             collate: None,
-            default_value: None,
-            default_sql: None,
+            default: None,
+            default_literal: None,
             default_fn: None,
             generated_column: None,
             check_constraint: None,

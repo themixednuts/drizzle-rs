@@ -120,7 +120,7 @@ impl MacroContext<'_> {
             return quote! { #name: ((#f)()).into() };
         }
 
-        // DEFAULT and DEFAULT_SQL are database-side defaults.
+        // DEFAULT is database-side; DEFAULT_FN is application-side.
         quote! { #name: #sqlite_insert_value::Omit }
     }
 

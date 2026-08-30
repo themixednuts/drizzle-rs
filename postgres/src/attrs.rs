@@ -302,26 +302,10 @@ pub const COLLATE: ColumnMarker = ColumnMarker;
 ///
 /// ## Difference from DEFAULT
 /// - `DEFAULT_FN`: Calls the function at runtime for each insert (e.g., UUID generation)
-/// - `DEFAULT`: Adds a literal database `DEFAULT` clause
+/// - `DEFAULT`: Adds a database `DEFAULT` clause
 pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
-/// Specifies a raw SQL default expression emitted directly in DDL.
-///
-/// ## Example
-/// ```rust
-/// # let _ = r####"
-/// #[column(DEFAULT_SQL = "now()")]
-/// created_at: String,
-/// # "####;
-/// ```
-///
-/// Use [`DEFAULT`] for literal Rust values and `DEFAULT_SQL` when the default
-/// must be a database expression.
-///
-/// See: <https://www.postgresql.org/docs/current/ddl-default.html>
-pub const DEFAULT_SQL: ColumnMarker = ColumnMarker;
-
-/// Specifies a literal database `DEFAULT` clause for new rows.
+/// Specifies a database `DEFAULT` clause for new rows.
 ///
 /// ## Example
 /// ```rust
@@ -331,10 +315,15 @@ pub const DEFAULT_SQL: ColumnMarker = ColumnMarker;
 ///
 /// #[column(DEFAULT = "guest")]
 /// role: String,
+///
+/// #[column(DEFAULT = now())]
+/// created_at: chrono::NaiveDateTime,
 /// # "####;
 /// ```
 ///
-/// For runtime-generated values (UUIDs, timestamps), use [`DEFAULT_FN`] instead.
+/// String literals are quoted SQL values. SQL keywords and function calls are
+/// emitted as database expressions. For application-generated values, use
+/// [`DEFAULT_FN`] instead.
 ///
 /// See: <https://www.postgresql.org/docs/current/ddl-default.html>
 pub const DEFAULT: ColumnMarker = ColumnMarker;

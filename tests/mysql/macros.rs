@@ -216,6 +216,8 @@ struct ExpressionDefaults {
     payload: Vec<u8>,
     #[column(JSON, DEFAULT = "{}")]
     metadata: String,
+    #[column(VARCHAR(255), DEFAULT = lower("DRAFT"))]
+    normalized_label: String,
 }
 
 #[MySQLTable(DATABASE = "odd`db", NAME = "par`ents")]
@@ -820,6 +822,7 @@ fn text_blob_and_json_defaults_are_rendered_as_mysql_expressions() {
     assert!(sql.contains("`label` TEXT NOT NULL DEFAULT ('draft')"));
     assert!(sql.contains("`payload` BLOB NOT NULL DEFAULT (X'6279746573')"));
     assert!(sql.contains("`metadata` JSON NOT NULL DEFAULT ('{}')"));
+    assert!(sql.contains("`normalized_label` VARCHAR(255) NOT NULL DEFAULT (lower('DRAFT'))"));
 }
 
 #[test]

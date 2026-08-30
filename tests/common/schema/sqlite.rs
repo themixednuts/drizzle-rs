@@ -79,8 +79,8 @@ pub struct Complex {
     #[column(JSON)]
     pub metadata: Option<UserMetadata>,
 
-    // JSON stored as blob (serde feature)
-    #[column(JSONB)]
+    // JSON stored as text (serde feature)
+    #[column(JSON)]
     pub config: Option<UserConfig>,
 
     // Raw blob storage
@@ -112,8 +112,8 @@ pub struct Complex {
     #[column(JSON)]
     pub metadata: Option<UserMetadata>,
 
-    // JSON stored as blob (serde feature)
-    #[column(JSONB)]
+    // JSON stored as text (serde feature)
+    #[column(JSON)]
     pub config: Option<UserConfig>,
 
     // Raw blob storage

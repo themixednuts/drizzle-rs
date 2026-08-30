@@ -8,7 +8,7 @@ use crate::common::model_markers::{
     generate_empty_pattern_tuple, generate_marker_types, generate_pattern_literal,
 };
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
-use crate::sqlite::field::{SQLiteType, TypeCategory};
+use crate::sqlite::field::TypeCategory;
 use proc_macro2::TokenStream;
 use quote::quote;
 /// Generates the Insert model with convenience methods and constructor
@@ -183,11 +183,10 @@ fn generate_constructor_param(
 
     match category {
         TypeCategory::Json => {
-            let json_assignment = match info.column_type {
-                SQLiteType::Text => quote! {
+            let json_assignment = quote! {
                     #field_name: {
                         let json_str = ::serde_json::to_string(&#field_name)
-                            .unwrap_or_else(|_| "null".to_string());
+                            .expect("failed to serialize JSON value for SQLite JSON column");
                         #sqlite_insert_value::Value(
                             #value_wrapper {
                                 value: #expression::json(
@@ -200,25 +199,6 @@ fn generate_constructor_param(
                             }
                         )
                     }
-                },
-                SQLiteType::Blob => quote! {
-                    #field_name: {
-                        let json_bytes = ::serde_json::to_vec(&#field_name)
-                            .unwrap_or_else(|_| "null".as_bytes().to_vec());
-                        #sqlite_insert_value::Value(
-                            #value_wrapper {
-                                value: #expression::jsonb(
-                                    #sql::param(
-                                        #sqlite_value::Blob(
-                                            ::std::borrow::Cow::Owned(json_bytes)
-                                        )
-                                    )),
-                                _phantom: ::std::marker::PhantomData,
-                            }
-                        )
-                    }
-                },
-                _ => quote! { #field_name: #field_name.into() },
             };
             (quote! { #field_name: #base_type }, json_assignment)
         }
