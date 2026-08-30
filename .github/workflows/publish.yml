@@ -23,7 +23,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     if: >-
       github.event_name == 'workflow_dispatch' || (
         github.event.pull_request.merged == true &&
@@ -143,6 +143,19 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: release-plz
+
+      - name: Dry-run workspace publish
+        # release-plz's own --dry-run cannot validate a lockstep workspace:
+        # after it dry-runs the first crate, that exact version is still absent
+        # from crates.io, so packaging the first dependent crate always fails.
+        # This check verifies every packaged archive against local workspace
+        # versions, then validates release-plz's order using the normalized
+        # manifests Cargo will upload. Versioned dev-dependencies count because
+        # Cargo includes them in published manifests even though release-plz
+        # normally excludes them from its ordering graph.
+        run: |
+          python3 -B -m unittest scripts/test_check_publish.py
+          python3 -B scripts/check_publish.py
 
       - name: Capture pre-release tag
         id: pre
