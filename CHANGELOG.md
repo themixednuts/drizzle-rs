@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.17](https://github.com/themixednuts/drizzle-rs/compare/v0.1.16...v0.1.17) - 2026-08-30
+
+### Added
+
+- *(query)* add checked insert-select parity
+- add typed derived table sources
+- add shared decoded row cursors
+- *(mysql)* add custom column codecs
+- *(mysql)* support advanced index key parts
+- support typed update expressions
+- *(mysql)* support serial column shorthand
+- *(mysql)* add safe schema introspection and push
+- *(mysql)* support multiple index hints
+- unify transaction configuration and lifecycle
+- *(mysql)* add runtime migrations and simplify internals
+- *(mysql)* document release-ready adapter contract
+- *(postgres)* support relational queries in transactions
+- *(seed)* add MySQL seeding and reset plans
+- *(mysql)* add live CLI schema workflows
+- *(mysql)* add migration generation
+- *(mysql)* add relational query support
+- *(mysql)* add mysql_async adapter
+- *(mysql)* add blocking mysql adapter
+- *(mysql)* add shared driver contracts
+- *(mysql)* add native query capabilities
+- *(mysql)* add typed query builders
+- *(mysql)* generate schema macros
+- *(mysql)* establish dialect foundation
+- *(json)* align dialect codecs and storage
+- *(schema)* simplify database defaults
+
+### Changed
+
+- scope transactions to callbacks
+
+### Documentation
+
+- test README as crate documentation
+- *(sqlite)* correct row codec support
+- *(mysql)* remove stale WIP packaging label
+
+### Fixed
+
+- make builder macros hygienic
+- enforce API documentation tests
+- *(query)* keep empty sets and derived projections portable
+- *(query)* expand joined derived projections
+- *(seed)* omit generated columns from inserts
+- *(schema)* align defaults and MySQL numeric metadata
+- *(macros)* qualify generated update values
+- *(mysql)* correct aliased selects and migration tests
+- *(mysql)* allow hinted select set operations
+- *(mysql)* support relational queries on views
+- *(sqlite)* flatten Turso transaction future
+- *(postgres)* preserve bounded character types
+- *(mysql)* validate generated column constraints
+- *(query)* preserve postgres view search paths
+- *(mysql)* correct join and savepoint execution
+- *(core)* preserve no_std projection checks
+- *(macros)* qualify generated update SQL paths
+- *(migrations)* preserve introspected schema identities
+- *(transactions)* preserve compatible options
+- *(postgres)* support runtime deferrable transactions
+- *(postgres)* normalize live schema metadata
+
 ## [0.1.16](https://github.com/themixednuts/drizzle-rs/compare/v0.1.15...v0.1.16) - 2026-08-25
 
 ### Added
