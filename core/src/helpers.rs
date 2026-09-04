@@ -1,6 +1,6 @@
 use crate::{
-    PaginationArg, SQL, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr, traits::SQLParam,
-    types::BooleanLike,
+    PaginationArg, SQL, SQLChunk, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr,
+    traits::SQLParam, types::BooleanLike,
 };
 
 /// Helper function to create a SELECT statement with the given columns
@@ -170,6 +170,32 @@ where
     V: SQLParam + 'a,
 {
     SQL::from_iter([Token::ORDER, Token::BY]).append(expressions.into_sql())
+}
+
+/// ORDER BY for a compound query (`UNION`, `INTERSECT`, `EXCEPT`).
+///
+/// The combined result has no table scope, so PostgreSQL and turso reject
+/// `ORDER BY "table"."column"` there; only output column names are legal.
+/// Column references in `expressions` are rendered as bare identifiers.
+pub fn set_order_by<'a, T, V>(expressions: T) -> SQL<'a, V>
+where
+    T: ToSQL<'a, V>,
+    V: SQLParam + 'a,
+{
+    SQL::from_iter([Token::ORDER, Token::BY]).append(unqualified_columns(expressions.into_sql()))
+}
+
+/// Replace every column reference in `sql` with its unqualified column name.
+pub fn unqualified_columns<'a, V>(mut sql: SQL<'a, V>) -> SQL<'a, V>
+where
+    V: SQLParam + 'a,
+{
+    for chunk in &mut sql.chunks {
+        if let SQLChunk::Column(column) = chunk {
+            *chunk = SQLChunk::ident_static(column.name);
+        }
+    }
+    sql
 }
 
 /// Helper function to create a LIMIT clause
