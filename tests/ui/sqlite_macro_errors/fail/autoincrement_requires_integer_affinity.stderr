@@ -1,0 +1,7 @@
+error: AUTOINCREMENT can only be used with INTEGER PRIMARY KEY.
+       See: https://sqlite.org/autoinc.html
+       Hint: Change column type to '#[column(integer, primary, autoincrement)]'
+ --> tests/ui/sqlite_macro_errors/fail/autoincrement_requires_integer_affinity.rs:6:5
+  |
+6 |     id: String,
+  |     ^^

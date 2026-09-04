@@ -1,0 +1,5 @@
+error: column `id` uses AUTOINCREMENT, which is not allowed on WITHOUT ROWID tables
+ --> tests/ui/sqlite_macro_errors/fail/autoincrement_rejects_without_rowid.rs:6:5
+  |
+6 |     id: i64,
+  |     ^^
