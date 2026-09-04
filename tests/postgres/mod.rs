@@ -8,7 +8,6 @@ pub mod arrayvec;
 pub mod async_edge_cases;
 pub mod codecs;
 pub mod comment;
-pub mod condition_list;
 pub mod conditions;
 pub mod custom_column;
 pub mod delete;
@@ -22,7 +21,6 @@ pub mod index;
 pub mod insert;
 pub mod joins;
 pub mod migrations;
-pub mod prepare;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod schema;

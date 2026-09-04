@@ -330,3 +330,21 @@ fn condition_not(db: &mut TestDb<ComplexSchema>) {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "Inactive");
 }
+
+#[drizzle::test]
+fn condition_boolean_column_tuple(db: &mut TestDb<ComplexSchema>) {
+    let ComplexSchema { complex, .. } = schema;
+
+    // Two `boolean` columns in one tuple: the conjunction, not a row value.
+    let sql = db
+        .select(complex.name)
+        .from(complex)
+        .r#where((complex.active, complex.active))
+        .to_sql()
+        .sql();
+
+    assert!(
+        sql.contains(r#"WHERE ("complex"."active" AND "complex"."active")"#),
+        "unexpected SQL: {sql}"
+    );
+}

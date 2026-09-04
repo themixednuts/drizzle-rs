@@ -1098,138 +1098,40 @@ fn test_nested_savepoint_inner_rollback(db: &mut TestDb<SimpleSchema>) {
     assert!(!names.contains(&"level_2_rollback".to_string()));
 }
 
-// --- Prepared statement + transaction tests ---
-
 #[drizzle::test]
-fn test_prepared_outside_transaction(db: &mut TestDb<SimpleSchema>) {
+fn test_owned_statement_binds_closure_local_by_reference(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
-
-    // Insert test data
 
     db.insert(simple)
         .values([InsertSimple::new("Alice"), InsertSimple::new("Bob")])
         .execute();
 
-    // Create an owned prepared statement OUTSIDE the transaction
+    #[derive(SQLiteFromRow, Default)]
+    struct PartialSimple {
+        name: String,
+    }
+
     let name = simple.name.placeholder("name");
-    let prepared = db
-        .select(())
+
+    // A borrowed statement pins its bindings to the statement's own lifetime,
+    // so a value built inside the closure cannot be bound by reference.
+    // `into_owned` gives the executors a fresh per-call lifetime instead, so
+    // closure-local values bind borrowed — no clone of the bound value.
+    let by_name = db
+        .select(simple.name)
         .from(simple)
         .r#where(eq(simple.name, name))
         .prepare()
         .into_owned();
 
-    // Use it INSIDE the transaction
-    let result = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
-        let alice: Vec<SelectSimple> = result!(prepared.all(tx.inner(), [name.bind("Alice")]))?;
-        assert_eq!(alice.len(), 1);
-        assert_eq!(alice[0].name, "Alice");
-
-        // Reuse with different params in the same transaction
-        let bob: Vec<SelectSimple> = result!(prepared.all(tx.inner(), [name.bind("Bob")]))?;
-        assert_eq!(bob.len(), 1);
-        assert_eq!(bob[0].name, "Bob");
-
-        // No match
-        let nobody: Vec<SelectSimple> = result!(prepared.all(tx.inner(), [name.bind("Nobody")]))?;
-        assert_eq!(nobody.len(), 0);
-
-        Ok(())
+    let found = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
+        let wanted = String::from("Ali") + "ce";
+        let rows: Vec<PartialSimple> =
+            result!(by_name.all(tx.inner(), [name.bind(wanted.as_str())]))?;
+        Ok(rows.into_iter().map(|row| row.name).collect::<Vec<_>>())
     }));
 
-    assert!(
-        result.is_ok(),
-        "Prepared statement outside transaction should succeed, got: {:?}",
-        result.as_ref().err()
-    );
-}
-
-#[drizzle::test]
-fn test_prepared_in_savepoint(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    db.insert(simple)
-        .values([InsertSimple::new("Alice")])
-        .execute();
-
-    // Prepared statement created outside everything
-    let name = simple.name.placeholder("name");
-    let prepared = db
-        .select(())
-        .from(simple)
-        .r#where(eq(simple.name, name))
-        .prepare()
-        .into_owned();
-
-    let result = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
-        // Insert inside transaction
-        result!(
-            tx.insert(simple)
-                .values([InsertSimple::new("Bob")])
-                .execute()
-        )?;
-
-        // Use prepared statement inside a savepoint
-        result!(tx.savepoint(|tx| {
-            let both: Vec<SelectSimple> = result!(prepared.all(tx.inner(), [name.bind("Alice")]))?;
-            assert_eq!(both.len(), 1);
-
-            let bob: Vec<SelectSimple> = result!(prepared.all(tx.inner(), [name.bind("Bob")]))?;
-            assert_eq!(bob.len(), 1);
-
-            Ok(())
-        }))?;
-
-        Ok(())
-    }));
-
-    assert!(
-        result.is_ok(),
-        "Prepared statement in savepoint should succeed, got: {:?}",
-        result.as_ref().err()
-    );
-}
-
-#[drizzle::test]
-fn test_prepared_survives_savepoint_rollback(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    db.insert(simple)
-        .values([InsertSimple::new("Alice")])
-        .execute();
-
-    let prepared = db.select(()).from(simple).prepare().into_owned();
-
-    let result = result!(db.transaction(SQLiteTransactionType::Deferred, |tx| {
-        // Savepoint that inserts then rolls back
-        let sp_result: Result<(), _> = result!(tx.savepoint(|tx| {
-            result!(
-                tx.insert(simple)
-                    .values([InsertSimple::new("Ghost")])
-                    .execute()
-            )?;
-
-            // Prepared statement sees both rows inside the savepoint
-            let rows: Vec<SelectSimple> = result!(prepared.all(tx.inner(), []))?;
-            assert_eq!(rows.len(), 2);
-
-            Err(DrizzleError::Other("rollback".into()))
-        }));
-        assert!(sp_result.is_err());
-
-        // After rollback, prepared statement sees only Alice
-        let rows: Vec<SelectSimple> = result!(prepared.all(tx.inner(), []))?;
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].name, "Alice");
-
-        Ok(())
-    }));
-
-    assert!(
-        result.is_ok(),
-        "Prepared statement should survive savepoint rollback, got: {:?}",
-        result.as_ref().err()
-    );
+    assert_eq!(found.unwrap(), vec!["Alice".to_string()]);
 }
 
 #[cfg(feature = "turso")]

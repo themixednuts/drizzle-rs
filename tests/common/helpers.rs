@@ -24,6 +24,30 @@ fn ensure_test_db_dir() {
     });
 }
 
+/// Collapse rendered SQL to a quoting- and placeholder-agnostic shape.
+///
+/// Identifier quotes (`"` and `` ` ``) and whitespace are removed and numbered
+/// placeholders (`$1`) become `?`, so shared suites can assert on statement
+/// structure across dialects: `WHERE(users.id>?ANDusers.name=?)`.
+pub fn sql_shape(sql: &str) -> String {
+    let mut shape = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' | '`' => {}
+            '$' if chars.peek().is_some_and(char::is_ascii_digit) => {
+                while chars.peek().is_some_and(char::is_ascii_digit) {
+                    chars.next();
+                }
+                shape.push('?');
+            }
+            c if c.is_whitespace() => {}
+            c => shape.push(c),
+        }
+    }
+    shape
+}
+
 pub fn temp_db_path() -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     ensure_test_db_dir();

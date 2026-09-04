@@ -9,12 +9,20 @@ crate::common::conditions::shared_condition_suite!(
     SQLiteSchema,
     SQLiteFromRow
 );
+crate::common::condition_list::shared_condition_list_suite!(
+    sqlite,
+    SQLiteTable,
+    SQLiteSchema,
+    SQLiteValue,
+    drizzle::sqlite::types::Integer
+);
 crate::common::derived::shared_derived_table_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::prepared::shared_prepared_statement_suite!(
     sqlite,
     SQLiteTable,
     SQLiteSchema,
-    drizzle::sqlite::types::Integer
+    drizzle::sqlite::types::Integer,
+    TransactionConfig::Deferred
 );
 crate::common::rows::shared_rows_suite!(
     sqlite,

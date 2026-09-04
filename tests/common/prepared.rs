@@ -1,11 +1,14 @@
 /// Cross-dialect prepared-statement behavior suite.
 ///
-/// Each dialect supplies its table and schema derives plus the integer marker
-/// used by an explicitly typed placeholder.
+/// Each dialect supplies its table and schema derives, the integer marker used
+/// by an explicitly typed placeholder, and a fresh transaction configuration
+/// expression for the transaction and savepoint cases.
 macro_rules! shared_prepared_statement_suite {
-    ($dialect:ident, $table:ident, $schema:ident, $integer:path) => {
+    ($dialect:ident, $table:ident, $schema:ident, $integer:path, $transaction_config:expr) => {
         mod shared_prepared_statement {
             use super::*;
+            use drizzle::core::expr::eq;
+            use drizzle::error::DrizzleError;
 
             #[$table(NAME = "shared_prepared_users")]
             struct SharedPreparedUser {
@@ -34,7 +37,7 @@ macro_rules! shared_prepared_statement_suite {
                 let prepared = db
                     .select(())
                     .from(users)
-                    .r#where(drizzle::core::expr::eq(users.name, name))
+                    .r#where(eq(users.name, name))
                     .prepare()
                     .into_owned();
 
@@ -42,10 +45,13 @@ macro_rules! shared_prepared_statement_suite {
                     prepared.all(drizzle_client!(), [name.bind("Alice")]);
                 let bob: SelectSharedPreparedUser =
                     prepared.get(drizzle_client!(), [name.bind("Bob")]);
+                let nobody: Vec<SelectSharedPreparedUser> =
+                    prepared.all(drizzle_client!(), [name.bind("Nobody")]);
 
                 assert_eq!(alice.len(), 1);
                 assert_eq!(alice[0].name, "Alice");
                 assert_eq!(bob.name, "Bob");
+                assert!(nobody.is_empty());
             }
 
             #[drizzle::test($dialect)]
@@ -61,18 +67,196 @@ macro_rules! shared_prepared_statement_suite {
                 let prepared = db
                     .update(users)
                     .set(UpdateSharedPreparedUser::default().with_name(name))
-                    .r#where(drizzle::core::expr::eq(users.id, user_id))
+                    .r#where(eq(users.id, user_id))
                     .prepare()
                     .into_owned();
 
                 prepared.execute(drizzle_client!(), [name.bind("Alicia"), user_id.bind(1)]);
 
-                let renamed: SelectSharedPreparedUser = db
+                let renamed: SelectSharedPreparedUser =
+                    db.select(()).from(users).r#where(eq(users.id, 1)).get();
+                assert_eq!(renamed.name, "Alicia");
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_parameter_count_mismatch_fails(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .value(InsertSharedPreparedUser::new("Alice").with_id(1))
+                    .execute();
+
+                let name = users.name.placeholder("shared_prepared_name");
+                let extra = users.name.placeholder("shared_prepared_extra");
+                let prepared = db
                     .select(())
                     .from(users)
-                    .r#where(drizzle::core::expr::eq(users.id, 1))
-                    .get();
-                assert_eq!(renamed.name, "Alicia");
+                    .r#where(eq(users.name, name))
+                    .prepare()
+                    .into_owned();
+
+                // Binding the wrong number of parameters is a debug_assert
+                // panic in debug builds and a `ParameterError` in release
+                // builds; both are acceptable, silently running is not.
+                // Zero-length repeat arrays keep the element type known without
+                // naming the driver-specific generic arguments of `all`.
+                let missing: Result<drizzle::Result<Vec<SelectSharedPreparedUser>>, _> =
+                    catch!(prepared.all(drizzle_client!(), [name.bind("Alice"); 0]));
+                match missing {
+                    Err(_) | Ok(Err(DrizzleError::ParameterError(_))) => {}
+                    Ok(Err(error)) => panic!("expected a parameter mismatch, got {error}"),
+                    Ok(Ok(rows)) => {
+                        panic!("expected a parameter mismatch, got {} rows", rows.len())
+                    }
+                }
+
+                let surplus: Result<drizzle::Result<Vec<SelectSharedPreparedUser>>, _> =
+                    catch!(prepared.all(
+                        drizzle_client!(),
+                        [name.bind("Alice"), extra.bind("ignored")],
+                    ));
+                match surplus {
+                    Err(_) | Ok(Err(DrizzleError::ParameterError(_))) => {}
+                    Ok(Err(error)) => panic!("expected a parameter mismatch, got {error}"),
+                    Ok(Ok(rows)) => {
+                        panic!("expected a parameter mismatch, got {} rows", rows.len())
+                    }
+                }
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_statements_run_without_parameters(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+
+                for (id, name) in [(1, "Alice"), (2, "Bob"), (3, "Charlie")] {
+                    let insert = db
+                        .insert(users)
+                        .value(InsertSharedPreparedUser::new(name).with_id(id))
+                        .prepare()
+                        .into_owned();
+                    insert.execute(drizzle_client!(), []);
+                }
+
+                let select_all = db.select(()).from(users).prepare().into_owned();
+                let rows: Vec<SelectSharedPreparedUser> = select_all.all(drizzle_client!(), []);
+                let mut names = rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>();
+                names.sort_unstable();
+                assert_eq!(names, ["Alice", "Bob", "Charlie"]);
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_statement_runs_inside_transaction(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .values([
+                        InsertSharedPreparedUser::new("Alice").with_id(1),
+                        InsertSharedPreparedUser::new("Bob").with_id(2),
+                    ])
+                    .execute();
+
+                // Prepared outside the transaction, executed through it.
+                let find_alice = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.name, "Alice"))
+                    .prepare()
+                    .into_owned();
+                let find_bob = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.name, "Bob"))
+                    .prepare()
+                    .into_owned();
+
+                db.transaction($transaction_config, |tx| {
+                    let alice: Vec<SelectSharedPreparedUser> = result!(tx.all(&find_alice))?;
+                    assert_eq!(alice.len(), 1);
+                    assert_eq!(alice[0].name, "Alice");
+
+                    let bob: SelectSharedPreparedUser = result!(tx.get(&find_bob))?;
+                    assert_eq!(bob.name, "Bob");
+                    Ok(())
+                });
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_statement_runs_inside_savepoint(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .value(InsertSharedPreparedUser::new("Alice").with_id(1))
+                    .execute();
+
+                let select_all = db.select(()).from(users).prepare().into_owned();
+
+                db.transaction($transaction_config, |tx| {
+                    result!(
+                        tx.insert(users)
+                            .value(InsertSharedPreparedUser::new("Bob").with_id(2))
+                            .execute()
+                    )?;
+
+                    result!(tx.savepoint(|sp| {
+                        let rows: Vec<SelectSharedPreparedUser> = result!(sp.all(&select_all))?;
+                        assert_eq!(rows.len(), 2);
+                        Ok(())
+                    }))?;
+                    Ok(())
+                });
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_statement_survives_savepoint_rollback(
+                db: &mut TestDb<SharedPreparedSchema>,
+            ) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .value(InsertSharedPreparedUser::new("Alice").with_id(1))
+                    .execute();
+
+                let select_all = db.select(()).from(users).prepare().into_owned();
+
+                db.transaction($transaction_config, |tx| {
+                    let rolled_back: drizzle::Result<()> = result!(tx.savepoint(|sp| {
+                        result!(
+                            sp.insert(users)
+                                .value(InsertSharedPreparedUser::new("Ghost").with_id(2))
+                                .execute()
+                        )?;
+                        let rows: Vec<SelectSharedPreparedUser> = result!(sp.all(&select_all))?;
+                        assert_eq!(rows.len(), 2);
+                        Err(DrizzleError::Other("rollback".into()))
+                    }));
+                    assert!(rolled_back.is_err());
+
+                    let rows: Vec<SelectSharedPreparedUser> = result!(tx.all(&select_all))?;
+                    assert_eq!(rows.len(), 1);
+                    assert_eq!(rows[0].name, "Alice");
+                    Ok(())
+                });
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_write_inside_transaction_rolls_back(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+
+                let ghost = db
+                    .insert(users)
+                    .value(InsertSharedPreparedUser::new("Ghost").with_id(1))
+                    .prepare()
+                    .into_owned();
+
+                let rolled_back: drizzle::Result<()> =
+                    result!(db.transaction($transaction_config, |tx| {
+                        result!(tx.execute(&ghost)).expect("prepared insert executes");
+                        Err(DrizzleError::Other("rollback".into()))
+                    }));
+                assert!(rolled_back.is_err());
+
+                let rows: Vec<SelectSharedPreparedUser> = db.select(()).from(users).all();
+                assert!(
+                    rows.is_empty(),
+                    "expected rollback, found {} rows",
+                    rows.len()
+                );
             }
         }
     };

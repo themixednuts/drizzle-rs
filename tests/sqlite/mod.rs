@@ -4,7 +4,6 @@ pub mod async_edge_cases;
 pub mod attributes;
 pub mod blob_filter;
 pub mod comment;
-pub mod condition_list;
 pub mod conditions;
 pub mod custom_column;
 pub mod delete;
@@ -20,7 +19,6 @@ pub mod joins;
 pub mod json;
 pub mod migrations;
 pub mod parameters;
-pub mod prepare;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod schema;
