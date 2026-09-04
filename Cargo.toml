@@ -125,7 +125,8 @@ tokio-postgres = { version = ">=0.7.18, <0.8", default-features = false }
 # AWS Aurora Data API (RDS Data Service) — Postgres + MySQL over HTTP.
 # Optional, pulls in aws-smithy/hyper/tower/tokio transitively. Gated behind
 # the `aws-data-api` feature in `drizzle-postgres` and the root `drizzle` crate.
-aws-sdk-rdsdata = { version = "1" }
+# default features pull the legacy hyper 0.14 / rustls 0.21 stack (RUSTSEC-2026-0258, -0098/-0099/-0104).
+aws-sdk-rdsdata = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-config = { version = "1" }
 heck = { version = "0.5" }
 inquire = { version = "0.7" }

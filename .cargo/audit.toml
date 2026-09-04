@@ -1,0 +1,22 @@
+# `cargo audit` configuration. Every ignore below is an advisory we cannot
+# resolve from this workspace; re-check them whenever the named upstream moves.
+
+[advisories]
+ignore = [
+  # libsql 0.9 pins hyper 0.14 / tonic 0.11 / hyper-rustls 0.25 (rustls 0.22)
+  # for its replication client. Only libsql 0.10 (pre-release as of 2026-09)
+  # moves off that stack. Drop these once `libsql = ">=0.10"` lands.
+  "RUSTSEC-2026-0258", # h2 0.3: unbounded empty DATA frames (server-side DoS)
+  "RUSTSEC-2026-0049", # rustls-webpki 0.102: CRL distribution-point matching
+  "RUSTSEC-2026-0098", # rustls-webpki 0.102: URI name constraints
+  "RUSTSEC-2026-0099", # rustls-webpki 0.102: wildcard name constraints
+  "RUSTSEC-2026-0104", # rustls-webpki 0.102: CRL parsing panic
+  # quick-xml 0.38/0.39 reach the lockfile only through eframe -> winit ->
+  # wayland-scanner / accesskit, a dev-dependency for the local bench viewer.
+  # Nothing published depends on it.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+  # rkyv 0.7 is an optional rust_decimal feature that no workspace feature
+  # enables; it is a lockfile entry only (`cargo tree -i rkyv` prints nothing).
+  "RUSTSEC-2026-0235",
+]
