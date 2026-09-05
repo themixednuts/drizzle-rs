@@ -12,6 +12,8 @@ crate::common::condition_list::shared_condition_list_suite!(
     drizzle::mysql::types::Boolean
 );
 crate::common::derived::shared_derived_table_suite!(mysql, MySQLTable, MySQLSchema);
+crate::common::expressions::shared_expression_suite!(mysql, MySQLTable, MySQLSchema);
+crate::common::expressions::shared_math_extension_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::derived::shared_lateral_derived_table_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::prepared::shared_prepared_statement_suite!(
     mysql,

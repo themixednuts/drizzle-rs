@@ -10,6 +10,7 @@ pub mod condition_list;
 pub mod conditions;
 pub mod crud_join;
 pub mod derived;
+pub mod expressions;
 pub mod helpers;
 pub mod prepared;
 pub mod query;

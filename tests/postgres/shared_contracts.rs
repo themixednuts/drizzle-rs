@@ -18,6 +18,8 @@ crate::common::condition_list::shared_condition_list_suite!(
     drizzle::postgres::types::Boolean
 );
 crate::common::derived::shared_derived_table_suite!(postgres, PostgresTable, PostgresSchema);
+crate::common::expressions::shared_expression_suite!(postgres, PostgresTable, PostgresSchema);
+crate::common::expressions::shared_math_extension_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::derived::shared_lateral_derived_table_suite!(
     postgres,
     PostgresTable,

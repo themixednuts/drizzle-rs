@@ -13,6 +13,7 @@ pub mod custom_column;
 pub mod delete;
 pub mod r#enum;
 pub mod expr;
+pub mod expressions;
 pub mod for_update;
 pub mod foreign_keys;
 pub mod fromrow;

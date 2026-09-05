@@ -17,6 +17,7 @@ crate::common::condition_list::shared_condition_list_suite!(
     drizzle::sqlite::types::Integer
 );
 crate::common::derived::shared_derived_table_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::expressions::shared_expression_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::prepared::shared_prepared_statement_suite!(
     sqlite,
     SQLiteTable,
