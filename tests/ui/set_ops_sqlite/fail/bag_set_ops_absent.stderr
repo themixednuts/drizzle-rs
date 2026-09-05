@@ -1,0 +1,31 @@
+error[E0599]: no method named `intersect_all` found for struct `drizzle::sqlite::builder::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+  --> tests/ui/set_ops_sqlite/fail/bag_set_ops_absent.rs:25:10
+   |
+22 |       let _ = qb
+   |  _____________-
+23 | |         .select(users.name)
+24 | |         .from(users)
+25 | |         .intersect_all(qb.select(users.name).from(users));
+   | |_________-^^^^^^^^^^^^^
+   |
+help: there is a method `intersect` with a similar name
+   |
+25 -         .intersect_all(qb.select(users.name).from(users));
+25 +         .intersect(qb.select(users.name).from(users));
+   |
+
+error[E0599]: no method named `except_all` found for struct `drizzle::sqlite::builder::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+  --> tests/ui/set_ops_sqlite/fail/bag_set_ops_absent.rs:29:10
+   |
+26 |       let _ = qb
+   |  _____________-
+27 | |         .select(users.name)
+28 | |         .from(users)
+29 | |         .except_all(qb.select(users.name).from(users));
+   | |_________-^^^^^^^^^^
+   |
+help: there is a method `except` with a similar name
+   |
+29 -         .except_all(qb.select(users.name).from(users));
+29 +         .except(qb.select(users.name).from(users));
+   |

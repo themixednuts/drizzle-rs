@@ -801,22 +801,6 @@ where
         }
     }
 
-    /// Combines this query with another using INTERSECT ALL.
-    pub fn intersect_all(
-        self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
-        SelectBuilder {
-            sql: helpers::intersect_all(self.sql, other.into_select()),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
     /// Combines this query with another using EXCEPT.
     pub fn except(
         self,
@@ -824,22 +808,6 @@ where
     ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::except(self.sql, other.into_select()),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
-    /// Combines this query with another using EXCEPT ALL.
-    pub fn except_all(
-        self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
-        SelectBuilder {
-            sql: helpers::except_all(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
