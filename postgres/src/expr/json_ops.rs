@@ -13,7 +13,33 @@ use crate::prelude::*;
 use crate::values::PostgresValue;
 use drizzle_core::ToSQL;
 use drizzle_core::expr::{Expr, NonNull, Null, SQLExpr, Scalar};
-use drizzle_core::sql::{SQL, SQLChunk};
+use drizzle_core::sql::{SQL, SQLChunk, Token};
+
+/// `CAST($n AS type)` around an operator argument.
+///
+/// PostgreSQL infers untyped parameters at prepare time and picks the `text`
+/// overload of `->` / `->>` / `#>`; without the cast the driver binds an
+/// integer or array where the server expects text and the query fails.
+/// `CAST(operand AS JSONB)` for containment operands.
+///
+/// A bound `serde_json::Value` is declared as `json` by the drivers and a text
+/// literal as `text`; neither resolves `jsonb @> ...` without the cast.
+fn jsonb_operand<'a>(operand: SQL<'a, PostgresValue<'a>>) -> SQL<'a, PostgresValue<'a>> {
+    SQL::func("CAST", operand.push(Token::AS).append(SQL::raw("JSONB")))
+}
+
+fn typed_param<'a>(
+    value: PostgresValue<'a>,
+    type_name: &'static str,
+) -> SQL<'a, PostgresValue<'a>> {
+    SQL::func(
+        "CAST",
+        SQL::param(value)
+            .push(Token::AS)
+            .append(SQL::raw(type_name)),
+    )
+}
+
 use drizzle_types::postgres::types::{Boolean, Json, Text};
 
 /// `PostgreSQL` `->` operator - get JSON object field by key, returns JSON.
@@ -35,7 +61,7 @@ where
     SQLExpr::new(
         expr.to_sql()
             .push(SQLChunk::Raw("->".into()))
-            .append(SQL::param(PostgresValue::Text(key.into()))),
+            .append(typed_param(PostgresValue::Text(key.into()), "TEXT")),
     )
 }
 
@@ -61,7 +87,7 @@ where
     SQLExpr::new(
         expr.to_sql()
             .push(SQLChunk::Raw("->".into()))
-            .append(SQL::param(PostgresValue::Integer(index))),
+            .append(typed_param(PostgresValue::Integer(index), "INTEGER")),
     )
 }
 
@@ -87,7 +113,7 @@ where
     SQLExpr::new(
         expr.to_sql()
             .push(SQLChunk::Raw("->>".into()))
-            .append(SQL::param(PostgresValue::Text(key.into()))),
+            .append(typed_param(PostgresValue::Text(key.into()), "TEXT")),
     )
 }
 
@@ -113,7 +139,7 @@ where
     SQLExpr::new(
         expr.to_sql()
             .push(SQLChunk::Raw("->>".into()))
-            .append(SQL::param(PostgresValue::Integer(index))),
+            .append(typed_param(PostgresValue::Integer(index), "INTEGER")),
     )
 }
 
@@ -139,7 +165,7 @@ where
     SQLExpr::new(
         expr.to_sql()
             .push(SQLChunk::Raw("#>".into()))
-            .append(SQL::param(PostgresValue::Text(path.into()))),
+            .append(typed_param(PostgresValue::Text(path.into()), "TEXT[]")),
     )
 }
 
@@ -165,7 +191,7 @@ where
     SQLExpr::new(
         expr.to_sql()
             .push(SQLChunk::Raw("#>>".into()))
-            .append(SQL::param(PostgresValue::Text(path.into()))),
+            .append(typed_param(PostgresValue::Text(path.into()), "TEXT[]")),
     )
 }
 
@@ -192,7 +218,7 @@ where
     SQLExpr::new(
         left.to_sql()
             .push(SQLChunk::Raw("@>".into()))
-            .append(right.to_sql()),
+            .append(jsonb_operand(right.to_sql())),
     )
 }
 
@@ -219,7 +245,7 @@ where
     SQLExpr::new(
         left.to_sql()
             .push(SQLChunk::Raw("<@".into()))
-            .append(right.to_sql()),
+            .append(jsonb_operand(right.to_sql())),
     )
 }
 
@@ -245,7 +271,7 @@ where
     SQLExpr::new(
         expr.to_sql()
             .push(SQLChunk::Raw("?".into()))
-            .append(SQL::param(PostgresValue::Text(key.into()))),
+            .append(typed_param(PostgresValue::Text(key.into()), "TEXT")),
     )
 }
 

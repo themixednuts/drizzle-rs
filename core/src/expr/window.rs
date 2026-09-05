@@ -32,6 +32,7 @@ use crate::types::{BooleanLike, Compatible, DataType};
 use super::agg::{CountPolicy, FloatPolicy};
 use super::null::NullOr;
 use super::{Agg, Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
+use crate::dialect::DialectTypes;
 
 /// Dialects that support an aggregate `FILTER (WHERE ...)` clause.
 pub trait AggregateFilterSupport {}
@@ -321,10 +322,9 @@ where
 #[must_use]
 pub fn ntile<'a, V>(
     n: usize,
-) -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
+) -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::Int, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::func("NTILE", SQL::number(n)))
 }

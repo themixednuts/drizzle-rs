@@ -414,14 +414,19 @@ where
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
-    // EXTRACT uses special syntax: EXTRACT(field FROM timestamp)
-    SQLExpr::new(
-        SQL::raw("EXTRACT(")
-            .append(SQL::raw(field))
-            .append(SQL::raw(" FROM "))
-            .append(expr.into_sql())
-            .push(Token::RPAREN),
-    )
+    // EXTRACT uses special syntax: EXTRACT(field FROM timestamp). PostgreSQL 14+
+    // returns NUMERIC, so the result is cast to the declared double type.
+    let extracted = SQL::raw("EXTRACT(")
+        .append(SQL::raw(field))
+        .append(SQL::raw(" FROM "))
+        .append(expr.into_sql())
+        .push(Token::RPAREN);
+    SQLExpr::new(SQL::func(
+        "CAST",
+        extracted
+            .push(Token::AS)
+            .append(SQL::raw("DOUBLE PRECISION")),
+    ))
 }
 
 /// AGE - calculates the interval between two timestamps (`PostgreSQL`).
@@ -675,10 +680,11 @@ where
     <S::Aggregate as AggOr<E::Aggregate>>::Output: AggOr<O::Aggregate>,
     O::Aggregate: super::AggregateKind,
 {
+    // The stride parameter binds as text; PostgreSQL resolves the overload at
+    // prepare time, so the cast keeps the bound and inferred types aligned.
     SQLExpr::new(SQL::func(
         "DATE_BIN",
-        stride
-            .into_sql()
+        super::math::pg_cast(stride.into_sql(), "INTERVAL")
             .push(Token::COMMA)
             .append(source.into_sql())
             .push(Token::COMMA)
