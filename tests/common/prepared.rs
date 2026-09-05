@@ -7,6 +7,8 @@ macro_rules! shared_prepared_statement_suite {
     ($dialect:ident, $table:ident, $schema:ident, $integer:path, $transaction_config:expr) => {
         mod shared_prepared_statement {
             use super::*;
+            #[allow(unused_imports)]
+            use crate::common::helpers::AffectedRows;
             use drizzle::core::expr::eq;
             use drizzle::error::DrizzleError;
 
@@ -15,6 +17,7 @@ macro_rules! shared_prepared_statement_suite {
                 #[column(PRIMARY, DEFAULT = 0)]
                 id: i32,
                 name: String,
+                nickname: Option<String>,
             }
 
             #[derive($schema)]
@@ -256,6 +259,104 @@ macro_rules! shared_prepared_statement_suite {
                     rows.is_empty(),
                     "expected rollback, found {} rows",
                     rows.len()
+                );
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_insert_binds_placeholder_values(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+
+                let user_id =
+                    drizzle::core::Placeholder::typed::<$integer>("shared_prepared_insert_id");
+                let name = users.name.placeholder("shared_prepared_insert_name");
+                let insert = db
+                    .insert(users)
+                    .value(InsertSharedPreparedUser::new(name).with_id(user_id));
+                assert_eq!(
+                    insert.to_sql().params().count(),
+                    0,
+                    "placeholders must not be bound eagerly"
+                );
+
+                let prepared = insert.prepare().into_owned();
+                let first =
+                    prepared.execute(drizzle_client!(), [user_id.bind(1), name.bind("Alice")]);
+                let second =
+                    prepared.execute(drizzle_client!(), [user_id.bind(2), name.bind("Bob")]);
+                assert_eq!((first.affected_rows(), second.affected_rows()), (1, 1));
+
+                let rows: Vec<SelectSharedPreparedUser> =
+                    db.select(()).from(users).order_by(asc(users.id)).all();
+                let rows = rows
+                    .iter()
+                    .map(|row| (row.id, row.name.as_str()))
+                    .collect::<Vec<_>>();
+                assert_eq!(rows, [(1, "Alice"), (2, "Bob")]);
+            }
+
+            #[drizzle::test($dialect)]
+            fn update_mixes_concrete_values_and_placeholders(
+                db: &mut TestDb<SharedPreparedSchema>,
+            ) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .values([
+                        InsertSharedPreparedUser::new("Alice").with_id(1),
+                        InsertSharedPreparedUser::new("Bob").with_id(2),
+                    ])
+                    .execute();
+
+                let nickname = users.nickname.placeholder("shared_prepared_nickname");
+                let update = db
+                    .update(users)
+                    .set(
+                        UpdateSharedPreparedUser::default()
+                            .with_name("Alicia")
+                            .with_nickname(nickname),
+                    )
+                    .r#where(eq(users.id, 1));
+                assert_eq!(
+                    update.to_sql().params().count(),
+                    2,
+                    "concrete SET value and WHERE id bind; the placeholder does not"
+                );
+
+                let prepared = update.prepare().into_owned();
+                let updated = prepared.execute(drizzle_client!(), [nickname.bind("Al")]);
+                assert_eq!(updated.affected_rows(), 1);
+
+                let rows: Vec<SelectSharedPreparedUser> =
+                    db.select(()).from(users).order_by(asc(users.id)).all();
+                assert_eq!(rows[0].name, "Alicia");
+                assert_eq!(rows[0].nickname.as_deref(), Some("Al"));
+                assert_eq!(rows[1].name, "Bob");
+                assert_eq!(rows[1].nickname, None);
+            }
+
+            #[drizzle::test($dialect)]
+            fn update_model_skips_unset_fields(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .value(InsertSharedPreparedUser::new("Alice").with_id(1))
+                    .execute();
+
+                let stmt = db
+                    .update(users)
+                    .set(UpdateSharedPreparedUser::default().with_nickname("Al"))
+                    .r#where(eq(users.id, 1));
+                let shape = crate::common::helpers::sql_shape(&stmt.to_sql().sql());
+                assert!(
+                    shape.contains("SETnickname=?WHERE"),
+                    "only the assigned column belongs in SET: {shape}"
+                );
+
+                let updated = stmt.execute();
+                assert_eq!(updated.affected_rows(), 1);
+                let row: SelectSharedPreparedUser =
+                    db.select(()).from(users).r#where(eq(users.id, 1)).get();
+                assert_eq!(
+                    (row.name.as_str(), row.nickname.as_deref()),
+                    ("Alice", Some("Al"))
                 );
             }
         }

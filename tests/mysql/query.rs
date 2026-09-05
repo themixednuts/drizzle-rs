@@ -15,6 +15,14 @@ crate::common::query::shared_relational_query_suite!(
     drizzle::mysql::TransactionConfig::default()
 );
 crate::common::query::shared_view_query_suite!(mysql, MySQLTable, MySQLView, MySQLSchema);
+crate::common::relational::shared_relational_api_suite!(
+    mysql,
+    MySQLTable,
+    MySQLView,
+    MySQLSchema,
+    drizzle::mysql::types::Int,
+    drizzle::mysql::TransactionConfig::default()
+);
 
 #[MySQLTable(NAME = "mysql_query_codec_values")]
 struct MySQLQueryCodecValue {

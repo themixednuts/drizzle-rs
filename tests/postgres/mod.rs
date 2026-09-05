@@ -3,14 +3,10 @@
 //! End-to-end tests that verify database operations work correctly.
 
 pub mod array_ops;
-#[cfg(feature = "arrayvec")]
-pub mod arrayvec;
 pub mod async_edge_cases;
 pub mod codecs;
-pub mod comment;
 pub mod conditions;
 pub mod custom_column;
-pub mod delete;
 pub mod r#enum;
 pub mod expr;
 pub mod expressions;
@@ -33,5 +29,3 @@ pub mod transaction;
 pub mod type_inference;
 pub mod types;
 pub mod update;
-#[cfg(any(feature = "compact-str", feature = "bytes", feature = "smallvec-types"))]
-pub mod wrappers;

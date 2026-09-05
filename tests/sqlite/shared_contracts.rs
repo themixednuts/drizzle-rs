@@ -16,8 +16,17 @@ crate::common::condition_list::shared_condition_list_suite!(
     SQLiteValue,
     drizzle::sqlite::types::Integer
 );
+crate::common::alias::shared_alias_suite!(sqlite, SQLiteTable, SQLiteSchema, SQLiteFromRow);
+crate::common::delete::shared_delete_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::delete::shared_delete_returning_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::derived::shared_derived_table_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::subquery::shared_subquery_suite!(sqlite, SQLiteTable, SQLiteSchema, SQLiteFromRow);
 crate::common::expressions::shared_expression_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::foreign_keys::shared_foreign_key_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::comment::shared_comment_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::wrappers::shared_wrapper_type_suite!(sqlite, SQLiteTable, SQLiteSchema);
+#[cfg(feature = "arrayvec")]
+crate::common::arrayvec::shared_arrayvec_suite!(sqlite, SQLiteTable, SQLiteSchema);
 // Only the bundled rusqlite build can be given SQLITE_ENABLE_MATH_FUNCTIONS
 // (see .cargo/config.toml), so the math-extension contract is rusqlite-only.
 #[cfg(all(
