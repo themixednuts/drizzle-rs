@@ -531,3 +531,43 @@ fn mysql_view_definer_does_not_force_recreation_after_codegen() {
 
     assert!(diff.statements.is_empty(), "{:#?}", diff.sql_statements);
 }
+
+#[test]
+fn mysql_codegen_skips_untranslatable_defaults_with_a_warning() {
+    let mut ddl = rich_ddl();
+    let email = ddl
+        .columns
+        .list_mut()
+        .iter_mut()
+        .find(|column| column.name.as_ref() == "email")
+        .expect("rich_ddl has an email column");
+    email.default = Some("CAST('guest' AS CHAR)".into());
+
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default())
+        .expect("an untranslatable default is representable with a warning");
+    assert!(
+        generated
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("CAST('guest' AS CHAR)")),
+        "{:#?}",
+        generated.warnings
+    );
+    assert!(
+        generated
+            .code
+            .contains("// TODO: default `CAST('guest' AS CHAR)` cannot be expressed"),
+        "{}",
+        generated.code
+    );
+    assert!(!generated.code.contains("DEFAULT = CAST"));
+
+    let reparsed = parse_generated_ddl(&generated.code);
+    let email = reparsed
+        .columns
+        .list()
+        .iter()
+        .find(|column| column.name.as_ref() == "email")
+        .expect("email column survives the round trip");
+    assert_eq!(email.default, None);
+}

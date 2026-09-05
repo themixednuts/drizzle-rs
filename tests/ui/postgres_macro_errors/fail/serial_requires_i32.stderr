@@ -1,0 +1,5 @@
+error: #[column(serial)] requires the field type to be i32
+ --> tests/ui/postgres_macro_errors/fail/serial_requires_i32.rs:6:5
+  |
+6 |     id: i64,
+  |     ^^

@@ -750,6 +750,51 @@ fn test_specific_type_mappings() {
 }
 
 #[test]
+fn test_expression_and_unsupported_default_generation() {
+    let conn = Connection::open_in_memory().unwrap();
+
+    conn.execute_batch(
+        r"
+        CREATE TABLE expression_defaults (
+            id INTEGER PRIMARY KEY,
+            created_at TEXT DEFAULT (datetime('now')),
+            epoch INTEGER DEFAULT (strftime('%s', 'now')),
+            payload BLOB DEFAULT x'00'
+        );
+    ",
+    )
+    .unwrap();
+
+    let introspection = introspect_database(&conn);
+    let snapshot = introspection.to_snapshot();
+    let ddl = SQLiteDDL::from_entities(snapshot.ddl.clone());
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+    // A raw SQL fallback would make the generated module unparseable.
+    let parsed = SchemaParser::parse(&generated.code);
+    let table = parsed
+        .table("ExpressionDefaults", Dialect::SQLite)
+        .expect("Should have ExpressionDefaults struct");
+
+    assert_eq!(
+        table.field("created_at").unwrap().default_value(),
+        Some("datetime(\"now\")".into())
+    );
+    assert_eq!(
+        table.field("epoch").unwrap().default_value(),
+        Some("strftime(\"%s\", \"now\")".into())
+    );
+    assert_eq!(table.field("payload").unwrap().default_value(), None);
+    assert!(
+        generated
+            .code
+            .contains("// TODO: default `x'00'` cannot be expressed"),
+        "unsupported default should be flagged in the generated code:\n{}",
+        generated.code
+    );
+}
+
+#[test]
 fn test_default_value_generation() {
     let conn = Connection::open_in_memory().unwrap();
 

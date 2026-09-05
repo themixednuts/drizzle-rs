@@ -13,6 +13,16 @@ pub use drizzle_core::builder::{
     SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
 };
 
+/// States that accept a plain `ORDER BY`.
+///
+/// `SelectSetOpSet` is excluded on purpose: a compound query orders by its
+/// output columns, which the dedicated `order_by` on that state renders.
+pub trait SelectOrderAllowed {}
+impl SelectOrderAllowed for SelectFromSet {}
+impl SelectOrderAllowed for SelectJoinSet {}
+impl SelectOrderAllowed for SelectWhereSet {}
+impl SelectOrderAllowed for SelectGroupSet {}
+
 #[doc(hidden)]
 pub trait SelectWhereAllowed: drizzle_core::WhereAllowed {}
 
@@ -550,7 +560,7 @@ where
 // ORDER BY (available from many states)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::OrderByAllowed,
+    State: SelectOrderAllowed,
 {
     /// Sorts the query results.
     #[inline]
@@ -563,6 +573,34 @@ where
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+}
+
+// ORDER BY on a compound query: the combined rows carry no table scope, so the
+// ordering terms are rendered as output column names.
+impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+    /// Sorts a compound (`UNION` / `INTERSECT` / `EXCEPT`) result by its
+    /// output columns. Column references are rendered unqualified, which is
+    /// the only spelling PostgreSQL and turso accept here.
+    #[inline]
+    pub fn order_by<TOrderBy>(
+        self,
+        expressions: TOrderBy,
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
+    where
+        TOrderBy: drizzle_core::ToSQL<'a, SQLiteValue<'a>>,
+    {
+        SelectBuilder {
+            sql: self
+                .sql
+                .append(drizzle_core::helpers::set_order_by(expressions)),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,
@@ -763,22 +801,6 @@ where
         }
     }
 
-    /// Combines this query with another using INTERSECT ALL.
-    pub fn intersect_all(
-        self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
-        SelectBuilder {
-            sql: helpers::intersect_all(self.sql, other.into_select()),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
     /// Combines this query with another using EXCEPT.
     pub fn except(
         self,
@@ -786,22 +808,6 @@ where
     ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
         SelectBuilder {
             sql: helpers::except(self.sql, other.into_select()),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
-    /// Combines this query with another using EXCEPT ALL.
-    pub fn except_all(
-        self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
-        SelectBuilder {
-            sql: helpers::except_all(self.sql, other.into_select()),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

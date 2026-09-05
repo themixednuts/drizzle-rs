@@ -742,7 +742,7 @@ Available in `drizzle::core::expr`:
 - **Aggregates** — `count`, `sum`, `avg`, `min`, `max`
 - **Null handling** — `coalesce`, `is_null`, `is_not_null`
 - **Strings** — `upper`, `lower`, `length`
-- **Math** — `abs`
+- **Math** — `abs`, `round`, `sign`, `mod_`; `ceil`, `floor`, `trunc`, `sqrt`, `power`, `exp`, `ln`, `log`, `log10`, `log2`, `pi` (on SQLite these need the `math` feature and a SQLite built with `SQLITE_ENABLE_MATH_FUNCTIONS`, e.g. `LIBSQLITE3_FLAGS="-DSQLITE_ENABLE_MATH_FUNCTIONS"` for bundled rusqlite)
 - **Ordering** — `asc`, `desc`
 
 ### Type Casting

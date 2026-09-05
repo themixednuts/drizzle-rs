@@ -1,0 +1,5 @@
+error: #[column(bigserial)] requires the field type to be i64
+ --> tests/ui/postgres_macro_errors/fail/bigserial_requires_i64.rs:6:5
+  |
+6 |     id: i32,
+  |     ^^

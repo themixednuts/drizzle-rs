@@ -71,3 +71,5 @@ d1 = ["std"]
 durable = ["std"]
 profiling = ["std", "dep:puffin", "drizzle-core/profiling"]
 query = ["std", "dep:serde_json", "serde_json/alloc", "drizzle-core/query"]
+# SQLite was built with SQLITE_ENABLE_MATH_FUNCTIONS; see drizzle-core.
+math = ["drizzle-core/math"]

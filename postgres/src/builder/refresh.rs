@@ -63,17 +63,9 @@ impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
     /// Creates a new REFRESH MATERIALIZED VIEW builder for the given view
     #[must_use]
     pub fn new<V: SQLViewInfo>(view: &'a V) -> Self {
-        let schema = SQLTableInfo::schema(view).unwrap_or("public");
-        let name = view.name();
-
-        // Build: REFRESH MATERIALIZED VIEW "schema"."name"
-        let sql = SQL::from_iter([Token::REFRESH, Token::MATERIALIZED, Token::VIEW])
-            .append(SQL::ident(schema))
-            .push(Token::DOT)
-            .append(SQL::ident(name));
-
         Self {
-            sql,
+            sql: SQL::from_iter([Token::REFRESH, Token::MATERIALIZED, Token::VIEW])
+                .append(qualified_view_name(view)),
             _state: PhantomData,
         }
     }
@@ -86,28 +78,20 @@ impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
     /// Note: Cannot be combined with WITH NO DATA.
     #[must_use]
     pub fn concurrently(self) -> RefreshMaterializedView<'a, RefreshConcurrently> {
-        // We need to insert CONCURRENTLY after VIEW
-        // Current: REFRESH MATERIALIZED VIEW "schema"."name"
-        // Desired: REFRESH MATERIALIZED VIEW CONCURRENTLY "schema"."name"
-
-        // Get schema.name portion (last 3 chunks: ident, dot, ident)
-        let chunks = self.sql.chunks;
-        let schema_name_start = 3; // After REFRESH, MATERIALIZED, VIEW
-
-        let mut new_sql = SQL::from_iter([
+        // Rebuild as REFRESH MATERIALIZED VIEW CONCURRENTLY <name>: the name
+        // chunks are everything after the three leading keywords.
+        let mut sql = SQL::from_iter([
             Token::REFRESH,
             Token::MATERIALIZED,
             Token::VIEW,
             Token::CONCURRENTLY,
         ]);
-
-        // Append the remaining chunks (schema.name)
-        for chunk in chunks.into_iter().skip(schema_name_start) {
-            new_sql = new_sql.push(chunk);
+        for chunk in self.sql.chunks.into_iter().skip(3) {
+            sql = sql.push(chunk);
         }
 
         RefreshMaterializedView {
-            sql: new_sql,
+            sql,
             _state: PhantomData,
         }
     }
@@ -133,6 +117,17 @@ impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
             sql: self.sql.push(Token::WITH).push(Token::DATA),
             _state: PhantomData,
         }
+    }
+}
+
+/// `"schema"."name"` for views in a non-default schema, otherwise the bare name
+/// so the statement resolves through `search_path` exactly like the view's own
+/// DDL (which also leaves `public` unqualified).
+fn qualified_view_name<'a, V: SQLViewInfo>(view: &V) -> SQL<'a, PostgresValue<'a>> {
+    let name = SQL::ident(view.name());
+    match SQLTableInfo::schema(view) {
+        Some(schema) if schema != "public" => SQL::ident(schema).push(Token::DOT).append(name),
+        _ => name,
     }
 }
 
@@ -190,10 +185,7 @@ mod tests {
         let refresh = RefreshMaterializedView::new(&view);
         let sql = refresh.to_sql();
 
-        assert_eq!(
-            sql.sql(),
-            r#"REFRESH MATERIALIZED VIEW "public"."user_stats""#
-        );
+        assert_eq!(sql.sql(), r#"REFRESH MATERIALIZED VIEW "user_stats""#);
     }
 
     #[test]
@@ -204,7 +196,7 @@ mod tests {
 
         assert_eq!(
             sql.sql(),
-            r#"REFRESH MATERIALIZED VIEW CONCURRENTLY "public"."user_stats""#
+            r#"REFRESH MATERIALIZED VIEW CONCURRENTLY "user_stats""#
         );
     }
 
@@ -216,7 +208,7 @@ mod tests {
 
         assert_eq!(
             sql.sql(),
-            r#"REFRESH MATERIALIZED VIEW "public"."user_stats" WITH NO DATA"#
+            r#"REFRESH MATERIALIZED VIEW "user_stats" WITH NO DATA"#
         );
     }
 
@@ -228,7 +220,45 @@ mod tests {
 
         assert_eq!(
             sql.sql(),
-            r#"REFRESH MATERIALIZED VIEW "public"."user_stats" WITH DATA"#
+            r#"REFRESH MATERIALIZED VIEW "user_stats" WITH DATA"#
+        );
+    }
+
+    struct ExplicitSchemaView;
+
+    impl drizzle_core::traits::SQLTableInfo for ExplicitSchemaView {
+        fn name(&self) -> &'static str {
+            "user_stats"
+        }
+
+        fn schema(&self) -> Option<&'static str> {
+            Some("analytics")
+        }
+    }
+
+    impl SQLViewInfo for ExplicitSchemaView {
+        fn definition_sql(&self) -> std::borrow::Cow<'static, str> {
+            "SELECT * FROM users".into()
+        }
+
+        fn is_materialized(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn test_non_public_schema_is_qualified() {
+        let view = ExplicitSchemaView;
+        assert_eq!(
+            RefreshMaterializedView::new(&view).to_sql().sql(),
+            r#"REFRESH MATERIALIZED VIEW "analytics"."user_stats""#
+        );
+        assert_eq!(
+            RefreshMaterializedView::new(&view)
+                .concurrently()
+                .to_sql()
+                .sql(),
+            r#"REFRESH MATERIALIZED VIEW CONCURRENTLY "analytics"."user_stats""#
         );
     }
 
@@ -238,9 +268,6 @@ mod tests {
         let refresh = refresh_materialized_view(&view);
         let sql = refresh.to_sql();
 
-        assert_eq!(
-            sql.sql(),
-            r#"REFRESH MATERIALIZED VIEW "public"."user_stats""#
-        );
+        assert_eq!(sql.sql(), r#"REFRESH MATERIALIZED VIEW "user_stats""#);
     }
 }

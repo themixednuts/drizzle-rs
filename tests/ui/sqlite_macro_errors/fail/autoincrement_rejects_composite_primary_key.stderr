@@ -1,0 +1,5 @@
+error: column `user_id` uses AUTOINCREMENT inside a composite primary key; AUTOINCREMENT requires a single-column INTEGER PRIMARY KEY
+ --> tests/ui/sqlite_macro_errors/fail/autoincrement_rejects_composite_primary_key.rs:6:5
+  |
+6 |     user_id: i64,
+  |     ^^^^^^^

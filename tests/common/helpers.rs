@@ -24,6 +24,49 @@ fn ensure_test_db_dir() {
     });
 }
 
+/// Collapse rendered SQL to a quoting- and placeholder-agnostic shape.
+///
+/// Identifier quotes (`"` and `` ` ``) and whitespace are removed and numbered
+/// placeholders (`$1`) become `?`, so shared suites can assert on statement
+/// structure across dialects: `WHERE(users.id>?ANDusers.name=?)`.
+/// Uniform affected-row count across drivers: SQLite returns `usize`,
+/// PostgreSQL `u64`, and MySQL a `MySQLMutationResult` (whose inherent
+/// `affected_rows()` takes precedence over this trait).
+pub trait AffectedRows {
+    fn affected_rows(&self) -> u64;
+}
+
+impl AffectedRows for usize {
+    fn affected_rows(&self) -> u64 {
+        *self as u64
+    }
+}
+
+impl AffectedRows for u64 {
+    fn affected_rows(&self) -> u64 {
+        *self
+    }
+}
+
+pub fn sql_shape(sql: &str) -> String {
+    let mut shape = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' | '`' => {}
+            '$' if chars.peek().is_some_and(char::is_ascii_digit) => {
+                while chars.peek().is_some_and(char::is_ascii_digit) {
+                    chars.next();
+                }
+                shape.push('?');
+            }
+            c if c.is_whitespace() => {}
+            c => shape.push(c),
+        }
+    }
+    shape
+}
+
 pub fn temp_db_path() -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     ensure_test_db_dir();

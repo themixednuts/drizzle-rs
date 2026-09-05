@@ -1184,23 +1184,6 @@ where
         }
     }
 
-    pub fn intersect_all(
-        self,
-        other: impl IntoSelect<'a, Schema, M, R>,
-    ) -> DrizzleBuilder<
-        'd,
-        Runner,
-        Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
-        SelectSetOpSet,
-    > {
-        DrizzleBuilder {
-            runner: self.runner,
-            builder: self.builder.intersect_all(other),
-            state: PhantomData,
-        }
-    }
-
     pub fn except(
         self,
         other: impl IntoSelect<'a, Schema, M, R>,
@@ -1214,23 +1197,6 @@ where
         DrizzleBuilder {
             runner: self.runner,
             builder: self.builder.except(other),
-            state: PhantomData,
-        }
-    }
-
-    pub fn except_all(
-        self,
-        other: impl IntoSelect<'a, Schema, M, R>,
-    ) -> DrizzleBuilder<
-        'd,
-        Runner,
-        Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
-        SelectSetOpSet,
-    > {
-        DrizzleBuilder {
-            runner: self.runner,
-            builder: self.builder.except_all(other),
             state: PhantomData,
         }
     }

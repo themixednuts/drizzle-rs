@@ -8,7 +8,7 @@ use super::collection::PostgresDDL;
 use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, Policy, Table, UniqueConstraint, View,
 };
-use crate::utils::{default_expression, escape_for_rust_literal};
+use crate::utils::{default_expression, escape_for_rust_literal, unsupported_default_comment};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -687,6 +687,7 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     }
 
     // Add default if present (but skip nextval for serial columns)
+    let mut unsupported_default = None;
     if let Some(default) = &column.default
         && !is_serial
         && column.generated.is_none()
@@ -694,8 +695,10 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
         if let Some(formatted) = format_default_value(default, &column.sql_type) {
             attrs.push(format!("default = {formatted}"));
         } else if !default.trim().eq_ignore_ascii_case("null") {
-            let expression = default_expression(default).unwrap_or_else(|| default.to_string());
-            attrs.push(format!("default = {expression}"));
+            match default_expression(default) {
+                Some(expression) => attrs.push(format!("default = {expression}")),
+                None => unsupported_default = Some(default.as_ref()),
+            }
         }
     }
 
@@ -713,6 +716,9 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
 
     // Generate attribute line if there are any
     let mut result = String::new();
+    if let Some(default) = unsupported_default {
+        result.push_str(&unsupported_default_comment("    ", default));
+    }
     if let Some(comment) = column.comment.as_deref() {
         write_doc_comment(&mut result, "    ", comment);
     }
@@ -809,30 +815,47 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
         return Some(default.to_lowercase());
     }
 
-    // Handle numeric types
-    if sql_type_lower.contains("int")
-        || sql_type_lower.contains("numeric")
-        || sql_type_lower.contains("decimal")
-        || sql_type_lower == "float4"
-        || sql_type_lower == "float8"
-    {
+    // Handle numeric types. Match whole type names: a substring test would
+    // also catch `interval` and `point`, whose defaults are not numbers.
+    let base_type = sql_type_lower
+        .split(['(', '['])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if matches!(
+        base_type,
+        "int2"
+            | "int4"
+            | "int8"
+            | "smallint"
+            | "integer"
+            | "int"
+            | "bigint"
+            | "smallserial"
+            | "serial"
+            | "bigserial"
+            | "serial2"
+            | "serial4"
+            | "serial8"
+            | "numeric"
+            | "decimal"
+            | "float4"
+            | "float8"
+            | "real"
+            | "double precision"
+    ) {
         // Remove type casts like ::integer
         let value = default.split("::").next().unwrap_or(default);
-        return Some(value.trim_matches('\'').to_string());
+        let value = value.trim_matches('\'');
+        if value.parse::<f64>().is_ok() {
+            return Some(value.to_string());
+        }
+        return None;
     }
 
-    // Handle text/string types
-    if sql_type_lower.contains("text")
-        || sql_type_lower.contains("varchar")
-        || sql_type_lower.contains("char")
-        || sql_type_lower == "bpchar"
-    {
-        // Keep as quoted string, removing Postgres specific casts
-        let value = default.split("::").next().unwrap_or(default);
-        let trimmed = value.trim_matches('\'');
-        return Some(format!("\"{}\"", escape_for_rust_literal(trimmed)));
-    }
-
+    // String literals (and every other expression, e.g. `CURRENT_USER` on a
+    // text column) are handled by `default_expression`, which distinguishes
+    // quoted strings from bare SQL identifiers.
     None
 }
 
@@ -1300,10 +1323,21 @@ mod tests {
             Some("true".to_string())
         );
 
-        // String
+        // Strings are left to `default_expression`, which also handles bare
+        // identifiers such as `CURRENT_USER` on text columns.
+        assert_eq!(format_default_value("'hello'::text", "text"), None);
+        assert_eq!(format_default_value("CURRENT_USER", "text"), None);
+
+        // `interval` / `point` are not numeric types despite containing `int`.
+        assert_eq!(format_default_value("'1 year'::interval", "interval"), None);
+        assert_eq!(format_default_value("'(0,0)'::point", "point"), None);
         assert_eq!(
-            format_default_value("'hello'::text", "text"),
-            Some("\"hello\"".to_string())
+            format_default_value("'-1'::integer", "int4"),
+            Some("-1".to_string())
+        );
+        assert_eq!(
+            format_default_value("1.5", "double precision"),
+            Some("1.5".to_string())
         );
 
         // Function calls should be None

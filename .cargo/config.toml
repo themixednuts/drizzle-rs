@@ -1,0 +1,6 @@
+# Build the bundled rusqlite SQLite with its optional math functions so the
+# `math` feature can be exercised by the test suite. libsqlite3-sys reads this
+# variable in its build script; libsql-ffi has no equivalent hook and turso
+# is pure Rust, so only rusqlite runs the math-extension tests.
+[env]
+LIBSQLITE3_FLAGS = "-DSQLITE_ENABLE_MATH_FUNCTIONS"

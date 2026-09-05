@@ -1,4 +1,7 @@
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+//! SQLite-specific subquery behavior. Portable scalar/IN/EXISTS subqueries
+//! live in `crate::common::subquery`; this file keeps SQLite reading the first
+//! row of a multi-row scalar subquery and the integer-tuple row-value LHS.
 use crate::common::schema::sqlite::{InsertSimple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
@@ -8,32 +11,6 @@ use drizzle::sqlite::prelude::*;
 struct SubqueryResult {
     id: i32,
     name: String,
-}
-
-#[drizzle::test]
-fn test_one_level_subquery(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    // Insert test data
-    let test_data = vec![
-        InsertSimple::new("alice").with_id(1),
-        InsertSimple::new("bob").with_id(2),
-        InsertSimple::new("charlie").with_id(3),
-    ];
-
-    db.insert(simple).values(test_data).execute();
-
-    // Test one level subquery: find records where id is greater than the minimum id
-    let min_id_subquery = db.select(min(simple.id)).from(simple);
-    let results: Vec<SubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(gt(simple.id, min_id_subquery))
-        .all();
-
-    assert_eq!(2, results.len()); // Should exclude the minimum (id=1)
-    assert!(results.iter().any(|r| r.name == "bob"));
-    assert!(results.iter().any(|r| r.name == "charlie"));
 }
 
 // Note: Turso doesn't support nested subqueries in AVG() - turso variant will fail
@@ -96,114 +73,6 @@ fn test_three_level_subquery(db: &mut TestDb<SimpleSchema>) {
     // Average of (30,40,50) = 40, so should return records with id > 40 (just epsilon with id=50)
     assert!(!results.is_empty());
     assert!(results.iter().any(|r| r.name == "epsilon"));
-}
-
-// =============================================================================
-// Typed subqueries via Expr on SELECT builders
-// =============================================================================
-
-#[drizzle::test]
-fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    let test_data = vec![
-        InsertSimple::new("alice").with_id(1),
-        InsertSimple::new("bob").with_id(2),
-        InsertSimple::new("charlie").with_id(3),
-    ];
-
-    db.insert(simple).values(test_data).execute();
-
-    // SELECT builders now implement Expr directly with concrete SQLType
-    let min_id = db.select(min(simple.id)).from(simple);
-    let results: Vec<SubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(gt(simple.id, min_id))
-        .all();
-
-    assert_eq!(2, results.len());
-    assert!(results.iter().any(|r| r.name == "bob"));
-    assert!(results.iter().any(|r| r.name == "charlie"));
-}
-
-#[drizzle::test]
-fn test_typed_scalar_subquery_max(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    let test_data = vec![
-        InsertSimple::new("alice").with_id(10),
-        InsertSimple::new("bob").with_id(20),
-        InsertSimple::new("charlie").with_id(30),
-    ];
-
-    db.insert(simple).values(test_data).execute();
-
-    // Typed subquery with max — should find records where id < max
-    let max_id = db.select(max(simple.id)).from(simple);
-    let results: Vec<SubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(lt(simple.id, max_id))
-        .all();
-
-    assert_eq!(2, results.len());
-    assert!(results.iter().any(|r| r.name == "alice"));
-    assert!(results.iter().any(|r| r.name == "bob"));
-}
-
-#[drizzle::test]
-fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    let test_data = vec![
-        InsertSimple::new("alice").with_id(1),
-        InsertSimple::new("bob").with_id(2),
-        InsertSimple::new("charlie").with_id(3),
-    ];
-
-    db.insert(simple).values(test_data).execute();
-
-    let only_bob_id = db
-        .select(simple.id)
-        .from(simple)
-        .r#where(eq(simple.name, "bob"));
-
-    let results: Vec<SubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(in_subquery(simple.id, only_bob_id))
-        .all();
-
-    assert_eq!(1, results.len());
-    assert_eq!("bob", results[0].name);
-}
-
-#[drizzle::test]
-fn test_typed_in_subquery_multi_column_row_value(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    let test_data = vec![
-        InsertSimple::new("alice").with_id(1),
-        InsertSimple::new("bob").with_id(2),
-        InsertSimple::new("charlie").with_id(3),
-    ];
-
-    db.insert(simple).values(test_data).execute();
-
-    let bob_row = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(eq(simple.name, "bob"));
-
-    let results: Vec<SubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(in_subquery((simple.id, simple.name), bob_row))
-        .all();
-
-    assert_eq!(1, results.len());
-    assert_eq!("bob", results[0].name);
 }
 
 // SQLite's Integer is `BooleanLike`, so a tuple of integer columns is also a

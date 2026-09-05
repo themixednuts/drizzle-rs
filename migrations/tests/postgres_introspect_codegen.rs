@@ -1286,6 +1286,95 @@ fn test_default_value_codegen() {
     assert_eq!(name.default_value(), Some("\"default\"".into()));
 }
 
+#[test]
+fn test_cast_and_unsupported_default_codegen() {
+    let mut ddl = PostgresDDL::new();
+
+    ddl.tables.push(Table {
+        schema: "public".into(),
+        name: "events".into(),
+        is_unlogged: None,
+        is_temporary: None,
+        inherits: None,
+        tablespace: None,
+        is_rls_enabled: Some(false),
+        comment: None,
+    });
+
+    let column = |name: &'static str, sql_type: &'static str, default: &'static str| Column {
+        schema: "public".into(),
+        table: "events".into(),
+        name: name.into(),
+        sql_type: sql_type.into(),
+        type_schema: None,
+        not_null: true,
+        default: Some(default.into()),
+        generated: None,
+        identity: None,
+        dimensions: None,
+        comment: None,
+        collate: None,
+        ordinal_position: None,
+    };
+
+    // Multi-word cast types are stripped from literal defaults.
+    ddl.columns.push(column(
+        "starts_at",
+        "timestamp",
+        "'2020-01-01 00:00:00'::timestamp without time zone",
+    ));
+    ddl.columns.push(column(
+        "ends_at",
+        "timestamptz",
+        "'2020-01-01 00:00:00+00'::timestamp(3) with time zone",
+    ));
+    ddl.columns.push(column(
+        "window",
+        "interval",
+        "'1 year'::interval year to month",
+    ));
+    // Expression defaults keep their structure.
+    ddl.columns.push(column(
+        "expires_at",
+        "timestamptz",
+        "(now() + '1 day'::interval)",
+    ));
+    // Untranslatable defaults are skipped with a comment instead of raw SQL.
+    ddl.columns.push(column("tags", "text", "ARRAY[]::text[]"));
+
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+    // A raw SQL fallback would make the generated module unparseable.
+    let parsed = SchemaParser::parse(&generated.code);
+    let events = parsed
+        .table("Events", Dialect::PostgreSQL)
+        .expect("Should have Events");
+
+    assert_eq!(
+        events.field("starts_at").unwrap().default_value(),
+        Some("\"2020-01-01 00:00:00\"".into())
+    );
+    assert_eq!(
+        events.field("ends_at").unwrap().default_value(),
+        Some("\"2020-01-01 00:00:00+00\"".into())
+    );
+    assert_eq!(
+        events.field("window").unwrap().default_value(),
+        Some("\"1 year\"".into())
+    );
+    assert_eq!(
+        events.field("expires_at").unwrap().default_value(),
+        Some("(now() + \"1 day\")".into())
+    );
+    assert_eq!(events.field("tags").unwrap().default_value(), None);
+    assert!(
+        generated
+            .code
+            .contains("// TODO: default `ARRAY[]::text[]` cannot be expressed"),
+        "unsupported default should be flagged in the generated code:\n{}",
+        generated.code
+    );
+}
+
 // =============================================================================
 // Identity Column Tests
 // =============================================================================
