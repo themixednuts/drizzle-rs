@@ -18,6 +18,14 @@ crate::common::condition_list::shared_condition_list_suite!(
 );
 crate::common::derived::shared_derived_table_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::expressions::shared_expression_suite!(sqlite, SQLiteTable, SQLiteSchema);
+// Only the bundled rusqlite build can be given SQLITE_ENABLE_MATH_FUNCTIONS
+// (see .cargo/config.toml), so the math-extension contract is rusqlite-only.
+#[cfg(all(
+    feature = "math",
+    feature = "rusqlite",
+    not(any(feature = "libsql", feature = "turso"))
+))]
+crate::common::expressions::shared_math_extension_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::prepared::shared_prepared_statement_suite!(
     sqlite,
     SQLiteTable,

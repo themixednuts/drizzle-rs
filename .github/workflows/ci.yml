@@ -89,6 +89,13 @@ jobs:
           --features std,sqlite,serde
           --test compile_fail insert_select_sqlite_ui
 
+      - name: Run SQLite math-extension tests
+        # .cargo/config.toml builds bundled rusqlite with SQLITE_ENABLE_MATH_FUNCTIONS.
+        if: startsWith(matrix.features, 'rusqlite,')
+        run: >-
+          cargo test -p drizzle --features "${{ matrix.features }},math"
+          --test lib -- shared_math_extensions optional_math_functions
+
       - name: Run SQLite strict-decode compile-time tests
         if: matrix.features == 'rusqlite'
         run: >-

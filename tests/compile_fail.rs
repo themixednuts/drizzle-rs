@@ -201,6 +201,14 @@ fn sqlite_strict_affinity_ui() {
     must_fail("tests/ui/sqlite_strict_affinity/fail/*.rs");
 }
 
+// The optional SQLite math functions do not type-check without the `math`
+// feature, which is the point: the failure moves from runtime to compile time.
+#[cfg(all(feature = "rusqlite", not(feature = "math")))]
+#[test]
+fn sqlite_math_ext_ui() {
+    must_fail("tests/ui/sqlite_math_ext/fail/*.rs");
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn sqlite_macro_errors_ui() {

@@ -616,13 +616,14 @@ macro_rules! shared_expression_suite {
 
 pub(crate) use shared_expression_suite;
 
-/// Math functions that stock SQLite lacks.
+/// Math functions behind `MathExt`.
 ///
 /// `CEIL`, `FLOOR`, `TRUNC`, `SQRT`, `POWER`, `EXP`, `LN` and `LOG` need a
-/// SQLite compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`, which neither the
-/// bundled rusqlite nor libsql build enables, so this suite runs on
-/// PostgreSQL and MySQL only.
-#[cfg(any(feature = "postgres", feature = "mysql"))]
+/// SQLite compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`. PostgreSQL and MySQL
+/// always run this suite; SQLite runs it under the `math` feature, on
+/// rusqlite only, because `.cargo/config.toml` can pass the flag to
+/// libsqlite3-sys but not to libsql-ffi or turso.
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "math"))]
 macro_rules! shared_math_extension_suite {
     ($dialect:ident, $table:ident, $schema:ident) => {
         mod shared_math_extensions {
@@ -749,5 +750,5 @@ macro_rules! shared_math_extension_suite {
     };
 }
 
-#[cfg(any(feature = "postgres", feature = "mysql"))]
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "math"))]
 pub(crate) use shared_math_extension_suite;

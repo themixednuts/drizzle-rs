@@ -150,3 +150,37 @@ fn date_functions_split_and_convert_timestamps(db: &mut TestDb<ExpressionSchema>
         .get();
     assert_eq!(today.len(), 10);
 }
+
+/// `LOG2` and `PI` are also part of SQLite's optional math functions.
+#[cfg(all(
+    feature = "math",
+    feature = "rusqlite",
+    not(any(feature = "libsql", feature = "turso"))
+))]
+#[drizzle::test]
+fn optional_math_functions(db: &mut TestDb<ExpressionSchema>) {
+    use drizzle::core::expr::{count, gt, log2, pi};
+
+    let ExpressionSchema { rows } = schema;
+    db.insert(rows)
+        .values([
+            InsertExpressionRow::new("alice", "2024-02-29 13:45:30").with_id(1),
+            InsertExpressionRow::new("bob", "1970-01-02 00:00:00").with_id(2),
+            InsertExpressionRow::new("carol", "2000-01-01 00:00:00").with_id(3),
+        ])
+        .execute();
+
+    let logs: Vec<Option<f64>> = db
+        .select(log2(rows.id * 4))
+        .from(rows)
+        .order_by(asc(rows.id))
+        .all();
+    assert_eq!(logs, [Some(2.0), Some(3.0), Some(f64::log2(12.0))]);
+
+    let approximately_pi: i64 = db
+        .select(count(rows.id))
+        .from(rows)
+        .r#where(gt(pi(), 3.1))
+        .get();
+    assert_eq!(approximately_pi, 3);
+}

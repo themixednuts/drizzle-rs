@@ -329,6 +329,11 @@ query = [
   "drizzle-postgres?/query",
   "drizzle-mysql?/query",
 ]
+# The linked SQLite provides the optional math functions
+# (SQLITE_ENABLE_MATH_FUNCTIONS); unlocks ceil/floor/trunc/sqrt/power/exp/
+# ln/log/log10/log2/pi for the SQLite dialect. PostgreSQL and MySQL always
+# have them.
+math = ["drizzle-core/math", "drizzle-sqlite?/math"]
 
 # Add dialect-specific features back for gating re-exports
 sqlite = ["drizzle-seed/sqlite", "drizzle-macros/sqlite", "dep:drizzle-sqlite"]

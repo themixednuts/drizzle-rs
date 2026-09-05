@@ -28,6 +28,27 @@ use drizzle_types::sqlite::types::{
 
 use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
 
+/// Math functions that are optional on SQLite.
+///
+/// `CEIL`, `FLOOR`, `TRUNC`, `SQRT`, `POWER`, `EXP`, `LN`, `LOG`, `LOG10`,
+/// `LOG2` and `PI` are built into PostgreSQL and MySQL, but SQLite only has
+/// them when it is compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`, which the
+/// bundled `rusqlite` and `libsql` builds do not set. The `math` cargo feature
+/// is the promise that the linked SQLite provides them; without it these
+/// functions do not type-check for SQLite instead of failing at runtime with
+/// "no such function".
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not provide this math function",
+    label = "SQLite only has CEIL/FLOOR/TRUNC/SQRT/POWER/EXP/LN/LOG*/PI with SQLITE_ENABLE_MATH_FUNCTIONS",
+    note = "enable drizzle's `math` feature and build SQLite with the math functions, e.g. `LIBSQLITE3_FLAGS=\"-DSQLITE_ENABLE_MATH_FUNCTIONS\"` for bundled rusqlite"
+)]
+pub trait MathExt {}
+
+impl MathExt for PostgresDialect {}
+impl MathExt for MySQLDialect {}
+#[cfg(feature = "math")]
+impl MathExt for SQLiteDialect {}
+
 #[diagnostic::on_unimplemented(
     message = "this math function is not available for this dialect",
     label = "use a dialect-specific alternative"
@@ -66,6 +87,8 @@ impl<Input: Nullability> DomainMathPolicy<Input> for PostgresDialect {
 }
 impl PiSupport for PostgresDialect {}
 impl PiSupport for MySQLDialect {}
+#[cfg(feature = "math")]
+impl PiSupport for SQLiteDialect {}
 
 /// Dialect-specific return type for `RANDOM()`.
 ///
@@ -353,6 +376,7 @@ pub fn ceil<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
@@ -390,6 +414,7 @@ pub fn floor<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
@@ -427,6 +452,7 @@ pub fn trunc<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
@@ -469,6 +495,7 @@ pub fn sqrt<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
@@ -503,6 +530,7 @@ pub fn power<'a, V, E1, E2>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E1: Expr<'a, V>,
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
@@ -542,6 +570,7 @@ pub fn exp<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -575,6 +604,7 @@ pub fn ln<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
@@ -609,6 +639,7 @@ pub fn log10<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
@@ -645,6 +676,7 @@ pub fn log<'a, V, E1, E2>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker:
         DomainMathPolicy<<E1::Nullable as NullOr<E2::Nullable>>::Output>,
     E1: Expr<'a, V>,
@@ -787,6 +819,7 @@ pub fn pi<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: PiSupport,
 {
     SQLExpr::new(SQL::raw("PI()"))
@@ -854,6 +887,7 @@ pub fn log2<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: Log2Policy,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
