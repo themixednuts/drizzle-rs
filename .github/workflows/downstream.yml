@@ -1,0 +1,30 @@
+name: Downstream (fresh resolution)
+
+# Compiles the downstream consumer fixtures with every dependency resolved
+# fresh from crates.io instead of this repository's Cargo.lock: what a new
+# user gets from `cargo add drizzle`. Catches upstream releases that break a
+# supported version range (e.g. a turso prerelease whose internal crates
+# float), which the lockfile-pinned PR checks cannot see.
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fresh:
+    name: Consumer crates (fresh resolution)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile consumer crates
+        env:
+          DRIZZLE_DOWNSTREAM_FRESH: "1"
+        run: cargo test -p drizzle --test downstream_consumers -- --test-threads=2
