@@ -44,8 +44,12 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
         .map(|(index, (field, field_type))| {
             let field_name = &field.ident;
             if field.is_custom_type {
-                let base_type = &field.base_type;
-                let decode = quote!(row.decode_column::<#base_type>(offset + #index)?);
+                let codec_type = field.codec_type();
+                let decode = if field.is_json_payload() {
+                    quote!(row.decode_column::<#codec_type>(offset + #index)?.into_inner())
+                } else {
+                    quote!(row.decode_column::<#codec_type>(offset + #index)?)
+                };
                 let decode = if field.is_nullable {
                     quote! {
                         if row.is_null_at(offset + #index)? {

@@ -175,32 +175,17 @@ fn generate_constructor_param(
     let category = info.type_category();
 
     // Get paths for fully-qualified types
-    let sql = core_paths::sql();
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
-    let value_wrapper = sqlite_paths::value_wrapper();
-    let expression = sqlite_paths::expr();
 
     match category {
+        // JSON fields take the payload and bind it through `json(?)`.
         TypeCategory::Json => {
-            let json_assignment = quote! {
-                    #field_name: {
-                        let json_str = ::serde_json::to_string(&#field_name)
-                            .expect("failed to serialize JSON value for SQLite JSON column");
-                        #sqlite_insert_value::Value(
-                            #value_wrapper {
-                                value: #expression::json(
-                                    #sql::param(
-                                        #sqlite_value::Text(
-                                            ::std::borrow::Cow::Owned(json_str)
-                                        )
-                                    )),
-                                _phantom: ::std::marker::PhantomData,
-                            }
-                        )
-                    }
-            };
-            (quote! { #field_name: #base_type }, json_assignment)
+            let value = super::super::json::model_value(&quote!(#field_name));
+            (
+                quote! { #field_name: #base_type },
+                quote! { #field_name: #value },
+            )
         }
         TypeCategory::Uuid => {
             let insert_value_type = info.insert_value_inner_type();

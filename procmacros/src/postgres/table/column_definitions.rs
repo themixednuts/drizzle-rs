@@ -126,8 +126,28 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
 
         let default_fn_body = field_info.default_fn.as_ref().map_or_else(
             || quote! { None::<fn() -> Self::Type> },
-            |func| quote! { Some(#func) },
+            |func| {
+                if !field_info.is_json_payload() {
+                    quote! { Some(#func) }
+                } else if field_info.is_nullable {
+                    quote! {
+                        Some(|| ::std::option::Option::map((#func)(), drizzle::core::Json))
+                    }
+                } else {
+                    quote! { Some(|| drizzle::core::Json((#func)())) }
+                }
+            },
         );
+        // JSON payload columns report `Json<Payload>` as their value type:
+        // that is what they bind and decode through, and it lets a JSON
+        // column be selected on its own without any impl on the payload.
+        // `serde_json::Value` columns keep `Value`, which drizzle supports
+        // natively.
+        let decoded_value_type = if field_info.is_json_payload() {
+            field_info.json_value_type()
+        } else {
+            quote! { #rust_type }
+        };
 
         let name = field_info.column_name.clone();
         let col_type = field_info.sql_type_expr();
@@ -374,7 +394,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
                 type Table = #struct_ident;
                 type TableType = PostgresSchemaType;
                 type ForeignKeys = #foreign_keys_type;
-                type Type = #rust_type;
+                type Type = #decoded_value_type;
 
                 const PRIMARY_KEY: bool = #is_primary;
                 const NOT_NULL: bool = #is_not_null || #is_primary;
@@ -399,7 +419,7 @@ pub fn generate_column_definitions(ctx: &MacroContext) -> Result<(TokenStream, V
                 type ValueType = #value_type;
             }
             impl #expr_value_type for #zst_ident {
-                type ValueType = #rust_type;
+                type ValueType = #decoded_value_type;
             }
             impl #into_select_target for #zst_ident {
                 type Marker = #select_cols<(#zst_ident,)>;

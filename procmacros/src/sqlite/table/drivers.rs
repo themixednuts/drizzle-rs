@@ -78,6 +78,12 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
         ));
     }
 
+    // JSON documents decode through `Json<Payload>`'s codec.
+    if info.is_json_column() {
+        let decode = super::json::row_decode(idx_tokens, info, is_optional);
+        return Ok(quote! { #name: #decode, });
+    }
+
     // Codec-owned types use DrizzleRowByIndex for driver-agnostic conversion.
     // UUIDs decode the same way: `FromSQLiteValue` on the declared type picks
     // BLOB or TEXT storage at runtime, so the expansion never assumes the
@@ -102,7 +108,6 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
 
     // Dispatch based on type category
     let converted = match info.type_category() {
-        TypeCategory::Json => generate_json_conversion::<D>(idx_tokens, info, is_optional)?,
         TypeCategory::Enum => generate_enum_conversion::<D>(idx_tokens, info, is_optional)?,
         TypeCategory::ArrayString => {
             generate_arraystring_conversion::<D>(idx_tokens, info, is_optional)
@@ -127,27 +132,6 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
 // =============================================================================
 // Type-Specific Conversion Generators
 // =============================================================================
-
-#[allow(dead_code)]
-fn generate_json_conversion<D: DriverConfig>(
-    idx: &TokenStream,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    if !cfg!(feature = "serde") {
-        return Err(syn::Error::new_spanned(
-            info.ident,
-            errors::json::SERDE_REQUIRED,
-        ));
-    }
-
-    let accessor = D::text_accessor(idx);
-
-    // Both optional and non-optional JSON fields use the same pattern since
-    // the JSON deserialization needs to handle the Option wrapper uniformly
-    let _ = is_optional;
-    Ok(quote!(#accessor.map(|v| serde_json::from_str(v)).transpose()?))
-}
 
 #[allow(dead_code)]
 fn generate_enum_conversion<D: DriverConfig>(

@@ -118,15 +118,20 @@ fn custom_mysql_column_rejects_invalid_storage() {
 #[cfg(feature = "serde")]
 #[test]
 fn custom_json_uses_the_json_codec() {
+    // JSON payloads convert through `Json<T>`, which owns the MySQL JSON
+    // codec; the table macro implements nothing on the payload type.
+    use drizzle::core::Json;
+
     fn assert_json<T: DrizzleMySQLColumn<SQLType = drizzle::mysql::types::Json>>() {}
 
-    assert_json::<JsonDocument>();
+    assert_json::<Json<JsonDocument>>();
     let document = JsonDocument {
         version: 1,
         tags: vec!["typed".to_owned(), "json".to_owned()],
     };
-    let encoded = document.encode();
-    assert_eq!(JsonDocument::decode(encoded).unwrap(), document);
+    let wrapped = Json(document.clone());
+    let encoded = wrapped.encode();
+    assert_eq!(Json::<JsonDocument>::decode(encoded).unwrap().0, document);
 }
 
 #[test]

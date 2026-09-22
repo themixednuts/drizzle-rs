@@ -31,7 +31,6 @@ use column_definitions::{
 };
 use context::MacroContext;
 use ddl::generate_const_ddl;
-use json::generate_json_impls;
 use models::generate_model_definitions;
 use traits::generate_table_impls;
 use validation::{
@@ -101,6 +100,10 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         is_composite_pk,
     };
 
+    // JSON fields convert through `drizzle::core::Json<T>`; nothing is
+    // generated for them beyond the model conversions.
+    json::validate_json_fields(&ctx)?;
+
     // -------------------
     // 2. Generation Phase
     // -------------------
@@ -111,7 +114,6 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let table_impls = generate_table_impls(&ctx, &column_zst_idents, &required_fields_pattern)?;
     let model_definitions =
         generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern);
-    let json_impls = generate_json_impls(&ctx)?;
     let alias_definitions = generate_aliased_table(&ctx)?;
 
     #[cfg(feature = "rusqlite")]
@@ -185,7 +187,6 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         #column_definitions
         #table_impls
         #model_definitions
-        #json_impls
         #alias_definitions
         #rusqlite_impls
         #turso_impls
@@ -231,10 +232,14 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         .field_infos
         .iter()
         .map(|f| {
-            // Determine mutually-exclusive read strategy. UUID wins over blob
-            // (UUIDs are stored as BLOB internally but parsed from strings in
-            // JSON). Bool is checked against the base Rust type.
-            let storage = if f.is_uuid {
+            // Determine mutually-exclusive read strategy. JSON documents are
+            // TEXT, embedded as JSON strings, so they win over the payload's
+            // own shape. UUID wins over blob (UUIDs are stored as BLOB
+            // internally but parsed from strings in JSON). Bool is checked
+            // against the base Rust type.
+            let storage = if f.is_json_column() {
+                crate::common::query::FieldStorageKind::SQLiteJson
+            } else if f.is_uuid {
                 crate::common::query::FieldStorageKind::SQLiteUuid
             } else if crate::common::type_is_bool(f.base_type) {
                 crate::common::query::FieldStorageKind::Bool

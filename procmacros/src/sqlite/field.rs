@@ -1180,6 +1180,21 @@ impl FieldInfo<'_> {
         self.is_enum || self.is_custom_type
     }
 
+    /// Whether the field holds a JSON document: `#[column(JSON)]` or a
+    /// `serde_json::Value` field. Such fields convert through
+    /// `drizzle::core::Json<Payload>`.
+    pub(crate) fn is_json_column(&self) -> bool {
+        self.type_category() == TypeCategory::Json
+    }
+
+    /// Whether the field is a JSON column whose payload is not
+    /// `serde_json::Value` (spelled with its path). Such columns expose
+    /// `Json<Payload>` as their column value type; `serde_json::Value`
+    /// columns keep `Value`, which drizzle-sqlite supports natively.
+    pub(crate) fn is_json_payload(&self) -> bool {
+        self.is_json_column() && !crate::common::type_is_json_value(self.base_type)
+    }
+
     /// Get the inner type for `SQLiteInsertValue` wrapper.
     ///
     /// For types that use `impl Into<...>` parameters, this returns the

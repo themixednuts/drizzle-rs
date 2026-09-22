@@ -3,14 +3,6 @@
 //! Centralizes error strings to ensure consistency across driver implementations
 //! and simplify maintenance.
 
-/// Error messages for JSON field configuration
-pub mod json {
-    pub const SERDE_REQUIRED: &str = "JSON fields require the 'serde' feature to be enabled.\n\
-         \n\
-         Add to Cargo.toml:\n\
-         drizzle = { version = \"...\", features = [\"serde\"] }";
-}
-
 /// Error messages for enum field configuration
 #[allow(dead_code)]
 pub mod enums {
