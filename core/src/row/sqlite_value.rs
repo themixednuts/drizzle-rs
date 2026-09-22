@@ -293,6 +293,32 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for chrono::DateTime<chrono::Utc> {
     }
 }
 
+/// A JSON column read on its own (`select(t.meta)`) decodes through
+/// [`Json`](crate::json::Json), so the payload type needs no impls.
+#[cfg(feature = "serde")]
+impl<R: SqliteValueRow, T: serde::de::DeserializeOwned> FromDrizzleRow<R> for crate::json::Json<T> {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        match row.cell_at(offset)? {
+            SqliteCell::Text(text) => Self::from_json_str(&text),
+            SqliteCell::Blob(bytes) => Self::from_json_slice(&bytes),
+            SqliteCell::Integer(value) => Self::from_json_value(serde_json::Value::from(value)),
+            SqliteCell::Real(value) => Self::from_json_value(
+                serde_json::Number::from_f64(value)
+                    .map(serde_json::Value::Number)
+                    .ok_or_else(|| {
+                        DrizzleError::ConversionError(
+                            "cannot convert a non-finite REAL to JSON".into(),
+                        )
+                    })?,
+            ),
+            SqliteCell::Null => Err(DrizzleError::ConversionError(
+                "unexpected NULL for a JSON column".into(),
+            )),
+        }
+    }
+}
+
 #[cfg(feature = "serde")]
 impl<R: SqliteValueRow> FromDrizzleRow<R> for serde_json::Value {
     const COLUMN_COUNT: usize = 1;

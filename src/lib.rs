@@ -158,6 +158,22 @@ pub mod core {
         pub use drizzle_core::query::*;
     }
 
+    /// Drizzle-owned wrapper for JSON column values.
+    ///
+    /// Not part of the dialect preludes, so it never collides with the
+    /// `Json` SQL type marker in `drizzle::postgres::types` or
+    /// `drizzle::mysql::types`; import it as `drizzle::core::Json`.
+    #[cfg(feature = "serde")]
+    #[doc(inline)]
+    pub use drizzle_core::Json;
+
+    /// The JSON column wrapper and the field conversions generated models use.
+    #[cfg(feature = "serde")]
+    pub mod json {
+        #[doc(inline)]
+        pub use drizzle_core::json::*;
+    }
+
     /// Re-export serde for proc macro generated code.
     #[cfg(any(feature = "serde", feature = "query"))]
     #[doc(hidden)]

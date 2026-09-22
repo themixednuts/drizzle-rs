@@ -5,6 +5,8 @@
 mod conversions;
 mod drivers;
 mod insert;
+#[cfg(feature = "serde")]
+mod json;
 pub mod owned;
 mod update;
 

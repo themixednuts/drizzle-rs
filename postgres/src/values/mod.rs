@@ -3,10 +3,14 @@
 mod conversions;
 mod drivers;
 mod insert;
+#[cfg(feature = "serde")]
+mod json;
 mod owned;
 mod update;
 
 pub use insert::*;
+#[cfg(feature = "serde")]
+pub use json::PostgresJsonType;
 pub use owned::*;
 pub use update::*;
 

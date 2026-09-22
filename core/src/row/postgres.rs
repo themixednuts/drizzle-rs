@@ -36,6 +36,15 @@ pub use ::postgres::types::FromSql;
 #[cfg(feature = "tokio-postgres")]
 pub use ::tokio_postgres::types::FromSql;
 
+#[cfg(all(
+    feature = "serde",
+    feature = "postgres-sync",
+    not(feature = "tokio-postgres")
+))]
+use ::postgres::types::Json as DriverJson;
+#[cfg(all(feature = "serde", feature = "tokio-postgres"))]
+use ::tokio_postgres::types::Json as DriverJson;
+
 /// Implemented by Postgres-flavored row types whose cells are decoded through
 /// `postgres_types::FromSql`. Drivers supply a one-method adapter that
 /// forwards to their native `try_get`; `impl_postgres_value_row!` then emits
@@ -98,6 +107,29 @@ macro_rules! impl_postgres_value_row {
 
         #[cfg(feature = "serde")]
         postgres_leaf_impls!($row_ty; serde_json::Value, Vec<serde_json::Value>);
+
+        // A JSON column read on its own (`select(t.meta)`) decodes through
+        // `Json<T>`, so the payload type needs no impls. `json` and `jsonb`
+        // both decode through the driver's JSON codec.
+        #[cfg(feature = "serde")]
+        impl<T: serde::de::DeserializeOwned> FromDrizzleRow<$row_ty> for crate::json::Json<T> {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &$row_ty, offset: usize) -> Result<Self, DrizzleError> {
+                <$row_ty as PostgresValueRow>::try_get_from_sql::<DriverJson<T>>(row, offset)
+                    .map(|DriverJson(value)| crate::json::Json(value))
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<T: serde::de::DeserializeOwned> NullProbeRow<$row_ty> for crate::json::Json<T> {
+            fn is_null_at(row: &$row_ty, offset: usize) -> Result<bool, DrizzleError> {
+                // `IgnoredAny` validates the document without building it.
+                <$row_ty as PostgresValueRow>::try_get_from_sql::<
+                    Option<DriverJson<serde::de::IgnoredAny>>,
+                >(row, offset)
+                .map(|value| value.is_none())
+            }
+        }
 
         #[cfg(feature = "rust-decimal")]
         postgres_leaf_impls!($row_ty; rust_decimal::Decimal);
