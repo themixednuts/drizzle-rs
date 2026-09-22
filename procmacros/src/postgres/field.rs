@@ -931,6 +931,15 @@ impl FieldInfo {
             ));
         }
 
+        // An explicit `json`/`jsonb` column stores the whole field as one
+        // document: `#[column(json)] tags: Vec<String>` is a JSON array, not a
+        // PostgreSQL `text[]`.
+        let (array_type, dimensions) = if is_explicit_json || is_explicit_jsonb {
+            (None, None)
+        } else {
+            (array_type, dimensions)
+        };
+
         if explicit_type.is_some() && (is_explicit_json || is_explicit_jsonb || is_pgenum) {
             return Err(Error::new_spanned(
                 field,
