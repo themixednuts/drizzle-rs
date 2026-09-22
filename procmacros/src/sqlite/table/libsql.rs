@@ -127,7 +127,9 @@ fn generate_field_from_row_impl(
 
     // Codec-owned types use DrizzleRowByIndex for unified conversion. Option<T>
     // only maps SQL NULL to None; invalid non-NULL values remain errors.
-    if info.uses_sqlite_column_codec() {
+    // UUIDs share the path: `FromSQLiteValue` on the declared type handles
+    // BLOB and TEXT storage without naming `::uuid::Uuid`.
+    if info.uses_sqlite_column_codec() || info.type_category() == TypeCategory::Uuid {
         // idx is a usize expression here (before i32 cast for libsql)
         if is_optional {
             return Ok(quote! {
@@ -150,7 +152,6 @@ fn generate_field_from_row_impl(
     // Dispatch based on type category
     match info.type_category() {
         TypeCategory::Json => handle_json_field(&idx, name, info, is_optional),
-        TypeCategory::Uuid => handle_uuid_field(&idx, name, info, is_optional),
         TypeCategory::Enum => handle_enum_field(&idx, name, info, is_optional),
         TypeCategory::ArrayString => Ok(handle_arraystring_field(&idx, name, info, is_optional)),
         TypeCategory::ArrayVec => Ok(handle_arrayvec_field(&idx, name, info, is_optional)),
@@ -181,38 +182,6 @@ fn handle_json_field(
             let value: String = row.get(#idx)?;
             serde_json::from_str(&value)
         })
-    };
-
-    Ok(quote! { #name: #accessor?, })
-}
-
-fn handle_uuid_field(
-    idx: &TokenStream,
-    name: &syn::Ident,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    let accessor = match info.column_type {
-        SQLiteType::Blob => {
-            if is_optional {
-                quote!(row.get::<Option<[u8;16]>>(#idx).map(|opt| opt.map(::uuid::Uuid::from_bytes)))
-            } else {
-                quote!(row.get::<[u8;16]>(#idx).map(::uuid::Uuid::from_bytes))
-            }
-        }
-        SQLiteType::Text => {
-            if is_optional {
-                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.map(|v| ::uuid::Uuid::parse_str(&v)).transpose())?)
-            } else {
-                quote!(row.get::<String>(#idx).map(|v| ::uuid::Uuid::parse_str(&v))?)
-            }
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::uuid::INVALID_COLUMN_TYPE,
-            ));
-        }
     };
 
     Ok(quote! { #name: #accessor?, })

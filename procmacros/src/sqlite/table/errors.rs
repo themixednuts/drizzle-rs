@@ -11,17 +11,6 @@ pub mod json {
          drizzle = { version = \"...\", features = [\"serde\"] }";
 }
 
-/// Error messages for UUID field configuration
-#[allow(dead_code)]
-pub mod uuid {
-    pub const INVALID_COLUMN_TYPE: &str = "UUID fields must use BLOB or TEXT column types.\n\
-         \n\
-         - BLOB storage: Efficient 16-byte binary format (recommended)\n\
-         - TEXT storage: Human-readable string format\n\
-         \n\
-         Example: #[column(blob)] uuid: Uuid or #[column(text)] uuid: Uuid";
-}
-
 /// Error messages for enum field configuration
 #[allow(dead_code)]
 pub mod enums {

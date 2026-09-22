@@ -1189,11 +1189,12 @@ impl FieldInfo<'_> {
 
         match self.type_category() {
             TypeCategory::Uuid => {
-                // UUID uses String for TEXT columns, Uuid for BLOB columns
+                // UUID uses String for TEXT columns and the declared type for
+                // BLOB columns (which may be an alias or a re-export).
                 if self.column_type == SQLiteType::Text {
                     quote!(::std::string::String)
                 } else {
-                    quote!(::uuid::Uuid)
+                    quote!(#base_type)
                 }
             }
             TypeCategory::String => quote!(::std::string::String),
