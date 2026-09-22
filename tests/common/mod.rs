@@ -18,6 +18,8 @@ pub mod derived;
 pub mod expressions;
 pub mod foreign_keys;
 pub mod helpers;
+#[cfg(feature = "serde")]
+pub mod json;
 pub mod prepared;
 #[cfg(feature = "query")]
 pub mod query;

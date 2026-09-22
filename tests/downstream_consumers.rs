@@ -30,8 +30,11 @@ fn postgres_derives_compile_in_consumer_crates() {
             &dir,
             &format!("downstream_postgres_{}", driver.replace('-', "_")),
             &root,
-            &[driver, "uuid", "query"],
-            &[r#"uuid = { version = "1.18", features = ["v4"] }"#],
+            &[driver, "uuid", "query", "serde"],
+            &[
+                r#"uuid = { version = "1.18", features = ["v4"] }"#,
+                SERDE_DEPENDENCY,
+            ],
             POSTGRES_SOURCE,
         );
         cargo_check(&root, &dir);
@@ -46,8 +49,11 @@ fn mysql_derives_compile_in_consumer_crates() {
         &dir,
         "downstream_mysql_sync",
         &root,
-        &["mysql-sync", "uuid", "query"],
-        &[r#"uuid = { version = "1.18", features = ["v4"] }"#],
+        &["mysql-sync", "uuid", "query", "serde"],
+        &[
+            r#"uuid = { version = "1.18", features = ["v4"] }"#,
+            SERDE_DEPENDENCY,
+        ],
         MYSQL_SOURCE,
     );
     cargo_check(&root, &dir);
@@ -70,19 +76,26 @@ fn sqlite_uuid_columns_follow_the_declared_type() {
     ] {
         let dir = fixtures.join(format!("sqlite_{name}"));
         let mut features = drivers.to_vec();
-        features.extend(["uuid", "query"]);
+        features.extend(["uuid", "query", "serde"]);
         write_fixture(
             &dir,
             &format!("downstream_sqlite_{name}"),
             &root,
             &features,
             // Renamed on purpose: generated code must not assume `::uuid`.
-            &[r#"ids = { package = "uuid", version = "1.18", features = ["v4"] }"#],
+            &[
+                r#"ids = { package = "uuid", version = "1.18", features = ["v4"] }"#,
+                SERDE_DEPENDENCY,
+            ],
             SQLITE_SOURCE,
         );
         cargo_check(&root, &dir);
     }
 }
+
+/// JSON payloads only need `serde` itself: the fixtures deliberately do not
+/// depend on `serde_json`, so generated code must not name it.
+const SERDE_DEPENDENCY: &str = r#"serde = { version = "1", features = ["derive"] }"#;
 
 fn fresh_mode() -> bool {
     std::env::var_os("DRIZZLE_DOWNSTREAM_FRESH").is_some_and(|value| value != "0")
@@ -182,6 +195,33 @@ const POSTGRES_SOURCE: &str = r#"
 
 use drizzle::postgres::prelude::*;
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Address {
+    pub city: String,
+}
+
+// `Address` backs JSON columns in two tables, and `Vec<String>` is a foreign
+// payload: neither may receive generated impls.
+#[PostgresTable]
+pub struct Customers {
+    #[column(primary)]
+    pub id: i32,
+    #[column(jsonb)]
+    pub address: Address,
+    #[column(json)]
+    pub tags: Vec<String>,
+}
+
+#[PostgresTable]
+pub struct Shipments {
+    #[column(primary)]
+    pub id: i32,
+    #[column(jsonb)]
+    pub destination: Address,
+    #[column(jsonb)]
+    pub previous: Option<Address>,
+}
+
 #[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]
 pub enum Mood {
     #[default]
@@ -246,6 +286,10 @@ where
     Level: drizzle::core::FromDrizzleRow<drizzle::postgres::Row>,
 {
     let _ = InsertAccounts::new(1, "a", Mood::Happy, Level::Low, uuid::Uuid::nil());
+    let _ = InsertCustomers::new(1, Address::default(), vec!["a".into()]);
+    let _ = InsertShipments::new(1, Address::default()).with_previous(Address::default());
+    let _ = UpdateShipments::default().with_destination(Address::default());
+    let _ = drizzle::core::expr::eq(Shipments::default().destination, drizzle::core::Json(Address::default()));
 }
 "#;
 
@@ -253,6 +297,33 @@ const MYSQL_SOURCE: &str = r#"
 #![deny(warnings)]
 
 use drizzle::mysql::prelude::*;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Address {
+    pub city: String,
+}
+
+// `Address` backs JSON columns in two tables, and `Vec<String>` is a foreign
+// payload: neither may receive generated impls.
+#[MySQLTable]
+pub struct Customers {
+    #[column(PRIMARY)]
+    pub id: i32,
+    #[column(JSON)]
+    pub address: Address,
+    #[column(JSON)]
+    pub tags: Vec<String>,
+}
+
+#[MySQLTable]
+pub struct Shipments {
+    #[column(PRIMARY)]
+    pub id: i32,
+    #[column(JSON)]
+    pub destination: Address,
+    #[column(JSON)]
+    pub previous: Option<Address>,
+}
 
 #[derive(MySQLEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Status {
@@ -299,6 +370,10 @@ pub struct AccountEmail {
 
 pub fn build() {
     let _ = InsertAccounts::new("a@example.com", Status::Draft, uuid::Uuid::nil());
+    let _ = InsertCustomers::new(1, Address::default(), vec!["a".into()]);
+    let _ = InsertShipments::new(1, Address::default()).with_previous(Address::default());
+    let _ = UpdateShipments::default().with_destination(Address::default());
+    let _ = drizzle::core::expr::eq(Shipments::default().destination, drizzle::core::Json(Address::default()));
     let _ = Schema::new();
 }
 "#;
@@ -307,6 +382,33 @@ const SQLITE_SOURCE: &str = r#"
 #![deny(warnings)]
 
 use drizzle::sqlite::prelude::*;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Address {
+    pub city: String,
+}
+
+// `Address` backs JSON columns in two tables, and `Vec<String>` is a foreign
+// payload: neither may receive generated impls.
+#[SQLiteTable]
+pub struct Customers {
+    #[column(primary)]
+    pub id: i64,
+    #[column(json)]
+    pub address: Address,
+    #[column(json)]
+    pub tags: Vec<String>,
+}
+
+#[SQLiteTable]
+pub struct Shipments {
+    #[column(primary)]
+    pub id: i64,
+    #[column(json)]
+    pub destination: Address,
+    #[column(json)]
+    pub previous: Option<Address>,
+}
 
 #[SQLiteTable]
 pub struct Items {
@@ -331,6 +433,10 @@ pub struct ItemIds {
 
 pub fn build() {
     let _ = InsertItems::new(ids::Uuid::nil(), ids::Uuid::nil()).with_maybe_id(ids::Uuid::nil());
+    let _ = InsertCustomers::new(Address::default(), vec!["a".into()]);
+    let _ = InsertShipments::new(Address::default()).with_previous(Address::default());
+    let _ = UpdateShipments::default().with_destination(Address::default());
+    let _ = drizzle::core::expr::eq(Shipments::default().destination, drizzle::core::Json(Address::default()));
     let _ = Schema::new();
 }
 "#;

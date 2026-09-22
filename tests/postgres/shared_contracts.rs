@@ -32,6 +32,17 @@ crate::common::expressions::shared_expression_suite!(postgres, PostgresTable, Po
 crate::common::foreign_keys::shared_foreign_key_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::comment::shared_comment_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::wrappers::shared_wrapper_type_suite!(postgres, PostgresTable, PostgresSchema);
+// `json` columns hold the plain payloads; PostgreSQL defines `=` only for
+// `jsonb`, so the compared column is `jsonb`.
+#[cfg(feature = "serde")]
+crate::common::json::shared_json_suite!(
+    postgres,
+    PostgresTable,
+    PostgresSchema,
+    PostgresUpdateValue,
+    JSON,
+    JSONB
+);
 #[cfg(feature = "arrayvec")]
 crate::common::arrayvec::shared_arrayvec_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::expressions::shared_math_extension_suite!(postgres, PostgresTable, PostgresSchema);

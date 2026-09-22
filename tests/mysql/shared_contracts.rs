@@ -20,6 +20,15 @@ crate::common::expressions::shared_expression_suite!(mysql, MySQLTable, MySQLSch
 crate::common::foreign_keys::shared_foreign_key_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::comment::shared_comment_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::wrappers::shared_wrapper_type_suite!(mysql, MySQLTable, MySQLSchema);
+#[cfg(feature = "serde")]
+crate::common::json::shared_json_suite!(
+    mysql,
+    MySQLTable,
+    MySQLSchema,
+    MySQLUpdateValue,
+    JSON,
+    JSON
+);
 #[cfg(feature = "arrayvec")]
 crate::common::arrayvec::shared_arrayvec_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::expressions::shared_math_extension_suite!(mysql, MySQLTable, MySQLSchema);

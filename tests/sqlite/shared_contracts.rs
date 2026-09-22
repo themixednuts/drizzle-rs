@@ -25,6 +25,15 @@ crate::common::expressions::shared_expression_suite!(sqlite, SQLiteTable, SQLite
 crate::common::foreign_keys::shared_foreign_key_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::comment::shared_comment_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::wrappers::shared_wrapper_type_suite!(sqlite, SQLiteTable, SQLiteSchema);
+#[cfg(feature = "serde")]
+crate::common::json::shared_json_suite!(
+    sqlite,
+    SQLiteTable,
+    SQLiteSchema,
+    SQLiteUpdateValue,
+    JSON,
+    JSON
+);
 #[cfg(feature = "arrayvec")]
 crate::common::arrayvec::shared_arrayvec_suite!(sqlite, SQLiteTable, SQLiteSchema);
 // Only the bundled rusqlite build can be given SQLITE_ENABLE_MATH_FUNCTIONS
