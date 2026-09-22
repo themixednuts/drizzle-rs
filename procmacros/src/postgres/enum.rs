@@ -186,173 +186,98 @@ pub fn generate_enum_impl(
         Box::new([])
     };
 
-    // Generate postgres FromSql/ToSql impls when postgres feature is enabled
-    #[cfg(feature = "postgres")]
-    let postgres_impls = if is_integer_storage {
+    // Wire codec (`FromSql`/`ToSql`) for the enabled PostgreSQL driver. The
+    // driver is chosen here, against this crate's features: a
+    // `#[cfg(feature = ...)]` emitted into the expansion would be evaluated
+    // against the user's crate, which has no driver features, and drop the
+    // impls that `DrizzlePostgresColumn::decode` below relies on. Paths go
+    // through `drizzle::postgres::driver_types` so the expansion never names
+    // `tokio_postgres`, `postgres` or `bytes` directly.
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    let postgres_impls = {
+        let pg = quote!(drizzle::postgres::driver_types);
         let name_str = name.to_string();
-        quote! {
-            #[cfg(feature = "tokio-postgres")]
-            impl<'a> ::tokio_postgres::types::FromSql<'a> for #name {
-                fn from_sql(
-                    ty: &::tokio_postgres::types::Type,
-                    raw: &'a [u8],
-                ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let value = <i32 as ::tokio_postgres::types::FromSql>::from_sql(ty, raw)?;
-                    <#name as ::std::convert::TryFrom<i32>>::try_from(value).map_err(|_| {
-                        ::std::format!("Failed to parse {} from integer {}", #name_str, value).into()
-                    })
+        if is_integer_storage {
+            quote! {
+                impl<'a> #pg::FromSql<'a> for #name {
+                    fn from_sql(
+                        ty: &#pg::Type,
+                        raw: &'a [u8],
+                    ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                        let value = <i32 as #pg::FromSql>::from_sql(ty, raw)?;
+                        <#name as ::std::convert::TryFrom<i32>>::try_from(value).map_err(|_| {
+                            ::std::format!("Failed to parse {} from integer {}", #name_str, value).into()
+                        })
+                    }
+
+                    fn accepts(ty: &#pg::Type) -> bool {
+                        *ty == #pg::Type::INT4
+                    }
                 }
 
-                fn accepts(ty: &::tokio_postgres::types::Type) -> bool {
-                    *ty == ::tokio_postgres::types::Type::INT4
-                }
-            }
+                impl #pg::ToSql for #name {
+                    fn to_sql(
+                        &self,
+                        ty: &#pg::Type,
+                        out: &mut #pg::BytesMut,
+                    ) -> ::std::result::Result<#pg::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                        let value: i32 = match self {
+                            #(#postgres_integer_ref_variants,)*
+                        };
+                        #pg::ToSql::to_sql(&value, ty, out)
+                    }
 
-            #[cfg(feature = "tokio-postgres")]
-            impl ::tokio_postgres::types::ToSql for #name {
-                fn to_sql(
-                    &self,
-                    ty: &::tokio_postgres::types::Type,
-                    out: &mut ::bytes::BytesMut,
-                ) -> ::std::result::Result<::tokio_postgres::types::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let value: i32 = match self {
-                        #(#postgres_integer_ref_variants,)*
-                    };
-                    ::tokio_postgres::types::ToSql::to_sql(&value, ty, out)
-                }
+                    fn accepts(ty: &#pg::Type) -> bool {
+                        *ty == #pg::Type::INT4
+                    }
 
-                fn accepts(ty: &::tokio_postgres::types::Type) -> bool {
-                    *ty == ::tokio_postgres::types::Type::INT4
-                }
-
-                ::tokio_postgres::types::to_sql_checked!();
-            }
-
-            #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-            impl<'a> ::postgres::types::FromSql<'a> for #name {
-                fn from_sql(
-                    ty: &::postgres::types::Type,
-                    raw: &'a [u8],
-                ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let value = <i32 as ::postgres::types::FromSql>::from_sql(ty, raw)?;
-                    <#name as ::std::convert::TryFrom<i32>>::try_from(value).map_err(|_| {
-                        ::std::format!("Failed to parse {} from integer {}", #name_str, value).into()
-                    })
-                }
-
-                fn accepts(ty: &::postgres::types::Type) -> bool {
-                    *ty == ::postgres::types::Type::INT4
+                    #pg::to_sql_checked!();
                 }
             }
+        } else {
+            quote! {
+                impl<'a> #pg::FromSql<'a> for #name {
+                    fn from_sql(
+                        _ty: &#pg::Type,
+                        raw: &'a [u8],
+                    ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                        let s = ::std::str::from_utf8(raw)?;
+                        <#name as ::std::str::FromStr>::from_str(s).map_err(|_| {
+                            ::std::format!("Failed to parse {} from '{}'", #name_str, s).into()
+                        })
+                    }
 
-            #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-            impl ::postgres::types::ToSql for #name {
-                fn to_sql(
-                    &self,
-                    ty: &::postgres::types::Type,
-                    out: &mut ::bytes::BytesMut,
-                ) -> ::std::result::Result<::postgres::types::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let value: i32 = match self {
-                        #(#postgres_integer_ref_variants,)*
-                    };
-                    ::postgres::types::ToSql::to_sql(&value, ty, out)
+                    fn accepts(ty: &#pg::Type) -> bool {
+                        ty.name().eq_ignore_ascii_case(#name_str)
+                            || *ty == #pg::Type::TEXT
+                            || *ty == #pg::Type::VARCHAR
+                    }
                 }
 
-                fn accepts(ty: &::postgres::types::Type) -> bool {
-                    *ty == ::postgres::types::Type::INT4
+                impl #pg::ToSql for #name {
+                    fn to_sql(
+                        &self,
+                        _ty: &#pg::Type,
+                        out: &mut #pg::BytesMut,
+                    ) -> ::std::result::Result<#pg::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
+                        let s: &str = self.into();
+                        #pg::ToSql::to_sql(&s, _ty, out)?;
+                        ::std::result::Result::Ok(#pg::IsNull::No)
+                    }
+
+                    fn accepts(ty: &#pg::Type) -> bool {
+                        ty.name().eq_ignore_ascii_case(#name_str)
+                            || *ty == #pg::Type::TEXT
+                            || *ty == #pg::Type::VARCHAR
+                    }
+
+                    #pg::to_sql_checked!();
                 }
-
-                ::postgres::types::to_sql_checked!();
-            }
-        }
-    } else {
-        let name_str = name.to_string();
-        quote! {
-            // When tokio-postgres is enabled, impl against tokio_postgres::types
-            #[cfg(feature = "tokio-postgres")]
-            impl<'a> ::tokio_postgres::types::FromSql<'a> for #name {
-                fn from_sql(
-                    _ty: &::tokio_postgres::types::Type,
-                    raw: &'a [u8],
-                ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let s = ::std::str::from_utf8(raw)?;
-                    <#name as ::std::str::FromStr>::from_str(s).map_err(|_| {
-                        ::std::format!("Failed to parse {} from '{}'", #name_str, s).into()
-                    })
-                }
-
-                fn accepts(ty: &::tokio_postgres::types::Type) -> bool {
-                    ty.name().eq_ignore_ascii_case(#name_str)
-                        || *ty == ::tokio_postgres::types::Type::TEXT
-                        || *ty == ::tokio_postgres::types::Type::VARCHAR
-                }
-            }
-
-            #[cfg(feature = "tokio-postgres")]
-            impl ::tokio_postgres::types::ToSql for #name {
-                fn to_sql(
-                    &self,
-                    _ty: &::tokio_postgres::types::Type,
-                    out: &mut ::bytes::BytesMut,
-                ) -> ::std::result::Result<::tokio_postgres::types::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let s: &str = self.into();
-                    ::tokio_postgres::types::ToSql::to_sql(&s, _ty, out)?;
-                    ::std::result::Result::Ok(::tokio_postgres::types::IsNull::No)
-                }
-
-                fn accepts(ty: &::tokio_postgres::types::Type) -> bool {
-                    ty.name().eq_ignore_ascii_case(#name_str)
-                        || *ty == ::tokio_postgres::types::Type::TEXT
-                        || *ty == ::tokio_postgres::types::Type::VARCHAR
-                }
-
-                ::tokio_postgres::types::to_sql_checked!();
-            }
-
-            // When only postgres-sync is enabled (without tokio-postgres), impl against postgres::types
-            #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-            impl<'a> ::postgres::types::FromSql<'a> for #name {
-                fn from_sql(
-                    _ty: &::postgres::types::Type,
-                    raw: &'a [u8],
-                ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let s = ::std::str::from_utf8(raw)?;
-                    <#name as ::std::str::FromStr>::from_str(s).map_err(|_| {
-                        ::std::format!("Failed to parse {} from '{}'", #name_str, s).into()
-                    })
-                }
-
-                fn accepts(ty: &::postgres::types::Type) -> bool {
-                    ty.name().eq_ignore_ascii_case(#name_str)
-                        || *ty == ::postgres::types::Type::TEXT
-                        || *ty == ::postgres::types::Type::VARCHAR
-                }
-            }
-
-            #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-            impl ::postgres::types::ToSql for #name {
-                fn to_sql(
-                    &self,
-                    _ty: &::postgres::types::Type,
-                    out: &mut ::bytes::BytesMut,
-                ) -> ::std::result::Result<::postgres::types::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                    let s: &str = self.into();
-                    ::postgres::types::ToSql::to_sql(&s, _ty, out)?;
-                    ::std::result::Result::Ok(::postgres::types::IsNull::No)
-                }
-
-                fn accepts(ty: &::postgres::types::Type) -> bool {
-                    ty.name().eq_ignore_ascii_case(#name_str)
-                        || *ty == ::postgres::types::Type::TEXT
-                        || *ty == ::postgres::types::Type::VARCHAR
-                }
-
-                ::postgres::types::to_sql_checked!();
             }
         }
     };
 
-    #[cfg(not(feature = "postgres"))]
+    #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
     let postgres_impls = quote! {};
 
     if is_integer_storage && enum_schema.is_some() {
@@ -685,10 +610,17 @@ pub fn generate_enum_impl(
                     #null_probe
                 }
             }
+
+            impl #row_column_list<#postgres_row> for #name {
+                type Columns = #type_set_cons<#name, #type_set_nil>;
+            }
         }
     };
     #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-    let postgres_row_impls = quote! {};
+    let postgres_row_impls = {
+        let _ = (&postgres_row, &row_column_list, &type_set_cons);
+        quote! {}
+    };
 
     #[cfg(feature = "aws-data-api")]
     let aws_data_api_row_impls = {
@@ -908,11 +840,6 @@ pub fn generate_enum_impl(
                 let value: #postgres_value<'a> = owned.into();
                 value.into()
             }
-        }
-
-        #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-        impl #row_column_list<#postgres_row> for #name {
-            type Columns = #type_set_cons<#name, #type_set_nil>;
         }
 
         #postgres_row_impls
