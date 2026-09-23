@@ -541,12 +541,16 @@ impl From<&time::Date> for SQLiteValue<'_> {
     }
 }
 
+/// `HH:MM:SS.fraction`, as SQLite's time functions read it. (ISO 8601's
+/// time-only format starts with a `T`, which they reject.)
 #[cfg(feature = "time")]
 impl From<time::Time> for SQLiteValue<'_> {
     fn from(value: time::Time) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::TIME)
+                .format(time::macros::format_description!(
+                    "[hour]:[minute]:[second].[subsecond]"
+                ))
                 .unwrap_or_else(|_| value.to_string()),
         ))
     }
@@ -555,11 +559,7 @@ impl From<time::Time> for SQLiteValue<'_> {
 #[cfg(feature = "time")]
 impl From<&time::Time> for SQLiteValue<'_> {
     fn from(value: &time::Time) -> Self {
-        SQLiteValue::Text(Cow::Owned(
-            value
-                .format(&time::format_description::well_known::Iso8601::TIME)
-                .unwrap_or_else(|_| value.to_string()),
-        ))
+        Self::from(*value)
     }
 }
 

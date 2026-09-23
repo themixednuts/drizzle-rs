@@ -7,6 +7,7 @@ pub mod async_edge_cases;
 pub mod codecs;
 pub mod conditions;
 pub mod custom_column;
+pub mod datetime_crates;
 pub mod r#enum;
 pub mod expr;
 pub mod expressions;

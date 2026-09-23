@@ -773,6 +773,31 @@ impl<Row: ?Sized> RowColumnList<Row> for chrono::Duration {
     type Columns = crate::Cons<Self, crate::Nil>;
 }
 
+#[cfg(feature = "time")]
+impl<Row: ?Sized> RowColumnList<Row> for time::Date {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
+#[cfg(feature = "time")]
+impl<Row: ?Sized> RowColumnList<Row> for time::Time {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
+#[cfg(feature = "time")]
+impl<Row: ?Sized> RowColumnList<Row> for time::PrimitiveDateTime {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
+#[cfg(feature = "time")]
+impl<Row: ?Sized> RowColumnList<Row> for time::OffsetDateTime {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
+#[cfg(feature = "time")]
+impl<Row: ?Sized> RowColumnList<Row> for time::Duration {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
 #[cfg(feature = "cidr")]
 impl<Row: ?Sized> RowColumnList<Row> for cidr::IpInet {
     type Columns = crate::Cons<Self, crate::Nil>;
@@ -1365,6 +1390,26 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Time {
 #[cfg(feature = "chrono")]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timetz {
     type RustType = chrono::NaiveTime;
+}
+
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timestamptz {
+    type RustType = time::OffsetDateTime;
+}
+
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timestamp {
+    type RustType = time::PrimitiveDateTime;
+}
+
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Date {
+    type RustType = time::Date;
+}
+
+#[cfg(all(not(feature = "chrono"), feature = "time"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Time {
+    type RustType = time::Time;
 }
 
 #[cfg(feature = "uuid")]

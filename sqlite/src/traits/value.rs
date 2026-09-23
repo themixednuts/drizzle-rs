@@ -1079,6 +1079,56 @@ impl FromSQLiteValue for chrono::DateTime<chrono::Utc> {
 // Time crate date/time types (parse from ISO-8601 text)
 // =============================================================================
 
+/// Parsers for the text `time` values are stored as.
+///
+/// Each accepts what the SQLite conversions write and the forms SQLite's own
+/// date and time functions produce (`HH:MM:SS`, a space between date and time,
+/// no offset for UTC).
+#[cfg(feature = "time")]
+pub(crate) mod time_text {
+    use time::format_description::well_known::{Iso8601, Rfc3339};
+    use time::macros::format_description;
+
+    /// `HH:MM:SS[.fraction]`. Versions before 0.1.17 wrote ISO 8601's `T`
+    /// prefix, which is accepted too.
+    pub(crate) fn time(text: &str) -> Result<time::Time, time::error::Parse> {
+        let text = text.strip_prefix('T').unwrap_or(text);
+        time::Time::parse(
+            text,
+            format_description!("[hour]:[minute]:[second].[subsecond]"),
+        )
+        .or_else(|_| time::Time::parse(text, format_description!("[hour]:[minute]:[second]")))
+    }
+
+    /// ISO 8601, or SQLite's `YYYY-MM-DD HH:MM:SS[.fraction]`.
+    pub(crate) fn primitive(text: &str) -> Result<time::PrimitiveDateTime, time::error::Parse> {
+        time::PrimitiveDateTime::parse(text, &Iso8601::DATE_TIME)
+            .or_else(|_| {
+                time::PrimitiveDateTime::parse(
+                    text,
+                    format_description!(
+                        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"
+                    ),
+                )
+            })
+            .or_else(|_| {
+                time::PrimitiveDateTime::parse(
+                    text,
+                    format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
+                )
+            })
+    }
+
+    /// RFC 3339, or a date and time without an offset, which is UTC.
+    pub(crate) fn offset(text: &str) -> Result<time::OffsetDateTime, time::error::Parse> {
+        time::OffsetDateTime::parse(text, &Rfc3339).or_else(|error| {
+            primitive(text)
+                .map(time::PrimitiveDateTime::assume_utc)
+                .map_err(|_| error)
+        })
+    }
+}
+
 #[cfg(feature = "time")]
 impl FromSQLiteValue for time::Date {
     fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
@@ -1117,7 +1167,7 @@ impl FromSQLiteValue for time::Time {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        Self::parse(value, &time::format_description::well_known::Iso8601::TIME).map_err(|e| {
+        time_text::time(value).map_err(|e| {
             DrizzleError::ConversionError(
                 format!("cannot parse '{value}' as time::Time: {e}").into(),
             )
@@ -1146,11 +1196,7 @@ impl FromSQLiteValue for time::PrimitiveDateTime {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        Self::parse(
-            value,
-            &time::format_description::well_known::Iso8601::DATE_TIME,
-        )
-        .map_err(|e| {
+        time_text::primitive(value).map_err(|e| {
             DrizzleError::ConversionError(
                 format!("cannot parse '{value}' as time::PrimitiveDateTime: {e}").into(),
             )
@@ -1179,7 +1225,7 @@ impl FromSQLiteValue for time::OffsetDateTime {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        Self::parse(value, &time::format_description::well_known::Rfc3339).map_err(|e| {
+        time_text::offset(value).map_err(|e| {
             DrizzleError::ConversionError(
                 format!("cannot parse '{value}' as time::OffsetDateTime: {e}").into(),
             )

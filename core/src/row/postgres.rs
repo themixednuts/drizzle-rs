@@ -105,6 +105,14 @@ macro_rules! impl_postgres_value_row {
             Vec<chrono::NaiveDateTime>, Vec<chrono::DateTime<chrono::Utc>>,
         );
 
+        #[cfg(feature = "time")]
+        postgres_leaf_impls!(
+            $row_ty;
+            time::Date, time::Time, time::PrimitiveDateTime, time::OffsetDateTime,
+            Vec<time::Date>, Vec<time::Time>,
+            Vec<time::PrimitiveDateTime>, Vec<time::OffsetDateTime>,
+        );
+
         #[cfg(feature = "serde")]
         postgres_leaf_impls!($row_ty; serde_json::Value, Vec<serde_json::Value>);
 

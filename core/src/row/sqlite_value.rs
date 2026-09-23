@@ -286,10 +286,107 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for chrono::DateTime<chrono::Utc> {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
         let s = String::from_row_at(row, offset)?;
+        // The SQLite conversion writes RFC 3339; text without an offset (as
+        // SQLite's own `CURRENT_TIMESTAMP` writes) is UTC.
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+            return Ok(dt.with_timezone(&chrono::Utc));
+        }
         let ndt: chrono::NaiveDateTime = s
             .parse()
             .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))?;
         Ok(Self::from_naive_utc_and_offset(ndt, chrono::Utc))
+    }
+}
+
+/// Parsers for the text `time` values are stored as.
+///
+/// Each accepts what the SQLite conversions write and the forms SQLite's own
+/// date and time functions produce (`HH:MM:SS`, a space between date and time,
+/// no offset for UTC).
+#[cfg(feature = "time")]
+mod time_text {
+    use time::format_description::well_known::{Iso8601, Rfc3339};
+    use time::macros::format_description;
+
+    /// `HH:MM:SS[.fraction]`. Versions before 0.1.17 wrote ISO 8601's `T`
+    /// prefix, which is accepted too.
+    pub(crate) fn time(text: &str) -> Result<time::Time, time::error::Parse> {
+        let text = text.strip_prefix('T').unwrap_or(text);
+        time::Time::parse(
+            text,
+            format_description!("[hour]:[minute]:[second].[subsecond]"),
+        )
+        .or_else(|_| time::Time::parse(text, format_description!("[hour]:[minute]:[second]")))
+    }
+
+    /// ISO 8601, or SQLite's `YYYY-MM-DD HH:MM:SS[.fraction]`.
+    pub(crate) fn primitive(text: &str) -> Result<time::PrimitiveDateTime, time::error::Parse> {
+        time::PrimitiveDateTime::parse(text, &Iso8601::DATE_TIME)
+            .or_else(|_| {
+                time::PrimitiveDateTime::parse(
+                    text,
+                    format_description!(
+                        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"
+                    ),
+                )
+            })
+            .or_else(|_| {
+                time::PrimitiveDateTime::parse(
+                    text,
+                    format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
+                )
+            })
+    }
+
+    /// RFC 3339, or a date and time without an offset, which is UTC.
+    pub(crate) fn offset(text: &str) -> Result<time::OffsetDateTime, time::error::Parse> {
+        time::OffsetDateTime::parse(text, &Rfc3339).or_else(|error| {
+            primitive(text)
+                .map(time::PrimitiveDateTime::assume_utc)
+                .map_err(|_| error)
+        })
+    }
+}
+
+#[cfg(feature = "time")]
+fn time_parse_error(error: time::error::Parse) -> DrizzleError {
+    DrizzleError::ConversionError(error.to_string().into())
+}
+
+#[cfg(feature = "time")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for time::Date {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        let s = String::from_row_at(row, offset)?;
+        Self::parse(&s, &time::format_description::well_known::Iso8601::DATE)
+            .map_err(time_parse_error)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for time::Time {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        let s = String::from_row_at(row, offset)?;
+        time_text::time(&s).map_err(time_parse_error)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for time::PrimitiveDateTime {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        let s = String::from_row_at(row, offset)?;
+        time_text::primitive(&s).map_err(time_parse_error)
+    }
+}
+
+#[cfg(feature = "time")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for time::OffsetDateTime {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        let s = String::from_row_at(row, offset)?;
+        time_text::offset(&s).map_err(time_parse_error)
     }
 }
 
