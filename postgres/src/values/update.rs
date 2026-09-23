@@ -51,7 +51,12 @@ impl<V: SQLParam, T, Target: DataType, TargetNull: Nullability>
     }
 }
 
-// Generic conversion from any type T to UpdateValue
+/// Converts any value that converts to a [`PostgresValue`].
+///
+/// # Panics
+///
+/// Panics when the value fails to convert (a JSON payload that fails to
+/// serialize, for example), rather than storing NULL in its place.
 impl<'a, T, Target, TargetNull> From<T>
     for PostgresUpdateValue<'a, PostgresValue<'a>, T, Target, TargetNull>
 where
@@ -60,9 +65,15 @@ where
     TargetNull: Nullability,
 {
     fn from(value: T) -> Self {
-        let sql = value.try_into().map_or_else(
-            |_| SQL::from(PostgresValue::Null),
-            |v: PostgresValue<'a>| SQL::from(v),
+        // A failed conversion is a caller bug; storing NULL in its place would
+        // lose the value silently.
+        let sql = SQL::from(
+            TryInto::<PostgresValue<'a>>::try_into(value).unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a PostgreSQL value",
+                    core::any::type_name::<T>()
+                )
+            }),
         );
         PostgresUpdateValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(sql))
     }

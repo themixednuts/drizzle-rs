@@ -59,18 +59,36 @@ impl<'a, T> SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
     }
 }
 
+/// Converts a setter argument to the column's type, then to a bound value.
+///
+/// # Panics
+///
+/// Panics when the argument does not fit the column type (an integer out of
+/// range, a JSON payload that fails to serialize), rather than storing NULL in
+/// its place.
 impl<'a, T, U> From<T> for SQLiteInsertValue<'a, SQLiteValue<'a>, U>
 where
     T: TryInto<SQLiteValue<'a>> + TryInto<U>,
     U: TryInto<SQLiteValue<'a>>,
 {
     fn from(value: T) -> Self {
-        let sql = TryInto::<U>::try_into(value)
-            .map(|v| v.try_into().unwrap_or_default())
-            .map_or_else(
-                |_| SQL::from(SQLiteValue::Null),
-                |v: SQLiteValue<'a>| SQL::from(v),
-            );
+        // A value that does not fit the column type is a caller bug; storing
+        // NULL in its place would lose it silently.
+        let column_value = TryInto::<U>::try_into(value).unwrap_or_else(|_| {
+            panic!(
+                "a `{}` does not fit a `{}` column",
+                core::any::type_name::<T>(),
+                core::any::type_name::<U>()
+            )
+        });
+        let sql = SQL::from(
+            TryInto::<SQLiteValue<'a>>::try_into(column_value).unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a SQLite value",
+                    core::any::type_name::<U>()
+                )
+            }),
+        );
         SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
     }
 }

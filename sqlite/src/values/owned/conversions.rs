@@ -332,12 +332,25 @@ impl<const N: usize> From<smallvec::SmallVec<[u8; N]>> for OwnedSQLiteValue {
 }
 
 // --- Option Types ---
+/// `None` is NULL.
+///
+/// # Panics
+///
+/// Panics when `T`'s conversion fails, rather than storing NULL in place of
+/// the value.
 impl<T> From<Option<T>> for OwnedSQLiteValue
 where
     T: TryInto<Self>,
 {
     fn from(value: Option<T>) -> Self {
-        value.map_or(Self::Null, |v| v.try_into().unwrap_or(Self::Null))
+        value.map_or(Self::Null, |v| {
+            v.try_into().unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a SQLite value",
+                    core::any::type_name::<T>()
+                )
+            })
+        })
     }
 }
 

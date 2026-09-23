@@ -525,7 +525,7 @@ impl From<time::Date> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -536,7 +536,7 @@ impl From<&time::Date> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -547,7 +547,7 @@ impl From<time::Time> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::TIME)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -558,7 +558,7 @@ impl From<&time::Time> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::TIME)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -569,7 +569,7 @@ impl From<time::PrimitiveDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE_TIME)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -580,7 +580,7 @@ impl From<&time::PrimitiveDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE_TIME)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -591,7 +591,7 @@ impl From<time::OffsetDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -602,7 +602,7 @@ impl From<&time::OffsetDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -670,13 +670,25 @@ impl<'a> From<&'a Uuid> for SQLiteValue<'a> {
 }
 
 // --- Option Types ---
+/// `None` is NULL.
+///
+/// # Panics
+///
+/// Panics when `T`'s conversion fails (for example a JSON payload whose
+/// `Serialize` implementation errors), rather than storing NULL in place of
+/// the value.
 impl<T> From<Option<T>> for SQLiteValue<'_>
 where
     T: TryInto<Self>,
 {
     fn from(value: Option<T>) -> Self {
         value.map_or(SQLiteValue::Null, |v| {
-            v.try_into().unwrap_or(SQLiteValue::Null)
+            v.try_into().unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a SQLite value",
+                    core::any::type_name::<T>()
+                )
+            })
         })
     }
 }

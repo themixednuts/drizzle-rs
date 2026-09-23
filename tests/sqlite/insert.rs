@@ -781,3 +781,10 @@ fn multi_row_insert_of_default_rows_inserts_every_row(db: &mut TestDb<DefaultRow
     let labels: Vec<String> = db.select(default_rows.label).from(default_rows).all();
     assert_eq!(labels, ["x", "x", "x"]);
 }
+
+#[test]
+#[should_panic(expected = "does not fit a `i64` column")]
+fn out_of_range_setter_argument_panics_instead_of_storing_null() {
+    // `u64::MAX` has no `i64` value. This used to insert NULL.
+    let _: SQLiteInsertValue<'_, SQLiteValue<'_>, i64> = u64::MAX.into();
+}

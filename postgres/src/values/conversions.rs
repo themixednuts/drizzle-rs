@@ -876,13 +876,25 @@ impl From<Vec<Decimal>> for PostgresValue<'_> {
 }
 
 // --- Option Types ---
+/// `None` is NULL.
+///
+/// # Panics
+///
+/// Panics when `T`'s conversion fails (for example a JSON payload whose
+/// `Serialize` implementation errors), rather than storing NULL in place of
+/// the value.
 impl<T> From<Option<T>> for PostgresValue<'_>
 where
     T: TryInto<Self>,
 {
     fn from(value: Option<T>) -> Self {
         value.map_or(PostgresValue::Null, |v| {
-            v.try_into().unwrap_or(PostgresValue::Null)
+            v.try_into().unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a PostgreSQL value",
+                    core::any::type_name::<T>()
+                )
+            })
         })
     }
 }
