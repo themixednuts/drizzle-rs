@@ -1,0 +1,43 @@
+[package]
+name = "drizzle-macros-doctests"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The `drizzle` that drizzle-macros' doctests compile against"
+
+[lib]
+path = "lib.rs"
+test = false
+doctest = false
+doc = false
+
+[dependencies]
+drizzle = { path = "../.." }
+
+# Forwarded from drizzle-macros' features of the same names; see lib.rs.
+[features]
+sqlite = ["drizzle/sqlite"]
+postgres = ["drizzle/postgres"]
+mysql = ["drizzle/mysql"]
+serde = ["drizzle/serde"]
+uuid = ["drizzle/uuid"]
+arrayvec = ["drizzle/arrayvec"]
+chrono = ["drizzle/chrono"]
+time = ["drizzle/time"]
+jiff = ["drizzle/jiff"]
+rust-decimal = ["drizzle/rust-decimal"]
+cidr = ["drizzle/cidr"]
+geo-types = ["drizzle/geo-types"]
+bit-vec = ["drizzle/bit-vec"]
+compact-str = ["drizzle/compact-str"]
+bytes = ["drizzle/bytes"]
+smallvec-types = ["drizzle/smallvec-types"]
+rusqlite = ["drizzle/rusqlite"]
+libsql = ["drizzle/libsql"]
+turso = ["drizzle/turso"]
+postgres-sync = ["drizzle/postgres-sync"]
+tokio-postgres = ["drizzle/tokio-postgres"]
+aws-data-api = ["drizzle/aws-data-api"]
+query = ["drizzle/query"]

@@ -2552,7 +2552,8 @@ dependencies = [
 name = "drizzle-macros"
 version = "0.1.16"
 dependencies = [
- "drizzle",
+ "const_format",
+ "drizzle-macros-doctests",
  "drizzle-migrations",
  "drizzle-types",
  "heck",
@@ -2565,6 +2566,13 @@ dependencies = [
  "syn 2.0.117",
  "toml 0.9.12+spec-1.1.0",
  "uuid",
+]
+
+[[package]]
+name = "drizzle-macros-doctests"
+version = "0.0.0"
+dependencies = [
+ "drizzle",
 ]
 
 [[package]]
