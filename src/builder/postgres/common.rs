@@ -25,6 +25,7 @@ use drizzle_postgres::values::PostgresValue;
 
 /// Shared Postgres drizzle builder wrapper.
 #[derive(Debug)]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
     pub(crate) runner: Runner,
     pub(crate) builder: Builder,
@@ -33,6 +34,7 @@ pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
 
 /// Shared Postgres query builder wrapper (relational query API).
 #[cfg(feature = "query")]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleQueryBuilder<
     'db,
     'a,
@@ -411,6 +413,7 @@ where
 }
 
 /// Intermediate builder for typed ON CONFLICT within a `PostgreSQL` Drizzle wrapper.
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
     runner: Runner,
     builder: OnConflictBuilder<'b, Schema, Table>,

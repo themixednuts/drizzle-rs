@@ -27,6 +27,7 @@ use drizzle_sqlite::{
 
 /// Shared `SQLite` drizzle builder wrapper for all `SQLite` drivers.
 #[derive(Debug)]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
     pub(crate) runner: &'a Runner,
     pub(crate) builder: Builder,
@@ -34,6 +35,7 @@ pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
 }
 
 /// Intermediate builder for typed ON CONFLICT within a Drizzle wrapper.
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
     runner: &'a Runner,
     builder: OnConflictBuilder<'b, Schema, Table>,
@@ -373,6 +375,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 /// - `'db` — runner reference
 /// - `'a` — expression/value lifetime (independent of the runner)
 #[cfg(all(feature = "sqlite", feature = "query"))]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleQueryBuilder<
     'db,
     'a,
