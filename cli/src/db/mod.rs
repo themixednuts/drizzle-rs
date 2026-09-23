@@ -5015,7 +5015,10 @@ fn finalize_postgres_introspection(
     };
 
     let options = CodegenOptions {
-        module_doc: Some(format!("Schema introspected from {}", mask_url(url))),
+        module_doc: Some(format!(
+            "Schema introspected from {}",
+            crate::output::mask_url(url)
+        )),
         include_schema: true,
         schema_name: "Schema".to_string(),
         use_pub: true,
@@ -5038,19 +5041,6 @@ fn finalize_postgres_introspection(
         snapshot: Snapshot::Postgres(snap),
         snapshot_path: std::path::PathBuf::new(),
     }
-}
-
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-fn mask_url(url: &str) -> String {
-    if let Some(at) = url.find('@')
-        && let Some(colon) = url[..at].rfind(':')
-    {
-        let scheme_end = url.find("://").map_or(0, |p| p + 3);
-        if colon > scheme_end {
-            return format!("{}****{}", &url[..=colon], &url[at..]);
-        }
-    }
-    url.to_string()
 }
 
 #[cfg(test)]

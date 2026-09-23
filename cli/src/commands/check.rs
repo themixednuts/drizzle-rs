@@ -172,14 +172,18 @@ fn print_credentials(creds: &Credentials) {
             println!("    {}: {path}", output::label("SQLite"));
         }
         Credentials::Turso { url, auth_token } => {
-            println!("    {}: {}", output::label("Turso"), mask_url(url));
+            println!("    {}: {}", output::label("Turso"), output::mask_url(url));
             if auth_token.is_some() {
                 println!("    Token: ****");
             }
         }
         Credentials::Postgres(pg) => match pg {
             PostgresCreds::Url(url) => {
-                println!("    {}: {}", output::label("PostgreSQL"), mask_url(url));
+                println!(
+                    "    {}: {}",
+                    output::label("PostgreSQL"),
+                    output::mask_url(url)
+                );
             }
             PostgresCreds::Host {
                 host,
@@ -199,7 +203,7 @@ fn print_credentials(creds: &Credentials) {
         },
         Credentials::MySQL(mysql) => match mysql {
             MySQLCreds::Url(url) => {
-                println!("    {}: {}", output::label("MySQL"), mask_url(url));
+                println!("    {}: {}", output::label("MySQL"), output::mask_url(url));
             }
             MySQLCreds::Host {
                 host,
@@ -231,16 +235,4 @@ fn print_credentials(creds: &Credentials) {
             println!("    ResourceArn: ****");
         }
     }
-}
-
-fn mask_url(url: &str) -> String {
-    if let Some(at) = url.find('@')
-        && let Some(colon) = url[..at].rfind(':')
-    {
-        let scheme_end = url.find("://").map_or(0, |p| p + 3);
-        if colon > scheme_end {
-            return format!("{}****{}", &url[..=colon], &url[at..]);
-        }
-    }
-    url.to_string()
 }
