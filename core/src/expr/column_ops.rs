@@ -191,14 +191,11 @@ where
     Op: BinOpToken,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        self.lhs.to_sql().push(Op::TOKEN).append(self.rhs.to_sql())
+        super::ops::binary_operator_sql(self.lhs.to_sql(), Op::TOKEN, self.rhs.to_sql())
     }
 
     fn into_sql(self) -> SQL<'a, V> {
-        self.lhs
-            .into_sql()
-            .push(Op::TOKEN)
-            .append(self.rhs.into_sql())
+        super::ops::binary_operator_sql(self.lhs.into_sql(), Op::TOKEN, self.rhs.into_sql())
     }
 }
 

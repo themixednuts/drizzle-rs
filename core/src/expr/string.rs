@@ -574,7 +574,9 @@ where
     let right = expr2.into_sql();
     let sql = match V::DIALECT {
         Dialect::MySQL => SQL::func("CONCAT", left.push(Token::COMMA).append(right)),
-        Dialect::SQLite | Dialect::PostgreSQL => left.push(Token::CONCAT).append(right),
+        Dialect::SQLite | Dialect::PostgreSQL => {
+            super::ops::binary_operator_sql(left, Token::CONCAT, right)
+        }
     };
     SQLExpr::new(sql)
 }

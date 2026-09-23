@@ -790,12 +790,11 @@ where
     E2::Nullable: Nullability,
     E1::Aggregate: AggOr<E2::Aggregate>,
 {
-    SQLExpr::new(
-        dividend
-            .into_sql()
-            .push(Token::REM)
-            .append(divisor.into_sql()),
-    )
+    SQLExpr::new(super::ops::binary_operator_sql(
+        dividend.into_expr_sql(),
+        Token::REM,
+        divisor.into_expr_sql(),
+    ))
 }
 
 // =============================================================================
