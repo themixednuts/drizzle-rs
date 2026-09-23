@@ -282,3 +282,67 @@ pub fn generate_sql_schema_field<D: Dialect>(
         }
     }
 }
+
+/// Implements `Debug`, `Clone`, `PartialEq` and `Default` for a generated
+/// model struct, bounded on its field types instead of required of them.
+///
+/// `#[derive(..)]` on a struct with concrete field types demands every trait
+/// of every field where the struct is defined, so a model with a JSON payload
+/// or a custom column type forced those traits onto user types (and each
+/// dialect worked around it differently). Here each impl carries
+/// `where for<'__drizzle> FieldTy: Trait` bounds. The higher-ranked form keeps
+/// rustc from checking the bounds at the definition, so the model gets a
+/// trait exactly when all of its field types implement it, and nothing is
+/// required of user types.
+pub fn model_std_impls(ident: &Ident, fields: &[(&Ident, TokenStream)]) -> TokenStream {
+    let names: Vec<&Ident> = fields.iter().map(|(name, _)| *name).collect();
+    let types: Vec<&TokenStream> = fields.iter().map(|(_, ty)| ty).collect();
+
+    quote! {
+        #[automatically_derived]
+        impl ::core::fmt::Debug for #ident
+        where
+            #(for<'__drizzle> #types: ::core::fmt::Debug,)*
+        {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(::core::stringify!(#ident))
+                    #(.field(::core::stringify!(#names), &self.#names))*
+                    .finish()
+            }
+        }
+
+        #[automatically_derived]
+        impl ::core::clone::Clone for #ident
+        where
+            #(for<'__drizzle> #types: ::core::clone::Clone,)*
+        {
+            fn clone(&self) -> Self {
+                Self {
+                    #(#names: ::core::clone::Clone::clone(&self.#names),)*
+                }
+            }
+        }
+
+        #[automatically_derived]
+        impl ::core::cmp::PartialEq for #ident
+        where
+            #(for<'__drizzle> #types: ::core::cmp::PartialEq,)*
+        {
+            fn eq(&self, other: &Self) -> bool {
+                true #(&& self.#names == other.#names)*
+            }
+        }
+
+        #[automatically_derived]
+        impl ::core::default::Default for #ident
+        where
+            #(for<'__drizzle> #types: ::core::default::Default,)*
+        {
+            fn default() -> Self {
+                Self {
+                    #(#names: ::core::default::Default::default(),)*
+                }
+            }
+        }
+    }
+}
