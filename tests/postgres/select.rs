@@ -951,3 +951,99 @@ fn test_inferred_current_timestamp(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(result.len(), 1);
     assert!(result[0].now.timestamp() > 0);
 }
+
+// =============================================================================
+// Set operations
+// =============================================================================
+
+#[drizzle::test]
+fn chained_set_operations_compose_left_to_right(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    // Operands are built from a detached builder: the sync driver borrows `db`
+    // mutably for the outer select.
+    let qb = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("charlie").with_id(3),
+        ])
+        .execute();
+
+    // (alice UNION bob) UNION ALL alice -> alice, alice, bob
+    let mut names: Vec<String> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .union(
+            qb.select(simple.name)
+                .from(simple)
+                .r#where(eq(simple.id, 2)),
+        )
+        .union_all(
+            qb.select(simple.name)
+                .from(simple)
+                .r#where(eq(simple.id, 1)),
+        )
+        .all();
+    names.sort_unstable();
+    assert_eq!(names, ["alice", "alice", "bob"]);
+
+    // (alice, bob INTERSECT bob, charlie) EXCEPT bob -> nothing
+    let leftover: Vec<String> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lte(simple.id, 2))
+        .intersect(
+            qb.select(simple.name)
+                .from(simple)
+                .r#where(gte(simple.id, 2)),
+        )
+        .except(
+            qb.select(simple.name)
+                .from(simple)
+                .r#where(eq(simple.id, 2)),
+        )
+        .all();
+    assert!(leftover.is_empty());
+}
+
+#[drizzle::test]
+fn set_operation_orders_and_limits_the_combined_result(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    // Operands are built from a detached builder: the sync driver borrows `db`
+    // mutably for the outer select.
+    let qb = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("charlie").with_id(3),
+            InsertSimple::new("diana").with_id(4),
+        ])
+        .execute();
+
+    let query = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lte(simple.id, 2))
+        .union(
+            qb.select(simple.name)
+                .from(simple)
+                .r#where(gte(simple.id, 3)),
+        )
+        .order_by(desc(simple.name))
+        .limit(2);
+    // The combined result has no table scope: PostgreSQL only accepts output
+    // column names here, so the builder drops the table qualifier.
+    let sql = query.to_sql().sql();
+    assert!(
+        sql.ends_with(r#"ORDER BY "name" DESC LIMIT $3"#),
+        "unexpected SQL: {sql}"
+    );
+
+    let names: Vec<String> = query.all();
+    assert_eq!(names, ["diana", "charlie"]);
+}

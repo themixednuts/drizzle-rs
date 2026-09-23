@@ -1,108 +1,11 @@
-//! PostgreSQL subquery tests.
+//! PostgreSQL-specific subquery behavior (CTE-backed subqueries). Portable
+//! subquery cases live in `crate::common::subquery`.
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::schema::postgres::{InsertSimple, SimpleSchema};
+use crate::common::schema::postgres::SimpleSchema;
 use drizzle::core::expr::*;
 use drizzle::postgres::prelude::*;
-
-#[derive(Debug, PostgresFromRow)]
-struct PgSubqueryResult {
-    id: i32,
-    name: String,
-}
-
-#[drizzle::test]
-fn test_typed_scalar_subquery(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-    let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
-    let SimpleSchema {
-        simple: subquery_simple,
-    } = SimpleSchema::new();
-
-    let test_data = vec![
-        InsertSimple::new("alice"),
-        InsertSimple::new("bob"),
-        InsertSimple::new("charlie"),
-    ];
-    db.insert(simple).values(test_data).execute();
-
-    let min_id = builder
-        .select(min(subquery_simple.id))
-        .from(subquery_simple);
-    let results: Vec<PgSubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(gt(simple.id, min_id))
-        .all();
-
-    assert_eq!(2, results.len());
-    assert!(results.iter().all(|r| r.id > 1));
-    assert!(results.iter().any(|r| r.name == "bob"));
-    assert!(results.iter().any(|r| r.name == "charlie"));
-}
-
-#[drizzle::test]
-fn test_typed_in_subquery_single_column(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-    let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
-    let SimpleSchema {
-        simple: subquery_simple,
-    } = SimpleSchema::new();
-
-    let test_data = vec![
-        InsertSimple::new("alice"),
-        InsertSimple::new("bob"),
-        InsertSimple::new("charlie"),
-    ];
-    db.insert(simple).values(test_data).execute();
-
-    let only_bob_id = builder
-        .select(subquery_simple.id)
-        .from(subquery_simple)
-        .r#where(eq(subquery_simple.name, "bob"));
-
-    let results: Vec<PgSubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(in_subquery(simple.id, only_bob_id))
-        .all();
-
-    assert_eq!(1, results.len());
-    assert_eq!(2, results[0].id);
-    assert_eq!("bob", results[0].name);
-}
-
-#[drizzle::test]
-fn test_typed_in_subquery_multi_column_row_value(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-    let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
-    let SimpleSchema {
-        simple: subquery_simple,
-    } = SimpleSchema::new();
-
-    let test_data = vec![
-        InsertSimple::new("alice"),
-        InsertSimple::new("bob"),
-        InsertSimple::new("charlie"),
-    ];
-    db.insert(simple).values(test_data).execute();
-
-    let bob_row = builder
-        .select((subquery_simple.id, subquery_simple.name))
-        .from(subquery_simple)
-        .r#where(eq(subquery_simple.name, "bob"));
-
-    let results: Vec<PgSubqueryResult> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(in_subquery((simple.id, simple.name), bob_row))
-        .all();
-
-    assert_eq!(1, results.len());
-    assert_eq!(2, results[0].id);
-    assert_eq!("bob", results[0].name);
-}
 
 #[drizzle::test]
 fn test_with_subquery_parenthesization(db: &mut TestDb<SimpleSchema>) {

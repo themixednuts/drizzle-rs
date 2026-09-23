@@ -187,8 +187,122 @@ macro_rules! shared_crud_join_suite {
                 assert_eq!(difference.len(), 1);
                 assert_eq!(difference[0].name, "Alice");
             }
+
+            #[drizzle::test($dialect)]
+            fn select_distinct_collapses_duplicate_rows(db: &mut TestDb<SharedCrudJoinSchema>) {
+                let SharedCrudJoinSchema { users, .. } = schema;
+
+                db.insert(users)
+                    .values([
+                        InsertSharedCrudUser::new("Alice", true).with_id(1),
+                        InsertSharedCrudUser::new("Alice", true).with_id(2),
+                        InsertSharedCrudUser::new("Alice", false).with_id(3),
+                        InsertSharedCrudUser::new("Bob", true).with_id(4),
+                    ])
+                    .execute();
+
+                let stmt = db.select_distinct(users.name).from(users);
+                assert!(
+                    stmt.to_sql().sql().starts_with("SELECT DISTINCT "),
+                    "{}",
+                    stmt.to_sql().sql()
+                );
+                let mut names: Vec<String> = stmt.all();
+                names.sort();
+                assert_eq!(names, ["Alice", "Bob"]);
+
+                let mut pairs: Vec<(String, bool)> = db
+                    .select_distinct((users.name, users.active))
+                    .from(users)
+                    .all();
+                pairs.sort();
+                assert_eq!(
+                    pairs,
+                    [
+                        ("Alice".to_string(), false),
+                        ("Alice".to_string(), true),
+                        ("Bob".to_string(), true),
+                    ]
+                );
+            }
         }
     };
 }
 
+/// `INTERSECT ALL` / `EXCEPT ALL` for the dialects that implement bag
+/// semantics (PostgreSQL, MySQL 8.0.31+). SQLite only has `UNION ALL`.
+#[cfg(any(feature = "postgres", feature = "mysql"))]
+macro_rules! shared_bag_set_operation_suite {
+    ($dialect:ident, $table:ident, $schema:ident) => {
+        mod shared_bag_set_operations {
+            use super::*;
+            use drizzle::core::expr::eq;
+
+            #[$table(NAME = "shared_bag_set_users")]
+            struct SharedBagSetUser {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                name: String,
+            }
+
+            #[derive($schema)]
+            struct SharedBagSetSchema {
+                users: SharedBagSetUser,
+            }
+
+            #[drizzle::test($dialect)]
+            fn bag_set_operations_keep_duplicates(db: &mut TestDb<SharedBagSetSchema>) {
+                let SharedBagSetSchema { users, .. } = schema;
+
+                db.insert(users)
+                    .values([
+                        InsertSharedBagSetUser::new("Alice").with_id(1),
+                        InsertSharedBagSetUser::new("Alice").with_id(2),
+                        InsertSharedBagSetUser::new("Bob").with_id(3),
+                    ])
+                    .execute();
+
+                let alices = || {
+                    drizzle::$dialect::builder::QueryBuilder::new::<SharedBagSetSchema>()
+                        .select(users.name)
+                        .from(users)
+                        .r#where(eq(users.name, "Alice"))
+                };
+
+                // INTERSECT ALL keeps one row per matching pair, INTERSECT collapses them.
+                let mut intersect_all: Vec<String> = db
+                    .select(users.name)
+                    .from(users)
+                    .intersect_all(alices())
+                    .all();
+                intersect_all.sort();
+                assert_eq!(intersect_all, ["Alice", "Alice"]);
+                let intersect: Vec<String> =
+                    db.select(users.name).from(users).intersect(alices()).all();
+                assert_eq!(intersect, ["Alice"]);
+
+                // EXCEPT ALL subtracts one occurrence per row on the right; EXCEPT removes all.
+                let one_alice = || {
+                    drizzle::$dialect::builder::QueryBuilder::new::<SharedBagSetSchema>()
+                        .select(users.name)
+                        .from(users)
+                        .r#where(eq(users.id, 1))
+                };
+                let mut except_all: Vec<String> = db
+                    .select(users.name)
+                    .from(users)
+                    .except_all(one_alice())
+                    .all();
+                except_all.sort();
+                assert_eq!(except_all, ["Alice", "Bob"]);
+                let except: Vec<String> =
+                    db.select(users.name).from(users).except(one_alice()).all();
+                assert_eq!(except, ["Bob"]);
+            }
+        }
+    };
+}
+
+#[cfg(any(feature = "postgres", feature = "mysql"))]
+pub(crate) use shared_bag_set_operation_suite;
 pub(crate) use shared_crud_join_suite;

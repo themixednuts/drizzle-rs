@@ -5,7 +5,11 @@
 //!
 //! # Quick Start
 //!
-//! 1. Install the CLI: `cargo install drizzle-cli`
+//! 1. Install the CLI with the drivers it should connect through:
+//!    `cargo install drizzle-cli --locked --features sqlite-all` (or
+//!    `postgres-all`, `mysql-all`, or individual driver features such as
+//!    `rusqlite`). Without a driver, `migrate`, `push`, and `introspect`
+//!    report "No driver available".
 //! 2. Run `drizzle init` to create a `drizzle.config.toml`
 //! 3. Run `drizzle generate` to create migrations
 //!

@@ -143,7 +143,10 @@ pub const JSON: ColumnMarker = ColumnMarker;
 /// # "####;
 /// ```
 ///
-/// The enum must derive `SQLiteEnum`.
+/// The enum must derive `SQLiteEnum`, and that derive decides the storage:
+/// INTEGER when a variant has an explicit discriminant or the enum has an
+/// integer `#[repr]`, TEXT (variant names) otherwise. An explicit `integer` or
+/// `text` marker must agree with it, or the table fails to compile.
 pub const ENUM: ColumnMarker = ColumnMarker;
 
 //------------------------------------------------------------------------------
@@ -232,6 +235,11 @@ pub const CHECK: ColumnMarker = ColumnMarker;
 /// user_id: i32,
 /// # "####;
 /// ```
+///
+/// With the `query` feature this also generates relation accessors: a
+/// forward one on this table, named after the column without its `_id` suffix
+/// (`user_id` gives `.user()`), and a reverse one on the referenced table
+/// (see [`RELATION`]).
 ///
 /// See: <https://sqlite.org/foreignkeys.html>
 pub const REFERENCES: ColumnMarker = ColumnMarker;

@@ -182,22 +182,6 @@ pub(crate) fn db_err<E>(_: E) -> axum::http::StatusCode {
 // every driver that expresses that join through the builder.
 drizzle_core::tag! { pub(crate) RecipientAlias, "r" }
 
-/// `ilike` builds untyped raw SQL; the builder's `where` clause needs a
-/// boolean-typed expression, so re-tag it without changing the SQL.
-pub(crate) fn ilike_expr<'a, L>(
-    left: L,
-    pattern: &'a str,
-) -> drizzle::core::expr::SQLExpr<
-    'a,
-    drizzle::postgres::values::PostgresValue<'a>,
-    drizzle::postgres::types::Boolean,
->
-where
-    L: drizzle::core::ToSQL<'a, drizzle::postgres::values::PostgresValue<'a>>,
-{
-    drizzle::core::expr::SQLExpr::new(drizzle::postgres::expr::ilike(left, pattern))
-}
-
 /// Widen an expression to nullable while keeping its SQL type.
 ///
 /// A `LEFT JOIN`'s right-hand columns are NULL on unmatched rows, but a column

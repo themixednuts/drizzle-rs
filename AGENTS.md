@@ -42,7 +42,7 @@ cargo bench --features "rusqlite,uuid"
 - **drizzle-macros** - Procedural macros: `#[SQLiteTable]`, `#[PostgresTable]`, `#[SQLiteSchema]`, `#[PostgresSchema]`, `#[SQLiteEnum]`, `#[PostgresEnum]`, `#[SQLiteIndex]`, `#[PostgresIndex]`, `#[SQLiteFromRow]`, `#[PostgresFromRow]`
 - **drizzle-sqlite** - SQLite query builder implementation
 - **drizzle-postgres** - PostgreSQL query builder implementation
-- **drizzle-mysql** - MySQL (WIP, minimal)
+- **drizzle-mysql** - MySQL query builder implementation
 - **drizzle-migrations** - Migration infrastructure and DDL types
 - **drizzle-types** - SQL type markers (`Int`, `Text`, `Bool`, etc.)
 - **drizzle-cli** - CLI tool (`drizzle` binary) for migrations

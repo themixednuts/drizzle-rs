@@ -66,6 +66,12 @@ pub enum FieldStorageKind {
     /// A SQLite column whose storage and decoding are owned by
     /// `DrizzleSQLiteColumn`.
     SQLiteColumn,
+    /// A SQLite JSON column. SQLite stores the document as TEXT, which a
+    /// relational projection embeds as a JSON string; the decoder parses it.
+    SQLiteJson,
+    /// A MySQL JSON column whose payload decodes through the
+    /// `drizzle::core::Json<T>` column codec.
+    MySQLJson,
 }
 
 /// SQL normalization applied before a field enters a relational JSON object.
@@ -798,6 +804,12 @@ fn generate_json_decoder(
                 FieldStorageKind::SQLiteColumn => {
                     generate_sqlite_column_decode(ident, col_name, &f.base_type, is_nullable)
                 }
+                FieldStorageKind::SQLiteJson => {
+                    generate_sqlite_json_decode(ident, col_name, &f.base_type, is_nullable)
+                }
+                FieldStorageKind::MySQLJson => {
+                    generate_mysql_json_decode(ident, col_name, &f.base_type, is_nullable)
+                }
                 FieldStorageKind::Plain => {
                     let ty = if nullable_all {
                         &f.partial_select_type
@@ -1004,37 +1016,23 @@ fn generate_uuid_decode(
     }
 }
 
-fn generate_sqlite_uuid_decode(
+/// Reads a field into `drizzle::core::query::RawJson` and applies `decode`,
+/// an expression over the owned `raw` value. For nullable fields a JSON
+/// `null` becomes `None` without running `decode`.
+fn generate_raw_json_decode(
     ident: &Ident,
     col_name: &str,
-    base_type: &syn::Type,
     is_nullable: bool,
+    decode: &TokenStream,
 ) -> TokenStream {
-    let decode = quote! {
-        {
-            let value = drizzle::sqlite::traits::decode_projected_sqlite_value(&raw)
-                .map_err(|e| {
-                    <__A::Error as drizzle::core::serde::de::Error>::custom(
-                        ::std::format!("field '{}': {e}", #col_name)
-                    )
-                })?;
-            let value = value.as_value();
-            <#base_type as drizzle::sqlite::traits::FromSQLiteValue>::from_sqlite_ref(value.as_ref())
-                .map_err(|e| {
-                    <__A::Error as drizzle::core::serde::de::Error>::custom(
-                        ::std::format!("field '{}': invalid UUID: {e}", #col_name)
-                    )
-                })?
-        }
-    };
-
     if is_nullable {
         quote! {
             #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(match raw {
-                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
-                    raw => ::std::option::Option::Some(#decode),
+                let raw = map.next_value::<drizzle::core::query::RawJson>()?;
+                state.#ident = ::std::option::Option::Some(if raw.is_null() {
+                    ::std::option::Option::None
+                } else {
+                    ::std::option::Option::Some({ #decode })
                 });
                 ::std::result::Result::Ok(true)
             }
@@ -1042,12 +1040,72 @@ fn generate_sqlite_uuid_decode(
     } else {
         quote! {
             #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(#decode);
+                let raw = map.next_value::<drizzle::core::query::RawJson>()?;
+                state.#ident = ::std::option::Option::Some({ #decode });
                 ::std::result::Result::Ok(true)
             }
         }
     }
+}
+
+fn generate_sqlite_uuid_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        let value = drizzle::sqlite::traits::decode_projected_sqlite_value(&raw)
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': {e}", #col_name)
+                )
+            })?;
+        let value = value.as_value();
+        <#base_type as drizzle::sqlite::traits::FromSQLiteValue>::from_sqlite_ref(value.as_ref())
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': invalid UUID: {e}", #col_name)
+                )
+            })?
+    };
+
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
+}
+
+/// Decodes a SQLite JSON column, which the projection embeds as a JSON string
+/// holding the stored document.
+fn generate_sqlite_json_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        drizzle::core::query::decode_json_text::<#base_type, __A::Error>(raw, #col_name)?
+    };
+
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
+}
+
+/// Decodes a MySQL JSON column through the `Json<T>` column codec.
+fn generate_mysql_json_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        drizzle::mysql::driver::decode_projected::<drizzle::core::Json<#base_type>>(&raw)
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': {e}", #col_name)
+                )
+            })?
+            .into_inner()
+    };
+
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
 }
 
 fn generate_bool_decode(ident: &Ident, col_name: &str, is_nullable: bool) -> TokenStream {
@@ -1081,11 +1139,7 @@ fn generate_blob_decode(
 ) -> TokenStream {
     let convert = if is_json {
         quote! {
-            drizzle::core::serde_json::from_slice::<#base_type>(&bytes).map_err(|e| {
-                <__A::Error as drizzle::core::serde::de::Error>::custom(
-                    ::std::format!("field '{}': invalid JSON blob: {e}", #col_name)
-                )
-            })?
+            drizzle::core::query::decode_json_bytes::<#base_type, __A::Error>(&bytes, #col_name)?
         }
     } else {
         quote! {
@@ -1115,26 +1169,7 @@ fn generate_blob_decode(
         #convert
     };
 
-    if is_nullable {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(match raw {
-                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
-                    raw => ::std::option::Option::Some({ #decode }),
-                });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    } else {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some({ #decode });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    }
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
 }
 
 fn generate_mysql_blob_decode(
@@ -1152,26 +1187,7 @@ fn generate_mysql_blob_decode(
             })?
     };
 
-    if is_nullable {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(match raw {
-                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
-                    raw => ::std::option::Option::Some({ #decode }),
-                });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    } else {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some({ #decode });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    }
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
 }
 
 fn generate_mysql_text_decode(
@@ -1189,26 +1205,7 @@ fn generate_mysql_text_decode(
             })?
     };
 
-    if is_nullable {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(match raw {
-                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
-                    raw => ::std::option::Option::Some({ #decode }),
-                });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    } else {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some({ #decode });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    }
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
 }
 
 fn generate_mysql_column_decode(
@@ -1226,26 +1223,7 @@ fn generate_mysql_column_decode(
             })?
     };
 
-    if is_nullable {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(match raw {
-                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
-                    raw => ::std::option::Option::Some({ #decode }),
-                });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    } else {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some({ #decode });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    }
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
 }
 
 fn generate_sqlite_column_decode(
@@ -1263,26 +1241,7 @@ fn generate_sqlite_column_decode(
         })?
     };
 
-    if is_nullable {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(match raw {
-                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
-                    raw => ::std::option::Option::Some({ #decode }),
-                });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    } else {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some({ #decode });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    }
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
 }
 
 fn generate_enum_decode(
@@ -1353,55 +1312,12 @@ fn generate_postgres_enum_decode(
     base_type: &syn::Type,
     is_nullable: bool,
 ) -> TokenStream {
+    // Native enums are projected as strings, integer-backed enums as numbers.
     let decode = quote! {
-        match raw {
-            drizzle::core::serde_json::Value::Number(number) => {
-                let value = number.as_i64().ok_or_else(|| {
-                    <__A::Error as drizzle::core::serde::de::Error>::custom(
-                        ::std::format!("enum field '{}': invalid integer value {number}", #col_name)
-                    )
-                })?;
-                <#base_type as ::std::convert::TryFrom<i64>>::try_from(value).map_err(|_| {
-                    <__A::Error as drizzle::core::serde::de::Error>::custom(
-                        ::std::format!("enum field '{}': invalid integer value {value}", #col_name)
-                    )
-                })?
-            }
-            drizzle::core::serde_json::Value::String(value) => {
-                <#base_type as ::std::str::FromStr>::from_str(&value).map_err(|error| {
-                    <__A::Error as drizzle::core::serde::de::Error>::custom(
-                        ::std::format!("enum field '{}': {error}", #col_name)
-                    )
-                })?
-            }
-            value => return ::std::result::Result::Err(
-                <__A::Error as drizzle::core::serde::de::Error>::custom(
-                    ::std::format!("enum field '{}': expected string or integer, got {value}", #col_name)
-                )
-            ),
-        }
+        drizzle::core::query::decode_enum_value::<#base_type, __A::Error>(raw, #col_name)?
     };
 
-    if is_nullable {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some(match raw {
-                    drizzle::core::serde_json::Value::Null => ::std::option::Option::None,
-                    raw => ::std::option::Option::Some({ #decode }),
-                });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    } else {
-        quote! {
-            #col_name => {
-                let raw = map.next_value::<drizzle::core::serde_json::Value>()?;
-                state.#ident = ::std::option::Option::Some({ #decode });
-                ::std::result::Result::Ok(true)
-            }
-        }
-    }
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
 }
 
 /// Convert a `snake_case` string to `PascalCase`.

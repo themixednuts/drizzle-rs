@@ -89,6 +89,13 @@ jobs:
           --features std,sqlite,serde
           --test compile_fail insert_select_sqlite_ui
 
+      - name: Run SQLite math-extension tests
+        # .cargo/config.toml builds bundled rusqlite with SQLITE_ENABLE_MATH_FUNCTIONS.
+        if: startsWith(matrix.features, 'rusqlite,')
+        run: >-
+          cargo test -p drizzle --features "${{ matrix.features }},math"
+          --test lib -- shared_math_extensions optional_math_functions
+
       - name: Run SQLite strict-decode compile-time tests
         if: matrix.features == 'rusqlite'
         run: >-
@@ -117,6 +124,34 @@ jobs:
 
       - name: Run feature-unification regression
         run: cargo test -p drizzle --test sqlite_backend_feature_gating --features "rusqlite,libsql,uuid" -- --test-threads=4
+
+  test-downstream:
+    name: Test Downstream Consumers
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Download locked dependencies
+        # The fixtures check offline against Cargo.lock, so every crate it
+        # lists must already be in the registry cache, including the ones the
+        # test harness itself never builds.
+        run: cargo fetch --locked
+
+      - name: Compile consumer crates against the derive macros
+        # Standalone crates that depend only on `drizzle`: catches expansions
+        # that read the consumer's cargo features or name crates it may not
+        # depend on. See tests/downstream_consumers.rs.
+        run: cargo test -p drizzle --test downstream_consumers -- --ignored --test-threads=2
 
   test-pg:
     name: "test::pg (${{ matrix.features }})"

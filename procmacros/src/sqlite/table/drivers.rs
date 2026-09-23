@@ -78,8 +78,17 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
         ));
     }
 
+    // JSON documents decode through `Json<Payload>`'s codec.
+    if info.is_json_column() {
+        let decode = super::json::row_decode(idx_tokens, info, is_optional);
+        return Ok(quote! { #name: #decode, });
+    }
+
     // Codec-owned types use DrizzleRowByIndex for driver-agnostic conversion.
-    if info.uses_sqlite_column_codec() {
+    // UUIDs decode the same way: `FromSQLiteValue` on the declared type picks
+    // BLOB or TEXT storage at runtime, so the expansion never assumes the
+    // field is spelled `::uuid::Uuid`.
+    if info.uses_sqlite_column_codec() || info.type_category() == TypeCategory::Uuid {
         let base_type = info.base_type;
         if is_optional {
             return Ok(quote! {
@@ -99,8 +108,6 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
 
     // Dispatch based on type category
     let converted = match info.type_category() {
-        TypeCategory::Json => generate_json_conversion::<D>(idx_tokens, info, is_optional)?,
-        TypeCategory::Uuid => generate_uuid_conversion::<D>(idx_tokens, info, is_optional)?,
         TypeCategory::Enum => generate_enum_conversion::<D>(idx_tokens, info, is_optional)?,
         TypeCategory::ArrayString => {
             generate_arraystring_conversion::<D>(idx_tokens, info, is_optional)
@@ -125,53 +132,6 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
 // =============================================================================
 // Type-Specific Conversion Generators
 // =============================================================================
-
-#[allow(dead_code)]
-fn generate_json_conversion<D: DriverConfig>(
-    idx: &TokenStream,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    if !cfg!(feature = "serde") {
-        return Err(syn::Error::new_spanned(
-            info.ident,
-            errors::json::SERDE_REQUIRED,
-        ));
-    }
-
-    let accessor = D::text_accessor(idx);
-
-    // Both optional and non-optional JSON fields use the same pattern since
-    // the JSON deserialization needs to handle the Option wrapper uniformly
-    let _ = is_optional;
-    Ok(quote!(#accessor.map(|v| serde_json::from_str(v)).transpose()?))
-}
-
-#[allow(dead_code)]
-fn generate_uuid_conversion<D: DriverConfig>(
-    idx: &TokenStream,
-    info: &FieldInfo,
-    _is_optional: bool,
-) -> Result<TokenStream> {
-    let accessor = match info.column_type {
-        SQLiteType::Blob => D::blob_accessor(idx),
-        SQLiteType::Text => D::text_accessor(idx),
-        _ => {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::uuid::INVALID_COLUMN_TYPE,
-            ));
-        }
-    };
-
-    let parse = match info.column_type {
-        SQLiteType::Blob => quote!(::uuid::Uuid::from_slice(v)),
-        SQLiteType::Text => quote!(::uuid::Uuid::parse_str(v)),
-        _ => unreachable!(),
-    };
-
-    Ok(quote!(#accessor.map(|v| #parse).transpose()?))
-}
 
 #[allow(dead_code)]
 fn generate_enum_conversion<D: DriverConfig>(

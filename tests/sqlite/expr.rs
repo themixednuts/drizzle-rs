@@ -1179,11 +1179,6 @@ struct MathIntResult {
 }
 
 #[derive(Debug, SQLiteFromRow)]
-struct MathFloatResult {
-    result: f64,
-}
-
-#[derive(Debug, SQLiteFromRow)]
 struct NullableMathFloatResult {
     result: Option<f64>,
 }
@@ -1248,29 +1243,29 @@ fn test_math_sign(db: &mut TestDb<SimpleSchema>) {
 
     db.insert(simple).values(test_data).execute();
 
-    // Test SIGN function with negative (SIGN returns a float type)
-    let result: Vec<MathFloatResult> = db
+    // SIGN is an INTEGER on SQLite (-1, 0 or 1).
+    let result: Vec<MathIntResult> = db
         .select(alias(sign(simple.id), "result"))
         .from(simple)
         .r#where(eq(simple.name, "Negative"))
         .all();
-    assert_eq!(result[0].result, -1.0);
+    assert_eq!(result[0].result, -1);
 
     // Test SIGN with zero
-    let result: Vec<MathFloatResult> = db
+    let result: Vec<MathIntResult> = db
         .select(alias(sign(simple.id), "result"))
         .from(simple)
         .r#where(eq(simple.name, "Zero"))
         .all();
-    assert_eq!(result[0].result, 0.0);
+    assert_eq!(result[0].result, 0);
 
     // Test SIGN with positive
-    let result: Vec<MathFloatResult> = db
+    let result: Vec<MathIntResult> = db
         .select(alias(sign(simple.id), "result"))
         .from(simple)
         .r#where(eq(simple.name, "Positive"))
         .all();
-    assert_eq!(result[0].result, 1.0);
+    assert_eq!(result[0].result, 1);
 }
 
 #[drizzle::test]

@@ -993,7 +993,7 @@ impl<'a> FieldInfo<'a> {
             generated_column: attrs.generated_column,
             check_constraint: attrs.check_constraint,
             marker_exprs: attrs.marker_exprs,
-            select_type: Some(select_type(base_type, is_nullable, has_default)),
+            select_type: Some(select_type(base_type, is_nullable)),
             update_type: Some(update_type(base_type)),
         })
     }
@@ -1119,12 +1119,16 @@ fn build_sql_definition(
     sql
 }
 
-/// Generate the appropriate type for select models
-fn select_type(base_type: &Type, is_nullable: bool, has_default: bool) -> TokenStream {
-    if !is_nullable || has_default {
-        quote!(#base_type)
-    } else {
+/// Generate the appropriate type for select models.
+///
+/// A nullable column keeps `Option<T>` even when it has a default: the
+/// default only applies when an insert omits the column, and the column can
+/// still hold `NULL`.
+fn select_type(base_type: &Type, is_nullable: bool) -> TokenStream {
+    if is_nullable {
         quote!(::std::option::Option<#base_type>)
+    } else {
+        quote!(#base_type)
     }
 }
 
@@ -1140,7 +1144,7 @@ impl FieldInfo<'_> {
     pub(crate) fn get_select_type(&self) -> TokenStream {
         self.select_type
             .clone()
-            .unwrap_or_else(|| select_type(self.base_type, self.is_nullable, self.has_default))
+            .unwrap_or_else(|| select_type(self.base_type, self.is_nullable))
     }
 
     /// Get the model field type for this field in the `UpdateModel`
@@ -1180,6 +1184,21 @@ impl FieldInfo<'_> {
         self.is_enum || self.is_custom_type
     }
 
+    /// Whether the field holds a JSON document: `#[column(JSON)]` or a
+    /// `serde_json::Value` field. Such fields convert through
+    /// `drizzle::core::Json<Payload>`.
+    pub(crate) fn is_json_column(&self) -> bool {
+        self.type_category() == TypeCategory::Json
+    }
+
+    /// Whether the field is a JSON column whose payload is not
+    /// `serde_json::Value` (spelled with its path). Such columns expose
+    /// `Json<Payload>` as their column value type; `serde_json::Value`
+    /// columns keep `Value`, which drizzle-sqlite supports natively.
+    pub(crate) fn is_json_payload(&self) -> bool {
+        self.is_json_column() && !crate::common::type_is_json_value(self.base_type)
+    }
+
     /// Get the inner type for `SQLiteInsertValue` wrapper.
     ///
     /// For types that use `impl Into<...>` parameters, this returns the
@@ -1189,11 +1208,12 @@ impl FieldInfo<'_> {
 
         match self.type_category() {
             TypeCategory::Uuid => {
-                // UUID uses String for TEXT columns, Uuid for BLOB columns
+                // UUID uses String for TEXT columns and the declared type for
+                // BLOB columns (which may be an alias or a re-export).
                 if self.column_type == SQLiteType::Text {
                     quote!(::std::string::String)
                 } else {
-                    quote!(::uuid::Uuid)
+                    quote!(#base_type)
                 }
             }
             TypeCategory::String => quote!(::std::string::String),

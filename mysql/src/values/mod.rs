@@ -2,6 +2,8 @@
 
 mod conversions;
 mod insert;
+#[cfg(feature = "serde")]
+mod json;
 mod owned;
 mod update;
 

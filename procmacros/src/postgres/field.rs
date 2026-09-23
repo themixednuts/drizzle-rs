@@ -931,6 +931,15 @@ impl FieldInfo {
             ));
         }
 
+        // An explicit `json`/`jsonb` column stores the whole field as one
+        // document: `#[column(json)] tags: Vec<String>` is a JSON array, not a
+        // PostgreSQL `text[]`.
+        let (array_type, dimensions) = if is_explicit_json || is_explicit_jsonb {
+            (None, None)
+        } else {
+            (array_type, dimensions)
+        };
+
         if explicit_type.is_some() && (is_explicit_json || is_explicit_jsonb || is_pgenum) {
             return Err(Error::new_spanned(
                 field,
@@ -1660,6 +1669,36 @@ impl FieldInfo {
 
         // Detect from the base type string
         TypeCategory::from_type(&self.field_type)
+    }
+
+    /// Whether the field is a `json`/`jsonb` column whose payload is not
+    /// `serde_json::Value` (spelled with its path). Such columns convert
+    /// through `drizzle::core::Json<Payload>`, so the table macro never
+    /// implements a trait on the payload type.
+    pub(crate) fn is_json_payload(&self) -> bool {
+        self.is_json && TypeCategory::from_type(&self.base_type) != TypeCategory::Json
+    }
+
+    /// The Rust value type a JSON payload column binds and decodes through:
+    /// `Json<Payload>`, or `Option<Json<Payload>>` for a nullable column.
+    pub(crate) fn json_value_type(&self) -> TokenStream {
+        let base_type = &self.base_type;
+        if self.is_nullable {
+            quote!(::std::option::Option<drizzle::core::Json<#base_type>>)
+        } else {
+            quote!(drizzle::core::Json<#base_type>)
+        }
+    }
+
+    /// Insert-model value for a JSON payload expression. The column's SQL
+    /// type marker selects `json` or `jsonb`.
+    pub(crate) fn json_insert_value(&self, value: &TokenStream) -> TokenStream {
+        let sql_type = self.sql_type_marker();
+        quote! {
+            drizzle::postgres::values::PostgresInsertValue::json::<#sql_type>(
+                drizzle::core::Json(#value)
+            )
+        }
     }
 
     /// SQL type string expression for generated schema metadata.

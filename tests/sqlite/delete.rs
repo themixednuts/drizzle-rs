@@ -1,13 +1,15 @@
-#![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
-#[cfg(feature = "uuid")]
+#![cfg(all(
+    any(feature = "rusqlite", feature = "turso", feature = "libsql"),
+    feature = "uuid"
+))]
+//! SQLite-specific DELETE coverage (UUID primary keys); the portable cases
+//! live in `crate::common::delete`.
+
 use crate::common::schema::sqlite::{InsertComplex, Role, SimpleComplexSchema};
-use crate::common::schema::sqlite::{InsertSimple, SelectSimple, Simple, SimpleSchema};
 use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
-#[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-#[cfg(feature = "uuid")]
 #[allow(dead_code)]
 #[derive(Debug, SQLiteFromRow)]
 struct ComplexResult {
@@ -17,71 +19,6 @@ struct ComplexResult {
     age: Option<i32>,
 }
 
-#[drizzle::test]
-fn simple_delete(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    // Insert test records
-    let test_data = vec![
-        InsertSimple::new("delete_me"),
-        InsertSimple::new("keep_me"),
-        InsertSimple::new("delete_me"),
-    ];
-
-    let insert_result = db.insert(simple).values(test_data).execute();
-    assert_eq!(insert_result, 3);
-
-    // Verify initial state
-    let initial_results: Vec<SelectSimple> = db.select((simple.id, simple.name)).from(simple).all();
-    assert_eq!(initial_results.len(), 3);
-
-    // Delete records with specific condition
-    let delete_result = db
-        .delete(simple)
-        .r#where(eq(simple.name, "delete_me"))
-        .execute();
-
-    assert_eq!(delete_result, 2); // Should delete 2 records
-
-    // Verify deletion - should only have "keep_me" left
-    let remaining_results: Vec<SelectSimple> =
-        db.select((simple.id, simple.name)).from(simple).all();
-
-    assert_eq!(remaining_results.len(), 1);
-    assert_eq!(remaining_results[0].name, "keep_me");
-
-    // Verify deleted records are gone
-    let deleted_results: Vec<SelectSimple> = db
-        .select((simple.id, simple.name))
-        .from(simple)
-        .r#where(eq(Simple::name, "delete_me"))
-        .all();
-
-    assert_eq!(deleted_results.len(), 0);
-}
-
-#[drizzle::test]
-fn delete_returning_star(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    db.insert(simple)
-        .values([InsertSimple::new("delete_returning").with_id(103)])
-        .execute();
-
-    let stmt = db.delete(simple).r#where(eq(simple.id, 103)).returning(());
-
-    assert_eq!(
-        stmt.to_sql().sql(),
-        r#"DELETE FROM "simple" WHERE "simple"."id" = ? RETURNING *"#
-    );
-
-    let rows: Vec<SelectSimple> = stmt.all();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].id, 103);
-    assert_eq!(rows[0].name, "delete_returning");
-}
-
-#[cfg(feature = "uuid")]
 #[drizzle::test]
 fn feature_gated_delete(db: &mut TestDb<SimpleComplexSchema>) {
     let SimpleComplexSchema { complex, .. } = schema;

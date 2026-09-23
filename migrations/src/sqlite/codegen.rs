@@ -6,7 +6,7 @@
 
 use super::collection::SQLiteDDL;
 use super::ddl::{CheckConstraint, Column, ForeignKey, Index, Table, UniqueConstraint, View};
-use crate::utils::{default_expression, escape_for_rust_literal};
+use crate::utils::{default_expression, escape_for_rust_literal, unsupported_default_comment};
 use drizzle_types::sqlite::SQLTypeCategory;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -563,14 +563,17 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     }
 
     // Check default value
+    let mut unsupported_default = None;
     if let Some(default) = &column.default
         && column.generated.is_none()
     {
         if let Some(d) = format_default_value(default, &column.sql_type) {
             attrs.push(format!("default = {d}"));
         } else if !default.trim().eq_ignore_ascii_case("null") {
-            let expression = default_expression(default).unwrap_or_else(|| default.to_string());
-            attrs.push(format!("default = {expression}"));
+            match default_expression(default) {
+                Some(expression) => attrs.push(format!("default = {expression}")),
+                None => unsupported_default = Some(default.as_ref()),
+            }
         }
     }
 
@@ -613,11 +616,12 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     }
 
     // Build the #[column(...)] attribute if there are any modifiers
-    let attr_str = if attrs.is_empty() {
-        String::new()
-    } else {
-        format!("    #[column({})]\n", attrs.join(", "))
-    };
+    let mut attr_str = unsupported_default
+        .map(|default| unsupported_default_comment("    ", default))
+        .unwrap_or_default();
+    if !attrs.is_empty() {
+        let _ = writeln!(attr_str, "    #[column({})]", attrs.join(", "));
+    }
 
     // Determine if column is effectively NOT NULL:
     // Per SQLite docs (https://sqlite.org/lang_createtable.html):

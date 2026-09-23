@@ -1,121 +1,106 @@
+//! JSON fields of `SQLite` tables.
+//!
+//! A JSON field keeps its payload type in the generated models and converts
+//! through `drizzle::core::Json<Payload>`, whose codecs drizzle-sqlite
+//! implements once. The table macro therefore emits no JSON impls: it only
+//! validates the feature set and emits the conversion expressions below.
+
 use super::context::MacroContext;
-use crate::common::type_is_json_value;
-use crate::paths::{core as core_paths, sqlite as sqlite_paths};
-use crate::sqlite::{field::FieldInfo, generators::generate_to_sql};
+use crate::sqlite::field::FieldInfo;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
-use std::collections::BTreeMap;
-use syn::{Result, Type, TypePath};
+use quote::quote;
+use syn::Result;
 
 // Common SQLite documentation URLs for error messages and macro docs
 const SQLITE_JSON_URL: &str = "https://sqlite.org/json1.html";
 
-pub fn generate_json_impls(ctx: &MacroContext) -> Result<TokenStream> {
-    // Create a filter for JSON fields
-    let json_fields: Vec<_> = ctx
-        .field_infos
-        .iter()
-        .filter(|info| info.is_json && !type_is_json_value(info.base_type))
-        .collect();
-
-    // If no JSON fields, return an empty TokenStream
-    if json_fields.is_empty() {
-        return Ok(quote!());
+/// Rejects JSON fields when drizzle-macros was built without `serde`.
+pub fn validate_json_fields(ctx: &MacroContext) -> Result<()> {
+    if cfg!(feature = "serde") {
+        return Ok(());
     }
 
-    // Check that serde feature is enabled for JSON fields
-    if !cfg!(feature = "serde") {
-        let first_json_field = json_fields.first().unwrap();
-        return Err(syn::Error::new_spanned(
-            first_json_field.ident,
+    match ctx.field_infos.iter().find(|info| info.is_json_column()) {
+        Some(field) => Err(syn::Error::new_spanned(
+            field.ident,
             format!(
                 "The 'serde' feature must be enabled to use JSON fields.\n\
              Add to Cargo.toml: drizzle = {{ version = \"*\", features = [\"serde\"] }}\n\
              See: {SQLITE_JSON_URL}"
             ),
-        ));
+        )),
+        None => Ok(()),
     }
+}
 
-    // Get paths for fully-qualified types
-    let sql = core_paths::sql();
-    let sqlite_value = sqlite_paths::sqlite_value();
-    let expression = sqlite_paths::expr();
-
-    let mut json_types: BTreeMap<String, &FieldInfo> = BTreeMap::new();
-    for info in json_fields {
-        let base_type_str = info.base_type.to_token_stream().to_string();
-        json_types.entry(base_type_str).or_insert(info);
+/// Reads a JSON field from a driver row at `idx` through `Json<Payload>`'s
+/// `FromSQLiteValue` codec, the same path for every SQLite driver.
+///
+/// `row` must implement `DrizzleRowByIndex` and `idx` must be a `usize`
+/// expression. The expression propagates decode errors with `?`.
+pub fn row_decode(idx: &TokenStream, info: &FieldInfo, is_optional: bool) -> TokenStream {
+    let base_type = info.base_type;
+    if is_optional {
+        quote! {{
+            use drizzle::sqlite::traits::DrizzleRowByIndex;
+            DrizzleRowByIndex::get_column::<
+                ::std::option::Option<drizzle::core::Json<#base_type>>
+            >(row, #idx)?
+            .map(drizzle::core::Json::into_inner)
+        }}
+    } else {
+        quote! {{
+            use drizzle::sqlite::traits::DrizzleRowByIndex;
+            DrizzleRowByIndex::get_column::<drizzle::core::Json<#base_type>>(row, #idx)?
+                .into_inner()
+        }}
     }
+}
 
-    // Generate core SQLiteValue implementations (needed for all drivers)
-    let core_impls = json_types
-            .values()
-            .map(|info| {
-                let struct_name = info.base_type;
-                Ok(quote! {
-                    // Core TryInto implementation for SQLiteValue (needed for all drivers)
-                    impl<'a> ::std::convert::TryInto<#sqlite_value<'a>> for #struct_name {
-                        type Error = ::serde_json::Error;
+/// Reads a JSON field of a partial model, yielding `None` when the column is
+/// absent, SQL `NULL`, or not a decodable document.
+pub fn partial_row_decode(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
+    let base_type = info.base_type;
+    quote! {{
+        use drizzle::sqlite::traits::DrizzleRowByIndex;
+        DrizzleRowByIndex::get_column::<
+            ::std::option::Option<drizzle::core::Json<#base_type>>
+        >(row, #idx)
+        .ok()
+        .flatten()
+        .map(drizzle::core::Json::into_inner)
+    }}
+}
 
-                        fn try_into(self) -> ::std::result::Result<#sqlite_value<'a>, Self::Error> {
-                            let json_data = ::serde_json::to_string(&self)?;
-                            ::std::result::Result::Ok(#sqlite_value::Text(::std::borrow::Cow::Owned(json_data)))
-                        }
-                    }
-                })
+/// The Rust value type a JSON column binds and decodes through:
+/// `Json<Payload>`, or `Option<Json<Payload>>` for a nullable column.
+pub fn column_value_type(info: &FieldInfo) -> TokenStream {
+    let base_type = info.base_type;
+    if info.is_nullable {
+        quote! { ::std::option::Option<drizzle::core::Json<#base_type>> }
+    } else {
+        quote! { drizzle::core::Json<#base_type> }
+    }
+}
+
+/// Wraps a JSON column's `DEFAULT_FN`, which returns the payload (or
+/// `Option<Payload>`), so it yields the column's `Json<Payload>` value type.
+pub fn wrap_default_fn(func: &syn::Expr, is_nullable: bool) -> TokenStream {
+    if is_nullable {
+        quote! {
+            ::std::option::Option::Some(|| {
+                ::std::option::Option::map((#func)(), drizzle::core::Json)
             })
-            .collect::<Result<Vec<_>>>()?;
+        }
+    } else {
+        quote! { ::std::option::Option::Some(|| drizzle::core::Json((#func)())) }
+    }
+}
 
-    let to_sql_impl = json_types.values().map(|f| {
-        let Type::Path(TypePath { path, qself: None }) = f.base_type else {
-            return quote! {};
-        };
-
-        let Some(struct_ident) = path.segments.last().map(|s| &s.ident) else {
-            return quote! {};
-        };
-        generate_to_sql(
-            struct_ident,
-            &quote! {
-                use ::std::borrow::Cow;
-                ::serde_json::to_string(self)
-                    .map(#sqlite_value::from)
-                    .map(Cow::Owned)
-                    .map(#sql::param)
-                    .map(|sql| #expression::json(sql))
-                    .expect("failed to serialize JSON value for SQLite JSON column")
-            },
-        )
-    });
-
-    // Generate rusqlite-specific implementations
-    #[cfg(feature = "rusqlite")]
-    let rusqlite_impls = super::rusqlite::generate_json_impls(&json_types)?;
-
-    #[cfg(not(feature = "rusqlite"))]
-    let rusqlite_impls: Vec<TokenStream> = vec![];
-
-    // Generate turso-specific implementations
-    #[cfg(feature = "turso")]
-    let turso_json_impls = super::turso::generate_json_impls(&json_types)?;
-
-    #[cfg(not(feature = "turso"))]
-    let turso_json_impls: Vec<TokenStream> = vec![];
-
-    // Generate libsql-specific implementations
-    #[cfg(feature = "libsql")]
-    let libsql_json_impls = super::libsql::generate_json_impls(&json_types)?;
-
-    #[cfg(not(feature = "libsql"))]
-    let libsql_json_impls: Vec<TokenStream> = vec![];
-
-    let json_types_impl = quote! {
-        #(#core_impls)*
-        #(#to_sql_impl)*
-        #(#rusqlite_impls)*
-        #(#turso_json_impls)*
-        #(#libsql_json_impls)*
-    };
-
-    Ok(json_types_impl)
+/// Converts the payload expression `value` into the insert or update model
+/// field that holds it. The field type selects the conversion.
+pub fn model_value(value: &TokenStream) -> TokenStream {
+    quote! {
+        drizzle::core::json::JsonColumnValue::from_json(drizzle::core::Json(#value))
+    }
 }

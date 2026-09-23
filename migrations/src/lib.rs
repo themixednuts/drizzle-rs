@@ -102,8 +102,8 @@
 //! For generating migrations, use the `drizzle-cli` crate:
 //!
 //! ```bash
-//! # Install
-//! cargo install drizzle-cli
+//! # Install with the drivers the CLI should connect through
+//! cargo install drizzle-cli --locked --features sqlite-all   # or postgres-all, mysql-all
 //!
 //! # Initialize config
 //! drizzle init --dialect sqlite

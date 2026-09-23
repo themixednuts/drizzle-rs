@@ -64,6 +64,8 @@ pub mod derived;
 pub mod expr;
 pub mod helpers;
 pub mod join;
+#[cfg(feature = "serde")]
+pub mod json;
 pub mod pagination;
 pub mod param;
 pub mod placeholder;
@@ -99,6 +101,8 @@ pub use derived::{
 };
 pub use dialect::{Dialect, DialectTypes, MySQLDialect, PostgresDialect, SQLiteDialect};
 pub use join::{Join, JoinType, LateralArg, LateralSource};
+#[cfg(feature = "serde")]
+pub use json::Json;
 pub use pagination::PaginationArg;
 pub use param::{OwnedParam, Param, ParamBind, ParamSet};
 pub use placeholder::*;

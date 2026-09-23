@@ -132,7 +132,7 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
                             ::from_row_at(row, #idx)?;
                     match s {
                         Some(s) => Some(
-                            ::serde_json::from_str(&s)
+                            drizzle::core::Json::<#base_type>::from_json_str(&s).map(drizzle::core::Json::into_inner)
                                 .map_err(|e| #drizzle_error::ConversionError(
                                     format!("AWS Data API: JSON deserialize: {}", e).into()
                                 ))?
@@ -147,7 +147,7 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
                 let s: String =
                     <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
                         ::from_row_at(row, #idx)?;
-                ::serde_json::from_str(&s)
+                drizzle::core::Json::<#base_type>::from_json_str(&s).map(drizzle::core::Json::into_inner)
                     .map_err(|e| #drizzle_error::ConversionError(
                         format!("AWS Data API: JSON deserialize: {}", e).into()
                     ))?
@@ -198,7 +198,7 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
                 let s: ::core::result::Result<String, _> =
                     <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
                         ::from_row_at(row, #idx);
-                s.ok().and_then(|s| ::serde_json::from_str::<#base_type>(&s).ok())
+                s.ok().and_then(|s| drizzle::core::Json::<#base_type>::from_json_str(&s).map(drizzle::core::Json::into_inner).ok())
             },
         };
     }

@@ -248,6 +248,15 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     let model_definitions =
         models::generate_model_definitions(&ctx, &column_zst_idents, &required_fields_pattern);
     let alias_definitions = alias::generate_aliased_table(&ctx);
+    // FK ZSTs and relation impls are logical-only for views (no SQL
+    // constraints), but the query API still needs the markers to exist.
+    let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, _fk_idents) =
+        crate::common::constraints::generate_foreign_keys(
+            ctx.field_infos,
+            &ctx.attrs.composite_foreign_keys,
+            struct_ident,
+            struct_vis,
+        );
     let relations_impl = crate::common::constraints::generate_relations(
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
@@ -398,7 +407,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         insert: quote!(#insert_model<'a, T>),
         update: quote!(#update_model<'a, #non_empty_marker>),
         aliased: quote!(#alias_type),
-        foreign_keys: quote!((drizzle::core::NoForeignKey,)),
+        foreign_keys: foreign_keys_type,
         primary_key: quote!(#no_primary_key),
         constraints: quote!(#no_constraint),
     });
@@ -477,6 +486,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
 
         #column_accessors
         #column_definitions
+        #foreign_key_impls
         #model_definitions
         #alias_definitions
         #sql_schema_impl

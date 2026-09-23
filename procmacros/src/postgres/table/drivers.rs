@@ -148,21 +148,21 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
         }
     } else if info.is_json && type_category != TypeCategory::Json {
         let json_type = driver_json_type();
+        // `try_get`, not `get`: a malformed document is a decode error, not a
+        // panic inside a fallible conversion.
         if info.is_nullable {
             quote! {
-                #name: {
-                    let json_val: Option<#json_type<#base_type>> =
-                        row.get::<_, Option<#json_type<#base_type>>>(#idx);
-                    json_val.map(|v| v.0)
-                },
+                #name: row
+                    .try_get::<_, ::std::option::Option<#json_type<#base_type>>>(#idx)
+                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?
+                    .map(|document| document.0),
             }
         } else {
             quote! {
-                #name: {
-                    let json_val: #json_type<#base_type> =
-                        row.get::<_, #json_type<#base_type>>(#idx);
-                    json_val.0
-                },
+                #name: row
+                    .try_get::<_, #json_type<#base_type>>(#idx)
+                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?
+                    .0,
             }
         }
     } else {

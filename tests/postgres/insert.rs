@@ -255,3 +255,220 @@ fn insert_large_batch(db: &mut TestDb<SimpleSchema>) {
 
     assert_eq!(results.len(), 100);
 }
+
+// =============================================================================
+// ON CONFLICT (upsert)
+// =============================================================================
+
+#[drizzle::test]
+fn upsert_do_nothing_without_target_skips_duplicates(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("first").with_id(1)])
+        .on_conflict_do_nothing();
+    let sql = stmt.to_sql().sql();
+    assert!(
+        sql.ends_with("ON CONFLICT DO NOTHING"),
+        "unexpected SQL: {sql}"
+    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("original").with_id(10)])
+        .execute();
+    let affected = db
+        .insert(simple)
+        .values([InsertSimple::new("duplicate").with_id(10)])
+        .on_conflict_do_nothing()
+        .execute();
+    assert_eq!(affected, 0);
+
+    let rows: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 10))
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "original");
+}
+
+#[drizzle::test]
+fn upsert_do_nothing_on_column_keeps_existing_row(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("first").with_id(1)])
+        .on_conflict(simple.id)
+        .do_nothing();
+    let sql = stmt.to_sql().sql();
+    assert!(
+        sql.ends_with(r#"ON CONFLICT ("id") DO NOTHING"#),
+        "unexpected SQL: {sql}"
+    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("first").with_id(20)])
+        .execute();
+    db.insert(simple)
+        .values([InsertSimple::new("second").with_id(20)])
+        .on_conflict(simple.id)
+        .do_nothing()
+        .execute();
+
+    let rows: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 20))
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "first");
+}
+
+#[drizzle::test]
+fn upsert_do_update_replaces_existing_row(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("test").with_id(1)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("updated"));
+    let sql = stmt.to_sql().sql();
+    assert!(
+        sql.ends_with(r#"ON CONFLICT ("id") DO UPDATE SET "name" = $3"#),
+        "unexpected SQL: {sql}"
+    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("before").with_id(30)])
+        .execute();
+    let affected = db
+        .insert(simple)
+        .values([InsertSimple::new("ignored").with_id(30)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("after"))
+        .execute();
+    assert_eq!(affected, 1);
+
+    let rows: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 30))
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "after");
+}
+
+#[drizzle::test]
+fn upsert_do_update_where_gates_the_update(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("test").with_id(1)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("updated"))
+        .r#where(gt(simple.id, 0));
+    let sql = stmt.to_sql().sql();
+    assert!(
+        sql.ends_with(r#"DO UPDATE SET "name" = $3 WHERE "simple"."id" > $4"#),
+        "unexpected SQL: {sql}"
+    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("original").with_id(40)])
+        .execute();
+
+    // A false predicate leaves the existing row alone.
+    let untouched = db
+        .insert(simple)
+        .values([InsertSimple::new("ignored").with_id(40)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("never"))
+        .r#where(gt(simple.id, 1_000))
+        .execute();
+    assert_eq!(untouched, 0);
+    let rows: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 40))
+        .all();
+    assert_eq!(rows[0].name, "original");
+
+    // A true predicate applies the update.
+    let updated = db
+        .insert(simple)
+        .values([InsertSimple::new("ignored").with_id(40)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("updated_via_where"))
+        .r#where(gt(simple.id, 0))
+        .execute();
+    assert_eq!(updated, 1);
+    let rows: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 40))
+        .all();
+    assert_eq!(rows[0].name, "updated_via_where");
+}
+
+#[drizzle::test]
+fn upsert_do_update_uses_excluded_values(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("test").with_id(1)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name(excluded(simple.name)));
+    let sql = stmt.to_sql().sql();
+    assert!(
+        sql.ends_with(r#"ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name""#),
+        "unexpected SQL: {sql}"
+    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("old_name").with_id(50)])
+        .execute();
+    db.insert(simple)
+        .values([InsertSimple::new("new_name").with_id(50)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
+        .execute();
+
+    let rows: Vec<SelectSimple> = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 50))
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "new_name");
+}
+
+#[drizzle::test]
+fn upsert_returning_reports_the_stored_row(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([InsertSimple::new("before").with_id(60)])
+        .execute();
+
+    let stmt = db
+        .insert(simple)
+        .values([InsertSimple::new("proposed").with_id(60)])
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name(excluded(simple.name)))
+        .returning((simple.id, simple.name));
+    let sql = stmt.to_sql().sql();
+    assert!(
+        sql.ends_with(r#"RETURNING "simple"."id", "simple"."name""#),
+        "unexpected SQL: {sql}"
+    );
+
+    let returned: Vec<SelectSimple> = stmt.all();
+    assert_eq!(returned.len(), 1);
+    assert_eq!(returned[0].id, 60);
+    assert_eq!(returned[0].name, "proposed");
+}

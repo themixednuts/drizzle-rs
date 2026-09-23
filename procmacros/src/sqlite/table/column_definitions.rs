@@ -122,8 +122,24 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
 
         let default_fn_body = info.default_fn.as_ref().map_or_else(
             || quote! { ::std::option::Option::None::<fn() -> Self::Type> },
-            |func| quote! { ::std::option::Option::Some(#func) },
+            |func| {
+                if info.is_json_payload() {
+                    super::json::wrap_default_fn(func, info.is_nullable)
+                } else {
+                    quote! { ::std::option::Option::Some(#func) }
+                }
+            },
         );
+        // JSON payload columns report `Json<Payload>` as their value type:
+        // that is what they bind and decode through, and it lets a JSON
+        // column be selected on its own without any impl on the payload.
+        // `serde_json::Value` columns keep `Value`, which drizzle supports
+        // natively.
+        let decoded_value_type = if info.is_json_payload() {
+            super::json::column_value_type(info)
+        } else {
+            quote! { #rust_type }
+        };
 
         let sql_def = info.sql_definition_expr();
 
@@ -241,7 +257,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &quote! {#struct_ident},
             &quote! {#sqlite_schema_type},
             &foreign_keys_type,
-            &quote! {#rust_type},
+            &decoded_value_type,
             &quote! { #is_primary },
             &quote! { #is_not_null || #is_primary },
             &quote! { #is_unique },
@@ -333,7 +349,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             #column_not_null_impl
             #insert_column_impl
             impl #expr_value_type for #zst_ident {
-                type ValueType = #rust_type;
+                type ValueType = #decoded_value_type;
             }
             impl #into_select_target for #zst_ident {
                 type Marker = #select_cols<(#zst_ident,)>;

@@ -1568,7 +1568,7 @@ async fn search_customer(
         PgMode::DrizzleQuery => db
             .db
             .query(schema.customer)
-            .r#where(super::ilike_expr(
+            .r#where(drizzle::postgres::expr::ilike(
                 schema.customer.company_name,
                 pattern.as_str(),
             ))
@@ -1579,7 +1579,7 @@ async fn search_customer(
             .db
             .select(())
             .from(schema.customer)
-            .r#where(super::ilike_expr(
+            .r#where(drizzle::postgres::expr::ilike(
                 schema.customer.company_name,
                 pattern.as_str(),
             ))
@@ -1609,7 +1609,10 @@ async fn search_product(
         PgMode::DrizzleQuery => db
             .db
             .query(schema.product)
-            .r#where(super::ilike_expr(schema.product.name, pattern.as_str()))
+            .r#where(drizzle::postgres::expr::ilike(
+                schema.product.name,
+                pattern.as_str(),
+            ))
             .find_many()
             .await
             .map_err(db_err)?,
@@ -1617,7 +1620,10 @@ async fn search_product(
             .db
             .select(())
             .from(schema.product)
-            .r#where(super::ilike_expr(schema.product.name, pattern.as_str()))
+            .r#where(drizzle::postgres::expr::ilike(
+                schema.product.name,
+                pattern.as_str(),
+            ))
             .all()
             .await
             .map_err(db_err)?,

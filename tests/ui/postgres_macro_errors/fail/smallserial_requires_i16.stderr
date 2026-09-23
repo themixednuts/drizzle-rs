@@ -1,0 +1,5 @@
+error: #[column(smallserial)] requires the field type to be i16
+ --> tests/ui/postgres_macro_errors/fail/smallserial_requires_i16.rs:6:5
+  |
+6 |     id: i32,
+  |     ^^

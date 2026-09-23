@@ -1,3 +1,8 @@
+// turso's async API recurses deeply enough that proving a spawned drizzle
+// turso future `Send` exceeds the default limit on current nightlies
+// (`recursion_depth_exceeding_limit`).
+#![recursion_limit = "256"]
+
 #[cfg(feature = "turso")]
 mod schema;
 

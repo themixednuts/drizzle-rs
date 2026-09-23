@@ -46,9 +46,10 @@ pub use drizzle_macros::include_migrations;
 #[doc(inline)]
 pub use drizzle_macros::sql;
 
-/// Attribute macro for integration tests with DI-style `db` / `schema`
-/// parameters. See [`drizzle_macros::test`] for full documentation.
-#[doc(inline)]
+// `#[drizzle::test]` is internal to drizzle's own test suite: its expansion
+// calls `crate::common::helpers` in `tests/`, so it cannot work in other
+// crates. It stays public only because that suite is a separate crate.
+#[doc(hidden)]
 pub use drizzle_macros::test;
 
 /// Database dialect enum.
@@ -156,6 +157,22 @@ pub mod core {
     pub mod query {
         #[doc(inline)]
         pub use drizzle_core::query::*;
+    }
+
+    /// Drizzle-owned wrapper for JSON column values.
+    ///
+    /// Not part of the dialect preludes, so it never collides with the
+    /// `Json` SQL type marker in `drizzle::postgres::types` or
+    /// `drizzle::mysql::types`; import it as `drizzle::core::Json`.
+    #[cfg(feature = "serde")]
+    #[doc(inline)]
+    pub use drizzle_core::Json;
+
+    /// The JSON column wrapper and the field conversions generated models use.
+    #[cfg(feature = "serde")]
+    pub mod json {
+        #[doc(inline)]
+        pub use drizzle_core::json::*;
     }
 
     /// Re-export serde for proc macro generated code.

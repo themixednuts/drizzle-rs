@@ -18,6 +18,7 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
     let mut partial_select_fields = Vec::new();
     let mut select_field_names = Vec::new();
     let mut select_types = Vec::new();
+    let mut partial_types = Vec::new();
     let mut tuple_indices = Vec::new();
     let mut partial_convenience_methods = Vec::new();
 
@@ -28,6 +29,7 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
 
         select_fields.push(quote! { pub #name: #select_type });
         partial_select_fields.push(quote! { pub #name: #partial_type });
+        partial_types.push(partial_type);
         select_types.push(select_type);
         tuple_indices.push(syn::Index::from(i));
         select_field_names.push(name);
@@ -39,20 +41,28 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
             ctx,
         ));
     }
-    let select_model_derive = if field_infos.iter().any(|info| info.is_custom_type) {
-        quote! {}
-    } else {
-        quote! { #[derive(Debug, Clone, PartialEq, Default)] }
-    };
-    let partial_select_model_derive = if field_infos.iter().any(|info| info.is_custom_type) {
-        quote! { #[derive(Default)] }
-    } else {
-        quote! { #[derive(Debug, Clone, PartialEq, Default)] }
-    };
+    // Debug/Clone/PartialEq/Default exist when every field type has them;
+    // nothing is required of user types (JSON payloads, custom columns).
+    let select_std_impls = crate::common::generators::model_std_impls(
+        select_model_ident,
+        &select_field_names
+            .iter()
+            .copied()
+            .zip(select_types.iter().cloned())
+            .collect::<Vec<_>>(),
+    );
+    let partial_std_impls = crate::common::generators::model_std_impls(
+        select_model_partial_ident,
+        &select_field_names
+            .iter()
+            .copied()
+            .zip(partial_types.iter().cloned())
+            .collect::<Vec<_>>(),
+    );
     let partial_impl = quote! {
             // Partial Select Model - all fields are optional for selective querying
-            #partial_select_model_derive
             #struct_vis struct #select_model_partial_ident { #(#partial_select_fields,)* }
+            #partial_std_impls
 
             impl #select_model_partial_ident {
                 // Convenience methods for setting fields
@@ -62,8 +72,8 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
 
     quote! {
         // Select Model
-        #select_model_derive
         #struct_vis struct #select_model_ident { #(#select_fields,)* }
+        #select_std_impls
 
         impl From<(#(#select_types,)*)> for #select_model_ident {
             fn from(tuple: (#(#select_types,)*)) -> Self {

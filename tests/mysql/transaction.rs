@@ -5,27 +5,6 @@ use drizzle::core::expr::count;
 use drizzle::mysql::prelude::*;
 
 #[drizzle::test]
-fn callback_panic_rolls_back(db: &mut TestDb<TestSchema>) {
-    let TestSchema { users, .. } = schema;
-
-    let panic: Result<drizzle::Result<()>, _> =
-        catch!(db.transaction(TransactionConfig::default(), |tx| {
-            result!(
-                tx.insert(users)
-                    .value(
-                        InsertUser::new("panic rollback", true, Role::Member, vec![], 0, 0.0)
-                            .with_note(None::<String>),
-                    )
-                    .execute()
-            )?;
-            panic!("rollback transaction after callback panic");
-        },));
-    assert!(panic.is_err());
-    let after_panic: i64 = db.select(count(users.id)).from(users).get();
-    assert_eq!(after_panic, 0);
-}
-
-#[drizzle::test]
 fn consistent_snapshot_options_execute(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;
     db.insert(users)

@@ -598,6 +598,72 @@ fn schema_with_view(db: &mut TestDb<ViewTestSchema>) {
 }
 
 #[drizzle::test]
+fn refresh_materialized_view_populates_and_empties(db: &mut TestDb<ViewTestSchema>) {
+    use drizzle::core::expr::count;
+    use drizzle::postgres::builder::refresh_materialized_view;
+
+    let ViewTestSchema {
+        simple,
+        simple_view_mat,
+        ..
+    } = schema;
+    db.insert(simple)
+        .values([InsertSimple::new("alpha"), InsertSimple::new("beta")])
+        .execute();
+
+    // Declared WITH_NO_DATA: unreadable until the first refresh.
+    let unpopulated: drizzle::Result<i64> = result!(
+        db.select(count(simple_view_mat.id))
+            .from(simple_view_mat)
+            .get()
+    );
+    assert!(unpopulated.is_err(), "{unpopulated:?}");
+
+    db.execute(refresh_materialized_view(&simple_view_mat));
+    let populated: i64 = db
+        .select(count(simple_view_mat.id))
+        .from(simple_view_mat)
+        .get();
+    assert_eq!(populated, 2);
+
+    // Later writes stay invisible until the next refresh.
+    db.insert(simple)
+        .values([InsertSimple::new("gamma")])
+        .execute();
+    let stale: i64 = db
+        .select(count(simple_view_mat.id))
+        .from(simple_view_mat)
+        .get();
+    assert_eq!(stale, 2);
+
+    // CONCURRENTLY needs a unique index on the view.
+    db.execute(SQL::raw(
+        "CREATE UNIQUE INDEX simple_view_mat_id_idx ON simple_view_mat (id)",
+    ));
+    db.execute(refresh_materialized_view(&simple_view_mat).concurrently());
+    let fresh: i64 = db
+        .select(count(simple_view_mat.id))
+        .from(simple_view_mat)
+        .get();
+    assert_eq!(fresh, 3);
+
+    db.execute(refresh_materialized_view(&simple_view_mat).with_no_data());
+    let emptied: drizzle::Result<i64> = result!(
+        db.select(count(simple_view_mat.id))
+            .from(simple_view_mat)
+            .get()
+    );
+    assert!(emptied.is_err(), "{emptied:?}");
+
+    db.execute(refresh_materialized_view(&simple_view_mat).with_data());
+    let repopulated: i64 = db
+        .select(count(simple_view_mat.id))
+        .from(simple_view_mat)
+        .get();
+    assert_eq!(repopulated, 3);
+}
+
+#[drizzle::test]
 fn view_alias_in_from_clause(db: &mut TestDb<ViewTestSchema>) {
     let ViewTestSchema {
         simple,

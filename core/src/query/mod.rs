@@ -23,8 +23,10 @@ pub use builder::{
 };
 pub use deser::{
     DeserializeStore, FromJsonColumn, FromJsonField, FromJsonObject, JsonBool, JsonObjectDecoder,
-    JsonOptionalBool, JsonQueryRow,
+    JsonOptionalBool, JsonQueryRow, RawJson,
 };
+#[doc(hidden)]
+pub use deser::{decode_enum_value, decode_json_bytes, decode_json_text};
 pub use handle::RelationHandle;
 pub use row::QueryRow;
 pub use sql::{RelCardinality, RenderRelations, RenderedRelation, build_query_sql};

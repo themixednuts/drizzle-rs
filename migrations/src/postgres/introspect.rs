@@ -974,40 +974,36 @@ pub mod queries {
     ///
     /// Accepts `$1::text[]` — when non-NULL, scopes to those schemas;
     /// when NULL, returns all non-system views.
+    /// The schema filter runs in a materialized CTE so `pg_get_viewdef` only
+    /// ever sees relations inside the requested schemas: PostgreSQL may
+    /// otherwise evaluate it before the `nspname` predicate and fail with
+    /// "could not open relation with OID" when another session drops a view
+    /// elsewhere mid-scan.
     pub const VIEWS_QUERY: &str = r"
-        SELECT
-            n.nspname AS schema,
-            c.relname AS name,
-            pg_get_viewdef(c.oid) AS definition,
-            FALSE AS is_materialized
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE (
-            ($1::text[] IS NOT NULL AND n.nspname = ANY($1::text[]))
-            OR ($1::text[] IS NULL AND n.nspname NOT LIKE 'pg_%'
-                AND n.nspname != 'information_schema')
+        WITH candidates AS MATERIALIZED (
+            SELECT
+                c.oid,
+                n.nspname AS schema,
+                c.relname AS name,
+                c.relkind = 'm' AS is_materialized
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE (
+                ($1::text[] IS NOT NULL AND n.nspname = ANY($1::text[]))
+                OR ($1::text[] IS NULL AND n.nspname NOT LIKE 'pg_%'
+                    AND n.nspname != 'information_schema')
+            )
+              AND c.relkind IN ('v', 'm')
+              AND has_schema_privilege(current_user, n.oid, 'USAGE')
+              AND has_table_privilege(current_user, c.oid, 'SELECT')
         )
-          AND c.relkind = 'v'
-          AND has_schema_privilege(current_user, n.oid, 'USAGE')
-          AND has_table_privilege(current_user, c.oid, 'SELECT')
-          AND pg_get_viewdef(c.oid) IS NOT NULL
-        UNION ALL
         SELECT
-            n.nspname AS schema,
-            c.relname AS name,
-            pg_get_viewdef(c.oid) AS definition,
-            TRUE AS is_materialized
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE (
-            ($1::text[] IS NOT NULL AND n.nspname = ANY($1::text[]))
-            OR ($1::text[] IS NULL AND n.nspname NOT LIKE 'pg_%'
-                AND n.nspname != 'information_schema')
-        )
-          AND c.relkind = 'm'
-          AND has_schema_privilege(current_user, n.oid, 'USAGE')
-          AND has_table_privilege(current_user, c.oid, 'SELECT')
-          AND pg_get_viewdef(c.oid) IS NOT NULL
+            schema,
+            name,
+            pg_get_viewdef(oid) AS definition,
+            is_materialized
+        FROM candidates
+        WHERE pg_get_viewdef(oid) IS NOT NULL
         ORDER BY schema, name
     ";
 

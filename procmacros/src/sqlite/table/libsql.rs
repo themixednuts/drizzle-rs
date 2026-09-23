@@ -125,9 +125,18 @@ fn generate_field_from_row_impl(
         ));
     }
 
+    // JSON documents decode through `Json<Payload>`'s codec. The index stays a
+    // `usize` expression for DrizzleRowByIndex.
+    if info.is_json_column() {
+        let decode = super::json::row_decode(idx, info, is_optional);
+        return Ok(quote! { #name: #decode, });
+    }
+
     // Codec-owned types use DrizzleRowByIndex for unified conversion. Option<T>
     // only maps SQL NULL to None; invalid non-NULL values remain errors.
-    if info.uses_sqlite_column_codec() {
+    // UUIDs share the path: `FromSQLiteValue` on the declared type handles
+    // BLOB and TEXT storage without naming `::uuid::Uuid`.
+    if info.uses_sqlite_column_codec() || info.type_category() == TypeCategory::Uuid {
         // idx is a usize expression here (before i32 cast for libsql)
         if is_optional {
             return Ok(quote! {
@@ -149,73 +158,11 @@ fn generate_field_from_row_impl(
 
     // Dispatch based on type category
     match info.type_category() {
-        TypeCategory::Json => handle_json_field(&idx, name, info, is_optional),
-        TypeCategory::Uuid => handle_uuid_field(&idx, name, info, is_optional),
         TypeCategory::Enum => handle_enum_field(&idx, name, info, is_optional),
         TypeCategory::ArrayString => Ok(handle_arraystring_field(&idx, name, info, is_optional)),
         TypeCategory::ArrayVec => Ok(handle_arrayvec_field(&idx, name, info, is_optional)),
         _ => Ok(handle_standard_field(&idx, name, info, is_optional)),
     }
-}
-
-fn handle_json_field(
-    idx: &TokenStream,
-    name: &syn::Ident,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    if !cfg!(feature = "serde") {
-        return Err(syn::Error::new_spanned(
-            info.ident,
-            errors::json::SERDE_REQUIRED,
-        ));
-    }
-
-    let accessor = if is_optional {
-        quote!({
-            let value: Option<String> = row.get(#idx)?;
-            value.map(|value| serde_json::from_str(&value)).transpose()
-        })
-    } else {
-        quote!({
-            let value: String = row.get(#idx)?;
-            serde_json::from_str(&value)
-        })
-    };
-
-    Ok(quote! { #name: #accessor?, })
-}
-
-fn handle_uuid_field(
-    idx: &TokenStream,
-    name: &syn::Ident,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    let accessor = match info.column_type {
-        SQLiteType::Blob => {
-            if is_optional {
-                quote!(row.get::<Option<[u8;16]>>(#idx).map(|opt| opt.map(::uuid::Uuid::from_bytes)))
-            } else {
-                quote!(row.get::<[u8;16]>(#idx).map(::uuid::Uuid::from_bytes))
-            }
-        }
-        SQLiteType::Text => {
-            if is_optional {
-                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.map(|v| ::uuid::Uuid::parse_str(&v)).transpose())?)
-            } else {
-                quote!(row.get::<String>(#idx).map(|v| ::uuid::Uuid::parse_str(&v))?)
-            }
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::uuid::INVALID_COLUMN_TYPE,
-            ));
-        }
-    };
-
-    Ok(quote! { #name: #accessor?, })
 }
 
 fn handle_enum_field(
@@ -348,41 +295,4 @@ fn handle_standard_field(
             quote! { #name: #accessor?, }
         }
     }
-}
-
-// =============================================================================
-// JSON/Enum Implementation Generation
-// =============================================================================
-
-/// Generate libsql JSON implementations (Into<libsql::Value>)
-pub fn generate_json_impls(
-    json_types: &std::collections::BTreeMap<String, &FieldInfo>,
-) -> Result<Vec<TokenStream>> {
-    if json_types.is_empty() {
-        return Ok(vec![]);
-    }
-
-    json_types
-        .values()
-        .map(|info| {
-            let struct_name = info.base_type;
-            Ok(quote! {
-                    impl From<#struct_name> for drizzle::sqlite::libsql::Value {
-                        fn from(value: #struct_name) -> Self {
-                            let json_data = serde_json::to_string(&value)
-                                .expect("failed to serialize JSON value for SQLite JSON column");
-                            drizzle::sqlite::libsql::Value::Text(json_data)
-                        }
-                    }
-
-                    impl From<&#struct_name> for drizzle::sqlite::libsql::Value {
-                        fn from(value: &#struct_name) -> Self {
-                            let json_data = serde_json::to_string(value)
-                                .expect("failed to serialize JSON value for SQLite JSON column");
-                            drizzle::sqlite::libsql::Value::Text(json_data)
-                        }
-                    }
-            })
-        })
-        .collect::<Result<Vec<_>>>()
 }

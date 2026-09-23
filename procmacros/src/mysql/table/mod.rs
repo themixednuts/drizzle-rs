@@ -269,7 +269,10 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                     | drizzle_types::mysql::MySQLType::Datetime
                     | drizzle_types::mysql::MySQLType::Timestamp
             );
-            let storage = if is_custom {
+            let storage = if field.is_json_payload() {
+                // JSON payloads decode through `Json<Payload>`'s codec.
+                FieldStorageKind::MySQLJson
+            } else if is_custom {
                 FieldStorageKind::MySQLColumn
             } else if is_binary {
                 FieldStorageKind::MySQLBlob
@@ -282,7 +285,12 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
             } else {
                 FieldStorageKind::Plain
             };
-            let projection = if is_custom {
+            let projection = if field.is_json_payload() {
+                let base_type = &field.base_type;
+                FieldProjectionKind::MySQLColumn(Box::new(
+                    syn::parse_quote!(drizzle::core::Json<#base_type>),
+                ))
+            } else if is_custom {
                 FieldProjectionKind::MySQLColumn(Box::new(field.base_type.clone()))
             } else if is_binary {
                 FieldProjectionKind::TaggedHex

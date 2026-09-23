@@ -1,0 +1,23 @@
+error[E0277]: `SQLiteDialect` does not provide this math function
+  --> tests/ui/sqlite_math_ext/fail/sqrt_requires_math_feature.rs:14:13
+   |
+14 |     let _ = sqrt(readings.value);
+   |             ^^^^^^^^^^^^^^^^^^^^ SQLite only has CEIL/FLOOR/TRUNC/SQRT/POWER/EXP/LN/LOG*/PI with SQLITE_ENABLE_MATH_FUNCTIONS
+   |
+   = help: the trait `MathExt` is not implemented for `SQLiteDialect`
+   = note: enable drizzle's `math` feature and build SQLite with the math functions, e.g. `LIBSQLITE3_FLAGS="-DSQLITE_ENABLE_MATH_FUNCTIONS"` for bundled rusqlite
+help: the following other types implement trait `MathExt`
+  --> core/src/expr/math.rs
+   |
+   | impl MathExt for PostgresDialect {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `PostgresDialect`
+   | impl MathExt for MySQLDialect {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MySQLDialect`
+note: required by a bound in `drizzle::core::expr::sqrt`
+  --> core/src/expr/math.rs
+   |
+   | pub fn sqrt<'a, V, E>(
+   |        ---- required by a bound in this function
+...
+   |     V::DialectMarker: MathExt,
+   |                       ^^^^^^^ required by this bound in `sqrt`

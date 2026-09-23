@@ -43,6 +43,12 @@ default = ["std", "col16"]
 std = ["compact_str/std", "smallvec/write", "thiserror/std", "drizzle-types/std", "percent-encoding/std"]
 driver-error = ["std"]
 
+# The linked SQLite was compiled with SQLITE_ENABLE_MATH_FUNCTIONS, so the
+# optional math functions (ceil, floor, trunc, sqrt, power, exp, ln, log*, pi)
+# may be used with the SQLite dialect. Off by default because the bundled
+# rusqlite and libsql builds do not enable them.
+math = []
+
 # Allocator support for no_std environments. Kept for API clarity;
 # `drizzle-types/alloc` and `percent-encoding/alloc` are always enabled
 # since this crate requires allocation unconditionally.

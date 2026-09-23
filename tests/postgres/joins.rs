@@ -163,3 +163,80 @@ fn chained_fk_join(db: &mut TestDb<FullBlogSchema>) {
     assert_eq!(results[2].post_title, "Rust Guide");
     assert_eq!(results[2].category_name, "Tutorial");
 }
+
+#[PostgresTable(NAME = "join_using_accounts")]
+struct JoinUsingAccount {
+    #[column(PRIMARY)]
+    account_id: i32,
+    owner: String,
+}
+
+#[PostgresTable(NAME = "join_using_orders")]
+struct JoinUsingOrder {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = JoinUsingAccount::account_id)]
+    account_id: i32,
+    total: i32,
+}
+
+#[derive(PostgresSchema)]
+struct JoinUsingSchema {
+    accounts: JoinUsingAccount,
+    orders: JoinUsingOrder,
+}
+
+#[drizzle::test]
+fn join_using_matches_same_named_columns(db: &mut TestDb<JoinUsingSchema>) {
+    let JoinUsingSchema { accounts, orders } = schema;
+    db.insert(accounts)
+        .values([
+            InsertJoinUsingAccount::new(1, "alice"),
+            InsertJoinUsingAccount::new(2, "bob"),
+            InsertJoinUsingAccount::new(3, "cleo"),
+        ])
+        .execute();
+    db.insert(orders)
+        .values([
+            InsertJoinUsingOrder::new(1, 1, 10),
+            InsertJoinUsingOrder::new(2, 1, 15),
+            InsertJoinUsingOrder::new(3, 2, 7),
+        ])
+        .execute();
+
+    let stmt = db
+        .select((accounts.owner, orders.total))
+        .from(accounts)
+        .inner_join_using(orders, SQL::ident("account_id"))
+        .order_by([asc(orders.id)]);
+    assert!(
+        stmt.to_sql()
+            .sql()
+            .contains(r#"INNER JOIN "join_using_orders" USING ("account_id")"#),
+        "{}",
+        stmt.to_sql().sql()
+    );
+    let rows: Vec<(String, i32)> = stmt.all();
+    assert_eq!(
+        rows,
+        [
+            ("alice".to_string(), 10),
+            ("alice".to_string(), 15),
+            ("bob".to_string(), 7),
+        ]
+    );
+
+    // LEFT JOIN ... USING keeps accounts without orders; nullability is
+    // tracked on the joined table model.
+    let rows: Vec<(SelectJoinUsingAccount, Option<SelectJoinUsingOrder>)> = db
+        .select(())
+        .from(accounts)
+        .left_join_using(orders, SQL::ident("account_id"))
+        .order_by([asc(accounts.account_id), asc(orders.id)])
+        .all();
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0].0.owner, "alice");
+    assert_eq!(rows[0].1.as_ref().map(|order| order.total), Some(10));
+    assert_eq!(rows[3].0.owner, "cleo");
+    assert!(rows[3].1.is_none());
+}

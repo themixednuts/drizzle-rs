@@ -734,6 +734,10 @@ fn rewrite_zero_arg_terminal(mc: &ExprMethodCall, async_mode: bool) -> Expr {
             "{:?}",
             __sql_obj.params().collect::<::std::vec::Vec<_>>()
         );
+        // `SQL<'a, V>` is lifetime-invariant, so keeping this clone alive
+        // across a `&'a mut self` executor call would pin the mutable borrow
+        // of `db` until the block ends and collide with `record_sql`.
+        ::core::mem::drop(__sql_obj);
     };
     build_terminal_block(
         original,
@@ -763,6 +767,10 @@ fn rewrite_one_arg_terminal(mc: &ExprMethodCall, async_mode: bool) -> Expr {
             "{:?}",
             __sql_obj.params().collect::<::std::vec::Vec<_>>()
         );
+        // `SQL<'a, V>` is lifetime-invariant, so keeping this clone alive
+        // across a `&'a mut self` executor call would pin the mutable borrow
+        // of `db` until the block ends and collide with `record_sql`.
+        ::core::mem::drop(__sql_obj);
     };
     build_terminal_block(
         original,

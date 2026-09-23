@@ -348,12 +348,50 @@ impl FieldInfo {
         }
     }
 
+    /// Whether the field is a `JSON` column whose payload is not
+    /// `serde_json::Value` or a string. Such columns convert through
+    /// `drizzle::core::Json<Payload>`, which implements the column codec, so
+    /// the table macro never implements a trait on the payload type.
+    pub fn is_json_payload(&self) -> bool {
+        self.is_custom_type
+            && matches!(self.column_type, MySQLType::Json)
+            && !type_is_json_value(&self.base_type)
+            && !type_is_string_like(&self.base_type)
+    }
+
+    /// The type that implements `DrizzleMySQLColumn` for this field:
+    /// `Json<Payload>` for JSON payload columns, the field type otherwise.
+    pub fn codec_type(&self) -> TokenStream {
+        let base_type = &self.base_type;
+        if self.is_json_payload() {
+            quote!(drizzle::core::Json<#base_type>)
+        } else {
+            quote!(#base_type)
+        }
+    }
+
+    /// The Rust value type a column binds and decodes through: `Json<Payload>`
+    /// (or `Option<Json<Payload>>`) for JSON payload columns, the field type
+    /// otherwise.
+    pub fn decoded_value_type(&self) -> TokenStream {
+        if !self.is_json_payload() {
+            let field_type = &self.field_type;
+            return quote!(#field_type);
+        }
+        let base_type = &self.base_type;
+        if self.is_nullable {
+            quote!(::std::option::Option<drizzle::core::Json<#base_type>>)
+        } else {
+            quote!(drizzle::core::Json<#base_type>)
+        }
+    }
+
     pub fn sql_type_expr(&self) -> TokenStream {
         if self.is_enum {
             let ty = &self.base_type;
             quote!(<#ty as drizzle::mysql::traits::MySQLEnum>::SQL_TYPE)
         } else if self.is_custom_type {
-            let ty = &self.base_type;
+            let ty = self.codec_type();
             quote!(<#ty as drizzle::mysql::traits::DrizzleMySQLColumn>::SQL_TYPE)
         } else {
             let rendered = render_type(&self.column_type, &self.type_args);
@@ -363,7 +401,7 @@ impl FieldInfo {
 
     pub fn sql_type_marker(&self) -> TokenStream {
         if self.is_custom_type {
-            let ty = &self.base_type;
+            let ty = self.codec_type();
             return quote!(<#ty as drizzle::mysql::traits::DrizzleMySQLColumn>::SQLType);
         }
 

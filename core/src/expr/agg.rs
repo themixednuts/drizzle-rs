@@ -28,6 +28,7 @@ use drizzle_types::sqlite::types::{
     Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
 };
 
+use super::math::pg_double;
 use super::{Agg, Expr, NonNull, Null, SQLExpr, Scalar};
 
 // =============================================================================
@@ -552,7 +553,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("STDDEV_POP", expr.into_expr_sql()))
+    SQLExpr::new(pg_double(SQL::func("STDDEV_POP", expr.into_expr_sql())))
 }
 
 /// `STDDEV_SAMP` / STDDEV - sample standard deviation.
@@ -587,7 +588,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("STDDEV_SAMP", expr.into_expr_sql()))
+    SQLExpr::new(pg_double(SQL::func("STDDEV_SAMP", expr.into_expr_sql())))
 }
 
 /// `VAR_POP` - population variance.
@@ -616,7 +617,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("VAR_POP", expr.into_expr_sql()))
+    SQLExpr::new(pg_double(SQL::func("VAR_POP", expr.into_expr_sql())))
 }
 
 /// `VAR_SAMP` / VARIANCE - sample variance.
@@ -645,7 +646,7 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("VAR_SAMP", expr.into_expr_sql()))
+    SQLExpr::new(pg_double(SQL::func("VAR_SAMP", expr.into_expr_sql())))
 }
 
 /// Sample variance. Emits `VARIANCE` on PostgreSQL and `VAR_SAMP` on MySQL.
@@ -657,13 +658,13 @@ where
     E: Expr<'a, V>,
     E::SQLType: StatisticalAggregatePolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func(
+    SQLExpr::new(pg_double(SQL::func(
         match V::DIALECT {
             Dialect::MySQL => "VAR_SAMP",
             Dialect::SQLite | Dialect::PostgreSQL => "VARIANCE",
         },
         expr.into_expr_sql(),
-    ))
+    )))
 }
 
 /// `BOOL_AND` - true if all non-null inputs are true (`PostgreSQL`).

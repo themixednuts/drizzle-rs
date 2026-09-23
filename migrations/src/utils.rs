@@ -87,42 +87,156 @@ pub fn escape_for_rust_literal(input: &str) -> String {
 /// distinguish them from unquoted SQL keywords and function calls. PostgreSQL
 /// casts are removed because the column type already supplies that context.
 pub(crate) fn default_expression(sql: &str) -> Option<String> {
+    let sql = sql.trim();
     let mut rust = String::with_capacity(sql.len());
-    let mut chars = sql.trim().chars().peekable();
+    let mut rest = sql;
 
-    while let Some(ch) = chars.next() {
+    while let Some(ch) = rest.chars().next() {
         if ch == '\'' {
-            let mut value = String::new();
-            loop {
-                let next = chars.next()?;
-                if next == '\'' {
-                    if chars.peek() == Some(&'\'') {
-                        chars.next();
-                        value.push('\'');
-                    } else {
-                        break;
-                    }
-                } else {
-                    value.push(next);
-                }
-            }
+            let (value, tail) = sql_string_literal(rest)?;
             rust.push_str(&format!("{value:?}"));
-        } else if ch == ':' && chars.peek() == Some(&':') {
-            chars.next();
-            while chars.peek().is_some_and(|next| next.is_whitespace()) {
-                chars.next();
-            }
-            while chars.peek().is_some_and(|next| {
-                next.is_ascii_alphanumeric() || matches!(next, '_' | '.' | '[' | ']')
-            }) {
-                chars.next();
-            }
+            rest = tail;
+        } else if let Some(tail) = rest.strip_prefix("::") {
+            rest = skip_cast_type(tail);
         } else {
             rust.push(ch);
+            rest = &rest[ch.len_utf8()..];
         }
     }
 
     syn::parse_str::<syn::Expr>(&rust).ok().map(|_| rust)
+}
+
+/// Comment emitted in generated schema code when a database default cannot be
+/// rendered as `#[column(default = ...)]`, so the output still compiles and the
+/// omission is visible next to the field.
+pub(crate) fn unsupported_default_comment(indent: &str, sql: &str) -> String {
+    let sql = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!(
+        "{indent}// TODO: default `{sql}` cannot be expressed as `#[column(default = ...)]`; add it manually.\n"
+    )
+}
+
+/// Split a leading SQL string literal (`'it''s'`) into its unescaped value and
+/// the remaining input. Returns `None` when the literal is unterminated.
+fn sql_string_literal(input: &str) -> Option<(String, &str)> {
+    let mut value = String::new();
+    let mut rest = input.strip_prefix('\'')?;
+    loop {
+        let end = rest.find('\'')?;
+        value.push_str(&rest[..end]);
+        rest = &rest[end + 1..];
+        if let Some(tail) = rest.strip_prefix('\'') {
+            value.push('\'');
+            rest = tail;
+        } else {
+            return Some((value, rest));
+        }
+    }
+}
+
+/// Words that continue a multi-word PostgreSQL type name after its first word
+/// (`character varying`, `double precision`, `timestamp without time zone`,
+/// `interval year to month`).
+const TYPE_NAME_CONTINUATIONS: &[&str] = &[
+    "varying",
+    "precision",
+    "with",
+    "without",
+    "time",
+    "zone",
+    "year",
+    "month",
+    "day",
+    "hour",
+    "minute",
+    "second",
+    "to",
+];
+
+/// Skip the type name following a `::` cast, including schema qualification,
+/// quoted identifiers, type modifiers (`numeric(10,2)`), array suffixes and
+/// multi-word spellings such as `timestamp(3) without time zone`.
+fn skip_cast_type(input: &str) -> &str {
+    let mut rest = input.trim_start();
+
+    // Possibly schema-qualified, possibly quoted first word.
+    loop {
+        rest = skip_identifier(rest);
+        match rest.strip_prefix('.') {
+            Some(tail) => rest = tail,
+            None => break,
+        }
+    }
+    rest = skip_type_suffixes(rest);
+
+    loop {
+        let candidate = rest.trim_start();
+        let end = candidate
+            .find(|c: char| !c.is_ascii_alphabetic())
+            .unwrap_or(candidate.len());
+        let word = &candidate[..end];
+        let word_terminated = candidate[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
+        if word.is_empty()
+            || !word_terminated
+            || !TYPE_NAME_CONTINUATIONS.contains(&word.to_ascii_lowercase().as_str())
+        {
+            return rest;
+        }
+        rest = skip_type_suffixes(&candidate[end..]);
+    }
+}
+
+fn skip_identifier(input: &str) -> &str {
+    if let Some(mut rest) = input.strip_prefix('"') {
+        loop {
+            let Some(end) = rest.find('"') else {
+                return "";
+            };
+            rest = &rest[end + 1..];
+            match rest.strip_prefix('"') {
+                Some(tail) => rest = tail,
+                None => return rest,
+            }
+        }
+    }
+    let end = input
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(input.len());
+    &input[end..]
+}
+
+/// Skip a type modifier list and any array dimension suffixes.
+fn skip_type_suffixes(input: &str) -> &str {
+    let mut rest = input;
+    if rest.starts_with('(') {
+        let mut depth = 0usize;
+        let mut close = rest.len();
+        for (index, ch) in rest.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = index + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        rest = &rest[close..];
+    }
+    while let Some(tail) = rest.strip_prefix('[') {
+        let Some(end) = tail.find(']') else {
+            return "";
+        };
+        rest = &tail[end + 1..];
+    }
+    rest
 }
 
 /// Unescape a string from SQL default value
@@ -359,5 +473,44 @@ mod tests {
             default_expression("nextval('users_id_seq'::regclass)").as_deref(),
             Some(r#"nextval("users_id_seq")"#)
         );
+        assert_eq!(
+            default_expression("'it''s'::text").as_deref(),
+            Some(r#""it's""#)
+        );
+    }
+
+    #[test]
+    fn postgres_casts_are_stripped() {
+        for (sql, expected) in [
+            ("'guest'::character varying", r#""guest""#),
+            ("'guest'::character varying(20)[]", r#""guest""#),
+            ("'1.5'::double precision", r#""1.5""#),
+            (
+                "'2020-01-01 00:00:00'::timestamp without time zone",
+                r#""2020-01-01 00:00:00""#,
+            ),
+            (
+                "'2020-01-01 00:00:00+00'::timestamp(3) with time zone",
+                r#""2020-01-01 00:00:00+00""#,
+            ),
+            ("'12:00:00'::time with time zone", r#""12:00:00""#),
+            ("'1 year'::interval year to month", r#""1 year""#),
+            ("'{}'::text[]", r#""{}""#),
+            ("'{}'::jsonb", r#""{}""#),
+            ("'active'::public.\"Status\"", r#""active""#),
+            ("'1'::numeric(10,2) + 1", r#""1" + 1"#),
+            ("('a'::text || 'b'::text)", r#"("a" || "b")"#),
+            ("(now() + '1 day'::interval)", r#"(now() + "1 day")"#),
+        ] {
+            assert_eq!(default_expression(sql).as_deref(), Some(expected), "{sql}");
+        }
+    }
+
+    #[test]
+    fn untranslatable_defaults_are_rejected() {
+        assert_eq!(default_expression("'unterminated"), None);
+        assert_eq!(default_expression("x'00'"), None);
+        assert_eq!(default_expression("ARRAY[]::text[]"), None);
+        assert_eq!(default_expression("CAST(1 AS int)"), None);
     }
 }

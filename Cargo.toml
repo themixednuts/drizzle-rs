@@ -97,9 +97,13 @@ tokio = { version = ">=1.48, <2" }
 # The prerelease-bearing upper bound is what lets cargo match 0.8.0-pre.*
 # at all (a plain "<0.9" range never matches prereleases); bump the bound one
 # line per new upstream pre after re-running the turso suite against it.
-# Verified at both endpoints: 0.7.2 and 0.8.0-pre.2 (330 passed, 8 failures =
-# known upstream parser gaps, one of the previous nine fixed by the pre).
-turso = { version = ">=0.7, <=0.8.0-pre.2", default-features = false, features = ["pure-rust-crypto"] }
+# Keep it on the *latest* pre: a pre's own `^0.8.0-pre.N` requirements float
+# to newer prereleases of turso's internal crates, so an older pre stops
+# compiling in fresh resolutions once upstream moves on (0.8.0-pre.2 broke
+# when turso_sdk_kit 0.8.0-pre.12 shipped). The downstream-crate CI job
+# resolves fresh and catches that. Crates that ask for `turso = "0.7"`
+# themselves still unify on 0.7.x.
+turso = { version = ">=0.7, <=0.8.0-pre.12", default-features = false, features = ["pure-rust-crypto"] }
 worker = { version = ">=0.8, <0.9", default-features = false }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }
@@ -125,7 +129,8 @@ tokio-postgres = { version = ">=0.7.18, <0.8", default-features = false }
 # AWS Aurora Data API (RDS Data Service) — Postgres + MySQL over HTTP.
 # Optional, pulls in aws-smithy/hyper/tower/tokio transitively. Gated behind
 # the `aws-data-api` feature in `drizzle-postgres` and the root `drizzle` crate.
-aws-sdk-rdsdata = { version = "1" }
+# default features pull the legacy hyper 0.14 / rustls 0.21 stack (RUSTSEC-2026-0258, -0098/-0099/-0104).
+aws-sdk-rdsdata = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-config = { version = "1" }
 heck = { version = "0.5" }
 inquire = { version = "0.7" }
@@ -328,6 +333,11 @@ query = [
   "drizzle-postgres?/query",
   "drizzle-mysql?/query",
 ]
+# The linked SQLite provides the optional math functions
+# (SQLITE_ENABLE_MATH_FUNCTIONS); unlocks ceil/floor/trunc/sqrt/power/exp/
+# ln/log/log10/log2/pi for the SQLite dialect. PostgreSQL and MySQL always
+# have them.
+math = ["drizzle-core/math", "drizzle-sqlite?/math"]
 
 # Add dialect-specific features back for gating re-exports
 sqlite = ["drizzle-seed/sqlite", "drizzle-macros/sqlite", "dep:drizzle-sqlite"]

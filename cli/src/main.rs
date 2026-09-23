@@ -68,7 +68,7 @@ enum Command {
     /// Introspect database and generate schema (alias for introspect)
     Pull(IntrospectOptions),
 
-    /// Show migration status
+    /// List local migrations and their snapshots (does not read the database)
     Status,
 
     /// Validate configuration file

@@ -11,7 +11,7 @@ use super::ddl::{
     IndexMethod, InlineType, ReferentialAction, Table, UniqueConstraint, View, ViewAlgorithm,
     ViewCheckOption, ViewSqlSecurity,
 };
-use crate::utils::{default_expression, escape_for_rust_literal};
+use crate::utils::{default_expression, escape_for_rust_literal, unsupported_default_comment};
 use drizzle_types::mysql::{MySQLType, MySQLTypeCategory};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -653,8 +653,18 @@ fn generate_column_field(
             rust_literal(&generated.expression)
         ));
     }
+    let mut unsupported_default = None;
     if emit_default && let Some(default) = &column.default {
-        attrs.push(default_attribute(default));
+        match default_attribute(default) {
+            Some(attribute) => attrs.push(attribute),
+            None => {
+                warnings.push(format!(
+                    "default `{default}` on {}.{} cannot be expressed as `DEFAULT = ...`; omitting it",
+                    table.name, column.name
+                ));
+                unsupported_default = Some(default.as_ref());
+            }
+        }
     }
     if emit_on_update {
         if type_supports_on_update(&type_info.category) {
@@ -696,7 +706,10 @@ fn generate_column_field(
     let not_null = column.not_null || emit_primary;
     let rust_type = nullable_type(type_info.rust_type, not_null);
     format!(
-        "    #[column({})]\n    {}{}: {},\n",
+        "{}    #[column({})]\n    {}{}: {},\n",
+        unsupported_default
+            .map(|default| unsupported_default_comment("    ", default))
+            .unwrap_or_default(),
         attrs.join(", "),
         visibility(options.use_pub),
         field_name,
@@ -1620,9 +1633,8 @@ fn enum_variant_identifier(value: &str) -> Option<String> {
     }
 }
 
-fn default_attribute(default: &str) -> String {
-    let expression = default_expression(default).unwrap_or_else(|| default.to_string());
-    format!("DEFAULT = {expression}")
+fn default_attribute(default: &str) -> Option<String> {
+    default_expression(default).map(|expression| format!("DEFAULT = {expression}"))
 }
 
 fn type_supports_on_update(category: &MySQLTypeCategory) -> bool {

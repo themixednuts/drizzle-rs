@@ -28,6 +28,48 @@ pub const DEFAULT: AttributeMarker = AttributeMarker;
 /// This does not add a database `DEFAULT` clause.
 pub const DEFAULT_FN: AttributeMarker = AttributeMarker;
 
+/// Declares a foreign key to another table's column.
+///
+/// ```rust
+/// # let _ = r####"
+/// #[column(REFERENCES = User::id)]
+/// user_id: u64,
+/// # "####;
+/// ```
+///
+/// With the `query` feature this also generates relation accessors: a
+/// forward one on this table, named after the column without its `_id` suffix
+/// (`user_id` gives `.user()`), and a reverse one on the referenced table
+/// (see [`RELATION`]).
+pub const REFERENCES: AttributeMarker = AttributeMarker;
+
+/// Sets the reverse relation accessor name on the referenced table.
+///
+/// By default, reverse relations are named from the referencing struct
+/// (`posts` for a `Post` table). When several foreign keys target the same
+/// table, or the foreign key is self-referential, the name is disambiguated as
+/// `{forward}_{plural}` (e.g. `author_posts`). Use `RELATION` to pick an
+/// explicit reverse name instead; it is required only when two reverse names
+/// would still collide.
+///
+/// The forward relation (on this table) is unchanged; only the reverse
+/// accessor on the referenced table is renamed.
+///
+/// ```rust
+/// # let _ = r####"
+/// // Users get `.authored()` instead of `.author_posts()`
+/// #[column(REFERENCES = User::id, RELATION = "authored")]
+/// author_id: u64,
+///
+/// // Still auto-disambiguated: Users get `.editor_posts()`
+/// #[column(REFERENCES = User::id)]
+/// editor_id: Option<u64>,
+/// # "####;
+/// ```
+///
+/// Requires a `REFERENCES` attribute on the same column.
+pub const RELATION: AttributeMarker = AttributeMarker;
+
 markers!(
     NAME,
     DATABASE,
@@ -45,8 +87,6 @@ markers!(
     SET,
     JSON,
     CHECK,
-    REFERENCES,
-    RELATION,
     ON_DELETE,
     ON_UPDATE,
     CASCADE,

@@ -103,13 +103,18 @@
 //!
 //! ```rust
 //! # let _ = r####"
-//! use drizzle_migrations::Tracking;
+//! use drizzle::migrations::Tracking;
 //!
 //! // Embeds the migration files at compile time (expands to a Vec).
 //! let migrations = drizzle::include_migrations!("./migrations");
 //!
-//! let (mut db, schema) = hyperdrive::connect(&env.hyperdrive("HYPERDRIVE")?, AppSchema::new()).await?;
-//! db.migrate(&migrations, Tracking::POSTGRES).await?;
+//! // Inside a `worker::Result` function, convert drizzle errors before `?`.
+//! let (mut db, _) = hyperdrive::connect(&env.hyperdrive("HYPERDRIVE")?, AppSchema::new())
+//!     .await
+//!     .map_err(|e| worker::Error::RustError(e.to_string()))?;
+//! db.migrate(&migrations, Tracking::POSTGRES)
+//!     .await
+//!     .map_err(|e| worker::Error::RustError(e.to_string()))?;
 //! # "####;
 //! ```
 //!

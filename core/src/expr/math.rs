@@ -28,6 +28,27 @@ use drizzle_types::sqlite::types::{
 
 use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
 
+/// Math functions that are optional on SQLite.
+///
+/// `CEIL`, `FLOOR`, `TRUNC`, `SQRT`, `POWER`, `EXP`, `LN`, `LOG`, `LOG10`,
+/// `LOG2` and `PI` are built into PostgreSQL and MySQL, but SQLite only has
+/// them when it is compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`, which the
+/// bundled `rusqlite` and `libsql` builds do not set. The `math` cargo feature
+/// is the promise that the linked SQLite provides them; without it these
+/// functions do not type-check for SQLite instead of failing at runtime with
+/// "no such function".
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not provide this math function",
+    label = "SQLite only has CEIL/FLOOR/TRUNC/SQRT/POWER/EXP/LN/LOG*/PI with SQLITE_ENABLE_MATH_FUNCTIONS",
+    note = "enable drizzle's `math` feature and build SQLite with the math functions, e.g. `LIBSQLITE3_FLAGS=\"-DSQLITE_ENABLE_MATH_FUNCTIONS\"` for bundled rusqlite"
+)]
+pub trait MathExt {}
+
+impl MathExt for PostgresDialect {}
+impl MathExt for MySQLDialect {}
+#[cfg(feature = "math")]
+impl MathExt for SQLiteDialect {}
+
 #[diagnostic::on_unimplemented(
     message = "this math function is not available for this dialect",
     label = "use a dialect-specific alternative"
@@ -66,6 +87,8 @@ impl<Input: Nullability> DomainMathPolicy<Input> for PostgresDialect {
 }
 impl PiSupport for PostgresDialect {}
 impl PiSupport for MySQLDialect {}
+#[cfg(feature = "math")]
+impl PiSupport for SQLiteDialect {}
 
 /// Dialect-specific return type for `RANDOM()`.
 ///
@@ -97,6 +120,42 @@ impl RandomPolicy for MySQLDialect {
 )]
 pub trait RoundingPolicy<D>: Numeric {
     type Output: DataType;
+
+    /// Prepare the operand of `ROUND(expr, precision)`.
+    ///
+    /// PostgreSQL only defines the two-argument `ROUND` for `numeric`, and
+    /// `double precision` does not cast to it implicitly.
+    fn precision_operand<'a, V: SQLParam + 'a>(expr: SQL<'a, V>) -> SQL<'a, V> {
+        expr
+    }
+
+    /// Coerce a rounding function's result to [`Self::Output`].
+    ///
+    /// PostgreSQL returns `numeric` for every rounding function unless the
+    /// argument is `double precision`; the declared output is `float8`.
+    fn coerce_result<'a, V: SQLParam + 'a>(sql: SQL<'a, V>) -> SQL<'a, V> {
+        sql
+    }
+}
+
+/// Coerce a math function's result to DOUBLE PRECISION on PostgreSQL.
+///
+/// PostgreSQL resolves `SQRT`, `EXP`, `LN`, `LOG`, `POWER` and `SIGN` to their
+/// `numeric` overloads for integer or `numeric` arguments, while the declared
+/// result type is the dialect's double. The cast is a no-op for `float8`.
+pub(super) fn pg_double<'a, V: SQLParam + 'a>(sql: SQL<'a, V>) -> SQL<'a, V> {
+    match V::DIALECT {
+        Dialect::PostgreSQL => pg_cast(sql, "DOUBLE PRECISION"),
+        Dialect::SQLite | Dialect::MySQL => sql,
+    }
+}
+
+/// `CAST(expr AS type)` for the PostgreSQL rounding policies.
+pub(super) fn pg_cast<'a, V: SQLParam + 'a>(
+    expr: SQL<'a, V>,
+    type_name: &'static str,
+) -> SQL<'a, V> {
+    SQL::func("CAST", expr.push(Token::AS).append(SQL::raw(type_name)))
 }
 
 impl RoundingPolicy<SQLiteDialect> for SqliteInteger {
@@ -109,24 +168,43 @@ impl RoundingPolicy<SQLiteDialect> for SqliteNumeric {
     type Output = SqliteReal;
 }
 
-impl RoundingPolicy<PostgresDialect> for Int2 {
-    type Output = Float8;
+// Integers and NUMERIC round through NUMERIC on PostgreSQL; the result is
+// cast to DOUBLE PRECISION so it decodes as the declared `Float8`.
+macro_rules! postgres_numeric_rounding_policy {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl RoundingPolicy<PostgresDialect> for $ty {
+                type Output = Float8;
+
+                fn coerce_result<'a, V: SQLParam + 'a>(sql: SQL<'a, V>) -> SQL<'a, V> {
+                    pg_cast(sql, "DOUBLE PRECISION")
+                }
+            }
+        )+
+    };
 }
-impl RoundingPolicy<PostgresDialect> for Int4 {
-    type Output = Float8;
+postgres_numeric_rounding_policy!(Int2, Int4, Int8, PgNumeric);
+
+// Floats round natively, but `ROUND(float, n)` only exists for NUMERIC, so the
+// precision form casts in and back out.
+macro_rules! postgres_float_rounding_policy {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl RoundingPolicy<PostgresDialect> for $ty {
+                type Output = Float8;
+
+                fn precision_operand<'a, V: SQLParam + 'a>(expr: SQL<'a, V>) -> SQL<'a, V> {
+                    pg_cast(expr, "NUMERIC")
+                }
+
+                fn coerce_result<'a, V: SQLParam + 'a>(sql: SQL<'a, V>) -> SQL<'a, V> {
+                    pg_cast(sql, "DOUBLE PRECISION")
+                }
+            }
+        )+
+    };
 }
-impl RoundingPolicy<PostgresDialect> for Int8 {
-    type Output = Float8;
-}
-impl RoundingPolicy<PostgresDialect> for Float4 {
-    type Output = Float8;
-}
-impl RoundingPolicy<PostgresDialect> for Float8 {
-    type Output = Self;
-}
-impl RoundingPolicy<PostgresDialect> for PgNumeric {
-    type Output = Float8;
-}
+postgres_float_rounding_policy!(Float4, Float8);
 
 macro_rules! mysql_rounding_policy {
     ($output:ty; $($ty:ty),+ $(,)?) => {
@@ -219,7 +297,12 @@ where
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("ROUND", expr.into_sql()))
+    SQLExpr::new(
+        <E::SQLType as RoundingPolicy<V::DialectMarker>>::coerce_result(SQL::func(
+            "ROUND",
+            expr.into_sql(),
+        )),
+    )
 }
 
 /// ROUND with precision - rounds a number to specified decimal places.
@@ -257,12 +340,14 @@ where
     P::Nullable: Nullability,
     E::Aggregate: AggOr<P::Aggregate>,
 {
-    SQLExpr::new(SQL::func(
-        "ROUND",
-        expr.into_sql()
-            .push(Token::COMMA)
-            .append(precision.into_sql()),
-    ))
+    SQLExpr::new(
+        <E::SQLType as RoundingPolicy<V::DialectMarker>>::coerce_result(SQL::func(
+            "ROUND",
+            <E::SQLType as RoundingPolicy<V::DialectMarker>>::precision_operand(expr.into_sql())
+                .push(Token::COMMA)
+                .append(precision.into_sql()),
+        )),
+    )
 }
 
 /// CEIL / CEILING - rounds a number up to the nearest integer.
@@ -291,10 +376,16 @@ pub fn ceil<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("CEIL", expr.into_sql()))
+    SQLExpr::new(
+        <E::SQLType as RoundingPolicy<V::DialectMarker>>::coerce_result(SQL::func(
+            "CEIL",
+            expr.into_sql(),
+        )),
+    )
 }
 
 /// FLOOR - rounds a number down to the nearest integer.
@@ -323,10 +414,16 @@ pub fn floor<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
-    SQLExpr::new(SQL::func("FLOOR", expr.into_sql()))
+    SQLExpr::new(
+        <E::SQLType as RoundingPolicy<V::DialectMarker>>::coerce_result(SQL::func(
+            "FLOOR",
+            expr.into_sql(),
+        )),
+    )
 }
 
 /// TRUNC - truncates a number towards zero.
@@ -355,14 +452,16 @@ pub fn trunc<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: RoundingPolicy<V::DialectMarker>,
 {
     let expr = expr.into_sql();
-    SQLExpr::new(match V::DIALECT {
+    let truncated = match V::DIALECT {
         Dialect::MySQL => SQL::func("TRUNCATE", expr.push(Token::COMMA).append(SQL::raw("0"))),
         Dialect::SQLite | Dialect::PostgreSQL => SQL::func("TRUNC", expr),
-    })
+    };
+    SQLExpr::new(<E::SQLType as RoundingPolicy<V::DialectMarker>>::coerce_result(truncated))
 }
 
 // =============================================================================
@@ -396,11 +495,12 @@ pub fn sqrt<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("SQRT", expr.into_sql()))
+    SQLExpr::new(pg_double(SQL::func("SQRT", expr.into_sql())))
 }
 
 /// POWER - raises a number to a power.
@@ -430,6 +530,7 @@ pub fn power<'a, V, E1, E2>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E1: Expr<'a, V>,
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
@@ -438,12 +539,12 @@ where
     E2::Nullable: Nullability,
     E1::Aggregate: AggOr<E2::Aggregate>,
 {
-    SQLExpr::new(SQL::func(
+    SQLExpr::new(pg_double(SQL::func(
         "POWER",
         base.into_sql()
             .push(Token::COMMA)
             .append(exponent.into_sql()),
-    ))
+    )))
 }
 
 // =============================================================================
@@ -469,10 +570,11 @@ pub fn exp<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("EXP", expr.into_sql()))
+    SQLExpr::new(pg_double(SQL::func("EXP", expr.into_sql())))
 }
 
 /// LN - returns the natural logarithm of a number.
@@ -502,11 +604,12 @@ pub fn ln<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("LN", expr.into_sql()))
+    SQLExpr::new(pg_double(SQL::func("LN", expr.into_sql())))
 }
 
 /// LOG10 - returns the base-10 logarithm of a number.
@@ -536,11 +639,12 @@ pub fn log10<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("LOG10", expr.into_sql()))
+    SQLExpr::new(pg_double(SQL::func("LOG10", expr.into_sql())))
 }
 
 /// LOG - returns the logarithm of a number with a specified base.
@@ -572,6 +676,7 @@ pub fn log<'a, V, E1, E2>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker:
         DomainMathPolicy<<E1::Nullable as NullOr<E2::Nullable>>::Output>,
     E1: Expr<'a, V>,
@@ -582,19 +687,48 @@ where
     E2::Nullable: Nullability,
     E1::Aggregate: AggOr<E2::Aggregate>,
 {
-    SQLExpr::new(SQL::func(
+    let (base, value) = (base.into_sql(), value.into_sql());
+    // PostgreSQL only defines the two-argument LOG for NUMERIC operands.
+    let (base, value) = match V::DIALECT {
+        Dialect::PostgreSQL => (pg_cast(base, "NUMERIC"), pg_cast(value, "NUMERIC")),
+        Dialect::SQLite | Dialect::MySQL => (base, value),
+    };
+    SQLExpr::new(pg_double(SQL::func(
         "LOG",
-        base.into_sql().push(Token::COMMA).append(value.into_sql()),
-    ))
+        base.push(Token::COMMA).append(value),
+    )))
 }
 
 // =============================================================================
 // SIGN AND MODULO
 // =============================================================================
 
+/// The type `SIGN` returns on each dialect.
+///
+/// SQLite and MySQL answer an integer; PostgreSQL answers `numeric` or
+/// `double precision` depending on the argument, which [`sign`] coerces to
+/// `double precision`.
+pub trait SignPolicy {
+    /// The SQL type of `SIGN(expr)`.
+    type Sign: DataType;
+}
+
+impl SignPolicy for SQLiteDialect {
+    type Sign = SqliteInteger;
+}
+
+impl SignPolicy for PostgresDialect {
+    type Sign = Float8;
+}
+
+impl SignPolicy for MySQLDialect {
+    type Sign = MyBigInt;
+}
+
 /// SIGN - returns the sign of a number (-1, 0, or 1).
 ///
-/// Returns a Double, preserves nullability.
+/// Returns the dialect's [`SignPolicy::Sign`] type (an integer on SQLite and
+/// MySQL, `double precision` on PostgreSQL), preserves nullability.
 ///
 /// # Example
 ///
@@ -608,13 +742,14 @@ where
 /// ```
 pub fn sign<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as SignPolicy>::Sign, E::Nullable, E::Aggregate>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: SignPolicy,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
-    SQLExpr::new(SQL::func("SIGN", expr.into_sql()))
+    SQLExpr::new(pg_double(SQL::func("SIGN", expr.into_sql())))
 }
 
 /// MOD - returns the remainder of division (using % operator).
@@ -684,6 +819,7 @@ pub fn pi<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: PiSupport,
 {
     SQLExpr::new(SQL::raw("PI()"))
@@ -751,6 +887,7 @@ pub fn log2<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
+    V::DialectMarker: MathExt,
     V::DialectMarker: Log2Policy,
     E: Expr<'a, V>,
     E::SQLType: Numeric,

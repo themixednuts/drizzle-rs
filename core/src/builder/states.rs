@@ -65,7 +65,8 @@ impl OrderByAllowed for SelectFromSet {}
 impl OrderByAllowed for SelectJoinSet {}
 impl OrderByAllowed for SelectWhereSet {}
 impl OrderByAllowed for SelectGroupSet {}
-impl OrderByAllowed for SelectSetOpSet {}
+// `SelectSetOpSet` is deliberately absent: a compound query orders by output
+// column names, so each dialect builder provides its own `order_by` there.
 
 impl LimitAllowed for SelectFromSet {}
 impl LimitAllowed for SelectJoinSet {}

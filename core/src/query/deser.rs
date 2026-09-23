@@ -2,9 +2,10 @@
 
 use core::fmt;
 use core::marker::PhantomData;
+use core::str::FromStr;
 
 use serde::Deserialize;
-use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::de::{self, DeserializeOwned, IgnoredAny, MapAccess, SeqAccess, Visitor};
 
 use crate::error::DrizzleError;
 use crate::prelude::*;
@@ -483,6 +484,91 @@ impl<'de> Deserialize<'de> for JsonQueryRow {
     }
 }
 
+// =============================================================================
+// Field decoding helpers for generated row decoders
+// =============================================================================
+
+/// A field value read from a relational query's JSON projection.
+///
+/// Generated row decoders read a field into `RawJson` before applying the
+/// column's codec, so the generated code never names the JSON library.
+pub type RawJson = serde_json::Value;
+
+/// Decodes a JSON column whose storage is text, such as a SQLite JSON
+/// column.
+///
+/// A relational projection embeds such a column as a JSON string that holds
+/// the document; this parses the string. A value that arrives already
+/// embedded as JSON is decoded directly.
+///
+/// # Errors
+///
+/// Returns a serde error naming `column` when the document does not match
+/// `T`.
+#[doc(hidden)]
+pub fn decode_json_text<T, E>(raw: RawJson, column: &str) -> Result<T, E>
+where
+    T: DeserializeOwned,
+    E: de::Error,
+{
+    let decoded = match raw {
+        serde_json::Value::String(text) => serde_json::from_str(&text),
+        value => serde_json::from_value(value),
+    };
+    decoded.map_err(|e| E::custom(format!("field '{column}': invalid JSON: {e}")))
+}
+
+/// Decodes JSON bytes, such as a JSON document stored in a BLOB.
+///
+/// # Errors
+///
+/// Returns a serde error naming `column` when `bytes` are not a JSON
+/// document matching `T`.
+#[doc(hidden)]
+pub fn decode_json_bytes<T, E>(bytes: &[u8], column: &str) -> Result<T, E>
+where
+    T: DeserializeOwned,
+    E: de::Error,
+{
+    serde_json::from_slice(bytes)
+        .map_err(|e| E::custom(format!("field '{column}': invalid JSON blob: {e}")))
+}
+
+/// Decodes an enum projected either as a JSON string (a native enum stored
+/// by name) or as a JSON integer (an integer-backed enum).
+///
+/// # Errors
+///
+/// Returns a serde error naming `column` when the value is neither form, or
+/// names no variant of `T`.
+#[doc(hidden)]
+pub fn decode_enum_value<T, E>(raw: RawJson, column: &str) -> Result<T, E>
+where
+    T: TryFrom<i64> + FromStr,
+    <T as FromStr>::Err: fmt::Display,
+    E: de::Error,
+{
+    match raw {
+        serde_json::Value::Number(number) => {
+            let value = number.as_i64().ok_or_else(|| {
+                E::custom(format!(
+                    "enum field '{column}': invalid integer value {number}"
+                ))
+            })?;
+            T::try_from(value).map_err(|_| {
+                E::custom(format!(
+                    "enum field '{column}': invalid integer value {value}"
+                ))
+            })
+        }
+        serde_json::Value::String(value) => T::from_str(&value)
+            .map_err(|error| E::custom(format!("enum field '{column}': {error}"))),
+        value => Err(E::custom(format!(
+            "enum field '{column}': expected string or integer, got {value}"
+        ))),
+    }
+}
+
 /// Deserializes JSON booleans that may be represented as `0` or `1`.
 pub struct JsonBool(pub bool);
 
@@ -659,6 +745,44 @@ mod tests {
             .expect("base JSON should parse");
         assert_eq!(value["id"], 7);
         assert_eq!(value["name"], "a");
+    }
+
+    #[test]
+    fn json_text_fields_parse_the_embedded_document() {
+        let embedded = RawJson::String(r#"{"id":7}"#.into());
+        let value: serde_json::Value =
+            decode_json_text::<_, serde_json::Error>(embedded, "meta").unwrap();
+        assert_eq!(value["id"], 7);
+
+        let native: Vec<i64> =
+            decode_json_text::<_, serde_json::Error>(serde_json::json!([1, 2]), "tags").unwrap();
+        assert_eq!(native, [1, 2]);
+
+        let error =
+            decode_json_text::<Vec<i64>, serde_json::Error>(RawJson::String("oops".into()), "tags")
+                .unwrap_err();
+        assert!(error.to_string().contains("field 'tags'"));
+    }
+
+    #[test]
+    fn json_bytes_fields_report_the_column() {
+        let tags: Vec<i64> = decode_json_bytes::<_, serde_json::Error>(b"[3]", "tags").unwrap();
+        assert_eq!(tags, [3]);
+        let error = decode_json_bytes::<Vec<i64>, serde_json::Error>(b"{", "tags").unwrap_err();
+        assert!(error.to_string().contains("field 'tags'"));
+    }
+
+    #[test]
+    fn enum_values_accept_names_and_integers() {
+        let from_integer: i32 =
+            decode_enum_value::<_, serde_json::Error>(serde_json::json!(5), "rank").unwrap();
+        assert_eq!(from_integer, 5);
+        let from_name: i32 =
+            decode_enum_value::<_, serde_json::Error>(serde_json::json!("6"), "rank").unwrap();
+        assert_eq!(from_name, 6);
+        let error = decode_enum_value::<i32, serde_json::Error>(serde_json::json!(true), "rank")
+            .unwrap_err();
+        assert!(error.to_string().contains("expected string or integer"));
     }
 
     #[test]

@@ -1393,7 +1393,7 @@ fn handle_cmd(db: &mut drizzle::postgres::sync::Drizzle<Schema>, cmd: DbCmd) -> 
             let rows: Vec<SelectCustomer> = db
                 .select(())
                 .from(schema.customer)
-                .r#where(super::ilike_expr(
+                .r#where(drizzle::postgres::expr::ilike(
                     schema.customer.company_name,
                     pattern.as_str(),
                 ))
@@ -1408,7 +1408,10 @@ fn handle_cmd(db: &mut drizzle::postgres::sync::Drizzle<Schema>, cmd: DbCmd) -> 
             let rows: Vec<SelectProduct> = db
                 .select(())
                 .from(schema.product)
-                .r#where(super::ilike_expr(schema.product.name, pattern.as_str()))
+                .r#where(drizzle::postgres::expr::ilike(
+                    schema.product.name,
+                    pattern.as_str(),
+                ))
                 .all()
                 .map_err(|e| e.to_string())?;
             let resp: Vec<ProductResponse> = rows.into_iter().map(ProductResponse::from).collect();

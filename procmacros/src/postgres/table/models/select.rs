@@ -12,6 +12,7 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
     let mut partial_select_fields = Vec::new();
     let mut select_field_names = Vec::new();
     let mut select_types = Vec::new();
+    let mut partial_types = Vec::new();
     let mut tuple_indices = Vec::new();
 
     for (i, field_info) in ctx.field_infos.iter().enumerate() {
@@ -27,27 +28,36 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
         partial_select_fields.push(quote! {
             pub #field_name: #partial_type,
         });
+        partial_types.push(partial_type);
 
         select_field_names.push(field_name);
         select_types.push(select_type);
         tuple_indices.push(syn::Index::from(i));
     }
-    let select_model_derive = if ctx.field_infos.iter().any(|info| info.is_custom_type) {
-        quote! {}
-    } else {
-        quote! { #[derive(Debug, Clone, Default)] }
-    };
-    let partial_select_model_derive = if ctx.field_infos.iter().any(|info| info.is_custom_type) {
-        quote! { #[derive(Default)] }
-    } else {
-        quote! { #[derive(Debug, Clone, Default)] }
-    };
+    // Debug/Clone/PartialEq/Default exist when every field type has them;
+    // nothing is required of user types (JSON payloads, custom columns).
+    let select_std_impls = crate::common::generators::model_std_impls(
+        select_ident,
+        &select_field_names
+            .iter()
+            .copied()
+            .zip(select_types.iter().cloned())
+            .collect::<Vec<_>>(),
+    );
+    let partial_std_impls = crate::common::generators::model_std_impls(
+        partial_select_ident,
+        &select_field_names
+            .iter()
+            .copied()
+            .zip(partial_types.iter().cloned())
+            .collect::<Vec<_>>(),
+    );
 
     quote! {
-        #select_model_derive
         #struct_vis struct #select_ident {
             #(#select_fields)*
         }
+        #select_std_impls
 
         impl From<(#(#select_types,)*)> for #select_ident {
             fn from(tuple: (#(#select_types,)*)) -> Self {
@@ -57,9 +67,9 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
             }
         }
 
-        #partial_select_model_derive
         #struct_vis struct #partial_select_ident {
             #(#partial_select_fields)*
         }
+        #partial_std_impls
     }
 }

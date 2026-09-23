@@ -3,157 +3,111 @@
     any(feature = "compact-str", feature = "bytes", feature = "smallvec-types")
 ))]
 
-use drizzle::core::expr::*;
+//! SQLite storage classes for the optional wrapper types.
+//!
+//! Round trips run in `crate::common::wrappers`; this file only checks the
+//! storage class each wrapper lands in, which is a SQLite affinity question.
+
+use drizzle::core::expr::{eq, typeof_};
 use drizzle::sqlite::prelude::*;
 
 #[cfg(feature = "compact-str")]
-use compact_str::CompactString;
-
-#[cfg(feature = "bytes")]
-use bytes::{Bytes, BytesMut};
-
-#[cfg(feature = "smallvec-types")]
-use smallvec::SmallVec;
-
-#[cfg(feature = "compact-str")]
-#[SQLiteTable(NAME = "compact_string_test")]
-struct CompactStringTest {
+#[SQLiteTable(NAME = "compact_string_storage")]
+struct CompactStringStorage {
     #[column(PRIMARY)]
     id: i32,
-    name: CompactString,
-    note: String,
+    name: compact_str::CompactString,
 }
 
 #[cfg(feature = "compact-str")]
 #[derive(SQLiteSchema)]
 struct CompactStringSchema {
-    compact_string_test: CompactStringTest,
+    rows: CompactStringStorage,
 }
 
 #[cfg(feature = "compact-str")]
 #[drizzle::test]
-fn compact_string_roundtrip_and_storage(db: &mut TestDb<CompactStringSchema>) {
-    let table = schema.compact_string_test;
+fn compact_strings_are_stored_as_text(db: &mut TestDb<CompactStringSchema>) {
+    let CompactStringSchema { rows } = schema;
+    db.insert(rows)
+        .value(
+            InsertCompactStringStorage::new(compact_str::CompactString::new("compact")).with_id(1),
+        )
+        .execute();
 
-    let value = CompactString::new("compact hello");
-    let row = InsertCompactStringTest::new(value.clone(), "compact note");
-    db.insert(table).values([row]).execute();
-
-    let out: Vec<SelectCompactStringTest> = db
-        .select((table.id, table.name, table.note))
-        .from(table)
-        .r#where(eq(table.id, 1))
-        .all();
-
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].name, value);
-    assert_eq!(out[0].note, "compact note");
-
-    #[derive(SQLiteFromRow, Debug)]
-    struct Ty(String);
-    let ty: Ty = db
-        .select(r#typeof(table.name).alias("name_type"))
-        .from(table)
-        .r#where(eq(table.id, 1))
+    let class: String = db
+        .select(typeof_(rows.name))
+        .from(rows)
+        .r#where(eq(rows.id, 1))
         .get();
-
-    assert_eq!(ty.0, "text");
+    assert_eq!(class, "text");
 }
 
 #[cfg(feature = "bytes")]
-#[SQLiteTable(NAME = "bytes_blob_test")]
-struct BytesBlobTest {
+#[SQLiteTable(NAME = "bytes_storage")]
+struct BytesStorage {
     #[column(PRIMARY)]
     id: i32,
-    payload: Bytes,
-    mutable_payload: BytesMut,
-    note: String,
+    payload: bytes::Bytes,
+    mutable_payload: bytes::BytesMut,
 }
 
 #[cfg(feature = "bytes")]
 #[derive(SQLiteSchema)]
-struct BytesBlobSchema {
-    bytes_blob_test: BytesBlobTest,
+struct BytesSchema {
+    rows: BytesStorage,
 }
 
 #[cfg(feature = "bytes")]
 #[drizzle::test]
-fn bytes_roundtrip_and_storage(db: &mut TestDb<BytesBlobSchema>) {
-    let table = schema.bytes_blob_test;
+fn bytes_are_stored_as_blobs(db: &mut TestDb<BytesSchema>) {
+    let BytesSchema { rows } = schema;
+    db.insert(rows)
+        .value(
+            InsertBytesStorage::new(
+                bytes::Bytes::from_static(b"hello"),
+                bytes::BytesMut::from(&b"world"[..]),
+            )
+            .with_id(1),
+        )
+        .execute();
 
-    let payload = Bytes::from_static(b"hello-bytes");
-    let mutable_payload = BytesMut::from(&b"hello-bytes-mut"[..]);
-    let row = InsertBytesBlobTest::new(payload.clone(), mutable_payload.clone(), "bytes note");
-    db.insert(table).values([row]).execute();
-
-    let out: Vec<SelectBytesBlobTest> = db
-        .select((table.id, table.payload, table.mutable_payload, table.note))
-        .from(table)
-        .r#where(eq(table.id, 1))
-        .all();
-
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].payload.as_ref(), payload.as_ref());
-    assert_eq!(out[0].mutable_payload.as_ref(), mutable_payload.as_ref());
-    assert_eq!(out[0].note, "bytes note");
-
-    #[derive(SQLiteFromRow, Debug)]
-    struct Ty(String, String);
-    let ty: Ty = db
-        .select((
-            r#typeof(table.payload).alias("payload_type"),
-            r#typeof(table.mutable_payload).alias("mutable_payload_type"),
-        ))
-        .from(table)
-        .r#where(eq(table.id, 1))
+    let classes: (String, String) = db
+        .select((typeof_(rows.payload), typeof_(rows.mutable_payload)))
+        .from(rows)
+        .r#where(eq(rows.id, 1))
         .get();
-
-    assert_eq!(ty.0, "blob");
-    assert_eq!(ty.1, "blob");
+    assert_eq!(classes, ("blob".to_string(), "blob".to_string()));
 }
 
 #[cfg(feature = "smallvec-types")]
-#[SQLiteTable(NAME = "smallvec_blob_test")]
-struct SmallVecBlobTest {
+#[SQLiteTable(NAME = "smallvec_storage")]
+struct SmallVecStorage {
     #[column(PRIMARY)]
     id: i32,
-    payload: SmallVec<[u8; 16]>,
-    note: String,
+    payload: smallvec::SmallVec<[u8; 16]>,
 }
 
 #[cfg(feature = "smallvec-types")]
 #[derive(SQLiteSchema)]
-struct SmallVecBlobSchema {
-    smallvec_blob_test: SmallVecBlobTest,
+struct SmallVecSchema {
+    rows: SmallVecStorage,
 }
 
 #[cfg(feature = "smallvec-types")]
 #[drizzle::test]
-fn smallvec_roundtrip_and_storage(db: &mut TestDb<SmallVecBlobSchema>) {
-    let table = schema.smallvec_blob_test;
+fn small_vectors_are_stored_as_blobs(db: &mut TestDb<SmallVecSchema>) {
+    let SmallVecSchema { rows } = schema;
+    let mut payload = smallvec::SmallVec::<[u8; 16]>::new();
+    payload.extend_from_slice(&[1, 2, 3]);
+    db.insert(rows)
+        .value(InsertSmallVecStorage::new(payload).with_id(1))
+        .execute();
 
-    let mut payload = SmallVec::<[u8; 16]>::new();
-    payload.extend_from_slice(&[1, 2, 3, 4, 5, 6]);
-    let row = InsertSmallVecBlobTest::new(payload.clone(), "smallvec note");
-    db.insert(table).values([row]).execute();
-
-    let out: Vec<SelectSmallVecBlobTest> = db
-        .select((table.id, table.payload, table.note))
-        .from(table)
-        .r#where(eq(table.id, 1))
-        .all();
-
-    assert_eq!(out.len(), 1);
-    assert_eq!(out[0].payload.as_slice(), payload.as_slice());
-    assert_eq!(out[0].note, "smallvec note");
-
-    #[derive(SQLiteFromRow, Debug)]
-    struct Ty(String);
-    let ty: Ty = db
-        .select(r#typeof(table.payload).alias("payload_type"))
-        .from(table)
-        .r#where(eq(table.id, 1))
+    let class: String = db
+        .select(typeof_(rows.payload))
+        .from(rows)
+        .r#where(eq(rows.id, 1))
         .get();
-
-    assert_eq!(ty.0, "blob");
+    assert_eq!(class, "blob");
 }

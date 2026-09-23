@@ -47,6 +47,13 @@ pub(super) fn generate_custom_comparison_operand_impls(
     let value_type = &info.base_type;
     let drizzle_mysql_column = mysql_paths::drizzle_mysql_column();
 
+    // JSON payloads compare through `drizzle::core::Json(value)`, as on
+    // SQLite and PostgreSQL. A per-column impl here would conflict with
+    // drizzle's own impls for payloads such as `Vec<String>`.
+    if info.is_json_payload() {
+        return TokenStream::new();
+    }
+
     quote! {
         impl<'a> drizzle::core::expr::ComparisonOperand<'a, #mysql_value<'a>, #zst_ident>
             for #value_type
@@ -125,8 +132,24 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
 
         let default_fn_body = info.default_fn.as_ref().map_or_else(
             || quote! { ::std::option::Option::None::<fn() -> Self::Type> },
-            |func| quote! { ::std::option::Option::Some(#func) },
+            |func| {
+                if !info.is_json_payload() {
+                    quote! { ::std::option::Option::Some(#func) }
+                } else if info.is_nullable {
+                    quote! {
+                        ::std::option::Option::Some(|| {
+                            ::std::option::Option::map((#func)(), drizzle::core::Json)
+                        })
+                    }
+                } else {
+                    quote! { ::std::option::Option::Some(|| drizzle::core::Json((#func)())) }
+                }
+            },
         );
+        // JSON payload columns report `Json<Payload>` as their value type:
+        // that is what they bind and decode through, and it lets a JSON
+        // column be selected on its own without any impl on the payload.
+        let decoded_value_type = info.decoded_value_type();
 
         let sql_def = info.sql_definition_expr();
 
@@ -237,7 +260,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             &quote! {#struct_ident},
             &quote! {#mysql_schema_type},
             &foreign_keys_type,
-            &quote! {#rust_type},
+            &decoded_value_type,
             &quote! { #is_primary },
             &quote! { #is_not_null || #is_primary },
             &quote! { #is_unique },
@@ -286,12 +309,13 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         };
         let codec_storage_validation = if info.is_custom_type && info.has_explicit_type {
             let drizzle_mysql_column = mysql_paths::drizzle_mysql_column();
+            let codec_type = info.codec_type();
             quote! {
                 const _: fn() = || {
                     fn assert_column_storage<
                         T: #drizzle_mysql_column<SQLType = #sql_type_marker>,
                     >() {}
-                    assert_column_storage::<#value_type>();
+                    assert_column_storage::<#codec_type>();
                 };
             }
         } else {
@@ -389,7 +413,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             #column_scope_impl
             #column_not_null_impl
             impl #expr_value_type for #zst_ident {
-                type ValueType = #rust_type;
+                type ValueType = #decoded_value_type;
             }
             impl #into_select_target for #zst_ident {
                 type Marker = #select_cols<(#zst_ident,)>;

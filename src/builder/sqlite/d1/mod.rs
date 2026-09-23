@@ -55,8 +55,19 @@
 //!     let d1 = env.d1("DB")?;
 //!     let (db, AppSchema { user }) = Drizzle::new(d1, AppSchema::new());
 //!
-//!     db.insert(user).values([InsertUser::new("Alice")]).execute().await?;
-//!     let users: Vec<SelectUser> = db.select(()).from(user).all().await?;
+//!     // `worker::Error` has no `From<drizzle::error::DrizzleError>`, so
+//!     // convert drizzle errors before using `?`.
+//!     db.insert(user)
+//!         .values([InsertUser::new("Alice")])
+//!         .execute()
+//!         .await
+//!         .map_err(|e| worker::Error::RustError(e.to_string()))?;
+//!     let users: Vec<SelectUser> = db
+//!         .select(())
+//!         .from(user)
+//!         .all()
+//!         .await
+//!         .map_err(|e| worker::Error::RustError(e.to_string()))?;
 //!
 //!     Response::ok(format!("{} users", users.len()))
 //! }

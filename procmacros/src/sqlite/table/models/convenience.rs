@@ -206,30 +206,8 @@ fn generate_json_insert_method(
     generic_params: &[syn::Ident],
     return_pattern_generics: &[syn::Ident],
 ) -> TokenStream {
-    // Get paths for fully-qualified types
-    let sql = core_paths::sql();
-    let sqlite_value = sqlite_paths::sqlite_value();
-    let sqlite_insert_value = sqlite_paths::sqlite_insert_value();
-    let value_wrapper = sqlite_paths::value_wrapper();
-    let expression = sqlite_paths::expr();
-
-    let json_wrapper = quote! {
-            {
-                let json_str = ::serde_json::to_string(&value)
-                    .expect("failed to serialize JSON value for SQLite JSON column");
-                #sqlite_insert_value::Value(
-                    #value_wrapper {
-                        value: #expression::json(
-                            #sql::param(
-                                #sqlite_value::Text(
-                                    ::std::borrow::Cow::Owned(json_str)
-                                )
-                            )),
-                        _phantom: ::std::marker::PhantomData,
-                    }
-                )
-            }
-    };
+    // The payload binds through `json(?)` via `Json<Payload>`.
+    let json_wrapper = super::super::json::model_value(&quote!(value));
 
     // Generate field assignments with JSON handling for the target field
     let json_field_assignments: Vec<_> = ctx
@@ -304,6 +282,7 @@ fn generate_update_convenience_method(
         TypeCategory::Blob => quote!(::std::vec::Vec<u8>),
         _ => quote!(#base_type),
     };
+    let is_json = category == TypeCategory::Json;
 
     // Generate field assignments: the target field gets the new value, others are moved
     let field_assignments: Vec<_> = ctx
@@ -311,13 +290,36 @@ fn generate_update_convenience_method(
         .iter()
         .map(|f| {
             let fname = f.ident;
-            if fname == field_name {
+            if fname == field_name && is_json {
+                quote! { #fname: drizzle::core::json::JsonColumnArg::into_json_column(value) }
+            } else if fname == field_name {
                 quote! { #fname: value.into() }
             } else {
                 quote! { #fname: self.#fname }
             }
         })
         .collect();
+
+    // JSON fields accept the payload, `Json(payload)`, or an SQL operand
+    // (placeholder, expression, EXCLUDED reference, or an update value).
+    if is_json {
+        return quote! {
+            impl<'a, S> #update_model<'a, S> {
+                pub fn #method_name<V, M>(self, value: V) -> #update_model<'a, #non_empty_marker>
+                where
+                    V: drizzle::core::json::JsonColumnArg<
+                        #sqlite_update_value<'a, #sqlite_value<'a>, #inner_type, #sql_type, #nullable>,
+                        M,
+                    >,
+                {
+                    #update_model {
+                        #(#field_assignments,)*
+                        _state: ::std::marker::PhantomData,
+                    }
+                }
+            }
+        };
+    }
 
     // Each method in its own impl<'a, S> block so 'a is declared and used
     // within the same quote! invocation (matching the Insert pattern).

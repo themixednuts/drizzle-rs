@@ -34,61 +34,7 @@
 //! ## Example Usage
 //!
 //! ```rust,no_run
-//! # extern crate self as drizzle;
-//! #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-//! #  pub mod error { pub use drizzle_core::error::*; }
-//! #  pub mod types { pub use drizzle_types::*; }
-//! #  pub mod migrations { pub use drizzle_migrations::*; }
-//! #  pub use drizzle_types::Dialect;
-//! #  pub use drizzle_types as ddl;
-//! #  pub use drizzle_core::error::Result;
-//! #  pub mod sqlite {
-//! #      pub use drizzle_sqlite::{*, attrs::*};
-//! #      #[cfg(feature = "rusqlite")]
-//! #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-//! #      #[cfg(feature = "libsql")]
-//! #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-//! #      #[cfg(feature = "turso")]
-//! #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-//! #      pub mod prelude {
-//! #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-//! #          pub use drizzle_sqlite::{*, attrs::*};
-//! #          pub use drizzle_core::*;
-//! #      }
-//! #  }
-//! #  pub mod postgres {
-//! #      pub mod values { pub use drizzle_postgres::values::*; }
-//! #      pub mod traits { pub use drizzle_postgres::traits::*; }
-//! #      pub mod common { pub use drizzle_postgres::common::*; }
-//! #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-//! #      pub mod builder { pub use drizzle_postgres::builder::*; }
-//! #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-//! #      pub mod expr { pub use drizzle_postgres::expr::*; }
-//! #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-//! #      #[cfg(feature = "aws-data-api")]
-//! #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-//! #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-//! #      pub use ::postgres::Row;
-//! #      #[cfg(feature = "tokio-postgres")]
-//! #      pub use ::tokio_postgres::Row;
-//! #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-//! #      pub struct Row;
-//! #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-//! #      impl Row {
-//! #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-//! #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-//! #      }
-//! #      pub mod prelude {
-//! #          #[cfg(feature = "postgres")]
-//! #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-//! #          pub use drizzle_postgres::attrs::*;
-//! #          pub use drizzle_postgres::common::PostgresSchemaType;
-//! #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-//! #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-//! #          pub use drizzle_core::*;
-//! #      }
-//! #  }
-//! #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
+//! # #[cfg(feature = "sqlite")]
 //! # fn main() {
 //! use drizzle::sqlite::prelude::*;
 //!
@@ -105,6 +51,8 @@
 //!     users: Users,
 //! }
 //! # }
+//! # #[cfg(not(feature = "sqlite"))]
+//! # fn main() {}
 //! ```
 //!
 //! For more detailed documentation, see the individual macro documentation below.
@@ -142,15 +90,20 @@ use syn::parse_macro_input;
 
 /// Derive macro for creating SQLite-compatible enums.
 ///
-/// This macro allows enums to be stored in `SQLite` databases as either TEXT (variant names)
-/// or INTEGER (discriminant values) depending on the column attribute used.
+/// The enum itself decides how it is stored:
 ///
-/// The enum can be used with `#[column(enum)]` or `#[column(integer, enum)]` column attributes.
+/// - **INTEGER** (discriminant values) when any variant has an explicit
+///   discriminant (`High = 10`) or the enum has an integer `#[repr]`
+///   (`#[repr(i64)]`)
+/// - **TEXT** (variant names) otherwise
+///
+/// Use the enum as a column with `#[column(enum)]`. The column attribute does
+/// not choose the storage: an explicit `integer` or `text` marker next to
+/// `enum` must agree with the enum's storage, or the table fails to compile.
 ///
 /// # Requirements
 ///
 /// - Enum must have at least one variant
-/// - For `#[column(integer, enum)]`, variants can have explicit discriminants
 /// - Must derive `Default` to specify the default variant
 ///
 /// # Examples
@@ -158,62 +111,6 @@ use syn::parse_macro_input;
 /// ## Text Storage (Variant Names)
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -229,7 +126,7 @@ use syn::parse_macro_input;
 /// struct Users {
 ///     #[column(primary, autoincrement)]
 ///     id: i32,
-///     #[column(enum)] // Stores variant names as TEXT
+///     #[column(enum)] // TEXT: UserRole has no explicit discriminants
 ///     role: UserRole,
 /// }
 ///
@@ -241,62 +138,6 @@ use syn::parse_macro_input;
 /// ## Integer Storage (Discriminants)
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -312,7 +153,7 @@ use syn::parse_macro_input;
 /// struct Tasks {
 ///     #[column(primary, autoincrement)]
 ///     id: i32,
-///     #[column(integer, enum)] // Stores discriminants as INTEGER
+///     #[column(integer, enum)] // INTEGER comes from the discriminants; `integer` only restates it
 ///     priority: Priority,
 /// }
 ///
@@ -394,71 +235,32 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// - `default_fn = function` - Application default function (called at insert time)
 ///
 /// ## Special Types
-/// - `enum` - Store enum as TEXT or INTEGER (requires `SQLiteEnum` derive)
+/// - `enum` - Store a `SQLiteEnum` as TEXT or INTEGER; the enum's derive
+///   decides which (see [`SQLiteEnum`])
 /// - `json` - JSON serialization (requires `serde` feature)
-/// - `references = Table::column` - Foreign key reference
+/// - `references = Table::column` - Foreign key reference. With the `query`
+///   feature it also generates relation accessors:
+///   - forward, on this table: the column name without its `_id` suffix
+///     (`author_id` gives `posts.author()`)
+///   - reverse, on the referenced table: the plural `snake_case` name of this
+///     struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
+///   - a self-reference, or two or more foreign keys to the same table, names
+///     each of those reverse accessors `{forward}_{plural}`
+///     (`users.author_posts()`)
+///   - `relation = "name"` names the reverse accessor and leaves the forward
+///     one alone. It is required only when two accessors on the referenced
+///     table would still share a name: the macro's error asks for it when
+///     both come from one table, and rustc reports a duplicate definition
+///     when they come from different tables (e.g. a direct foreign key and
+///     a junction table)
+///   - a table with exactly two foreign keys, to two other distinct tables,
+///     also links them many-to-many (`posts.tags()` and `tags.posts()`)
 ///
 /// # Examples
 ///
 /// ## Basic Table
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -484,62 +286,6 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Table with Defaults
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -560,61 +306,6 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Enums and JSON
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # #[cfg(feature = "serde")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
@@ -627,7 +318,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///     Admin,
 /// }
 ///
-/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+/// #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 /// struct Metadata {
 ///     theme: String,
 /// }
@@ -649,61 +340,6 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Foreign Key References
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -730,68 +366,14 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// For a table `Users`, the macro generates:
 /// - `SelectUsers` - For SELECT operations (derives `FromRow`)
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
-/// - `UpdateUsers` - Builder for UPDATE operations with `set_*()` methods
+/// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
+///   set columns with `with_*()` methods
 ///
 /// # Nullability
 ///
 /// Use `Option<T>` for nullable fields. Non-optional fields get a NOT NULL constraint:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -861,61 +443,6 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Unique Index
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -942,61 +469,6 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Index on multiple columns:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1016,61 +488,6 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Standard (Non-Unique) Index
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1148,61 +565,6 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Basic Usage
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1222,61 +584,6 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// specify which table's column to use:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 /// use drizzle_macros::{SQLiteTable, SQLiteFromRow};
@@ -1316,61 +623,6 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// For simple single-column or multi-column results:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1387,61 +639,6 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## With UUID (requires `uuid` feature)
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// # #[cfg(feature = "uuid")]
 /// # {
@@ -1460,61 +657,6 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Tuple Structs
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1549,61 +691,6 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # #[cfg(feature = "postgres")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
@@ -1642,61 +729,6 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// ## Basic Schema
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1719,61 +751,6 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// ## Schema with Indexes
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1801,61 +778,6 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// ## Async Drivers (libsql, turso)
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -1903,8 +825,9 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// 2. **Printf-style syntax**: `sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)`
 ///
 /// The macro parses SQL templates and generates type-safe SQL code by:
-/// - Converting literal text to `SQL::text()` calls
-/// - Converting expressions in `{braces}` to `.to_sql()` calls on the expression
+/// - Converting literal text to `SQL::raw()` calls
+/// - Converting expressions in `{braces}` to `ToSQL::to_sql(&expr)` calls
+/// - Joining the pieces in order with `.append()`
 ///
 /// # Syntax Forms
 ///
@@ -1913,61 +836,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// Embed expressions directly in the SQL string using `{expression}`:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sql;
 /// use drizzle::sqlite::prelude::*;
@@ -1985,6 +854,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// let users = Users::default();
 /// let query = sql!("SELECT * FROM {users} WHERE {users.id} = 42");
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
 /// ## Printf-Style Syntax
@@ -1992,61 +863,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// Use `{}` placeholders with arguments after the string:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sql;
 /// use drizzle::sqlite::prelude::*;
@@ -2063,6 +880,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// let users = Users::default();
 /// let query = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
 /// # Examples
@@ -2070,61 +889,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// ## Basic Usage
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -2136,68 +901,16 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// let users = Users::default();
 /// let query = drizzle::sql!("SELECT * FROM {users}");
-/// // Generates: SQL::text("SELECT * FROM ").append(users.to_sql())
+/// // Generates: SQL::raw("SELECT * FROM ").append(ToSQL::to_sql(&users))
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
 /// ## Multiple Expressions
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -2218,6 +931,8 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// let posts = Posts::default();
 /// let query = drizzle::sql!("SELECT * FROM {users} WHERE {users.id} = {posts.author_id}");
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
 /// ## Escaped Braces
@@ -2225,61 +940,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// Use `{{` and `}}` for literal braces in the SQL:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
@@ -2291,8 +952,10 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// let users = Users::default();
 /// let query = drizzle::sql!("SELECT JSON_OBJECT('key', {{literal}}) FROM {users}");
-/// // Generates: SQL::text("SELECT JSON_OBJECT('key', {literal}) FROM ").append(users.to_sql())
+/// // Generates: SQL::raw("SELECT JSON_OBJECT('key', {literal}) FROM ").append(ToSQL::to_sql(&users))
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
 /// # Requirements
@@ -2311,61 +974,6 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// Embed migrations at compile time and return `Vec<Migration>`.
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// let _: Vec<drizzle::migrations::Migration> = drizzle::include_migrations!("./drizzle");
 /// # }
@@ -2380,6 +988,11 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 }
 
 /// Attribute-style integration test macro with dependency injection.
+///
+/// **Internal to drizzle's own test suite.** The expansion calls helpers in
+/// that suite's `crate::common::helpers` module (connection setup, `TestDb`,
+/// the panic hook), so it does not compile in other crates. It is exported
+/// only because the suite is a separate crate.
 ///
 /// Apply to a plain `fn` whose signature declares `db`, the driver-bound test
 /// handle. The schema instance is injected into the body as `schema`.
@@ -2435,61 +1048,6 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Native `PostgreSQL` ENUM Type (Default)
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -2514,61 +1072,6 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Integer Storage (Discriminants)
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -2642,10 +1145,24 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Table Attributes
 ///
+/// Table attribute names are case-insensitive (`name` and `NAME` both work).
+///
 /// - `name = "table_name"` - Custom table name (defaults to struct name in `snake_case`)
-/// - `unlogged` - Create UNLOGGED table for better performance  
-/// - `temporary` - Create TEMPORARY table
-/// - `if_not_exists` - Add IF NOT EXISTS clause
+/// - `schema = "schema_name"` - Qualify the table with this schema; without it
+///   the name stays unqualified and resolves through `search_path` (normally
+///   `public`)
+/// - `unlogged` - Create an UNLOGGED table (faster, not crash-safe)
+/// - `temporary` - Create a TEMPORARY table
+/// - `inherits = "parent_table"` - Inherit from a parent table
+/// - `tablespace = "name"` - Create the table in a tablespace
+/// - `rls` - Enable row-level security
+/// - `foreign_key(columns(a, b), references(Parent, x, y))` - Composite foreign
+///   key; also accepts `on_delete = "..."`, `on_update = "..."`, `deferrable`,
+///   and `initially_deferred`
+/// - `unique(columns(a, b))` - Table-level unique constraint; also accepts
+///   `name = "..."`, `nulls_not_distinct`, `deferrable`, and `initially_deferred`
+/// - `check(expr = "...")` - Table-level check constraint, optionally with
+///   `name = "..."`
 ///
 /// # Field Attributes
 ///
@@ -2668,7 +1185,23 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Special Types
 /// - `enum` - Map a `PostgresEnum` field (`#[column(enum)]`)
 /// - `json` - JSON serialization (`#[column(json)]` or `#[column(jsonb)]`)
-/// - `references = Table::column` - Foreign key reference
+/// - `references = Table::column` - Foreign key reference. With the `query`
+///   feature it also generates relation accessors:
+///   - forward, on this table: the column name without its `_id` suffix
+///     (`author_id` gives `posts.author()`)
+///   - reverse, on the referenced table: the plural `snake_case` name of this
+///     struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
+///   - a self-reference, or two or more foreign keys to the same table, names
+///     each of those reverse accessors `{forward}_{plural}`
+///     (`users.author_posts()`)
+///   - `relation = "name"` names the reverse accessor and leaves the forward
+///     one alone. It is required only when two accessors on the referenced
+///     table would still share a name: the macro's error asks for it when
+///     both come from one table, and rustc reports a duplicate definition
+///     when they come from different tables (e.g. a direct foreign key and
+///     a junction table)
+///   - a table with exactly two foreign keys, to two other distinct tables,
+///     also links them many-to-many (`posts.tags()` and `tags.posts()`)
 ///
 /// Note: For `#[derive(PostgresEnum)]`, storage is:
 /// - Native `PostgreSQL` ENUM by default
@@ -2679,61 +1212,6 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Basic Table
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -2757,61 +1235,6 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Enums (Native and Integer-repr)
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -2848,68 +1271,12 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// ## JSON and JSONB
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      pub mod driver_types { pub use drizzle_postgres::driver_types::*; }
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # #[cfg(feature = "serde")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 /// use serde::{Serialize, Deserialize};
 ///
-/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+/// #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 /// struct Metadata {
 ///     theme: String,
 ///     notifications: bool,
@@ -2934,7 +1301,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// For a table `Users`, the macro generates:
 /// - `SelectUsers` - For SELECT operations (derives `FromRow`)
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
-/// - `UpdateUsers` - Builder for UPDATE operations with `set_*()` methods
+/// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
+///   set columns with `with_*()` methods
 ///
 /// # Nullability
 ///
@@ -3002,61 +1370,6 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Unique Index
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -3081,61 +1394,6 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ## Composite Index
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub mod types { pub use drizzle_types::*; }
-/// #  pub mod migrations { pub use drizzle_migrations::*; }
-/// #  pub use drizzle_types::Dialect;
-/// #  pub use drizzle_types as ddl;
-/// #  pub use drizzle_core::error::Result;
-/// #  pub mod sqlite {
-/// #      pub use drizzle_sqlite::{*, attrs::*};
-/// #      #[cfg(feature = "rusqlite")]
-/// #      pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #      #[cfg(feature = "libsql")]
-/// #      pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #      #[cfg(feature = "turso")]
-/// #      pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #      pub mod prelude {
-/// #          pub use drizzle_macros::{SQLiteTable, SQLiteSchema, SQLiteEnum, SQLiteIndex, SQLiteFromRow};
-/// #          pub use drizzle_sqlite::{*, attrs::*};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      impl Row {
-/// #          pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #          pub fn try_get<'a, I, T>(&'a self, _: I) -> ::std::result::Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #      }
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
-/// #  pub use drizzle_macros::{sql, include_migrations}; pub use const_format;
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -3169,37 +1427,6 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Apply this to a tuple struct containing exactly one table type:
 ///
 /// ```rust,no_run
-/// # extern crate self as drizzle;
-/// #  pub mod core { pub use drizzle_core::*; pub use drizzle_core::schema::SQLEnumInfo; }
-/// #  pub mod error { pub use drizzle_core::error::*; }
-/// #  pub use drizzle_types as ddl;
-/// #  pub mod postgres {
-/// #      pub mod values { pub use drizzle_postgres::values::*; }
-/// #      pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #      pub mod common { pub use drizzle_postgres::common::*; }
-/// #      pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #      pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #      pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #      pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #      pub mod types { pub use drizzle_postgres::types::*; pub use drizzle_types::postgres::types::Int4 as Integer; }
-/// #      #[cfg(feature = "aws-data-api")]
-/// #      pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #      #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-/// #      pub use ::postgres::Row;
-/// #      #[cfg(feature = "tokio-postgres")]
-/// #      pub use ::tokio_postgres::Row;
-/// #      #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-/// #      pub struct Row;
-/// #      pub mod prelude {
-/// #          #[cfg(feature = "postgres")]
-/// #          pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresEnum, PostgresIndex, PostgresPolicy, PostgresFromRow};
-/// #          pub use drizzle_postgres::attrs::*;
-/// #          pub use drizzle_postgres::common::PostgresSchemaType;
-/// #          pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #          pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #          pub use drizzle_core::*;
-/// #      }
-/// #  }
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -3246,6 +1473,25 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 }
 
 /// Define a `MySQL` table schema with type-safe column definitions.
+///
+/// # Relations
+///
+/// `#[column(REFERENCES = Table::column)]` declares a foreign key. With the
+/// `query` feature it also generates relation accessors:
+/// - forward, on this table: the column name without its `_id` suffix
+///   (`author_id` gives `posts.author()`)
+/// - reverse, on the referenced table: the plural `snake_case` name of this
+///   struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
+/// - a self-reference, or two or more foreign keys to the same table, names
+///   each of those reverse accessors `{forward}_{plural}`
+///   (`users.author_posts()`)
+/// - `RELATION = "name"` names the reverse accessor and leaves the forward one
+///   alone. It is required only when two accessors on the referenced table
+///   would still share a name: the macro's error asks for it when both come
+///   from one table, and rustc reports a duplicate definition when they come
+///   from different tables (e.g. a direct foreign key and a junction table)
+/// - a table with exactly two foreign keys, to two other distinct tables,
+///   also links them many-to-many (`posts.tags()` and `tags.posts()`)
 #[cfg(feature = "mysql")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]

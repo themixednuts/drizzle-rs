@@ -424,6 +424,25 @@ mod serde_impls {
             })
         }
     }
+
+    // The Data API returns `json`/`jsonb` columns as JSON text.
+    impl<T: serde::de::DeserializeOwned> FromDrizzleRow<Row> for drizzle_core::Json<T> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            Self::from_json_str(expect_string(field_at(row, offset)?)?)
+        }
+    }
+
+    impl<T: serde::de::DeserializeOwned> FromDrizzleRow<Row> for Option<drizzle_core::Json<T>> {
+        const COLUMN_COUNT: usize = 1;
+        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+            let field = field_at(row, offset)?;
+            if field_is_null(field) {
+                return Ok(None);
+            }
+            drizzle_core::Json::from_json_str(expect_string(field)?).map(Some)
+        }
+    }
 }
 
 #[cfg(feature = "chrono")]

@@ -53,7 +53,14 @@ pub type TransactionBuilder<'tx, Schema, Builder, State> =
 /// Active AWS Aurora Data API transaction.
 ///
 /// Owns the `transactionId` returned by `BeginTransaction` and threads it into
-/// every `ExecuteStatement` until `commit()` or `rollback()` consumes it.
+/// every `ExecuteStatement`. You do not commit or roll back by hand:
+/// [`Drizzle::transaction`](crate::postgres::aws::Drizzle::transaction) ends
+/// the transaction with `CommitTransaction` when the callback returns `Ok` and
+/// with `RollbackTransaction` when it returns `Err`. If the transaction is
+/// dropped while still open, for example because the future returned by
+/// `transaction` was dropped before it finished, `Drop` spawns a best-effort
+/// `RollbackTransaction` on the current Tokio runtime.
+///
 /// Cloning a `Client` is cheap (internal `Arc`), so a transaction can freely
 /// reuse the ambient client.
 pub struct Transaction<Schema = ()> {

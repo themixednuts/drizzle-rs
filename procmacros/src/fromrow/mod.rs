@@ -118,6 +118,14 @@ fn build_scope_list_type(table_paths: &[syn::Path]) -> TokenStream {
     )
 }
 
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql"
+))]
 fn build_column_list_type_from_fields(
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
 ) -> TokenStream {
@@ -192,6 +200,13 @@ fn generate_driver_try_from(
 }
 
 /// Generate a driver-specific `FromDrizzleRow` implementation.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres"
+))]
 fn generate_driver_from_drizzle_row_impl(
     struct_name: &Ident,
     impl_generics: &TokenStream,
@@ -218,6 +233,13 @@ fn generate_driver_from_drizzle_row_impl(
     }
 }
 
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres"
+))]
 fn generate_driver_row_column_list_impl(
     struct_name: &Ident,
     impl_generics: &TokenStream,
@@ -598,36 +620,49 @@ pub fn generate_postgres_from_row_impl(input: &DeriveInput) -> Result<TokenStrea
             })
             .collect::<Vec<_>>()
     };
-    let tokio_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
-        struct_name,
-        &quote!(),
-        &quote!(::tokio_postgres::Row),
-        &quote!(#drizzle_error),
-        &from_drizzle_assignments,
-        is_tuple,
-        field_count,
-    );
-    let tokio_row_column_list_impl = generate_driver_row_column_list_impl(
-        struct_name,
-        &quote!(),
-        &quote!(::tokio_postgres::Row),
-        fields,
-    );
-    let sync_from_drizzle_impl = generate_driver_from_drizzle_row_impl(
-        struct_name,
-        &quote!(),
-        &quote!(::postgres::Row),
-        &quote!(#drizzle_error),
-        &from_drizzle_assignments,
-        is_tuple,
-        field_count,
-    );
-    let sync_row_column_list_impl = generate_driver_row_column_list_impl(
-        struct_name,
-        &quote!(),
-        &quote!(::postgres::Row),
-        fields,
-    );
+    // Driver selection happens here, against this crate's features. A
+    // `#[cfg(feature = ...)]` emitted into the expansion would be evaluated
+    // against the *user's* crate, which has no driver features, and silently
+    // drop every row impl. `drizzle::postgres::Row` already resolves to the
+    // one row type the enabled drivers share (postgres::Row re-exports
+    // tokio_postgres::Row), so a single set of impls covers both.
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    let driver_row_impls = {
+        let row = postgres_paths::row();
+        let from_drizzle_impl = generate_driver_from_drizzle_row_impl(
+            struct_name,
+            &quote!(),
+            &row,
+            &quote!(#drizzle_error),
+            &from_drizzle_assignments,
+            is_tuple,
+            field_count,
+        );
+        let row_column_list_impl =
+            generate_driver_row_column_list_impl(struct_name, &quote!(), &row, fields);
+        quote! {
+            impl ::std::convert::TryFrom<&#row> for #struct_name {
+                type Error = #drizzle_error;
+
+                fn try_from(row: &#row) -> ::std::result::Result<Self, Self::Error> {
+                    #struct_construct
+                }
+            }
+
+            #from_drizzle_impl
+            #row_column_list_impl
+        }
+    };
+    #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
+    let driver_row_impls = {
+        let _ = (
+            &struct_construct,
+            &from_drizzle_assignments,
+            field_count,
+            &drizzle_error,
+        );
+        quote! {}
+    };
     let select_as_from = quote!(drizzle::core::SelectAsFrom);
     let select_as_from_impl = default_from.as_ref().map_or_else(
         || {
@@ -652,39 +687,7 @@ pub fn generate_postgres_from_row_impl(input: &DeriveInput) -> Result<TokenStrea
     };
 
     Ok(quote! {
-        // When tokio-postgres is enabled, use tokio_postgres::Row
-        // This covers both "tokio-postgres only" and "both features enabled" cases
-        #[cfg(feature = "tokio-postgres")]
-        impl ::std::convert::TryFrom<&::tokio_postgres::Row> for #struct_name {
-            type Error = #drizzle_error;
-
-            fn try_from(row: &::tokio_postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                #struct_construct
-            }
-        }
-
-        #[cfg(feature = "tokio-postgres")]
-        #tokio_from_drizzle_impl
-
-        #[cfg(feature = "tokio-postgres")]
-        #tokio_row_column_list_impl
-
-        // When only postgres-sync is enabled (without tokio-postgres), use postgres::Row
-        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-        impl ::std::convert::TryFrom<&::postgres::Row> for #struct_name {
-            type Error = #drizzle_error;
-
-            fn try_from(row: &::postgres::Row) -> ::std::result::Result<Self, Self::Error> {
-                #struct_construct
-            }
-        }
-
-        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-        #sync_from_drizzle_impl
-
-        #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-        #sync_row_column_list_impl
-
+        #driver_row_impls
         #tosql_impl
         #select_as_from_impl
         #required_tables_impl

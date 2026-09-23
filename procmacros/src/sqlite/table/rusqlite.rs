@@ -3,9 +3,9 @@
 //! Generates `TryFrom` implementations for `rusqlite::Row` using the `FromSQLiteValue` trait.
 //!
 //! This implementation differs from libsql/turso in that it uses column names instead of
-//! indices, and leverages our custom `FromSQLiteValue` trait for all non-JSON conversions.
+//! indices, and leverages our custom `FromSQLiteValue` trait for conversions (JSON fields
+//! through `drizzle::core::Json<T>`).
 
-use super::errors;
 use super::{FieldInfo, MacroContext};
 use crate::common::{type_is_bool, type_is_float, type_is_int};
 use crate::paths;
@@ -81,22 +81,8 @@ pub fn generate_rusqlite_impls(ctx: &MacroContext) -> Result<TokenStream> {
                     crate::common::is_option_type(&ty)
                 });
 
-            let value_expr = if info.type_category() == TypeCategory::Json {
-                if is_select_optional {
-                    quote! {
-                        {
-                            let v: Option<String> = row.get(#idx_expr)?;
-                            v.map(|s| serde_json::from_str(&s)).transpose()?
-                        }
-                    }
-                } else {
-                    quote! {
-                        {
-                            let v: String = row.get(#idx_expr)?;
-                            serde_json::from_str(&v)?
-                        }
-                    }
-                }
+            let value_expr = if info.is_json_column() {
+                super::json::row_decode(&idx_expr, info, is_select_optional)
             } else if is_select_optional {
                 quote! {
                     {
@@ -160,16 +146,15 @@ fn generate_field_from_row(idx: usize, info: &FieldInfo) -> Result<TokenStream> 
     let name = info.ident;
     let base_type = info.base_type;
 
-    // JSON fields use rusqlite's FromSql directly
-    if info.type_category() == TypeCategory::Json {
-        if !cfg!(feature = "serde") {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::json::SERDE_REQUIRED,
-            ));
-        }
+    // JSON documents decode through `Json<Payload>`'s codec.
+    if info.is_json_column() {
+        let is_select_optional = syn::parse2::<syn::Type>(info.get_select_type())
+            .map_or(info.is_nullable && !info.has_default, |ty| {
+                crate::common::is_option_type(&ty)
+            });
+        let decode = super::json::row_decode(&quote!(#idx), info, is_select_optional);
         return Ok(quote! {
-            #name: row.get(#idx)?,
+            #name: #decode,
         });
     }
 
@@ -311,10 +296,11 @@ fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> TokenStream 
     let name = info.ident;
     let base_type = info.base_type;
 
-    // JSON fields use rusqlite's FromSql directly
-    if info.type_category() == TypeCategory::Json {
+    // JSON documents decode through `Json<Payload>`'s codec.
+    if info.is_json_column() {
+        let decode = super::json::partial_row_decode(&quote!(#idx), info);
         return quote! {
-            #name: row.get(#idx).unwrap_or_default(),
+            #name: #decode,
         };
     }
 
@@ -328,46 +314,4 @@ fn generate_partial_field_from_row(idx: usize, info: &FieldInfo) -> TokenStream 
             }
         },
     }
-}
-
-// =============================================================================
-// JSON/Enum Implementation Generation
-// =============================================================================
-
-/// Generate rusqlite JSON implementations (FromSql/ToSql)
-pub fn generate_json_impls(
-    json_types: &std::collections::BTreeMap<String, &FieldInfo>,
-) -> Result<Vec<TokenStream>> {
-    if json_types.is_empty() {
-        return Ok(vec![]);
-    }
-
-    json_types
-        .values()
-        .map(|info| {
-            let struct_name = info.base_type;
-
-            Ok(quote! {
-                impl drizzle::sqlite::rusqlite::types::FromSql for #struct_name {
-                    fn column_result(
-                        value: drizzle::sqlite::rusqlite::types::ValueRef<'_>,
-                    ) -> drizzle::sqlite::rusqlite::types::FromSqlResult<Self> {
-                        match value {
-                            drizzle::sqlite::rusqlite::types::ValueRef::Text(items) => serde_json::from_slice(items)
-                                .map_err(|_| drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
-                            _ => Err(drizzle::sqlite::rusqlite::types::FromSqlError::InvalidType),
-                        }
-                    }
-                }
-
-                impl drizzle::sqlite::rusqlite::types::ToSql for #struct_name {
-                    fn to_sql(&self) -> drizzle::sqlite::rusqlite::Result<drizzle::sqlite::rusqlite::types::ToSqlOutput<'_>> {
-                        let json_data = serde_json::to_string(self)
-                            .map_err(|e| drizzle::sqlite::rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                        Ok(drizzle::sqlite::rusqlite::types::ToSqlOutput::Owned(drizzle::sqlite::rusqlite::types::Value::Text(json_data)))
-                    }
-                }
-            })
-        })
-        .collect::<Result<Vec<_>>>()
 }

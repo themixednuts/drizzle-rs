@@ -338,6 +338,11 @@ pub const DEFAULT: ColumnMarker = ColumnMarker;
 /// # "####;
 /// ```
 ///
+/// With the `query` feature this also generates relation accessors: a
+/// forward one on this table, named after the column without its `_id` suffix
+/// (`user_id` gives `.user()`), and a reverse one on the referenced table
+/// (see [`RELATION`]).
+///
 /// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
 pub const REFERENCES: ColumnMarker = ColumnMarker;
 

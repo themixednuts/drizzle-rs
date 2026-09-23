@@ -64,6 +64,15 @@ pub mod driver_types {
     pub use postgres::types::Json;
     #[cfg(all(any(feature = "serde", feature = "query"), feature = "tokio-postgres"))]
     pub use tokio_postgres::types::Json;
+
+    // Wire-codec items for macro-generated `FromSql`/`ToSql` impls, so the
+    // expansion never names a driver crate the user may not depend on directly.
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    pub use bytes::BytesMut;
+    #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+    pub use postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
+    #[cfg(feature = "tokio-postgres")]
+    pub use tokio_postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
 }
 
 pub use drizzle_core::ParamBind;
