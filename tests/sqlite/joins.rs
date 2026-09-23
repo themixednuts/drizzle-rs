@@ -387,3 +387,63 @@ fn chained_fk_join(db: &mut TestDb<FullBlogSchema>) {
         Some("How-to guides".to_string())
     );
 }
+
+#[SQLiteTable(NAME = "natural_left")]
+struct NaturalLeft {
+    key: i32,
+    left_value: String,
+}
+
+#[SQLiteTable(NAME = "natural_right")]
+struct NaturalRight {
+    key: i32,
+    right_value: String,
+}
+
+#[derive(SQLiteSchema)]
+struct NaturalSchema {
+    natural_left: NaturalLeft,
+    natural_right: NaturalRight,
+}
+
+#[drizzle::test]
+fn natural_join_matches_columns_by_name(db: &mut TestDb<NaturalSchema>) {
+    let NaturalSchema {
+        natural_left,
+        natural_right,
+    } = schema;
+
+    db.insert(natural_left)
+        .values([
+            InsertNaturalLeft::new(1, "a"),
+            InsertNaturalLeft::new(2, "b"),
+        ])
+        .execute();
+    db.insert(natural_right)
+        .values([
+            InsertNaturalRight::new(2, "x"),
+            InsertNaturalRight::new(3, "y"),
+        ])
+        .execute();
+
+    // A NATURAL join takes no ON condition; SQLite rejects one.
+    let query = db
+        .select((natural_left.left_value, natural_right.right_value))
+        .from(natural_left)
+        .natural_join(natural_right);
+    assert_eq!(
+        query.to_sql().sql(),
+        r#"SELECT "natural_left"."left_value", "natural_right"."right_value" FROM "natural_left" NATURAL JOIN "natural_right""#
+    );
+    let rows: Vec<(String, String)> = query.all();
+    assert_eq!(rows, [("b".to_string(), "x".to_string())]);
+
+    // Every left row survives a NATURAL LEFT JOIN.
+    let left_rows: Vec<String> = db
+        .select(natural_left.left_value)
+        .from(natural_left)
+        .natural_left_join(natural_right)
+        .order_by([asc(natural_left.left_value)])
+        .all();
+    assert_eq!(left_rows, ["a", "b"]);
+}
