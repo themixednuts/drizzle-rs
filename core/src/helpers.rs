@@ -21,6 +21,83 @@ where
     SQL::from_iter([Token::SELECT, Token::DISTINCT]).append(columns.into_sql())
 }
 
+/// Clauses found outside any parentheses of a query used as a set-operation
+/// operand.
+#[derive(Debug, Default, Clone, Copy)]
+struct OperandShape {
+    /// `ORDER BY`, `LIMIT`, `OFFSET` or a locking `FOR` clause, which would
+    /// otherwise apply to the whole compound (or be rejected before it).
+    has_tail: bool,
+    /// A `UNION` or `EXCEPT` operator.
+    has_union_or_except: bool,
+    /// An `INTERSECT` operator.
+    has_intersect: bool,
+    /// The query opens with a `WITH` clause.
+    starts_with_cte: bool,
+}
+
+impl OperandShape {
+    fn of<V: SQLParam>(sql: &SQL<'_, V>) -> Self {
+        let mut shape = Self::default();
+        let mut depth = 0usize;
+        let mut leading = true;
+
+        for chunk in &sql.chunks {
+            match chunk {
+                // A sqlcommenter comment may precede the query.
+                SQLChunk::Raw(text) if leading && text.trim_start().starts_with("/*") => {
+                    continue;
+                }
+                SQLChunk::Token(Token::LPAREN) => depth += 1,
+                SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+                SQLChunk::Token(Token::WITH) if leading => shape.starts_with_cte = true,
+                SQLChunk::Token(Token::ORDER | Token::LIMIT | Token::OFFSET | Token::FOR)
+                    if depth == 0 =>
+                {
+                    shape.has_tail = true;
+                }
+                SQLChunk::Token(Token::UNION | Token::EXCEPT) if depth == 0 => {
+                    shape.has_union_or_except = true;
+                }
+                SQLChunk::Token(Token::INTERSECT) if depth == 0 => shape.has_intersect = true,
+                _ => {}
+            }
+            leading = false;
+        }
+
+        shape
+    }
+
+    const fn is_compound(self) -> bool {
+        self.has_union_or_except || self.has_intersect
+    }
+}
+
+/// Makes `operand` a single set-operation operand.
+///
+/// `PostgreSQL` and `MySQL` accept a parenthesized query there. `SQLite` does
+/// not, so the operand becomes a derived table instead; its columns keep their
+/// names and order.
+fn group_set_operand<'a, V: SQLParam>(operand: SQL<'a, V>) -> SQL<'a, V> {
+    match V::DIALECT {
+        crate::Dialect::SQLite => {
+            SQL::from_iter([Token::SELECT, Token::STAR, Token::FROM]).append(operand.parens())
+        }
+        crate::Dialect::PostgreSQL | crate::Dialect::MySQL => operand.parens(),
+    }
+}
+
+/// Joins two queries with a set operator, grouping an operand whenever it
+/// would not otherwise parse as one operand of this operator:
+///
+/// - an operand with its own `ORDER BY` / `LIMIT` / `OFFSET`, which would
+///   otherwise limit the whole compound or be rejected before the operator;
+/// - a compound right operand, so `a.union(b.except(c))` is `A ∪ (B − C)`;
+/// - a right operand that opens with `WITH`;
+/// - on `PostgreSQL` and `MySQL`, a left `UNION` / `EXCEPT` compound joined by
+///   `INTERSECT`, which binds tighter there, so chains apply left to right.
+///
+/// Plain operands and left-to-right chains render unchanged.
 fn set_op<'a, Value, L, R>(left: L, op: Token, all: bool, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -29,6 +106,27 @@ where
 {
     let left = left.into_sql();
     let right = right.into_sql();
+
+    let left_shape = OperandShape::of(&left);
+    let intersect_binds_tighter = !matches!(Value::DIALECT, crate::Dialect::SQLite);
+    let left = if left_shape.has_tail
+        || (intersect_binds_tighter
+            && matches!(op, Token::INTERSECT)
+            && left_shape.has_union_or_except)
+    {
+        group_set_operand(left)
+    } else {
+        left
+    };
+
+    let right_shape = OperandShape::of(&right);
+    let right = if right_shape.has_tail || right_shape.is_compound() || right_shape.starts_with_cte
+    {
+        group_set_operand(right)
+    } else {
+        right
+    };
+
     let op_sql = if all {
         SQL::from(op).push(Token::ALL)
     } else {

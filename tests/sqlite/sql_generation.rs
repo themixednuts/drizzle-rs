@@ -264,3 +264,88 @@ fn test_with_subquery_parenthesized_in_set_and_funcs(db: &mut TestDb<SimpleSchem
         "sql: {func_sql}"
     );
 }
+
+#[drizzle::test]
+fn set_operation_operands_are_wrapped_only_when_needed(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    let qb = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("carol").with_id(3),
+        ])
+        .execute();
+
+    // A plain compound and a left-to-right chain render as before.
+    let plain = qb
+        .select(simple.id)
+        .from(simple)
+        .union(qb.select(simple.id).from(simple));
+    assert_eq!(
+        plain.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" UNION SELECT "simple"."id" FROM "simple""#
+    );
+    let chain = qb
+        .select(simple.id)
+        .from(simple)
+        .union(qb.select(simple.id).from(simple))
+        .except(qb.select(simple.id).from(simple));
+    assert_eq!(
+        chain.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" UNION SELECT "simple"."id" FROM "simple" EXCEPT SELECT "simple"."id" FROM "simple""#
+    );
+
+    // SQLite rejects a parenthesized compound operand, so an operand that
+    // carries its own ORDER BY / LIMIT becomes a derived table.
+    let limited_left = db
+        .select(simple.id)
+        .from(simple)
+        .order_by([asc(simple.id)])
+        .limit(1)
+        .union(qb.select(simple.id).from(simple).r#where(eq(simple.id, 3)));
+    assert_eq!(
+        limited_left.to_sql().sql(),
+        r#"SELECT * FROM (SELECT "simple"."id" FROM "simple" ORDER BY "simple"."id" ASC LIMIT 1) UNION SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ?"#
+    );
+    let mut ids: Vec<i32> = limited_left.all();
+    ids.sort_unstable();
+    assert_eq!(ids, [1, 3]);
+
+    let limited_right = db
+        .select(simple.id)
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .union(
+            qb.select(simple.id)
+                .from(simple)
+                .order_by([desc(simple.id)])
+                .limit(1),
+        );
+    assert_eq!(
+        limited_right.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ? UNION SELECT * FROM (SELECT "simple"."id" FROM "simple" ORDER BY "simple"."id" DESC LIMIT 1)"#
+    );
+    let mut ids: Vec<i32> = limited_right.all();
+    ids.sort_unstable();
+    assert_eq!(ids, [1, 3]);
+
+    // A compound right operand is grouped: {2} ∪ ({1,2,3} − {2}).
+    let nested = db
+        .select(simple.id)
+        .from(simple)
+        .r#where(eq(simple.id, 2))
+        .union(
+            qb.select(simple.id)
+                .from(simple)
+                .except(qb.select(simple.id).from(simple).r#where(eq(simple.id, 2))),
+        );
+    assert_eq!(
+        nested.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ? UNION SELECT * FROM (SELECT "simple"."id" FROM "simple" EXCEPT SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ?)"#
+    );
+    let mut ids: Vec<i32> = nested.all();
+    ids.sort_unstable();
+    assert_eq!(ids, [1, 2, 3]);
+}
