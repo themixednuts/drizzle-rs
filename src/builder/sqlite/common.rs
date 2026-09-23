@@ -101,6 +101,11 @@ impl LibsqlStatementCache {
         Self(std::sync::Mutex::new(None))
     }
 
+    /// Drops the cached statement.
+    pub(crate) fn clear(&self) {
+        *self.0.lock().unwrap_or_else(|err| err.into_inner()) = None;
+    }
+
     pub(crate) fn take(&self, sql: &str) -> Option<LibsqlCachedStatement> {
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         if cache
@@ -113,7 +118,12 @@ impl LibsqlStatementCache {
         }
     }
 
+    /// Keeps `cached` for reuse, reset first: a statement left mid-step
+    /// (after `get()` read one row) holds the connection's read transaction
+    /// open, which can serve later reads a stale snapshot and blocks WAL
+    /// checkpoints until the statement is reused or evicted.
     pub(crate) fn store(&self, cached: LibsqlCachedStatement) {
+        cached.statement.reset();
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         *cache = Some(cached);
     }
@@ -194,7 +204,11 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 
     /// Gets a mutable reference to the underlying connection.
     #[inline]
-    pub const fn conn_mut(&mut self) -> &mut Conn {
+    pub fn conn_mut(&mut self) -> &mut Conn {
+        // The caller may replace the connection; a statement cached on the old
+        // one would keep running there.
+        #[cfg(feature = "libsql")]
+        self.libsql_statement_cache.clear();
         &mut self.conn
     }
 

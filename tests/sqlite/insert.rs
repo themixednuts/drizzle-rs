@@ -827,3 +827,25 @@ fn execute_on_a_returning_statement_reports_the_changed_rows(db: &mut TestDb<Sim
     let names: Vec<String> = db.select(simple.name).from(simple).all();
     assert_eq!(names, ["c"]);
 }
+
+#[drizzle::test]
+fn get_does_not_leave_its_statement_running(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple)
+        .values([
+            InsertSimple::new("a").with_id(1),
+            InsertSimple::new("b").with_id(2),
+        ])
+        .execute();
+
+    // `get()` reads the first of two rows. A statement left mid-step (libsql
+    // cached it that way) keeps its table in use, so dropping the table
+    // failed with "database table is locked".
+    let first: SelectSimple = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([asc(simple.id)])
+        .get();
+    assert_eq!(first.id, 1);
+    result!(db.execute(SQL::raw(r#"DROP TABLE "simple""#)))?;
+}
