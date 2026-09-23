@@ -539,6 +539,26 @@ jobs:
           cargo check -p drizzle --no-default-features --features mysql-sync,mysql-async
           cargo check --workspace --all-targets --all-features
 
+      - name: Check CLI driver builds for warnings
+        # Clippy lints the CLI only with --all-features, which hides code that
+        # goes dead without a driver or with only one. Users install those
+        # builds, so check no driver, then each driver feature on its own.
+        # `build.warnings` denies warnings without RUSTFLAGS, so artifact
+        # fingerprints and the cache key stay the same. Cargo before 1.97
+        # ignores it silently.
+        run: |
+          failed=()
+          for features in "" rusqlite libsql turso postgres-sync tokio-postgres mysql-sync mysql-async d1-http; do
+            echo "::group::drizzle-cli features: ${features:-none}"
+            cargo check -p drizzle-cli --all-targets --no-default-features --features "$features" \
+              --config 'build.warnings="deny"' || failed+=("${features:-none}")
+            echo "::endgroup::"
+          done
+          if (( ${#failed[@]} )); then
+            echo "::error::drizzle-cli check failed with features: ${failed[*]}"
+            exit 1
+          fi
+
   wasm-drivers:
     name: WASM Driver Checks
     runs-on: ubuntu-latest
