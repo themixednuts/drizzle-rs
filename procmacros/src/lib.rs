@@ -64,6 +64,13 @@
 //   complexity of the function — splitting them produces indirection without
 //   reducing cognitive load. The 100-line clippy default is a poor proxy here.
 #![allow(clippy::too_many_lines)]
+// Built with no dialect (for example as a dependency of `drizzle` with default
+// features), every dialect module is compiled out and the shared helpers they
+// use go unused.
+#![cfg_attr(
+    not(any(feature = "sqlite", feature = "postgres", feature = "mysql")),
+    allow(dead_code, unused_imports)
+)]
 
 extern crate proc_macro;
 
