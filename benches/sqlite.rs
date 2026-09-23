@@ -1,4 +1,7 @@
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+use criterion::{BenchmarkId, Throughput};
+use criterion::{Criterion, criterion_group, criterion_main};
+#[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
 use std::hint::black_box;
 
 #[cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
@@ -1077,6 +1080,9 @@ fn bench_sqlite(c: &mut Criterion) {
 
     #[cfg(all(feature = "rusqlite", feature = "turso"))]
     bench_mvcc(c);
+
+    #[cfg(not(any(feature = "rusqlite", feature = "turso", feature = "libsql")))]
+    let _ = c;
 }
 
 criterion_group!(sqlite, bench_sqlite);

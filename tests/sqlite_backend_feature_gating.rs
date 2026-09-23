@@ -1,4 +1,7 @@
-#![cfg(feature = "uuid")]
+#![cfg(all(
+    feature = "uuid",
+    any(feature = "rusqlite", feature = "libsql", feature = "turso")
+))]
 
 use std::ffi::OsString;
 use std::fs;

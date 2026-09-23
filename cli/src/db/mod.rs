@@ -620,13 +620,7 @@ fn collect_integrity_findings(
     Ok(findings)
 }
 
-#[cfg(any(
-    feature = "rusqlite",
-    feature = "libsql",
-    feature = "turso",
-    feature = "postgres-sync",
-    feature = "tokio-postgres",
-))]
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 fn escape_sql_literal(value: &str) -> String {
     value.replace('\'', "''")
 }

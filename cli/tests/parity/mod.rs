@@ -3,8 +3,15 @@ use predicates::prelude::PredicateBooleanExt as _;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+#[cfg(any(
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async",
+))]
+use std::sync::Mutex;
 use std::sync::{
-    Mutex, MutexGuard,
+    MutexGuard,
     atomic::{AtomicU64, Ordering},
 };
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -908,6 +915,7 @@ macro_rules! shared_live_driver_contract {
 
 pub(crate) use shared_live_driver_contract;
 
+#[cfg(any(feature = "rusqlite", feature = "mysql-sync", feature = "mysql-async"))]
 macro_rules! shared_non_postgres_contract {
     ($backend:ty) => {
         #[test]
@@ -917,4 +925,5 @@ macro_rules! shared_non_postgres_contract {
     };
 }
 
+#[cfg(any(feature = "rusqlite", feature = "mysql-sync", feature = "mysql-async"))]
 pub(crate) use shared_non_postgres_contract;
