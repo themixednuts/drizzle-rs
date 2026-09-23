@@ -148,6 +148,48 @@ fn insert_selected_columns_from_checked_select(db: &mut TestDb<SimpleSchema>) {
 }
 
 #[drizzle::test]
+fn insert_select_followed_by_upsert_parses(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple)
+        .value(InsertSimple::new("original").with_id(7))
+        .execute();
+
+    // Re-inserting every row conflicts on the primary key. SQLite reads an
+    // `ON` right after the source's FROM clause as a join constraint, so the
+    // source needs a `WHERE true` before the upsert clause.
+    let source = db.select((simple.id, simple.name)).from(simple);
+    let stmt = db.insert(simple).select(source).on_conflict_do_nothing();
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" ("id", "name") SELECT "simple"."id", "simple"."name" FROM "simple" WHERE true ON CONFLICT DO NOTHING"#
+    );
+    stmt.execute();
+
+    let source = db.select((simple.id, simple.name)).from(simple);
+    db.insert(simple)
+        .select(source)
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("updated"))
+        .execute();
+
+    // A source that already ends in WHERE is left alone.
+    let filtered = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 7));
+    let stmt = db.insert(simple).select(filtered).on_conflict_do_nothing();
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" ("id", "name") SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."id" = ? ON CONFLICT DO NOTHING"#
+    );
+    stmt.execute();
+
+    let rows: Vec<SelectSimple> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "updated");
+}
+
+#[drizzle::test]
 fn checked_full_insert_select_names_every_target_column(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let source = db
