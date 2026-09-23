@@ -140,7 +140,7 @@ For belt-and-suspenders, enable **branch protection** on `main`:
 This gives you two layers of defense — the branch can't merge a red PR, and even if someone bypasses that, `publish.yml` re-verifies before pushing crates to crates.io.
 
 > [!IMPORTANT]
-> CI does *not* skip release PRs. The skip in `ci.yml` only fires on push events to `main` (the merge commit, after the PR-level CI already ran). Pull-request events always get the full lint/build/test/docs matrix — including release PRs opened by `github-actions[bot]`.
+> CI does *not* skip release PRs. `ci.yml` has no `push` trigger and no skip logic, so every run gets the full lint/build/test/docs matrix. Release PRs are opened with `GITHUB_TOKEN`, which doesn't start normal `pull_request` runs, so `update.yml` dispatches `ci.yml` and `criterion.yml` on the release branch. `ci.yml` runs on `main` only when someone dispatches it there by hand, so its rust-cache steps (`save-if: main`) almost never save, and jobs build from scratch.
 
 ## Git: Splitting Commits by Intent
 
