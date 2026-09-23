@@ -16,7 +16,7 @@ use std::{borrow::Cow, marker::PhantomData};
 
 use ::worker::{SqlStorage, SqlStorageValue};
 
-use super::sqlite_value_to_storage;
+use super::{DurableStorage, sqlite_value_to_storage};
 use drizzle_core::error::DrizzleError;
 
 /// Convert an iterator of borrowed SQLiteValue-bearing items into the typed
@@ -117,7 +117,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     /// Runs the prepared statement and returns the number of rows written.
     pub fn execute<const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         debug_assert_eq!(
@@ -129,13 +129,13 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = borrowed_values_to_storage(bound);
-        run_execute(conn, sql_str, values)
+        run_execute(conn.sql(), sql_str, values)
     }
 
     /// Runs the prepared statement and returns all matching rows.
     pub fn all<T, const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<Vec<T>>
     where
@@ -150,13 +150,13 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = borrowed_values_to_storage(bound);
-        run_all::<T>(conn, sql_str, values)
+        run_all::<T>(conn.sql(), sql_str, values)
     }
 
     /// Runs the prepared statement and returns a single row.
     pub fn get<T, const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<T>
     where
@@ -171,7 +171,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = borrowed_values_to_storage(bound);
-        run_get::<T>(conn, sql_str, values)
+        run_get::<T>(conn.sql(), sql_str, values)
     }
 }
 
@@ -179,7 +179,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     /// Runs the prepared statement and returns the number of rows written.
     pub fn execute<'a, const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         debug_assert_eq!(
@@ -191,13 +191,13 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = owned_values_to_storage(bound);
-        run_execute(conn, sql_str, values)
+        run_execute(conn.sql(), sql_str, values)
     }
 
     /// Runs the prepared statement and returns all matching rows.
     pub fn all<'a, T, const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<Vec<T>>
     where
@@ -212,13 +212,13 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = owned_values_to_storage(bound);
-        run_all::<T>(conn, sql_str, values)
+        run_all::<T>(conn.sql(), sql_str, values)
     }
 
     /// Runs the prepared statement and returns a single row.
     pub fn get<'a, T, const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<T>
     where
@@ -233,7 +233,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = owned_values_to_storage(bound);
-        run_get::<T>(conn, sql_str, values)
+        run_get::<T>(conn.sql(), sql_str, values)
     }
 }
 

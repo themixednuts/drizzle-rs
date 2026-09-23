@@ -164,12 +164,18 @@ fn print_durable_sqlite_notice(out_dir: &std::path::Path) {
         output::warning("Durable Objects SQLite runs inside the Workers runtime.")
     );
     println!();
-    println!("  The CLI can't apply migrations to a DO from outside.");
+    println!("  The CLI can't apply migrations to a DO from outside. Apply them when the");
+    println!("  object starts:");
     println!(
-        "  Apply them at `DurableObject` init time by importing `{}/migrations.js`",
+        "  - Rust: embed them with `drizzle::include_migrations!(\"{}\")` and call",
         out_dir.display()
     );
-    println!("  and running each statement against `state.storage().sql()`.");
+    println!("    `db.migrate(..)` in `DurableObject::new`.");
+    println!(
+        "  - JavaScript: import `{}/migrations.js` and run each statement with",
+        out_dir.display()
+    );
+    println!("    `ctx.storage.sql.exec()` inside `ctx.storage.transactionSync()`.");
     println!();
     println!(
         "  (This command only generates the SQL + JS bundle — run `drizzle generate` for that.)"

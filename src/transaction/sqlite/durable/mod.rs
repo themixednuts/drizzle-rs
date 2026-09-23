@@ -3,19 +3,16 @@
 //! Obtained via
 //! [`Drizzle::transaction`](crate::builder::sqlite::durable::Drizzle::transaction).
 //! Supports the same query-builder surface as `Drizzle` plus nested
-//! savepoints through [`Transaction::savepoint`].
-
-use std::sync::atomic::AtomicU32;
+//! savepoints through [`Transaction::savepoint`]. Both run through the
+//! storage's `transactionSync`; see
+//! [`DurableStorage`](crate::builder::sqlite::durable::DurableStorage).
 
 use ::worker::{SqlStorage, SqlStorageValue};
 use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::ToSQL;
 
-use crate::transaction::savepoint::sync_savepoint;
-
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::{
-    TransactionConfig,
     builder::{
         self, QueryBuilder, delete::DeleteBuilder, insert::InsertBuilder, select::SelectBuilder,
         update::UpdateBuilder,
@@ -25,7 +22,7 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-use crate::builder::sqlite::durable::sqlite_value_to_storage;
+use crate::builder::sqlite::durable::{DurableStorage, sqlite_value_to_storage};
 
 /// Query builder scoped to a [`Transaction`]. See
 /// `TransactionBuilder` for the
@@ -50,10 +47,7 @@ crate::drizzle_tx_prepare_impl!();
 /// [`Drizzle`](crate::builder::sqlite::durable::Drizzle) plus
 /// [`Transaction::savepoint`] for nested savepoints.
 pub struct Transaction<Schema = ()> {
-    conn: SqlStorage,
-    config: TransactionConfig,
-    active: bool,
-    savepoint_depth: AtomicU32,
+    conn: DurableStorage,
     schema: Schema,
 }
 
@@ -64,14 +58,8 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
 }
 
 impl<Schema> Transaction<Schema> {
-    pub(crate) fn new(conn: SqlStorage, config: TransactionConfig, schema: Schema) -> Self {
-        Self {
-            conn,
-            config,
-            active: true,
-            savepoint_depth: AtomicU32::new(0),
-            schema,
-        }
+    pub(crate) fn new(conn: DurableStorage, schema: Schema) -> Self {
+        Self { conn, schema }
     }
 
     /// Gets a reference to the schema.
@@ -80,16 +68,10 @@ impl<Schema> Transaction<Schema> {
         &self.schema
     }
 
-    /// Gets a reference to the underlying [`SqlStorage`] handle.
+    /// Gets a reference to the storage this transaction runs on.
     #[inline]
-    pub fn inner(&self) -> &SqlStorage {
+    pub fn inner(&self) -> &DurableStorage {
         &self.conn
-    }
-
-    /// Configuration used to begin this transaction.
-    #[inline]
-    pub const fn config(&self) -> TransactionConfig {
-        self.config
     }
 
     /// Executes a nested savepoint within this transaction.
@@ -97,40 +79,13 @@ impl<Schema> Transaction<Schema> {
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released. If
     /// it returns `Err` or panics, the savepoint is rolled back. The outer
-    /// transaction is unaffected either way. Savepoints can be nested — each
-    /// level gets its own savepoint name.
+    /// transaction is unaffected either way. Savepoints can be nested; the
+    /// runtime's `transactionSync` gives each level its own savepoint.
     pub fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
-        sync_savepoint(
-            &self.savepoint_depth,
-            |sql| {
-                self.conn
-                    .exec(sql, None)
-                    .map(|_| ())
-                    .map_err(|e| DrizzleError::Other(e.to_string().into()))
-            },
-            || f(self),
-        )
-    }
-
-    /// Commits the transaction.
-    pub(crate) fn commit(mut self) -> drizzle_core::error::Result<()> {
-        self.conn
-            .exec("COMMIT", None)
-            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
-        self.active = false;
-        Ok(())
-    }
-
-    /// Rolls back the transaction.
-    pub(crate) fn rollback(mut self) -> drizzle_core::error::Result<()> {
-        self.conn
-            .exec("ROLLBACK", None)
-            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
-        self.active = false;
-        Ok(())
+        self.conn.transaction(|| f(self))
     }
 
     sqlite_transaction_constructors!();
@@ -141,7 +96,7 @@ impl<Schema> Transaction<Schema> {
     where
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
-        let cursor = exec_in_tx(&self.conn, &query)?;
+        let cursor = exec_in_tx(self.conn.sql(), &query)?;
         // Drain so `rows_written` is populated.
         let _ = cursor
             .to_array::<serde::de::IgnoredAny>()
@@ -156,7 +111,7 @@ impl<Schema> Transaction<Schema> {
         T: ToSQL<'q, SQLiteValue<'q>>,
         C: Default + Extend<R>,
     {
-        let cursor = exec_in_tx(&self.conn, &query)?;
+        let cursor = exec_in_tx(self.conn.sql(), &query)?;
         let rows: Vec<R> = cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
@@ -171,21 +126,13 @@ impl<Schema> Transaction<Schema> {
         R: for<'de> serde::Deserialize<'de>,
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
-        let cursor = exec_in_tx(&self.conn, &query)?;
+        let cursor = exec_in_tx(self.conn.sql(), &query)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?
             .into_iter()
             .next()
             .ok_or(DrizzleError::NotFound)
-    }
-}
-
-impl<Schema> Drop for Transaction<Schema> {
-    fn drop(&mut self) {
-        if self.active {
-            let _ = self.conn.exec("ROLLBACK", None);
-        }
     }
 }
 
@@ -216,7 +163,7 @@ where
 {
     /// Runs the query and returns the number of rows written.
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
-        let cursor = exec_in_tx(&self.runner.conn, &self.builder.sql)?;
+        let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
         let _ = cursor
             .to_array::<serde::de::IgnoredAny>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
@@ -228,7 +175,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let cursor = exec_in_tx(&self.runner.conn, &self.builder.sql)?;
+        let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))
@@ -239,7 +186,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let cursor = exec_in_tx(&self.runner.conn, &self.builder.sql)?;
+        let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?
@@ -275,7 +222,7 @@ impl<Schema> Transaction<Schema> {
 
 #[cfg(feature = "query")]
 impl<Schema> common::RelationalPreparedDriver for &Transaction<Schema> {
-    type PreparedDriver = SqlStorage;
+    type PreparedDriver = DurableStorage;
 }
 
 // AllColumns: base decoded from the JSON "__base" column
@@ -309,7 +256,10 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        crate::builder::sqlite::durable::relational_find_many(self.runner.inner(), self.builder)
+        crate::builder::sqlite::durable::relational_find_many(
+            self.runner.inner().sql(),
+            self.builder,
+        )
     }
 }
 
@@ -382,7 +332,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         crate::builder::sqlite::durable::relational_find_many_partial(
-            self.runner.inner(),
+            self.runner.inner().sql(),
             self.builder,
         )
     }

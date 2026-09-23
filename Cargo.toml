@@ -38,6 +38,7 @@ exclude = [
   "examples/orm-comparison/diesel",
   "examples/orm-comparison/seaorm",
   "examples/orm-comparison/toasty",
+  "examples/durable_object",
   "bench/targets/spacetime-module",
   "bench/targets/spacetime-native-rs",
   "bench/targets/rust-pg-orms",

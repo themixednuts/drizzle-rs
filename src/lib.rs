@@ -251,7 +251,7 @@ pub mod sqlite {
     #[cfg_attr(docsrs, doc(cfg(all(feature = "durable", target_arch = "wasm32"))))]
     pub mod durable {
         #[doc(inline)]
-        pub use crate::builder::sqlite::durable::{Drizzle, DrizzleBuilder};
+        pub use crate::builder::sqlite::durable::{Drizzle, DrizzleBuilder, DurableStorage};
         #[doc(inline)]
         pub use crate::transaction::sqlite::durable::Transaction;
     }
