@@ -28,7 +28,7 @@ impl MigrationDir {
     /// # Errors
     ///
     /// Returns [`MigratorError::JournalError`] if a legacy `meta/_journal.json`
-    /// is found (run `drizzle upgrade` to convert the folder layout),
+    /// is found (run `drizzle up` to convert the folder layout),
     /// [`MigratorError::IoError`] if reading the directory fails, or
     /// [`MigratorError::MissingMigration`] if a migration folder has a
     /// `snapshot.json` but lacks its `migration.sql`.

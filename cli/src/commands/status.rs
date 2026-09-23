@@ -1,6 +1,8 @@
 //! Status command implementation
 //!
-//! Shows migration status (applied vs pending).
+//! Lists the local migration folders and whether each has a snapshot. It
+//! does not connect to the database; `drizzle migrate --plan` shows what the
+//! database has applied.
 
 use crate::config::Config;
 use crate::error::CliError;
@@ -10,9 +12,8 @@ use crate::output;
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the database cannot be resolved, credentials are
-/// invalid, or connecting to the database to read the migration tracking
-/// table fails.
+/// Returns [`CliError`] if the database entry cannot be resolved from the
+/// config or the migrations directory cannot be read.
 pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
@@ -37,7 +38,7 @@ pub fn run(config: &Config, db_name: Option<&str>) -> Result<(), CliError> {
     if journal_path.exists() {
         println!(
             "  {}",
-            output::warning("Legacy migration journal detected. Run 'drizzle upgrade' first.")
+            output::warning("Legacy migration journal detected. Run 'drizzle up' first.")
         );
         println!();
     }
