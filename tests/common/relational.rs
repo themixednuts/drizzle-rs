@@ -221,6 +221,54 @@ macro_rules! shared_relational_api_suite {
             // ------------------------------------------------------------ relations
 
             #[drizzle::test($dialect)]
+            fn root_where_subqueries_keep_their_own_scope(db: &mut TestDb<SharedApiSchema>) {
+                use drizzle::core::expr::{exists, in_subquery};
+
+                let SharedApiSchema { authors, posts, .. } = schema;
+                db.insert(authors).value(author(ALICE, "Alice")).execute();
+                db.insert(authors)
+                    .value(
+                        InsertSharedApiAuthor::new("Bob")
+                            .with_id(BOB)
+                            .with_invited_by(ALICE),
+                    )
+                    .execute();
+                db.insert(posts)
+                    .value(post(1, "Hello", true, BOB))
+                    .execute();
+
+                let qb = || drizzle::$dialect::builder::QueryBuilder::new::<SharedApiSchema>();
+
+                // The subquery reads `authors` itself, so its references mean
+                // its own copy of the table, not the query's aliased root.
+                let inviters = db
+                    .query(authors)
+                    .r#where(in_subquery(
+                        authors.id,
+                        qb().select(authors.invited_by).from(authors),
+                    ))
+                    .find_many();
+                assert_eq!(
+                    inviters.iter().map(|row| row.id).collect::<Vec<_>>(),
+                    [ALICE]
+                );
+
+                // A correlated subquery reaches the aliased root row.
+                let with_posts = db
+                    .query(authors)
+                    .r#where(exists(
+                        qb().select(posts.id)
+                            .from(posts)
+                            .r#where(eq(posts.author_id, authors.id)),
+                    ))
+                    .find_many();
+                assert_eq!(
+                    with_posts.iter().map(|row| row.id).collect::<Vec<_>>(),
+                    [BOB]
+                );
+            }
+
+            #[drizzle::test($dialect)]
             fn reverse_relation_collects_children(db: &mut TestDb<SharedApiSchema>) {
                 let SharedApiSchema { authors, posts, .. } = schema;
                 db.insert(authors)

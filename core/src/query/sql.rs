@@ -366,14 +366,15 @@ impl<'a, V: SQLParam> QuerySql<'a, V> {
     }
 
     fn push_fragment(&mut self, fragment: SQL<'a, V>, target_table: &str, alias: &str) {
-        for chunk in fragment.chunks {
+        let aliased = references_to_alias(&fragment.chunks, target_table);
+        for (chunk, aliased) in fragment.chunks.into_iter().zip(aliased) {
             match chunk {
-                SQLChunk::Column(column) if column.table == target_table => {
+                SQLChunk::Column(column) if aliased && column.table == target_table => {
                     write_dialect_quoted_ident(V::DIALECT, &mut self.buf, alias);
                     self.buf.push('.');
                     write_dialect_quoted_ident(V::DIALECT, &mut self.buf, column.name);
                 }
-                SQLChunk::Table(table) if table.name == target_table => {
+                SQLChunk::Table(table) if aliased && table.name == target_table => {
                     write_dialect_quoted_ident(V::DIALECT, &mut self.buf, alias);
                 }
                 other => {
@@ -403,6 +404,55 @@ impl<'a, V: SQLParam> QuerySql<'a, V> {
         self.flush();
         self.sql
     }
+}
+
+/// For each chunk of a user fragment, whether a reference to `table` there
+/// means the relational query's aliased table.
+///
+/// A nested subquery that names `table` in its own `FROM` brings its own copy
+/// into scope, and SQL resolves references inside it to that copy, so they
+/// keep the table name. References inside a subquery that does not name the
+/// table (a correlated reference to the outer row) still mean the aliased
+/// table.
+fn references_to_alias<V: SQLParam>(chunks: &[SQLChunk<'_, V>], table: &str) -> Vec<bool> {
+    let mut aliased = Vec::with_capacity(chunks.len());
+    // One entry per open parenthesis: whether the aliased table is still the
+    // one `table` means inside it.
+    let mut scopes = vec![true];
+    for (index, chunk) in chunks.iter().enumerate() {
+        let in_scope = scopes.last().copied().unwrap_or(true);
+        match chunk {
+            SQLChunk::Token(Token::LPAREN) => {
+                let shadows = matches!(
+                    chunks.get(index + 1),
+                    Some(SQLChunk::Token(Token::SELECT | Token::WITH))
+                ) && subquery_names_table(&chunks[index + 1..], table);
+                scopes.push(in_scope && !shadows);
+            }
+            SQLChunk::Token(Token::RPAREN) if scopes.len() > 1 => {
+                scopes.pop();
+            }
+            _ => {}
+        }
+        aliased.push(in_scope);
+    }
+    aliased
+}
+
+/// Whether the subquery starting at `chunks[0]` names `table` in its own
+/// `FROM` clause (outside any nested parentheses).
+fn subquery_names_table<V: SQLParam>(chunks: &[SQLChunk<'_, V>], table: &str) -> bool {
+    let mut depth = 0usize;
+    for chunk in chunks {
+        match chunk {
+            SQLChunk::Token(Token::LPAREN) => depth += 1,
+            SQLChunk::Token(Token::RPAREN) if depth == 0 => return false,
+            SQLChunk::Token(Token::RPAREN) => depth -= 1,
+            SQLChunk::Table(found) if depth == 0 && found.name == table => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Writes the inner-subquery select list (`[LATERAL ](SELECT cols`) used when
