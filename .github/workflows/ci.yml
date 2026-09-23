@@ -141,11 +141,17 @@ jobs:
           shared-key: stable
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      - name: Download locked dependencies
+        # The fixtures check offline against Cargo.lock, so every crate it
+        # lists must already be in the registry cache, including the ones the
+        # test harness itself never builds.
+        run: cargo fetch --locked
+
       - name: Compile consumer crates against the derive macros
         # Standalone crates that depend only on `drizzle`: catches expansions
         # that read the consumer's cargo features or name crates it may not
         # depend on. See tests/downstream_consumers.rs.
-        run: cargo test -p drizzle --test downstream_consumers -- --test-threads=2
+        run: cargo test -p drizzle --test downstream_consumers -- --ignored --test-threads=2
 
   test-pg:
     name: "test::pg (${{ matrix.features }})"

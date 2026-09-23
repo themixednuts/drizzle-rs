@@ -27,4 +27,4 @@ jobs:
       - name: Compile consumer crates
         env:
           DRIZZLE_DOWNSTREAM_FRESH: "1"
-        run: cargo test -p drizzle --test downstream_consumers -- --test-threads=2
+        run: cargo test -p drizzle --test downstream_consumers -- --ignored --test-threads=2

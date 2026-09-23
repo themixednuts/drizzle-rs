@@ -8,8 +8,13 @@
 //! Each fixture depends on `drizzle` plus only the crates its own source
 //! names, and denies warnings.
 //!
+//! The tests are `#[ignore]`d because each one builds several crates; run
+//! them with `cargo test -p drizzle --test downstream_consumers -- --ignored`.
+//!
 //! Fixtures resolve offline against this repository's `Cargo.lock` so pull
-//! request runs are deterministic. With `DRIZZLE_DOWNSTREAM_FRESH=1` they
+//! request runs are deterministic. That needs every crate in the lockfile in
+//! the local registry cache; in a fresh environment run `cargo fetch` first,
+//! as CI does. With `DRIZZLE_DOWNSTREAM_FRESH=1` they
 //! resolve every dependency fresh from the registry instead, which is what a
 //! new user gets; the scheduled downstream workflow runs that mode to catch
 //! upstream releases that break a supported version range.
@@ -21,6 +26,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
+#[ignore = "builds standalone crates; run with --ignored (CI: Test Downstream Consumers)"]
 fn postgres_derives_compile_in_consumer_crates() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixtures = fresh_fixture_root(&root);
@@ -42,6 +48,7 @@ fn postgres_derives_compile_in_consumer_crates() {
 }
 
 #[test]
+#[ignore = "builds standalone crates; run with --ignored (CI: Test Downstream Consumers)"]
 fn mysql_derives_compile_in_consumer_crates() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let dir = fresh_fixture_root(&root).join("mysql_sync");
@@ -60,6 +67,7 @@ fn mysql_derives_compile_in_consumer_crates() {
 }
 
 #[test]
+#[ignore = "builds standalone crates; run with --ignored (CI: Test Downstream Consumers)"]
 fn sqlite_uuid_columns_follow_the_declared_type() {
     // rusqlite and turso share one crate (the macros emit every enabled
     // driver's row codecs, so both decode paths are checked in one build);
