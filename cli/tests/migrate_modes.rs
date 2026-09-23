@@ -98,15 +98,22 @@ fn migrate_plan_is_dry_run() {
         .assert()
         .success();
 
+    // A plan writes nothing: not the database file, not the tracking table.
+    assert!(!db_path.exists(), "--plan created the database file");
+
+    rusqlite::Connection::open(&db_path)
+        .expect("open sqlite")
+        .execute_batch("CREATE TABLE unrelated (id INTEGER PRIMARY KEY);")
+        .expect("create database");
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["migrate", "--plan"])
+        .assert()
+        .success();
+
     let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
     assert_eq!(table_exists(&conn, "plan_only_table"), 0);
-    assert_eq!(table_exists(&conn, "__drizzle_migrations"), 1);
-    let applied_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM __drizzle_migrations", [], |row| {
-            row.get(0)
-        })
-        .expect("count metadata rows");
-    assert_eq!(applied_count, 0);
+    assert_eq!(table_exists(&conn, "__drizzle_migrations"), 0);
 }
 
 #[test]
