@@ -8,6 +8,8 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+# The `include_migrations!` doctest's fixture.
+exclude = ["/drizzle"]
 
 [lib]
 proc-macro = true
