@@ -1047,3 +1047,28 @@ fn set_operation_orders_and_limits_the_combined_result(db: &mut TestDb<SimpleSch
     let names: Vec<String> = query.all();
     assert_eq!(names, ["diana", "charlie"]);
 }
+
+#[drizzle::test]
+fn cached_statements_survive_a_column_type_change(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple).values([InsertSimple::new("a")]).execute();
+
+    // Both paths cache the statement.
+    let names: Vec<String> = db.select(simple.name).from(simple).all();
+    assert_eq!(names, ["a"]);
+    let prepared = db.select(simple.name).from(simple).prepare().into_owned();
+    let prepared_names: Vec<String> = prepared.all(drizzle_client!(), []);
+    assert_eq!(prepared_names, ["a"]);
+
+    // The cached plans returned `text`; the column is now `varchar`, so
+    // PostgreSQL rejects them ("cached plan must not change result type")
+    // and drizzle prepares them again instead of failing from now on.
+    result!(db.execute(SQL::raw(
+        r#"ALTER TABLE "simple" ALTER COLUMN "name" TYPE varchar(20)"#
+    )))?;
+
+    let names: Vec<String> = db.select(simple.name).from(simple).all();
+    assert_eq!(names, ["a"]);
+    let prepared_names: Vec<String> = prepared.all(drizzle_client!(), []);
+    assert_eq!(prepared_names, ["a"]);
+}
