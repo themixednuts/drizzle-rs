@@ -351,6 +351,26 @@ fn set_operation_operands_are_wrapped_only_when_needed(db: &mut TestDb<SimpleSch
 }
 
 #[drizzle::test]
+fn select_distinct_all_columns_sql(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+        ])
+        .execute();
+
+    let stmt = db.select_distinct(()).from(simple);
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT DISTINCT "simple"."id", "simple"."name" FROM "simple""#
+    );
+    let rows: Vec<SelectSimple> = stmt.all();
+    assert_eq!(rows.len(), 2);
+}
+
+#[drizzle::test]
 fn repeated_named_placeholder_binds_one_value(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

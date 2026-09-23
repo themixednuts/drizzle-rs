@@ -261,6 +261,32 @@ macro_rules! shared_crud_join_suite {
             }
 
             #[drizzle::test($dialect)]
+            fn select_distinct_all_columns_expands_the_projection(
+                db: &mut TestDb<SharedCrudJoinSchema>,
+            ) {
+                let SharedCrudJoinSchema { users, .. } = schema;
+
+                db.insert(users)
+                    .values([
+                        InsertSharedCrudUser::new("Alice", true).with_id(1),
+                        InsertSharedCrudUser::new("Bob", false).with_id(2),
+                    ])
+                    .execute();
+
+                let stmt = db.select_distinct(()).from(users);
+                let shape = crate::common::helpers::sql_shape(&stmt.to_sql().sql());
+                assert!(
+                    shape.starts_with("SELECTDISTINCTshared_crud_users.id,shared_crud_users.name,"),
+                    "{shape}"
+                );
+                let mut rows: Vec<SelectSharedCrudUser> = stmt.all();
+                rows.sort_by_key(|row| row.id);
+                assert_eq!(rows.len(), 2);
+                assert_eq!((rows[0].id, rows[0].name.as_str()), (1, "Alice"));
+                assert_eq!((rows[1].id, rows[1].name.as_str()), (2, "Bob"));
+            }
+
+            #[drizzle::test($dialect)]
             fn select_distinct_collapses_duplicate_rows(db: &mut TestDb<SharedCrudJoinSchema>) {
                 let SharedCrudJoinSchema { users, .. } = schema;
 
