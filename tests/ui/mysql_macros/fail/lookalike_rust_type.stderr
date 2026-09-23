@@ -10,6 +10,11 @@ help: the trait `DrizzleMySQLColumn` is not implemented for `MyUuid`
 4 | struct MyUuid;
   | ^^^^^^^^^^^^^
   = note: add #[derive(MySQLEnum)] for enum types, or implement DrizzleMySQLColumn
+help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
+ --> mysql/src/values/json.rs
+  |
+  | impl<T: Serialize + DeserializeOwned> DrizzleMySQLColumn for Json<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0277]: the trait bound `MyUuid: TryInto<drizzle::mysql::MySQLValue<'a>>` is not satisfied
  --> tests/ui/mysql_macros/fail/lookalike_rust_type.rs:8:12
@@ -22,6 +27,11 @@ help: the trait `DrizzleMySQLColumn` is not implemented for `MyUuid`
   |
 4 | struct MyUuid;
   | ^^^^^^^^^^^^^
+help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
+ --> mysql/src/values/json.rs
+  |
+  | impl<T: Serialize + DeserializeOwned> DrizzleMySQLColumn for Json<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = note: required for `drizzle::mysql::MySQLValue<'a>` to implement `From<MyUuid>`
   = note: required for `MyUuid` to implement `Into<drizzle::mysql::MySQLValue<'a>>`
   = note: required for `drizzle::mysql::MySQLValue<'a>` to implement `TryFrom<MyUuid>`
@@ -44,6 +54,11 @@ help: the trait `DrizzleMySQLColumn` is not implemented for `MyUuid`
 4 | struct MyUuid;
   | ^^^^^^^^^^^^^
   = note: add #[derive(MySQLEnum)] for enum types, or implement DrizzleMySQLColumn
+help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
+ --> mysql/src/values/json.rs
+  |
+  | impl<T: Serialize + DeserializeOwned> DrizzleMySQLColumn for Json<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `MyUuid: TryInto<drizzle::mysql::MySQLValue<'a>>` is not satisfied
@@ -57,6 +72,11 @@ help: the trait `DrizzleMySQLColumn` is not implemented for `MyUuid`
   |
 4 | struct MyUuid;
   | ^^^^^^^^^^^^^
+help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
+ --> mysql/src/values/json.rs
+  |
+  | impl<T: Serialize + DeserializeOwned> DrizzleMySQLColumn for Json<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = note: required for `drizzle::mysql::MySQLValue<'a>` to implement `From<MyUuid>`
   = note: required for `MyUuid` to implement `Into<drizzle::mysql::MySQLValue<'a>>`
   = note: required for `drizzle::mysql::MySQLValue<'a>` to implement `TryFrom<MyUuid>`
@@ -83,6 +103,11 @@ help: the trait `DrizzleMySQLColumn` is not implemented for `MyUuid`
 4 | struct MyUuid;
   | ^^^^^^^^^^^^^
   = note: add #[derive(MySQLEnum)] for enum types, or implement DrizzleMySQLColumn
+help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
+ --> mysql/src/values/json.rs
+  |
+  | impl<T: Serialize + DeserializeOwned> DrizzleMySQLColumn for Json<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `MySQLRow::<'row, R>::decode_column`
  --> mysql/src/driver.rs
   |
@@ -101,6 +126,11 @@ help: the trait `DrizzleMySQLColumn` is not implemented for `MyUuid`
 4 | struct MyUuid;
   | ^^^^^^^^^^^^^
   = note: add #[derive(MySQLEnum)] for enum types, or implement DrizzleMySQLColumn
+help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
+ --> mysql/src/values/json.rs
+  |
+  | impl<T: Serialize + DeserializeOwned> DrizzleMySQLColumn for Json<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0277]: `MyUuid` cannot be used as a MySQL column type
  --> tests/ui/mysql_macros/fail/lookalike_rust_type.rs:6:1
@@ -114,3 +144,8 @@ help: the trait `DrizzleMySQLColumn` is not implemented for `MyUuid`
 4 | struct MyUuid;
   | ^^^^^^^^^^^^^
   = note: add #[derive(MySQLEnum)] for enum types, or implement DrizzleMySQLColumn
+help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
+ --> mysql/src/values/json.rs
+  |
+  | impl<T: Serialize + DeserializeOwned> DrizzleMySQLColumn for Json<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
