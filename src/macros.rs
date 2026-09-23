@@ -496,6 +496,33 @@ macro_rules! postgres_transaction_constructors {
             }
         }
 
+        /// Creates a SELECT DISTINCT ON query builder within the transaction
+        pub fn select_distinct_on<'tx, 'q, On, Columns>(
+            &'tx self,
+            on: On,
+            columns: Columns,
+        ) -> TransactionBuilder<
+            'tx,
+            $($conn_lt,)*
+            Schema,
+            SelectBuilder<'q, Schema, SelectInitial, (), Columns::Marker>,
+            SelectInitial,
+        >
+        where
+            On: ToSQL<'q, PostgresValue<'q>>,
+            Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
+        {
+            use drizzle_postgres::builder::QueryBuilder;
+
+            let builder = QueryBuilder::new::<Schema>().select_distinct_on(on, columns);
+
+            TransactionBuilder {
+                runner: self,
+                builder,
+                state: ::core::marker::PhantomData,
+            }
+        }
+
         /// Creates an INSERT query builder within the transaction
         pub fn insert<'tx, 'q, Table>(
             &'tx self,

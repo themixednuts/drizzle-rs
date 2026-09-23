@@ -136,3 +136,26 @@ fn a_failed_statement_rolls_back_only_its_savepoint(db: &mut TestDb<SimpleSchema
         .all();
     assert_eq!(names, ["after", "outer"]);
 }
+
+#[drizzle::test]
+fn transactions_select_distinct_on(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple)
+        .values([
+            InsertSimple::new("a"),
+            InsertSimple::new("a"),
+            InsertSimple::new("b"),
+        ])
+        .execute();
+
+    let names = result!(db.transaction(TransactionConfig::default(), |tx| {
+        let rows: Vec<SelectSimple> = result!(
+            tx.select_distinct_on(simple.name, (simple.id, simple.name))
+                .from(simple)
+                .order_by((asc(simple.name), asc(simple.id)))
+                .all()
+        )?;
+        Ok(rows.into_iter().map(|row| row.name).collect::<Vec<_>>())
+    }))?;
+    assert_eq!(names, ["a", "b"]);
+}
