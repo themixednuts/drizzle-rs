@@ -7,6 +7,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/themixednuts/drizzle-rs/compare/v0.1.16...v0.2.0) - 2026-09-23
+
+### Added
+
+- *(macros)* [**breaking**] keep generated column types in a module named after the table
+- *(api)* infer the schema in Drizzle::new
+- support jiff date and time types
+- compare date and time values in filters
+- *(postgres)* add select_distinct_on to transactions
+- *(core)* add Json<T> for JSON column values
+- *(sqlite)* gate the optional math functions behind MathExt and a `math` feature
+- *(query)* add checked insert-select parity
+- add typed derived table sources
+- add shared decoded row cursors
+- *(mysql)* add custom column codecs
+- *(mysql)* support advanced index key parts
+- support typed update expressions
+- *(mysql)* support serial column shorthand
+- *(mysql)* add safe schema introspection and push
+- *(mysql)* support multiple index hints
+- unify transaction configuration and lifecycle
+- *(mysql)* add runtime migrations and simplify internals
+- *(mysql)* document release-ready adapter contract
+- *(postgres)* support relational queries in transactions
+- *(seed)* add MySQL seeding and reset plans
+- *(mysql)* add live CLI schema workflows
+- *(mysql)* add migration generation
+- *(mysql)* add relational query support
+- *(mysql)* add mysql_async adapter
+- *(mysql)* add blocking mysql adapter
+- *(mysql)* add shared driver contracts
+- *(mysql)* add native query capabilities
+- *(mysql)* add typed query builders
+- *(mysql)* generate schema macros
+- *(mysql)* establish dialect foundation
+- *(json)* align dialect codecs and storage
+- *(schema)* simplify database defaults
+
+### Changed
+
+- scope transactions to callbacks
+
+### Documentation
+
+- prepare for 0.2.0
+- rework the README and fix stale doc comments
+- drop stale MySQL WIP note
+- test README as crate documentation
+- *(sqlite)* correct row codec support
+- *(mysql)* remove stale WIP packaging label
+
+### Fixed
+
+- *(macros)* break the drizzle-macros -> drizzle release cycle
+- *(durable)* [**breaking**] run transactions through transactionSync
+- *(macros)* reject column options they used to ignore
+- read time-crate values back on SQLite and as selected columns
+- mark query builders #[must_use]
+- report a failed rollback together with the error that caused it
+- *(postgres)* fail the commit after a swallowed statement error
+- *(postgres)* re-prepare cached statements the server rejects as stale
+- *(postgres)* make tokio-postgres transaction futures Send
+- *(libsql)* reset the cached statement after use
+- *(sqlite)* run RETURNING statements to completion in execute()
+- panic on a value that fails to convert instead of storing NULL
+- *(macros)* write bound values into view definitions as literals
+- *(core)* keep subquery scopes in relational query filters
+- *(sqlite)* let INSERT ... SELECT take an upsert clause
+- natural joins take no join condition
+- fill omitted columns with DEFAULT in multi-row inserts
+- keep the whole value in InsertValue::into_owned
+- *(mysql)* use i64::MAX as the unbounded LIMIT before OFFSET
+- *(sqlite)* render OFFSET without LIMIT as LIMIT -1 OFFSET
+- *(core)* expand the projection of SELECT DISTINCT without columns
+- *(sqlite)* bind a repeated named placeholder once
+- *(core)* group set-operation operands that need it
+- *(core)* parenthesize operands by operator precedence
+- *(ci)* run the downstream fixtures only in their own job
+- *(macros)* stop linking database drivers into the proc-macro
+- *(sqlite)* keep Option<T> for nullable columns with defaults
+- *(macros)* convert JSON columns through Json<T>, never the payload type
+- *(deps)* admit turso 0.8.0-pre.12
+- *(sqlite)* drop INTERSECT ALL / EXCEPT ALL from the SQLite builders
+- *(query)* make math, statistical and JSON expressions execute on PostgreSQL
+- *(query)* order compound selects by output columns
+- make builder macros hygienic
+- enforce API documentation tests
+- *(query)* keep empty sets and derived projections portable
+- *(query)* expand joined derived projections
+- *(seed)* omit generated columns from inserts
+- *(schema)* align defaults and MySQL numeric metadata
+- *(macros)* qualify generated update values
+- *(mysql)* correct aliased selects and migration tests
+- *(mysql)* allow hinted select set operations
+- *(mysql)* support relational queries on views
+- *(sqlite)* flatten Turso transaction future
+- *(postgres)* preserve bounded character types
+- *(mysql)* validate generated column constraints
+- *(query)* preserve postgres view search paths
+- *(mysql)* correct join and savepoint execution
+- *(core)* preserve no_std projection checks
+- *(macros)* make include_migrations! fail on a missing directory
+- *(macros)* decode date and time fields on turso and libsql
+- *(macros)* bound generated model traits on their field types
+- *(postgres)* keep explicit json/jsonb Vec fields as JSON documents
+- *(macros)* decode SQLite UUID columns through the declared field type
+- *(macros)* make PostgresEnum and PostgresFromRow work outside this repo
+- *(macros)* generate view FK markers for MySQL and free the SQL capture in drizzle::test
+- *(macros)* qualify generated update SQL paths
+- *(migrations)* preserve introspected schema identities
+- *(sqlite)* enable chrono's alloc feature with the chrono feature
+- *(postgres)* honor search_path in REFRESH MATERIALIZED VIEW and view introspection
+- *(transactions)* preserve compatible options
+- *(postgres)* support runtime deferrable transactions
+- leave PostgreSQL roles alone unless told to manage them
+- *(cli)* describe `drizzle status` accurately
+- *(migrations)* keep generated defaults compilable
+- *(postgres)* normalize live schema metadata
+- *(cli)* gate SqliteRawData::empty on rusqlite
+- *(cli)* gate migration-plan helpers on the drivers that use them
+- *(cli)* keep migrate --plan, --dry-run and --verify read-only
+- *(cli)* mask secret query parameters in printed URLs
+- *(cli)* print the plan warnings of generate and pull
+- *(cli)* fail when a listed schema path or pattern finds nothing
+- *(cli)* exit non-zero when migrate, push or pull cannot do their job
+
 ## [0.1.16](https://github.com/themixednuts/drizzle-rs/compare/v0.1.15...v0.1.16) - 2026-08-25
 
 ### Added
