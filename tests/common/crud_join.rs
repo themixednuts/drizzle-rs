@@ -261,6 +261,35 @@ macro_rules! shared_crud_join_suite {
             }
 
             #[drizzle::test($dialect)]
+            fn offset_without_limit_skips_rows(db: &mut TestDb<SharedCrudJoinSchema>) {
+                let SharedCrudJoinSchema { users, .. } = schema;
+
+                db.insert(users)
+                    .values([
+                        InsertSharedCrudUser::new("Alice", true).with_id(1),
+                        InsertSharedCrudUser::new("Bob", true).with_id(2),
+                        InsertSharedCrudUser::new("Carol", false).with_id(3),
+                    ])
+                    .execute();
+
+                let skipped: Vec<i32> = db.select(users.id).from(users).offset(1).all();
+                assert_eq!(skipped.len(), 2);
+
+                let carol = drizzle::$dialect::builder::QueryBuilder::new::<SharedCrudJoinSchema>()
+                    .select(users.id)
+                    .from(users)
+                    .r#where(eq(users.id, 3));
+                let compound: Vec<i32> = db
+                    .select(users.id)
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .union(carol)
+                    .offset(1)
+                    .all();
+                assert_eq!(compound.len(), 1);
+            }
+
+            #[drizzle::test($dialect)]
             fn select_distinct_all_columns_expands_the_projection(
                 db: &mut TestDb<SharedCrudJoinSchema>,
             ) {

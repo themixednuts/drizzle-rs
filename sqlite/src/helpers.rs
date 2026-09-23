@@ -174,6 +174,20 @@ where
     columns_sql.parens().push(Token::VALUES).append(values_sql)
 }
 
+/// An `OFFSET` for a query without a `LIMIT`.
+///
+/// `SQLite` only accepts `OFFSET` as part of a `LIMIT` clause; a negative
+/// limit means "no limit".
+#[track_caller]
+pub(crate) fn standalone_offset<'a, P>(offset: P) -> SQL<'a, SQLiteValue<'a>>
+where
+    P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
+{
+    SQL::from(Token::LIMIT)
+        .append(SQL::raw("-1"))
+        .append(core_helpers::offset(offset))
+}
+
 /// Helper function to create a RETURNING clause - `SQLite` specific
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where

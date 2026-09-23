@@ -351,6 +351,47 @@ fn set_operation_operands_are_wrapped_only_when_needed(db: &mut TestDb<SimpleSch
 }
 
 #[drizzle::test]
+fn offset_without_limit_renders_unbounded_limit(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    let qb = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("carol").with_id(3),
+        ])
+        .execute();
+
+    let skipped = db.select(simple.id).from(simple).offset(1);
+    assert_eq!(
+        skipped.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT -1 OFFSET 1"#
+    );
+    let ids: Vec<i32> = skipped.all();
+    assert_eq!(ids.len(), 2);
+
+    // After an explicit LIMIT the OFFSET follows it directly.
+    let paged = db.select(simple.id).from(simple).limit(2).offset(1);
+    assert_eq!(
+        paged.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT 2 OFFSET 1"#
+    );
+
+    let compound = db
+        .select(simple.id)
+        .from(simple)
+        .union(qb.select(simple.id).from(simple))
+        .offset(2);
+    assert_eq!(
+        compound.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" UNION SELECT "simple"."id" FROM "simple" LIMIT -1 OFFSET 2"#
+    );
+    let ids: Vec<i32> = compound.all();
+    assert_eq!(ids.len(), 1);
+}
+
+#[drizzle::test]
 fn select_distinct_all_columns_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

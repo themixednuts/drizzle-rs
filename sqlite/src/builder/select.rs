@@ -641,11 +641,47 @@ where
     }
 }
 
-// OFFSET (available from SelectFromSet and SelectLimitSet)
+/// States that accept an `OFFSET` without a preceding `LIMIT`.
+#[doc(hidden)]
+pub trait SelectStandaloneOffsetAllowed: drizzle_core::OffsetAllowed {}
+impl SelectStandaloneOffsetAllowed for SelectFromSet {}
+impl SelectStandaloneOffsetAllowed for SelectSetOpSet {}
+
+// OFFSET without LIMIT (available from SelectFromSet and SelectSetOpSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::OffsetAllowed,
+    State: SelectStandaloneOffsetAllowed,
 {
+    /// Sets the offset for the query results.
+    ///
+    /// `SQLite` only accepts `OFFSET` after a `LIMIT`, so this renders
+    /// `LIMIT -1 OFFSET n`; a negative limit means no limit.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a signed numeric argument is negative or a numeric value
+    /// does not fit in `usize`.
+    #[inline]
+    #[must_use]
+    #[track_caller]
+    pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
+    where
+        P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
+    {
+        SelectBuilder {
+            sql: self.sql.append(helpers::standalone_offset(offset)),
+            schema: PhantomData,
+            state: PhantomData,
+            table: PhantomData,
+            marker: PhantomData,
+            row: PhantomData,
+            grouped: PhantomData,
+        }
+    }
+}
+
+// OFFSET after LIMIT
+impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
     /// Sets the offset for the query results.
     ///
     /// # Panics
