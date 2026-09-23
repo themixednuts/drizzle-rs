@@ -993,7 +993,7 @@ impl<'a> FieldInfo<'a> {
             generated_column: attrs.generated_column,
             check_constraint: attrs.check_constraint,
             marker_exprs: attrs.marker_exprs,
-            select_type: Some(select_type(base_type, is_nullable, has_default)),
+            select_type: Some(select_type(base_type, is_nullable)),
             update_type: Some(update_type(base_type)),
         })
     }
@@ -1119,12 +1119,16 @@ fn build_sql_definition(
     sql
 }
 
-/// Generate the appropriate type for select models
-fn select_type(base_type: &Type, is_nullable: bool, has_default: bool) -> TokenStream {
-    if !is_nullable || has_default {
-        quote!(#base_type)
-    } else {
+/// Generate the appropriate type for select models.
+///
+/// A nullable column keeps `Option<T>` even when it has a default: the
+/// default only applies when an insert omits the column, and the column can
+/// still hold `NULL`.
+fn select_type(base_type: &Type, is_nullable: bool) -> TokenStream {
+    if is_nullable {
         quote!(::std::option::Option<#base_type>)
+    } else {
+        quote!(#base_type)
     }
 }
 
@@ -1140,7 +1144,7 @@ impl FieldInfo<'_> {
     pub(crate) fn get_select_type(&self) -> TokenStream {
         self.select_type
             .clone()
-            .unwrap_or_else(|| select_type(self.base_type, self.is_nullable, self.has_default))
+            .unwrap_or_else(|| select_type(self.base_type, self.is_nullable))
     }
 
     /// Get the model field type for this field in the `UpdateModel`

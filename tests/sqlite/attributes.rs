@@ -62,6 +62,19 @@ struct DatabaseDefaults {
     status: String,
 }
 
+// Nullable columns with a database default. The default only fills an
+// omitted value; the column can still hold NULL, so the Select model keeps
+// `Option<T>`.
+#[SQLiteTable(NAME = "nullable_defaults")]
+struct NullableDefaults {
+    #[column(PRIMARY, AUTOINCREMENT)]
+    id: i32,
+    #[column(DEFAULT = 7)]
+    score: Option<i64>,
+    #[column(DEFAULT = "guest")]
+    role: Option<String>,
+}
+
 // Test default values - runtime functions
 #[SQLiteTable]
 struct RuntimeDefaults {
@@ -333,6 +346,40 @@ fn test_database_defaults(db: &mut TestDb<DatabaseDefaultsSchema>) {
     assert!((results[0].2 - 3.14).abs() < f64::EPSILON);
     assert!(results[0].3);
     assert_eq!(results[0].4, "pending");
+}
+
+#[derive(SQLiteSchema)]
+struct NullableDefaultsSchema {
+    nullable_defaults: NullableDefaults,
+}
+
+#[drizzle::test]
+fn nullable_columns_with_defaults_select_as_options(db: &mut TestDb<NullableDefaultsSchema>) {
+    let table = schema.nullable_defaults;
+
+    // Row 1 takes the defaults; row 2 is then set back to NULL.
+    db.insert(table)
+        .values([InsertNullableDefaults::new()])
+        .execute();
+    db.insert(table)
+        .values([InsertNullableDefaults::new()])
+        .execute();
+    db.update(table)
+        .set(
+            UpdateNullableDefaults::default()
+                .with_score(SQLiteUpdateValue::Null)
+                .with_role(SQLiteUpdateValue::Null),
+        )
+        .r#where(eq(table.id, 2))
+        .execute();
+
+    let rows: Vec<SelectNullableDefaults> =
+        db.select(()).from(table).order_by([asc(table.id)]).all();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].score, Some(7));
+    assert_eq!(rows[0].role.as_deref(), Some("guest"));
+    assert_eq!(rows[1].score, None);
+    assert_eq!(rows[1].role, None);
 }
 
 #[drizzle::test]
