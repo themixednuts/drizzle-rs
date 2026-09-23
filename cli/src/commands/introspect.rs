@@ -143,8 +143,6 @@ pub fn run(
 
 /// Print how to configure credentials; the caller reports the failure.
 fn print_missing_credentials_help(effective_dialect: Dialect) {
-    println!("{}", output::warning("No database credentials configured."));
-    println!();
     println!("Add credentials to your drizzle.config.toml:");
     println!();
     println!("  {}", output::muted("[dbCredentials]"));
@@ -188,6 +186,15 @@ fn print_introspection_summary(result: &crate::db::IntrospectResult, init_metada
             output::success("Found"),
             result.view_count
         );
+    }
+
+    // Objects the generated schema could not express, and similar notes.
+    if !result.warnings.is_empty() {
+        println!();
+        println!("{}", output::warning("Warnings:"));
+        for warning in &result.warnings {
+            println!("  {} {}", output::warning("-"), warning);
+        }
     }
 
     println!();
