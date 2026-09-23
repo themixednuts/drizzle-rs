@@ -7,6 +7,7 @@
 //! Constraint names are derived at compile time via `concatcp!` using the table's
 //! `SQLSchema::NAME` const, ensuring a single source of truth for naming.
 
+use super::column_types::column_type;
 use crate::paths::core as core_paths;
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, TokenStream};
@@ -160,12 +161,9 @@ pub fn generate_primary_key<F: ConstraintFieldInfo>(
     }
 
     let pk_zst_ident = format_ident!("__Pk_{}", struct_ident);
-    let pk_col_zst_idents: Vec<Ident> = pk_fields
+    let pk_col_zst_idents: Vec<TokenStream> = pk_fields
         .iter()
-        .map(|field| {
-            let pascal = field.ident().to_string().to_upper_camel_case();
-            format_ident!("{}{}", struct_ident, pascal)
-        })
+        .map(|field| column_type(struct_ident, field.ident()))
         .collect();
     let pk_col_tuple = quote! { (#(#pk_col_zst_idents,)*) };
 
@@ -174,8 +172,7 @@ pub fn generate_primary_key<F: ConstraintFieldInfo>(
         .iter()
         .map(|field| {
             let field_span = field.ident().span();
-            let pascal = field.ident().to_string().to_upper_camel_case();
-            let col_zst = format_ident!("{}{}", struct_ident, pascal);
+            let col_zst = column_type(struct_ident, field.ident());
             quote_spanned! {field_span=>
                 const _: () = {
                     const fn assert_pk_not_null()
@@ -253,7 +250,7 @@ pub fn generate_unique_constraints<F: ConstraintFieldInfo>(
     {
         let field_pascal = field.ident().to_string().to_upper_camel_case();
         let uq_ident = format_ident!("__Unique_{}_{}", struct_ident, field_pascal);
-        let col_ident = format_ident!("{}{}", struct_ident, field_pascal);
+        let col_ident = column_type(struct_ident, field.ident());
 
         impls.push(quote! {
             #[doc(hidden)]
@@ -315,10 +312,8 @@ pub fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
         let fk_zst_ident = format_ident!("__Fk_{}_{}", struct_ident, source_col_pascal);
 
         let ref_table_ident = fk.ref_table();
-        let source_col_zst_ident = format_ident!("{}{}", struct_ident, source_col_pascal);
-        let ref_column_ident = fk.ref_column();
-        let ref_column_pascal = ref_column_ident.to_string().to_upper_camel_case();
-        let ref_column_zst_ident = format_ident!("{}{}", ref_table_ident, ref_column_pascal);
+        let source_col_zst_ident = column_type(struct_ident, field.ident());
+        let ref_column_zst_ident = column_type(ref_table_ident, fk.ref_column());
 
         let field_span = field.ident().span();
         let type_match_assert = quote_spanned! {field_span=>
@@ -380,21 +375,15 @@ pub fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
 
         let ref_table_ident = fk.target_table();
 
-        let source_col_zst_idents: Vec<Ident> = fk
+        let source_col_zst_idents: Vec<TokenStream> = fk
             .source_columns()
             .iter()
-            .map(|src| {
-                let pascal = src.to_string().to_upper_camel_case();
-                format_ident!("{}{}", struct_ident, pascal)
-            })
+            .map(|src| column_type(struct_ident, src))
             .collect();
-        let target_col_zst_idents: Vec<Ident> = fk
+        let target_col_zst_idents: Vec<TokenStream> = fk
             .target_columns()
             .iter()
-            .map(|target_col| {
-                let pascal = target_col.to_string().to_upper_camel_case();
-                format_ident!("{}{}", ref_table_ident, pascal)
-            })
+            .map(|target_col| column_type(ref_table_ident, target_col))
             .collect();
 
         let source_checks = fk.source_columns().iter().map(|src| {
@@ -498,8 +487,7 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
         });
 
         for field in &pk_fields {
-            let col_pascal = field.ident().to_string().to_upper_camel_case();
-            let col_zst = format_ident!("{}{}", struct_ident, col_pascal);
+            let col_zst = column_type(struct_ident, field.ident());
             let col_name = field.column_name();
             tokens.extend(quote! {
                 impl #conflict_target<#struct_ident> for #col_zst {
@@ -517,12 +505,9 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
         });
 
         if pk_fields.len() > 1 {
-            let pk_col_zsts: Vec<Ident> = pk_fields
+            let pk_col_zsts: Vec<TokenStream> = pk_fields
                 .iter()
-                .map(|f| {
-                    let pascal = f.ident().to_string().to_upper_camel_case();
-                    format_ident!("{}{}", struct_ident, pascal)
-                })
+                .map(|f| column_type(struct_ident, f.ident()))
                 .collect();
             tokens.extend(quote! {
                 impl #conflict_target<#struct_ident> for (#(#pk_col_zsts,)*) {
@@ -556,7 +541,7 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
         .filter(|f| f.is_unique() && !f.is_primary())
     {
         let col_pascal = field.ident().to_string().to_upper_camel_case();
-        let col_zst = format_ident!("{}{}", struct_ident, col_pascal);
+        let col_zst = column_type(struct_ident, field.ident());
         let uq_zst = format_ident!("__Unique_{}_{}", struct_ident, col_pascal);
         let col_name = field.column_name();
         let constraint_name = constraint_name_with_col_concatcp(

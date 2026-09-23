@@ -375,6 +375,9 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
 /// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
 ///   set columns with `with_*()` methods
+/// - `users` - A module with one type per column: `users::Name` is the type of
+///   `Users::name`. Keeping them there leaves the names beside the table to
+///   you, so a `User` table can have a `role: UserRole` column
 ///
 /// # Nullability
 ///
@@ -1338,6 +1341,9 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
 /// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
 ///   set columns with `with_*()` methods
+/// - `users` - A module with one type per column: `users::Name` is the type of
+///   `Users::name`. Keeping them there leaves the names beside the table to
+///   you, so a `User` table can have a `role: UserRole` column
 ///
 /// # Nullability
 ///
@@ -1527,6 +1533,12 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 ///   from different tables (e.g. a direct foreign key and a junction table)
 /// - a table with exactly two foreign keys, to two other distinct tables,
 ///   also links them many-to-many (`posts.tags()` and `tags.posts()`)
+///
+/// # Generated Types
+///
+/// For a table `Users`, the macro generates `SelectUsers`, `InsertUsers` and
+/// `UpdateUsers`, and a module `users` with one type per column:
+/// `users::Name` is the type of `Users::name`.
 #[cfg(feature = "mysql")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]

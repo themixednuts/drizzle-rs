@@ -17,7 +17,7 @@ use syn::{Ident, Result};
 /// Generate trait implementations for the `PostgreSQL` table
 pub(super) fn generate_table_impls(
     ctx: &MacroContext,
-    column_zst_idents: &[Ident],
+    column_zst_idents: &[TokenStream],
     _required_fields_pattern: &[bool],
 ) -> Result<TokenStream> {
     let columns_len = column_zst_idents.len();
@@ -530,14 +530,11 @@ pub(super) fn generate_table_impls(
 fn table_unique_column_data(
     ctx: &MacroContext,
     unique: &crate::postgres::table::attributes::UniqueConstraintAttr,
-) -> (Vec<Ident>, Vec<String>, Vec<TokenStream>) {
+) -> (Vec<TokenStream>, Vec<String>, Vec<TokenStream>) {
     let col_zsts = unique
         .columns
         .iter()
-        .map(|src| {
-            let pascal = src.to_string().to_upper_camel_case();
-            format_ident!("{}{}", ctx.struct_ident, pascal)
-        })
+        .map(|src| crate::common::column_types::column_type(ctx.struct_ident, src))
         .collect::<Vec<_>>();
     let col_names = table_unique_column_names(ctx, &unique.columns);
     let source_checks = unique
@@ -700,7 +697,7 @@ fn generate_check_constraints(
     {
         let field_pascal = field.ident.to_string().to_upper_camel_case();
         let chk_ident = format_ident!("__Check_{}_{}", struct_ident, field_pascal);
-        let col_ident = format_ident!("{}{}", struct_ident, field_pascal);
+        let col_ident = crate::common::column_types::column_type(struct_ident, &field.ident);
 
         impls.push(quote! {
             #[doc(hidden)]

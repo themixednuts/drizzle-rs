@@ -70,6 +70,21 @@ pub struct Schema {
     nullable_job: NullableJob,
 }
 
+// `User.role: UserRole` used to generate a column type named `UserRole`, the
+// enum's own name. Column types live in the table's module now: `user::Role`.
+#[SQLiteTable]
+struct User {
+    #[column(PRIMARY, AUTOINCREMENT)]
+    id: i64,
+    #[column(ENUM)]
+    role: UserRole,
+}
+
+#[derive(SQLiteSchema)]
+pub struct UserSchema {
+    user: User,
+}
+
 #[test]
 fn test_enum() {
     // Test basic enum functionality works
@@ -372,4 +387,20 @@ fn marker_free_enum_query_uses_enum_owned_decoder(db: &mut TestDb<Schema>) {
     let rows = db.query(primary_job).find_many();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].status, SharedJobStatus::Complete);
+}
+
+#[drizzle::test]
+fn column_type_does_not_take_the_name_of_its_enum(db: &mut TestDb<UserSchema>) {
+    let UserSchema { user } = schema;
+
+    // `with_role` spells `UserRole` beside the insert-state parameters.
+    db.insert(user)
+        .values([InsertUser::new(UserRole::Member).with_role(UserRole::Admin)])
+        .execute();
+
+    let rows: Vec<SelectUser> = db.select(()).from(user).all();
+    assert_eq!(rows[0].role, UserRole::Admin);
+
+    let column: user::Role = user.role;
+    assert_eq!(column, user::Role);
 }

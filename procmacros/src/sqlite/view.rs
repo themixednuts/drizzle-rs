@@ -193,6 +193,12 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         is_composite_pk,
     };
 
+    let field_idents: Vec<&syn::Ident> = ctx.field_infos.iter().map(|info| info.ident).collect();
+    let columns_module = crate::common::column_types::generate_columns_module(
+        struct_ident,
+        struct_vis,
+        &field_idents,
+    );
     let (column_definitions, column_zst_idents) =
         column_definitions::generate_column_definitions(&ctx)?;
     let column_fields = column_definitions::generate_column_fields(&ctx, &column_zst_idents);
@@ -471,6 +477,8 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         #struct_vis struct #struct_ident {
             #column_fields
         }
+
+        #columns_module
 
         impl #struct_ident {
             pub const VIEW_NAME: &'static str = #view_name_lit;

@@ -125,9 +125,9 @@ macro_rules! shared_relational_api_suite {
             type AuthorRow = InsertSharedApiAuthor<
                 'static,
                 (
-                    SharedApiAuthorIdSet,
-                    SharedApiAuthorNameSet,
-                    SharedApiAuthorInvitedByNotSet,
+                    shared_api_author::IdSet,
+                    shared_api_author::NameSet,
+                    shared_api_author::InvitedByNotSet,
                 ),
             >;
 
@@ -138,10 +138,10 @@ macro_rules! shared_relational_api_suite {
             type PostRow = InsertSharedApiPost<
                 'static,
                 (
-                    SharedApiPostIdSet,
-                    SharedApiPostTitleSet,
-                    SharedApiPostPublishedSet,
-                    SharedApiPostAuthorIdSet,
+                    shared_api_post::IdSet,
+                    shared_api_post::TitleSet,
+                    shared_api_post::PublishedSet,
+                    shared_api_post::AuthorIdSet,
                 ),
             >;
 

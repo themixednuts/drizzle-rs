@@ -1,8 +1,6 @@
 use super::context::MacroContext;
-use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
-use syn::Ident;
+use quote::quote;
 
 pub(super) fn quoted(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
@@ -65,11 +63,8 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
             let source = quoted(&field.column_name);
             let target = &reference.table;
             let target_column = &reference.column;
-            let target_column_type = format_ident!(
-                "{}{}",
-                target,
-                target_column.to_string().to_upper_camel_case(),
-            );
+            let target_column_type =
+                crate::common::column_types::column_type(target, target_column);
             let actions = format!(
                 "{}{}",
                 action_sql("ON DELETE", &reference.on_delete),
@@ -107,8 +102,7 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
             .target_columns
             .iter()
             .map(|column| {
-                let target_column_type =
-                    format_ident!("{}{}", target, column.to_string().to_upper_camel_case(),);
+                let target_column_type = crate::common::column_types::column_type(target, column);
                 quote!(
                     <#target_column_type as drizzle::mysql::traits::MySQLColumn<'static>>::DDL_NAME
                 )
@@ -189,7 +183,7 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
     quote!(#const_format::concatcp!(#(#parts),*))
 }
 
-pub fn generate_const_ddl(ctx: &MacroContext<'_>, _columns: &[Ident]) -> TokenStream {
+pub fn generate_const_ddl(ctx: &MacroContext<'_>, _columns: &[TokenStream]) -> TokenStream {
     let struct_ident = ctx.struct_ident;
     quote! {
         impl #struct_ident {

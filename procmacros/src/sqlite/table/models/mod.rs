@@ -5,7 +5,7 @@ pub mod update;
 
 use super::context::MacroContext;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::TokenStream;
 use quote::quote;
 
 // Re-export convenience functions for internal use only
@@ -16,7 +16,7 @@ pub use update::generate_update_model;
 /// Generates the `Select`, `Insert`, `Update` model structs and their impls.
 pub fn generate_model_definitions(
     ctx: &MacroContext,
-    column_zst_idents: &[Ident],
+    column_zst_idents: &[TokenStream],
     required_fields_pattern: &[bool],
 ) -> TokenStream {
     let select_model = generate_select_model(ctx);
@@ -33,7 +33,10 @@ pub fn generate_model_definitions(
 }
 
 /// Generates `SQLModel` trait implementations for all model types
-fn generate_model_trait_impls(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> TokenStream {
+fn generate_model_trait_impls(
+    ctx: &MacroContext,
+    _column_zst_idents: &[TokenStream],
+) -> TokenStream {
     #[allow(unused_variables)]
     let (select_model, select_model_partial, update_model) = (
         &ctx.select_model_ident,

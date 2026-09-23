@@ -1,4 +1,4 @@
-error[E0599]: the method `having` exists for struct `QueryBuilder<'_, Schema, SelectHavingSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,), PkGroup<Users>>`, but its trait bounds were not satisfied
+error[E0599]: the method `having` exists for struct `QueryBuilder<'_, Schema, SelectHavingSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,), PkGroup<Users>>`, but its trait bounds were not satisfied
   --> tests/ui/mysql_builder/fail/duplicate_having.rs:13:41
    |
 12 |       let _ = builder.select(users.id).from(users).group_by(users.id)

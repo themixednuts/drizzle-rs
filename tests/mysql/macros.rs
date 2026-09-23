@@ -441,7 +441,7 @@ fn table_metadata_preserves_mysql_database_unsigned_and_generated_details() {
 #[test]
 fn mysql_views_use_the_standard_typed_table_api_and_render_mysql_ddl() {
     assert_mysql_selector::<AccountEmails>();
-    assert_mysql_expr::<AccountEmailsEmail>();
+    assert_mysql_expr::<account_emails::Email>();
 
     let sql = AccountEmails::create_view_sql();
     assert_eq!(

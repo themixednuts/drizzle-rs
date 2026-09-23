@@ -129,7 +129,7 @@ pub fn rust_type_to_nullability(ty: &Type) -> TokenStream {
 
 /// Generates an Expr trait implementation for a column type.
 pub fn generate_expr_impl(
-    struct_ident: &proc_macro2::Ident,
+    struct_ident: &impl quote::ToTokens,
     value_type: &TokenStream,
     sql_type: &TokenStream,
     sql_nullable: &TokenStream,
@@ -153,7 +153,7 @@ pub fn generate_expr_impl(
 /// Returns wrapper types (`ColumnBinOp`, `ColumnNeg`) that implement `ToSQL<'a, V>`
 /// for any lifetime, allowing seamless use with query builders.
 pub fn generate_arithmetic_ops(
-    struct_ident: &proc_macro2::Ident,
+    struct_ident: &impl quote::ToTokens,
     value_type: TokenStream,
     sql_type: TokenStream,
     sql_nullable: TokenStream,

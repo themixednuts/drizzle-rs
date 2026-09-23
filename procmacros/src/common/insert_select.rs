@@ -1,7 +1,7 @@
 use proc_macro2::{Ident, TokenStream};
-use quote::quote;
+use quote::{ToTokens, quote};
 
-pub fn generate_column_scope_impl(column: &Ident, table: &Ident) -> TokenStream {
+pub fn generate_column_scope_impl(column: &impl ToTokens, table: &Ident) -> TokenStream {
     quote! {
         impl<Scope, Witness>
             drizzle::core::ProjectionInScope<
@@ -25,7 +25,7 @@ pub fn generate_column_scope_impl(column: &Ident, table: &Ident) -> TokenStream 
     }
 }
 
-pub fn generate_column_impl(column: &Ident, table: &Ident) -> TokenStream {
+pub fn generate_column_impl(column: &impl ToTokens, table: &Ident) -> TokenStream {
     quote! {
         impl drizzle::core::InsertColumn<#table> for #column {
             type Column = Self;
@@ -39,8 +39,8 @@ pub fn generate_column_impl(column: &Ident, table: &Ident) -> TokenStream {
 
 pub fn generate_table_impls(
     table: &Ident,
-    insertable_columns: &[&Ident],
-    required_columns: &[&Ident],
+    insertable_columns: &[&TokenStream],
+    required_columns: &[&TokenStream],
     insertable_names: &[&String],
     all_columns_insertable: bool,
 ) -> TokenStream {

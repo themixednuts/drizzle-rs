@@ -1,14 +1,13 @@
 use crate::mysql::table::context::MacroContext;
 use crate::paths::core as core_paths;
 use crate::paths::std as std_paths;
-use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 /// Generates an aliased version of a `MySQL` table struct
 ///
 /// For a table `Users` with fields `id` and `name`, this generates:
-/// - `AliasedUsers` struct with `AliasedUsersId` and `AliasedUsersName` fields
+/// - `AliasedUsers` struct with `users::AliasedId` and `users::AliasedName` fields
 /// - Each aliased field contains the table alias name
 /// - `Users::alias::<Tag>() -> UsersAlias<Tag>` method
 pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
@@ -28,9 +27,8 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
         .iter()
         .map(|field| {
             let field_name = &field.ident;
-            // Use same casing as original column types to avoid conflicts
-            let field_name_pascal = field_name.to_string().to_upper_camel_case();
-            let aliased_field_type = format_ident!("Aliased{}{}", table_name, field_name_pascal);
+            let aliased_field_type =
+                crate::common::column_types::aliased_column_type(table_name, field_name);
 
             (field_name, aliased_field_type)
         })
@@ -38,10 +36,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
 
     // Generate the aliased field type definitions
     let aliased_field_definitions: Vec<TokenStream> = ctx.field_infos.iter().zip(aliased_fields.iter()).map(|(field, (_, aliased_field_type))| {
-        let field_name = &field.ident;
-        // Use the same naming pattern as original column types
-        let field_name_pascal = field_name.to_string().to_upper_camel_case();
-        let original_field_type = format_ident!("{}{}", table_name, field_name_pascal);
+        let original_field_type = crate::common::column_types::column_type(table_name, &field.ident);
         let custom_comparison_operand_impls =
             super::column_definitions::generate_custom_comparison_operand_impls(
                 field,
@@ -50,12 +45,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
             );
 
         quote! {
-            #[allow(non_upper_case_globals, dead_code)]
-            #[derive(Debug, Clone, Copy, Default)]
-            #struct_vis struct #aliased_field_type {
-                alias: &'static str,
-            }
-
             impl #aliased_field_type {
                 pub const fn new(alias: &'static str) -> Self {
                     Self { alias }

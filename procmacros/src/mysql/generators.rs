@@ -1,16 +1,16 @@
 use crate::common::MySQLDialect;
 use crate::common::generators as common_gen;
 use crate::paths::mysql as mysql_paths;
-use proc_macro2::{Ident, TokenStream};
-use quote::quote;
+use proc_macro2::TokenStream;
+use quote::{ToTokens, quote};
 
-pub fn generate_to_sql(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
+pub fn generate_to_sql(struct_ident: &impl ToTokens, body: &TokenStream) -> TokenStream {
     common_gen::generate_to_sql::<MySQLDialect>(struct_ident, body)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn generate_sql_column(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     table: &TokenStream,
     table_type: &TokenStream,
     foreign_keys: &TokenStream,
@@ -36,7 +36,7 @@ pub fn generate_sql_column(
 }
 
 pub fn generate_mysql_column(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     ddl_name: &TokenStream,
     auto_increment: &TokenStream,
     charset: &TokenStream,
@@ -53,7 +53,10 @@ pub fn generate_mysql_column(
     }
 }
 
-pub fn generate_mysql_table(struct_ident: &Ident, ddl_qualified_name: &TokenStream) -> TokenStream {
+pub fn generate_mysql_table(
+    struct_ident: &impl ToTokens,
+    ddl_qualified_name: &TokenStream,
+) -> TokenStream {
     let mysql_table = mysql_paths::mysql_table();
     quote! {
         impl<'a> #mysql_table<'a> for #struct_ident {
@@ -69,7 +72,7 @@ pub fn generate_sql_table(config: SQLTableConfig<'_>) -> TokenStream {
 }
 
 pub fn generate_sql_schema(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     const_sql: &TokenStream,
@@ -78,7 +81,7 @@ pub fn generate_sql_schema(
 }
 
 pub fn generate_sql_schema_field(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     sql: &TokenStream,

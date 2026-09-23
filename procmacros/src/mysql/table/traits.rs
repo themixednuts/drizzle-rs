@@ -17,7 +17,7 @@ use syn::{Ident, Result};
 /// Generate trait implementations for the `MySQL` table
 pub(super) fn generate_table_impls(
     ctx: &MacroContext,
-    column_zst_idents: &[Ident],
+    column_zst_idents: &[TokenStream],
     _required_fields_pattern: &[bool],
 ) -> Result<TokenStream> {
     let columns_len = column_zst_idents.len();
@@ -80,16 +80,9 @@ pub(super) fn generate_table_impls(
         let Some(foreign_key) = &field.foreign_key else {
             continue;
         };
-        let source = format_ident!(
-            "{}{}",
-            struct_ident,
-            field.ident.to_string().to_upper_camel_case()
-        );
-        let target = format_ident!(
-            "{}{}",
-            foreign_key.table,
-            foreign_key.column.to_string().to_upper_camel_case()
-        );
+        let source = crate::common::column_types::column_type(struct_ident, &field.ident);
+        let target =
+            crate::common::column_types::column_type(&foreign_key.table, &foreign_key.column);
         mysql_fk_sql_type_validations.push(mysql_fk_sql_type_validation(&source, &target));
     }
     for foreign_key in &ctx.attrs.composite_foreign_keys {
@@ -98,16 +91,9 @@ pub(super) fn generate_table_impls(
             .iter()
             .zip(&foreign_key.target_columns)
         {
-            let source = format_ident!(
-                "{}{}",
-                struct_ident,
-                source_column.to_string().to_upper_camel_case()
-            );
-            let target = format_ident!(
-                "{}{}",
-                foreign_key.target_table,
-                target_column.to_string().to_upper_camel_case()
-            );
+            let source = crate::common::column_types::column_type(struct_ident, source_column);
+            let target =
+                crate::common::column_types::column_type(&foreign_key.target_table, target_column);
             mysql_fk_sql_type_validations.push(mysql_fk_sql_type_validation(&source, &target));
         }
     }
@@ -601,7 +587,7 @@ pub(super) fn generate_table_impls(
     })
 }
 
-fn mysql_fk_sql_type_validation(source: &Ident, target: &Ident) -> TokenStream {
+fn mysql_fk_sql_type_validation(source: &TokenStream, target: &TokenStream) -> TokenStream {
     quote! {
         const _: () = {
             fn assert_mysql_fk_sql_type<Source, Target>()
@@ -684,14 +670,11 @@ fn generate_mysql_constraint_capabilities(ctx: &MacroContext, has_check: bool) -
 fn table_unique_column_data(
     ctx: &MacroContext,
     unique: &crate::mysql::table::attributes::UniqueConstraintAttr,
-) -> (Vec<Ident>, Vec<String>, Vec<TokenStream>) {
+) -> (Vec<TokenStream>, Vec<String>, Vec<TokenStream>) {
     let col_zsts = unique
         .columns
         .iter()
-        .map(|src| {
-            let pascal = src.to_string().to_upper_camel_case();
-            format_ident!("{}{}", ctx.struct_ident, pascal)
-        })
+        .map(|src| crate::common::column_types::column_type(ctx.struct_ident, src))
         .collect::<Vec<_>>();
     let col_names = table_unique_column_names(ctx, &unique.columns);
     let source_checks = unique
@@ -811,7 +794,7 @@ fn generate_check_constraints(
     {
         let field_pascal = field.ident.to_string().to_upper_camel_case();
         let chk_ident = format_ident!("__Check_{}_{}", struct_ident, field_pascal);
-        let col_ident = format_ident!("{}{}", struct_ident, field_pascal);
+        let col_ident = crate::common::column_types::column_type(struct_ident, &field.ident);
 
         impls.push(quote! {
             #[doc(hidden)]

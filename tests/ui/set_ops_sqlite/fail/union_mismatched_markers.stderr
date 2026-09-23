@@ -1,4 +1,4 @@
-error[E0277]: the trait bound `drizzle::sqlite::builder::QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>: IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not satisfied
+error[E0277]: the trait bound `drizzle::sqlite::builder::QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>: IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not satisfied
   --> tests/ui/set_ops_sqlite/fail/union_mismatched_markers.rs:25:16
    |
 25 |         .union(qb.select(right_user.id).from(right_user));
@@ -6,8 +6,8 @@ error[E0277]: the trait bound `drizzle::sqlite::builder::QueryBuilder<'_, Schema
    |          |
    |          required by a bound introduced by this call
    |
-help: the trait `IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not implemented for `drizzle::sqlite::builder::QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>`
-      but trait `IntoSelect<'_, Schema, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (i32,)>` is implemented for it
+help: the trait `IntoSelect<'_, Schema, Scoped<SelectStar, Cons<Users, Nil>>, SelectUsers>` is not implemented for `drizzle::sqlite::builder::QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>`
+      but trait `IntoSelect<'_, Schema, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>` is implemented for it
   --> sqlite/src/builder/select.rs
    |
    | / impl<'a, S, State: drizzle_core::ExecutableState, T, M, R, G> IntoSelect<'a, S, M, R>

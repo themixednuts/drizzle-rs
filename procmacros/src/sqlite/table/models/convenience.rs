@@ -3,10 +3,10 @@
 //! Generates `with_*` methods for Insert, Update, and `PartialSelect` models.
 
 use super::super::context::{MacroContext, ModelType};
+use crate::common::column_types::{insert_state_param, set_marker};
 use crate::common::rust_type_to_nullability;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::{FieldInfo, TypeCategory};
-use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -62,27 +62,24 @@ fn generate_insert_convenience_method(
     let _value_wrapper = sqlite_paths::value_wrapper();
     let _expression = sqlite_paths::expr();
 
-    // Create generic parameters: field names as markers (UserName, UserEmail)
+    // One generic parameter per field for its insert state (`__Name`)
     let generic_params: Vec<_> = ctx
         .field_infos
         .iter()
-        .map(|f| {
-            let pascal = f.ident.to_string().to_upper_camel_case();
-            format_ident!("{}{}", ctx.struct_ident, pascal)
-        })
+        .map(|f| insert_state_param(ctx.struct_ident, f.ident))
         .collect();
 
     // Create return type pattern: this field becomes Set, others stay generic
-    let return_pattern_generics: Vec<_> = ctx
+    let return_pattern_generics: Vec<TokenStream> = ctx
         .field_infos
         .iter()
+        .zip(&generic_params)
         .enumerate()
-        .map(|(i, f)| {
-            let pascal = f.ident.to_string().to_upper_camel_case();
+        .map(|(i, (f, param))| {
             if i == field_index {
-                format_ident!("{}{}Set", ctx.struct_ident, pascal)
+                set_marker(ctx.struct_ident, f.ident)
             } else {
-                format_ident!("{}{}", ctx.struct_ident, pascal)
+                quote!(#param)
             }
         })
         .collect();
@@ -204,7 +201,7 @@ fn generate_json_insert_method(
     base_type: &syn::Type,
     insert_model: &syn::Ident,
     generic_params: &[syn::Ident],
-    return_pattern_generics: &[syn::Ident],
+    return_pattern_generics: &[TokenStream],
 ) -> TokenStream {
     // The payload binds through `json(?)` via `Json<Payload>`.
     let json_wrapper = super::super::json::model_value(&quote!(value));

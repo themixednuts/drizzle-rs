@@ -45,9 +45,9 @@ macro_rules! shared_subquery_suite {
             type RowSeed = InsertSharedSubqueryRow<
                 'static,
                 (
-                    SharedSubqueryRowIdSet,
-                    SharedSubqueryRowNameSet,
-                    SharedSubqueryRowScoreSet,
+                    shared_subquery_row::IdSet,
+                    shared_subquery_row::NameSet,
+                    shared_subquery_row::ScoreSet,
                 ),
             >;
 

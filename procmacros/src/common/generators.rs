@@ -5,7 +5,7 @@
 //! functions to work with each dialect.
 
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{ToTokens, quote};
 use syn::Ident;
 
 use crate::paths::core as core_paths;
@@ -140,7 +140,10 @@ pub use mysql_impl::MySQLDialect;
 /// Generate `ToSQL` trait implementation for a given dialect.
 ///
 /// This is a dialect-agnostic version that works with every supported SQL dialect.
-pub fn generate_to_sql<D: Dialect>(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
+pub fn generate_to_sql<D: Dialect>(
+    struct_ident: &impl ToTokens,
+    body: &TokenStream,
+) -> TokenStream {
     let to_sql = core_paths::to_sql();
     let sql = core_paths::sql();
     let value_type = D::value_type();
@@ -157,7 +160,7 @@ pub fn generate_to_sql<D: Dialect>(struct_ident: &Ident, body: &TokenStream) -> 
 /// Generate `SQLColumn` trait implementation for a given dialect.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_sql_column<D: Dialect>(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     table: &TokenStream,
     table_type: &TokenStream,
     foreign_keys: &TokenStream,
@@ -246,7 +249,7 @@ pub fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> TokenStream
 
 /// Generate `SQLSchema` trait implementation for a given dialect.
 pub fn generate_sql_schema<D: Dialect>(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     const_sql: &TokenStream,
@@ -266,7 +269,7 @@ pub fn generate_sql_schema<D: Dialect>(
 
 /// Generate `SQLSchema` for fields trait implementation for a given dialect.
 pub fn generate_sql_schema_field<D: Dialect>(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     sql: &TokenStream,

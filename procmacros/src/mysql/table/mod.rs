@@ -144,6 +144,13 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     // -------------------
     // 2. Generation Phase
     // -------------------
+    let column_field_idents: Vec<&syn::Ident> =
+        ctx.field_infos.iter().map(|info| &info.ident).collect();
+    let columns_module = crate::common::column_types::generate_columns_module(
+        ctx.struct_ident,
+        ctx.struct_vis,
+        &column_field_idents,
+    );
     let (column_definitions, column_zst_idents) = generate_column_definitions(&ctx)?;
     let column_fields = generate_column_fields(&ctx, &column_zst_idents);
     let column_accessors = generate_column_accessors(&ctx, &column_zst_idents);
@@ -200,6 +207,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
             pub const __DRIZZLE_TABLE_META: &'static str = #table_meta_json;
         }
 
+        #columns_module
         #column_accessors
         #column_definitions
         #table_impls

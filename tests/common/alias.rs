@@ -60,9 +60,9 @@ macro_rules! shared_alias_suite {
             type PersonSeed = InsertSharedAliasPerson<
                 'static,
                 (
-                    SharedAliasPersonIdSet,
-                    SharedAliasPersonNameSet,
-                    SharedAliasPersonEmailSet,
+                    shared_alias_person::IdSet,
+                    shared_alias_person::NameSet,
+                    shared_alias_person::EmailSet,
                 ),
             >;
 

@@ -177,3 +177,42 @@ fn multi_row_insert_lines_up_rows_that_omit_different_columns(db: &mut TestDb<In
     assert_eq!(stored[1].nickname, None);
     assert_eq!(stored[1].role.as_deref(), Some("admin"));
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, MySQLEnum)]
+enum MemberRole {
+    #[default]
+    Member,
+    Admin,
+}
+
+// `Member.role: MemberRole` used to generate a column type named
+// `MemberRole`, the enum's own name. Column types live in the table's module
+// now: `member::Role`.
+#[MySQLTable(NAME = "collision_members")]
+struct Member {
+    #[column(PRIMARY, AUTO_INCREMENT)]
+    id: u64,
+    #[column(ENUM)]
+    role: MemberRole,
+}
+
+#[derive(MySQLSchema)]
+struct MemberSchema {
+    member: Member,
+}
+
+#[drizzle::test]
+fn column_type_does_not_take_the_name_of_its_enum(db: &mut TestDb<MemberSchema>) {
+    let MemberSchema { member } = schema;
+
+    // `with_role` spells `MemberRole` beside the insert-state parameters.
+    db.insert(member)
+        .value(InsertMember::new(MemberRole::Member).with_role(MemberRole::Admin))
+        .execute();
+
+    let rows: Vec<SelectMember> = db.select(()).from(member).all();
+    assert_eq!(rows[0].role, MemberRole::Admin);
+
+    let column: member::Role = member.role;
+    assert_eq!(column, member::Role);
+}

@@ -1,4 +1,5 @@
 use super::context::MacroContext;
+use crate::common::column_types::column_type;
 use crate::common::{
     generate_arithmetic_ops, generate_expr_impl, rust_type_to_nullability,
     sqlite_column_type_is_numeric,
@@ -10,15 +11,15 @@ use crate::sqlite::generators::{
     generate_sql_column, generate_sql_schema_field, generate_sqlite_column, generate_to_sql,
 };
 use heck::ToUpperCamelCase;
-use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote};
+use proc_macro2::TokenStream;
+use quote::{ToTokens, format_ident, quote};
 use syn::Result;
 
 /// Generate a const that references the original marker tokens from the attribute.
 ///
 /// This creates a hidden const that uses the exact tokens from `#[column(primary, unique)]`,
 /// enabling rust-analyzer to resolve them and provide hover documentation.
-fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
+fn generate_marker_const(info: &FieldInfo, _zst_ident: &TokenStream) -> TokenStream {
     if info.marker_exprs.is_empty() {
         return TokenStream::new();
     }
@@ -40,7 +41,7 @@ fn generate_marker_const(info: &FieldInfo, _zst_ident: &Ident) -> TokenStream {
 
 pub(super) fn generate_column_comparison_operand_impls(
     info: &FieldInfo,
-    zst_ident: &Ident,
+    zst_ident: &impl ToTokens,
     sqlite_value: &TokenStream,
 ) -> TokenStream {
     if !info.is_enum && !info.is_custom_type {
@@ -76,13 +77,16 @@ pub(super) fn generate_column_comparison_operand_impls(
     }
 }
 
-/// Generates the column ZSTs and their `SQLColumn` implementations.
-pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStream, Vec<Ident>)> {
+/// Generates the column ZSTs' `SQLColumn` implementations and returns the
+/// path to each column type. The types themselves are defined in the table's
+/// column module (see [`crate::common::column_types`]).
+pub fn generate_column_definitions(
+    ctx: &MacroContext<'_>,
+) -> Result<(TokenStream, Vec<TokenStream>)> {
     let mut all_column_code = TokenStream::new();
     let mut column_zst_idents = Vec::new();
     let MacroContext {
         struct_ident,
-        struct_vis,
         field_infos,
         ..
     } = *ctx;
@@ -104,8 +108,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
     let sqlite_schema_type = sqlite_paths::sqlite_schema_type();
 
     for info in field_infos {
-        let field_pascal_case = info.ident.to_string().to_upper_camel_case();
-        let zst_ident = format_ident!("{}{}", ctx.struct_ident, field_pascal_case);
+        let zst_ident = column_type(struct_ident, info.ident);
         column_zst_idents.push(zst_ident.clone());
 
         let (value_type, rust_type) = (&info.base_type, &info.field_type);
@@ -152,8 +155,7 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
             |fk| {
                 let table_ident = &fk.table_ident;
                 let column_ident = &fk.column_ident;
-                let column_pascal_case = column_ident.to_string().to_upper_camel_case();
-                let fk_zst_ident = format_ident!("{}{}", table_ident, column_pascal_case);
+                let fk_zst_ident = column_type(table_ident, column_ident);
                 quote! {
                     // Const validation that the FK column exists and implements SQLColumnInfo
                     const _: () = { let _ = &#table_ident::#column_ident; };
@@ -165,12 +167,6 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         );
 
         // Generate individual trait implementations using generators
-        let struct_def = quote! {
-            #[allow(non_camel_case_types)]
-            #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
-            #struct_vis struct #zst_ident;
-        };
-
         let impl_new = generate_impl(
             &zst_ident,
             &quote! {
@@ -327,7 +323,6 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
         };
 
         let column_code = quote! {
-            #struct_def
             impl<'a> ::core::default::Default for &'a #zst_ident {
                 fn default() -> Self {
                     static COLUMN: #zst_ident = #zst_ident;
@@ -375,8 +370,11 @@ pub fn generate_column_definitions(ctx: &MacroContext<'_>) -> Result<(TokenStrea
 }
 
 /// Generates the `impl` block on the table struct for individual column access.
-/// E.g., `impl User { pub const id: UserId = UserId; }`
-pub fn generate_column_accessors(ctx: &MacroContext, column_zst_idents: &[Ident]) -> TokenStream {
+/// E.g., `impl User { pub const id: user::Id = user::Id; }`
+pub fn generate_column_accessors(
+    ctx: &MacroContext,
+    column_zst_idents: &[TokenStream],
+) -> TokenStream {
     let MacroContext {
         struct_ident,
         field_infos,
@@ -416,7 +414,10 @@ pub fn generate_column_accessors(ctx: &MacroContext, column_zst_idents: &[Ident]
 }
 
 /// Generates the column fields for the table struct.
-pub fn generate_column_fields(ctx: &MacroContext, column_zst_idents: &[Ident]) -> TokenStream {
+pub fn generate_column_fields(
+    ctx: &MacroContext,
+    column_zst_idents: &[TokenStream],
+) -> TokenStream {
     let const_defs =
         ctx.field_infos
             .iter()

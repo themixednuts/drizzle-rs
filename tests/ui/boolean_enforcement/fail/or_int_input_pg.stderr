@@ -1,10 +1,10 @@
-error[E0277]: `[UserAge; 1]` is not a valid SQL expression
+error[E0277]: `[Age; 1]` is not a valid SQL expression
   --> tests/ui/boolean_enforcement/fail/or_int_input_pg.rs:14:33
    |
 14 |     let _ = or::<PostgresValue, _, _>([user.age]);
    |                                 ^ expected a column, literal, or expression — does this type implement Expr?
    |
-   = help: the trait `Expr<'_, drizzle::postgres::prelude::PostgresValue<'_>>` is not implemented for `[UserAge; 1]`
+   = help: the trait `Expr<'_, drizzle::postgres::prelude::PostgresValue<'_>>` is not implemented for `[Age; 1]`
    = note: SQL expressions must have an associated SQLType, Nullable, and Aggregate kind
 help: the following other types implement trait `Expr<'a, V>`
   --> core/src/expr/primitives.rs
@@ -49,13 +49,13 @@ help: provide the argument
 14 |     let _ = or::<PostgresValue, _, _>([user.age], /* right */);
    |                                                 +++++++++++++
 
-error[E0277]: `[UserAge; 1]` is not a valid SQL expression
+error[E0277]: `[Age; 1]` is not a valid SQL expression
   --> tests/ui/boolean_enforcement/fail/or_int_input_pg.rs:14:13
    |
 14 |     let _ = or::<PostgresValue, _, _>([user.age]);
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected a column, literal, or expression — does this type implement Expr?
    |
-   = help: the trait `Expr<'_, drizzle::postgres::prelude::PostgresValue<'_>>` is not implemented for `[UserAge; 1]`
+   = help: the trait `Expr<'_, drizzle::postgres::prelude::PostgresValue<'_>>` is not implemented for `[Age; 1]`
    = note: SQL expressions must have an associated SQLType, Nullable, and Aggregate kind
 help: the following other types implement trait `Expr<'a, V>`
   --> core/src/expr/primitives.rs

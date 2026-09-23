@@ -1,4 +1,4 @@
-error[E0277]: the trait bound `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, (std::string::String,)>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, (u64,)>` is not satisfied
+error[E0277]: the trait bound `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Name,)>, Cons<Users, Nil>>, (std::string::String,)>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, (u64,)>` is not satisfied
   --> tests/ui/mysql_builder/fail/set_shape_mismatch.rs:20:23
    |
 20 |     let _ = ids.union(names);
@@ -6,7 +6,7 @@ error[E0277]: the trait bound `QueryBuilder<'_, Schema, SelectFromSet, Users, Sc
    |                 |
    |                 required by a bound introduced by this call
    |
-help: the trait `IntoSelectQuery<'_, Schema, (u64,)>` is not implemented for `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>, (std::string::String,)>`
+help: the trait `IntoSelectQuery<'_, Schema, (u64,)>` is not implemented for `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Name,)>, Cons<Users, Nil>>, (std::string::String,)>`
       but trait `IntoSelectQuery<'_, Schema, (std::string::String,)>` is implemented for it
   --> mysql/src/builder/select.rs
    |

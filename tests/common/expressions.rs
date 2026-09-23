@@ -54,11 +54,11 @@ macro_rules! shared_expression_suite {
             type FixtureRow = InsertSharedExpressionRow<
                 'static,
                 (
-                    SharedExpressionRowIdSet,
-                    SharedExpressionRowNameSet,
-                    SharedExpressionRowScoreSet,
-                    SharedExpressionRowQuantitySet,
-                    SharedExpressionRowActiveSet,
+                    shared_expression_row::IdSet,
+                    shared_expression_row::NameSet,
+                    shared_expression_row::ScoreSet,
+                    shared_expression_row::QuantitySet,
+                    shared_expression_row::ActiveSet,
                 ),
             >;
 
@@ -78,11 +78,11 @@ macro_rules! shared_expression_suite {
             fn bob() -> InsertSharedExpressionRow<
                 'static,
                 (
-                    SharedExpressionRowIdSet,
-                    SharedExpressionRowNameSet,
-                    SharedExpressionRowScoreSet,
-                    SharedExpressionRowQuantityNotSet,
-                    SharedExpressionRowActiveSet,
+                    shared_expression_row::IdSet,
+                    shared_expression_row::NameSet,
+                    shared_expression_row::ScoreSet,
+                    shared_expression_row::QuantityNotSet,
+                    shared_expression_row::ActiveSet,
                 ),
             > {
                 InsertSharedExpressionRow::new("bob", -3.75, false).with_id(2)

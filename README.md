@@ -133,6 +133,8 @@ pub struct Schema {
 # fn main() {}
 ```
 
+Each table also gets a module of column types named after it: `users::Name` is the type of `Users::name`, should you need to name it. The module keeps these types apart from your own, so a `User` table can have a `role: UserRole` column.
+
 If you already have a database, run `drizzle introspect` to reverse-engineer the schema instead of writing it by hand.
 
 ### 4. Connect & Query
