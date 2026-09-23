@@ -26,9 +26,9 @@
 //!
 //! ```rust
 //! # let _ = r####"
+//! use drizzle::migrations::Tracking;
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle::sqlite::durable::Drizzle;
-//! use drizzle_migrations::Tracking;
 //! use worker::{durable_object, DurableObject, Env, Request, Response, State};
 //!
 //! #[SQLiteTable]
@@ -41,18 +41,18 @@
 //! #[derive(SQLiteSchema)]
 //! struct AppSchema { user: User }
 //!
-//! static MIGRATIONS: &[drizzle_migrations::Migration] =
-//!     drizzle::include_migrations!("./drizzle");
-//!
 //! #[durable_object]
 //! pub struct Counter { state: State, env: Env }
 //!
 //! impl DurableObject for Counter {
 //!     fn new(state: State, env: Env) -> Self {
 //!         // Runs once per DO instantiation (cold start / after eviction).
+//!         // `include_migrations!` embeds the migration files at compile time
+//!         // and expands to a `Vec<Migration>`.
+//!         let migrations = drizzle::include_migrations!("./drizzle");
 //!         let sql = state.storage().sql();
 //!         let (db, _) = Drizzle::new(sql, AppSchema::new());
-//!         db.migrate(MIGRATIONS, Tracking::SQLITE)
+//!         db.migrate(&migrations, Tracking::SQLITE)
 //!             .expect("durable migrations failed");
 //!         Self { state, env }
 //!     }
@@ -60,8 +60,17 @@
 //!     async fn fetch(&self, _req: Request) -> worker::Result<Response> {
 //!         let sql = self.state.storage().sql();
 //!         let (db, AppSchema { user }) = Drizzle::new(sql, AppSchema::new());
-//!         db.insert(user).values([InsertUser::new("Alice")]).execute()?;
-//!         let users: Vec<SelectUser> = db.select(()).from(user).all()?;
+//!         // `worker::Error` has no `From<drizzle::error::DrizzleError>`, so
+//!         // convert drizzle errors before using `?`.
+//!         db.insert(user)
+//!             .values([InsertUser::new("Alice")])
+//!             .execute()
+//!             .map_err(|e| worker::Error::RustError(e.to_string()))?;
+//!         let users: Vec<SelectUser> = db
+//!             .select(())
+//!             .from(user)
+//!             .all()
+//!             .map_err(|e| worker::Error::RustError(e.to_string()))?;
 //!         Response::ok(format!("{} users", users.len()))
 //!     }
 //! }
@@ -288,14 +297,15 @@ where
     /// # let _ = r####"
     /// impl DurableObject for Counter {
     ///     fn new(state: State, env: Env) -> Self {
+    ///         let migrations = drizzle::include_migrations!("./drizzle");
     ///         let sql = state.storage().sql();
     ///         let (db, _) = Drizzle::new(sql, AppSchema::new());
-    ///         db.migrate(MIGRATIONS, Tracking::SQLITE)
+    ///         db.migrate(&migrations, drizzle::migrations::Tracking::SQLITE)
     ///             .expect("durable migrations failed");
     ///         Self { state, env }
     ///     }
     ///
-    ///     async fn fetch(&self, req: Request) -> Result<Response> {
+    ///     async fn fetch(&self, req: Request) -> worker::Result<Response> {
     ///         // hot path — no migration work
     ///     }
     /// }

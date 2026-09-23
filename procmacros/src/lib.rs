@@ -90,15 +90,20 @@ use syn::parse_macro_input;
 
 /// Derive macro for creating SQLite-compatible enums.
 ///
-/// This macro allows enums to be stored in `SQLite` databases as either TEXT (variant names)
-/// or INTEGER (discriminant values) depending on the column attribute used.
+/// The enum itself decides how it is stored:
 ///
-/// The enum can be used with `#[column(enum)]` or `#[column(integer, enum)]` column attributes.
+/// - **INTEGER** (discriminant values) when any variant has an explicit
+///   discriminant (`High = 10`) or the enum has an integer `#[repr]`
+///   (`#[repr(i64)]`)
+/// - **TEXT** (variant names) otherwise
+///
+/// Use the enum as a column with `#[column(enum)]`. The column attribute does
+/// not choose the storage: an explicit `integer` or `text` marker next to
+/// `enum` must agree with the enum's storage, or the table fails to compile.
 ///
 /// # Requirements
 ///
 /// - Enum must have at least one variant
-/// - For `#[column(integer, enum)]`, variants can have explicit discriminants
 /// - Must derive `Default` to specify the default variant
 ///
 /// # Examples
@@ -121,7 +126,7 @@ use syn::parse_macro_input;
 /// struct Users {
 ///     #[column(primary, autoincrement)]
 ///     id: i32,
-///     #[column(enum)] // Stores variant names as TEXT
+///     #[column(enum)] // TEXT: UserRole has no explicit discriminants
 ///     role: UserRole,
 /// }
 ///
@@ -148,7 +153,7 @@ use syn::parse_macro_input;
 /// struct Tasks {
 ///     #[column(primary, autoincrement)]
 ///     id: i32,
-///     #[column(integer, enum)] // Stores discriminants as INTEGER
+///     #[column(integer, enum)] // INTEGER comes from the discriminants; `integer` only restates it
 ///     priority: Priority,
 /// }
 ///
@@ -230,9 +235,26 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// - `default_fn = function` - Application default function (called at insert time)
 ///
 /// ## Special Types
-/// - `enum` - Store enum as TEXT or INTEGER (requires `SQLiteEnum` derive)
+/// - `enum` - Store a `SQLiteEnum` as TEXT or INTEGER; the enum's derive
+///   decides which (see [`SQLiteEnum`])
 /// - `json` - JSON serialization (requires `serde` feature)
-/// - `references = Table::column` - Foreign key reference
+/// - `references = Table::column` - Foreign key reference. With the `query`
+///   feature it also generates relation accessors:
+///   - forward, on this table: the column name without its `_id` suffix
+///     (`author_id` gives `posts.author()`)
+///   - reverse, on the referenced table: the plural `snake_case` name of this
+///     struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
+///   - a self-reference, or two or more foreign keys to the same table, names
+///     each of those reverse accessors `{forward}_{plural}`
+///     (`users.author_posts()`)
+///   - `relation = "name"` names the reverse accessor and leaves the forward
+///     one alone. It is required only when two accessors on the referenced
+///     table would still share a name: the macro's error asks for it when
+///     both come from one table, and rustc reports a duplicate definition
+///     when they come from different tables (e.g. a direct foreign key and
+///     a junction table)
+///   - a table with exactly two foreign keys, to two other distinct tables,
+///     also links them many-to-many (`posts.tags()` and `tags.posts()`)
 ///
 /// # Examples
 ///
@@ -296,7 +318,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///     Admin,
 /// }
 ///
-/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+/// #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 /// struct Metadata {
 ///     theme: String,
 /// }
@@ -344,7 +366,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// For a table `Users`, the macro generates:
 /// - `SelectUsers` - For SELECT operations (derives `FromRow`)
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
-/// - `UpdateUsers` - Builder for UPDATE operations with `set_*()` methods
+/// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
+///   set columns with `with_*()` methods
 ///
 /// # Nullability
 ///
@@ -802,8 +825,9 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 /// 2. **Printf-style syntax**: `sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)`
 ///
 /// The macro parses SQL templates and generates type-safe SQL code by:
-/// - Converting literal text to `SQL::text()` calls
-/// - Converting expressions in `{braces}` to `.to_sql()` calls on the expression
+/// - Converting literal text to `SQL::raw()` calls
+/// - Converting expressions in `{braces}` to `ToSQL::to_sql(&expr)` calls
+/// - Joining the pieces in order with `.append()`
 ///
 /// # Syntax Forms
 ///
@@ -877,7 +901,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// let users = Users::default();
 /// let query = drizzle::sql!("SELECT * FROM {users}");
-/// // Generates: SQL::text("SELECT * FROM ").append(users.to_sql())
+/// // Generates: SQL::raw("SELECT * FROM ").append(ToSQL::to_sql(&users))
 /// # }
 /// # #[cfg(not(feature = "sqlite"))]
 /// # fn main() {}
@@ -928,7 +952,7 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
 ///
 /// let users = Users::default();
 /// let query = drizzle::sql!("SELECT JSON_OBJECT('key', {{literal}}) FROM {users}");
-/// // Generates: SQL::text("SELECT JSON_OBJECT('key', {literal}) FROM ").append(users.to_sql())
+/// // Generates: SQL::raw("SELECT JSON_OBJECT('key', {literal}) FROM ").append(ToSQL::to_sql(&users))
 /// # }
 /// # #[cfg(not(feature = "sqlite"))]
 /// # fn main() {}
@@ -964,6 +988,11 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
 }
 
 /// Attribute-style integration test macro with dependency injection.
+///
+/// **Internal to drizzle's own test suite.** The expansion calls helpers in
+/// that suite's `crate::common::helpers` module (connection setup, `TestDb`,
+/// the panic hook), so it does not compile in other crates. It is exported
+/// only because the suite is a separate crate.
 ///
 /// Apply to a plain `fn` whose signature declares `db`, the driver-bound test
 /// handle. The schema instance is injected into the body as `schema`.
@@ -1116,10 +1145,24 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Table Attributes
 ///
+/// Table attribute names are case-insensitive (`name` and `NAME` both work).
+///
 /// - `name = "table_name"` - Custom table name (defaults to struct name in `snake_case`)
-/// - `unlogged` - Create UNLOGGED table for better performance  
-/// - `temporary` - Create TEMPORARY table
-/// - `if_not_exists` - Add IF NOT EXISTS clause
+/// - `schema = "schema_name"` - Qualify the table with this schema; without it
+///   the name stays unqualified and resolves through `search_path` (normally
+///   `public`)
+/// - `unlogged` - Create an UNLOGGED table (faster, not crash-safe)
+/// - `temporary` - Create a TEMPORARY table
+/// - `inherits = "parent_table"` - Inherit from a parent table
+/// - `tablespace = "name"` - Create the table in a tablespace
+/// - `rls` - Enable row-level security
+/// - `foreign_key(columns(a, b), references(Parent, x, y))` - Composite foreign
+///   key; also accepts `on_delete = "..."`, `on_update = "..."`, `deferrable`,
+///   and `initially_deferred`
+/// - `unique(columns(a, b))` - Table-level unique constraint; also accepts
+///   `name = "..."`, `nulls_not_distinct`, `deferrable`, and `initially_deferred`
+/// - `check(expr = "...")` - Table-level check constraint, optionally with
+///   `name = "..."`
 ///
 /// # Field Attributes
 ///
@@ -1142,7 +1185,23 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// ## Special Types
 /// - `enum` - Map a `PostgresEnum` field (`#[column(enum)]`)
 /// - `json` - JSON serialization (`#[column(json)]` or `#[column(jsonb)]`)
-/// - `references = Table::column` - Foreign key reference
+/// - `references = Table::column` - Foreign key reference. With the `query`
+///   feature it also generates relation accessors:
+///   - forward, on this table: the column name without its `_id` suffix
+///     (`author_id` gives `posts.author()`)
+///   - reverse, on the referenced table: the plural `snake_case` name of this
+///     struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
+///   - a self-reference, or two or more foreign keys to the same table, names
+///     each of those reverse accessors `{forward}_{plural}`
+///     (`users.author_posts()`)
+///   - `relation = "name"` names the reverse accessor and leaves the forward
+///     one alone. It is required only when two accessors on the referenced
+///     table would still share a name: the macro's error asks for it when
+///     both come from one table, and rustc reports a duplicate definition
+///     when they come from different tables (e.g. a direct foreign key and
+///     a junction table)
+///   - a table with exactly two foreign keys, to two other distinct tables,
+///     also links them many-to-many (`posts.tags()` and `tags.posts()`)
 ///
 /// Note: For `#[derive(PostgresEnum)]`, storage is:
 /// - Native `PostgreSQL` ENUM by default
@@ -1217,7 +1276,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// use drizzle::postgres::prelude::*;
 /// use serde::{Serialize, Deserialize};
 ///
-/// #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+/// #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 /// struct Metadata {
 ///     theme: String,
 ///     notifications: bool,
@@ -1242,7 +1301,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// For a table `Users`, the macro generates:
 /// - `SelectUsers` - For SELECT operations (derives `FromRow`)
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
-/// - `UpdateUsers` - Builder for UPDATE operations with `set_*()` methods
+/// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
+///   set columns with `with_*()` methods
 ///
 /// # Nullability
 ///
@@ -1413,6 +1473,25 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 }
 
 /// Define a `MySQL` table schema with type-safe column definitions.
+///
+/// # Relations
+///
+/// `#[column(REFERENCES = Table::column)]` declares a foreign key. With the
+/// `query` feature it also generates relation accessors:
+/// - forward, on this table: the column name without its `_id` suffix
+///   (`author_id` gives `posts.author()`)
+/// - reverse, on the referenced table: the plural `snake_case` name of this
+///   struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
+/// - a self-reference, or two or more foreign keys to the same table, names
+///   each of those reverse accessors `{forward}_{plural}`
+///   (`users.author_posts()`)
+/// - `RELATION = "name"` names the reverse accessor and leaves the forward one
+///   alone. It is required only when two accessors on the referenced table
+///   would still share a name: the macro's error asks for it when both come
+///   from one table, and rustc reports a duplicate definition when they come
+///   from different tables (e.g. a direct foreign key and a junction table)
+/// - a table with exactly two foreign keys, to two other distinct tables,
+///   also links them many-to-many (`posts.tags()` and `tags.posts()`)
 #[cfg(feature = "mysql")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]

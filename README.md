@@ -12,6 +12,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
   - [2. Initialize](#2-initialize)
   - [3. Define Your Schema](#3-define-your-schema)
   - [4. Connect & Query](#4-connect--query)
+- [Feature Flags](#feature-flags)
 - [Migrations](#migrations)
   - [Manual: Generate with the CLI](#manual-generate-with-the-cli)
   - [Automatic: Generate from build.rs](#automatic-generate-from-buildrs)
@@ -20,6 +21,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 - [Generated Models](#generated-models)
   - [Insert](#insert)
   - [Update](#update)
+  - [JSON Columns](#json-columns)
 - [Querying](#querying)
   - [Select](#select)
     - [Ordering, Limiting, Pagination](#ordering-limiting-pagination)
@@ -33,8 +35,9 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 - [Expressions](#expressions)
   - [Type Casting](#type-casting)
 - [Relational Queries](#relational-queries)
+  - [Relation Names](#relation-names)
   - [Selecting Specific Columns](#selecting-specific-columns)
-  - [Type Aliases](#type-aliases)
+  - [Result Types](#result-types)
 - [Transactions](#transactions)
 - [Prepared Statements](#prepared-statements)
 - [PostgreSQL](#postgresql)
@@ -48,14 +51,24 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 
 ```toml
 [dependencies]
-drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
+drizzle = { version = "0.1", features = ["rusqlite"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
-# drivers: rusqlite | libsql | turso | postgres-sync | tokio-postgres | mysql-sync | mysql-async
 ```
 
+Pick the driver feature that matches the client your application already
+uses. You create and own the connection; drizzle wraps it.
+
+Install the CLI with the drivers it should connect through:
+
 ```bash
-cargo install drizzle-cli --git https://github.com/themixednuts/drizzle-rs --locked --all-features
+cargo install drizzle-cli --locked --features sqlite-all   # or postgres-all, mysql-all
 ```
+
+Individual driver features (`rusqlite`, `postgres-sync`, `mysql-async`, ...)
+work too. Without a driver, `generate` still works, but `migrate`, `push`, and
+`introspect` stop with a "No driver available" error.
+
+See [Feature Flags](#feature-flags) for every driver and optional column type.
 
 ### 2. Initialize
 
@@ -134,7 +147,7 @@ If you already have a database, run `drizzle introspect` to reverse-engineer the
 use drizzle::sqlite::rusqlite::Drizzle;
 
 let conn = rusqlite::Connection::open("app.db")?;
-let (mut db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
+let (db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
 # Ok(())
 # }
 # #[cfg(not(feature = "rusqlite"))]
@@ -142,7 +155,25 @@ let (mut db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new
 ```
 
 > [!NOTE]
-> See [`examples/rusqlite.rs`](examples/rusqlite.rs) for a full runnable example.
+> See [`examples/rusqlite.rs`](https://github.com/themixednuts/drizzle-rs/blob/main/examples/rusqlite.rs) for a full runnable example.
+
+## Feature Flags
+
+| Feature | What it enables |
+|---------|-----------------|
+| `rusqlite`, `libsql`, `turso` | SQLite drivers |
+| `d1`, `durable` | Cloudflare D1 and Durable Object SQLite (`wasm32` only) |
+| `postgres-sync`, `tokio-postgres` | PostgreSQL drivers |
+| `hyperdrive` | Cloudflare Hyperdrive over `tokio-postgres` (`wasm32` only) |
+| `aws-data-api` | AWS Aurora Serverless Data API (PostgreSQL over HTTP) |
+| `mysql-sync`, `mysql-async` | MySQL drivers (`mysql` / `mysql_async`) |
+| `query` | [Relational queries](#relational-queries) (`db.query(...)`) |
+| `serde` | [JSON columns](#json-columns) |
+| `uuid`, `chrono`, `time`, `rust-decimal` | Column types from those crates |
+| `arrayvec`, `compact-str`, `bytes`, `smallvec-types` | Inline and zero-copy string/byte column types |
+| `cidr`, `geo-types`, `bit-vec` | PostgreSQL network, geometric, and bit-string types |
+| `math` | SQLite math functions (see [Expressions](#expressions)) |
+| `tracing`, `profiling` | Query spans and puffin profiling scopes |
 
 ## Migrations
 
@@ -170,8 +201,8 @@ Add `drizzle-migrations` as a build dependency, then point it at your existing `
 
 ```toml
 [build-dependencies]
-drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["rusqlite"] }
-drizzle-migrations = { git = "https://github.com/themixednuts/drizzle-rs" }
+drizzle = { version = "0.1", features = ["rusqlite"] }
+drizzle-migrations = "0.1"
 rusqlite = { version = "0.39", features = ["bundled"] }
 ```
 
@@ -211,14 +242,17 @@ let migrations = drizzle::include_migrations!("./drizzle");
 db.migrate(&migrations, Tracking::SQLITE)?;
 ```
 
-Use `Tracking::POSTGRES` for PostgreSQL and `Tracking::MYSQL` for MySQL. Override the tracking table or schema when you need to:
+Use `Tracking::POSTGRES` for PostgreSQL and `Tracking::MYSQL` for MySQL. All
+three record applied migrations in a `__drizzle_migrations` table, which
+PostgreSQL keeps in a `drizzle` schema. Override the tracking table or schema
+when you need to:
 
 ```text
 db.migrate(
     &migrations,
     Tracking::POSTGRES
-        .schema("drizzle")
-        .table("__drizzle_migrations"),
+        .schema("ops")
+        .table("schema_migrations"),
 )?;
 ```
 
@@ -234,6 +268,10 @@ unsupported because the server may already have committed some statements.
 ```text
 use drizzle::sqlite::rusqlite::Drizzle;
 use drizzle_migrations::{MigrateOutcome, MigrationDir};
+
+// `cfg.watch()` does not watch this flag; without this line, cargo would not
+// rerun build.rs when you set or unset it.
+println!("cargo:rerun-if-env-changed=DRIZZLE_MIGRATE");
 
 if std::env::var("DRIZZLE_MIGRATE").is_ok() {
     let conn = rusqlite::Connection::open(cfg.url()?)?;
@@ -280,7 +318,7 @@ Given the schema above, each `#[SQLiteTable]`, `#[PostgresTable]`, or
 
 | Model | Purpose | Fields |
 |-------|---------|--------|
-| `SelectUsers` | Full-row query results | Matches the table columns exactly |
+| `SelectUsers` | Full-row query results | One field per column, with the declared type |
 | `InsertUsers` | Insert rows | `new(name, age)` requires non-default fields; `with_email(...)` for optional ones |
 | `UpdateUsers` | Update rows | `default()` starts empty; `with_age(27)` sets fields to update |
 | `PartialSelectUsers` | Partial-column query results | All fields `Option<T>`; populated by `db.query(users).columns(...)` (see [Relational Queries](#relational-queries)) |
@@ -321,6 +359,68 @@ UpdateUsers::default()
 # #[cfg(not(feature = "rusqlite"))]
 # fn main() {}
 ```
+
+### JSON Columns
+
+With the `serde` feature, any `Serialize + Deserialize` type can be stored in a
+JSON column (`json`; `json` or `jsonb` on PostgreSQL; `JSON` on MySQL). The
+field keeps its own type in the generated models, and one payload type can back
+columns in several tables. The macro implements nothing on the payload type,
+and your crate does not need a `serde_json` dependency. Generated models
+implement `Debug`, `Clone`, `PartialEq` and `Default` whenever every field type
+does, so a payload type only needs the traits you actually use.
+
+```rust
+# #[cfg(all(feature = "rusqlite", feature = "serde"))]
+# fn main() -> drizzle::Result<()> {
+use drizzle::core::Json;
+use drizzle::core::expr::eq;
+use drizzle::sqlite::prelude::*;
+# use drizzle::sqlite::rusqlite::Drizzle;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct Settings {
+    pub theme: String,
+}
+
+#[SQLiteTable]
+pub struct Profiles {
+    #[column(primary)]
+    pub id: i64,
+    #[column(json)]
+    pub settings: Settings,
+    #[column(json)]
+    pub tags: Vec<String>,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub profiles: Profiles,
+}
+
+# let conn = rusqlite::Connection::open_in_memory()?;
+# let (db, Schema { profiles }) = Drizzle::new(conn, Schema::new());
+# db.create()?;
+let dark = Settings { theme: "dark".into() };
+db.insert(profiles)
+    .value(InsertProfiles::new(dark.clone(), vec!["admin".into()]))
+    .execute()?;
+
+// Compare a JSON column with a `Json(..)`-wrapped payload.
+let rows: Vec<SelectProfiles> = db
+    .select(())
+    .from(profiles)
+    .r#where(eq(profiles.settings, Json(dark.clone())))
+    .all()?;
+assert_eq!(rows[0].settings, dark);
+# Ok(())
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "serde")))]
+# fn main() {}
+```
+
+Selecting a JSON column on its own (`db.select(profiles.settings)`) yields
+`Json<Settings>`; use `.0` or `.into_inner()` to get the payload.
 
 ## Querying
 
@@ -427,8 +527,8 @@ filters composable:
 # let name = Some("Alex");
 let by_name = name.map(|n| eq(users.name, n));
 
-// Some("alex") => ("age" > $1 AND "name" = $2)
-// None         => ("age" > $1)
+// Some("Alex") => WHERE ("users"."age" > ? AND "users"."name" = ?)
+// None         => WHERE ("users"."age" > ?)
 let rows: Vec<SelectUsers> = db
     .select(())
     .from(users)
@@ -742,28 +842,64 @@ Available in `drizzle::core::expr`:
 - **Aggregates** — `count`, `sum`, `avg`, `min`, `max`
 - **Null handling** — `coalesce`, `is_null`, `is_not_null`
 - **Strings** — `upper`, `lower`, `length`
-- **Math** — `abs`, `round`, `sign`, `mod_`; `ceil`, `floor`, `trunc`, `sqrt`, `power`, `exp`, `ln`, `log`, `log10`, `log2`, `pi` (on SQLite these need the `math` feature and a SQLite built with `SQLITE_ENABLE_MATH_FUNCTIONS`, e.g. `LIBSQLITE3_FLAGS="-DSQLITE_ENABLE_MATH_FUNCTIONS"` for bundled rusqlite)
-- **Ordering** — `asc`, `desc`
+- **Math** — `abs`, `round`, `sign`, `mod_`; `ceil`, `floor`, `trunc`, `sqrt`, `power`, `exp`, `ln`, `log`, `log10`, `log2`, `pi` (see the SQLite note below)
+
+The ordering helpers `asc` and `desc` are in `drizzle::core`, not
+`drizzle::core::expr`.
+
+SQLite only has `ceil` through `pi` when it is compiled with
+`SQLITE_ENABLE_MATH_FUNCTIONS`, so on SQLite those functions compile only with
+drizzle's `math` feature. Enabling `math` is a promise about the SQLite you link:
+
+- **rusqlite** (with `bundled`) and **libsql** compile their own SQLite and read
+  `LIBSQLITE3_FLAGS` while doing so. Set
+  `LIBSQLITE3_FLAGS="-DSQLITE_ENABLE_MATH_FUNCTIONS"` in the build environment,
+  for example under `[env]` in `.cargo/config.toml`.
+- **turso** implements these functions itself and needs no flag.
+
+If the linked SQLite lacks them, the calls still compile under `math`, and the
+query fails at runtime with `no such function`.
 
 ### Type Casting
 
-Each dialect provides cast target markers for use with `cast()`. Pass a string when you need a custom SQL type name.
+`cast(expr, target)` takes a type marker from the dialect's `types` module
+(`drizzle::sqlite::types`, `drizzle::postgres::types`, or
+`drizzle::mysql::types`). The marker supplies both the SQL type name and the
+result type. You can pass a SQL type name as a string instead, but a string
+carries no result type, so name the marker with a turbofish:
+`cast::<_, _, Real>(expr, "DOUBLE")`. SQLite and PostgreSQL only allow casts
+between compatible types, such as integer to real.
 
-```text
+```rust
+# #[cfg(feature = "rusqlite")]
+# fn main() -> drizzle::Result<()> {
+# mod readme {
+#     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
+# }
+# use readme::*;
 use drizzle::core::expr::cast;
+use drizzle::sqlite::types::Real;
 
-// SQLite
-let age = cast(json_age, drizzle::sqlite::types::Integer);
+# let (db, Schema { users, .. }) = readme::database()?;
+// The marker renders `AS REAL` and types the result as a SQLite REAL (f64)
+let ages: Vec<(f64,)> = db.select((cast(users.age, Real),)).from(users).all()?;
 
-// PostgreSQL
-let age = cast(user.age, drizzle::postgres::types::Int4);
+// A string only renders the SQL type name; the turbofish supplies the result type
+let ages: Vec<(f64,)> = db
+    .select((cast::<_, _, Real>(users.age, "DOUBLE"),))
+    .from(users)
+    .all()?;
+# Ok(())
+# }
+# #[cfg(not(feature = "rusqlite"))]
+# fn main() {}
 ```
 
 ## Relational Queries
 
 Requires the `query` feature. Fetches a table with its relations in a single query — no manual joins.
 
-Relation methods are generated from `#[column(references = ...)]`. Given `Posts.author_id → Users.id`, `users.posts()` is the reverse (one-to-many) and `posts.author()` is the forward (many-to-one).
+Relation methods are generated from `#[column(references = ...)]`. Given `Posts.author_id → Users.id`, `users.posts()` is the reverse (one-to-many) and `posts.author()` is the forward (many-to-one). [Relation Names](#relation-names) explains how the names are chosen.
 
 ```rust
 # #[cfg(all(feature = "rusqlite", feature = "query"))]
@@ -846,6 +982,109 @@ let users = db.query(users)
     .order_by(asc(users.name))
     .limit(10)
     .find_many()?;
+# Ok(())
+# }
+# #[cfg(not(all(feature = "rusqlite", feature = "query")))]
+# fn main() {}
+```
+
+### Relation Names
+
+Each `#[column(references = Table::column)]` generates two accessors:
+
+- **Forward** (many-to-one), on the table that holds the foreign key: the
+  column name without its `_id` suffix. `Posts.author_id` gives
+  `posts.author()`. A column without the suffix keeps its name, so
+  `invited_by` gives `invited_by()`. A nullable foreign key loads an `Option`.
+- **Reverse** (one-to-many), on the referenced table: the plural `snake_case`
+  form of the referencing struct's name, so `Posts` gives `users.posts()` and
+  a `Category` struct would give `categories()`. The Rust struct name counts,
+  not the SQL table name.
+
+When a table references itself, or has two or more foreign keys to the same
+table, each of those reverse accessors is named `{forward}_{plural}` instead,
+for example `users.author_posts()` and `users.editor_posts()`.
+
+`relation = "..."` sets a reverse accessor's name and leaves the forward name
+alone. You only need it when two accessors on the referenced table would still
+share a name. If both come from one table, the macro's compile error asks for
+`relation`. If they come from different tables, for example a direct foreign
+key and a junction table that both give `tags.posts()`, rustc reports a
+duplicate definition instead, and `relation` on the direct foreign key
+resolves it.
+
+A table with exactly two foreign keys that point at two different tables,
+neither of them the table itself, also works as a junction table: each side
+gets a many-to-many accessor named after the plural of the other side, so
+`PostTags` gives `posts.tags()` and `tags.posts()`. The junction keeps its own
+accessors as well (`post_tags.post()`, `posts.post_tags()`), and `relation`
+does not rename the many-to-many pair.
+
+```rust
+# #[cfg(all(feature = "rusqlite", feature = "query"))]
+# fn main() -> drizzle::Result<()> {
+use drizzle::sqlite::prelude::*;
+# use drizzle::sqlite::rusqlite::Drizzle;
+
+#[SQLiteTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+    // Self-reference: users.invited_by() and users.invited_by_users()
+    #[column(references = Users::id)]
+    pub invited_by: Option<i64>,
+}
+
+#[SQLiteTable]
+pub struct Posts {
+    #[column(primary)]
+    pub id: i64,
+    // posts.author() and users.author_posts() (Posts has two FKs to Users)
+    #[column(references = Users::id)]
+    pub author_id: i64,
+    // posts.editor() and users.edited_posts() instead of users.editor_posts()
+    #[column(references = Users::id, relation = "edited_posts")]
+    pub editor_id: Option<i64>,
+}
+
+#[SQLiteTable]
+pub struct Tags {
+    #[column(primary)]
+    pub id: i64,
+}
+
+// Junction table: posts.tags() and tags.posts()
+#[SQLiteTable]
+pub struct PostTags {
+    #[column(references = Posts::id)]
+    pub post_id: i64,
+    #[column(references = Tags::id)]
+    pub tag_id: i64,
+}
+
+#[derive(SQLiteSchema)]
+pub struct Schema {
+    pub users: Users,
+    pub posts: Posts,
+    pub tags: Tags,
+    pub post_tags: PostTags,
+}
+
+# let conn = rusqlite::Connection::open_in_memory()?;
+# let (db, Schema { users, posts, tags, post_tags }) = Drizzle::new(conn, Schema::new());
+# db.create()?;
+let authors = db
+    .query(users)
+    .with(users.author_posts())
+    .with(users.edited_posts())
+    .with(users.invited_by_users())
+    .find_many()?;
+
+let tagged = db.query(posts).with(posts.author()).with(posts.tags()).find_many()?;
+# let _ = db.query(users).with(users.invited_by()).find_many()?;
+# let _ = db.query(posts).with(posts.editor()).with(posts.post_tags()).find_many()?;
+# let _ = db.query(tags).with(tags.posts()).find_many()?;
+# let _ = db.query(post_tags).with(post_tags.post()).with(post_tags.tag()).find_many()?;
 # Ok(())
 # }
 # #[cfg(not(all(feature = "rusqlite", feature = "query")))]
@@ -967,6 +1206,10 @@ let count = db.transaction(TransactionConfig::Deferred, |tx| {
 # fn main() {}
 ```
 
+Cloudflare D1 is the exception: the platform exposes no transaction handles, so
+the D1 driver has no `transaction` method. Its `batch` method submits several
+statements that D1 applies atomically.
+
 ## Prepared Statements
 
 > [!TIP]
@@ -1031,10 +1274,16 @@ Use `.prepare().into_owned()` to convert a prepared statement into a self-contai
 
 ## PostgreSQL
 
-Everything above works with `#[PostgresTable]`, `#[derive(PostgresSchema)]`, and
-`drizzle::postgres::{sync,tokio}::Drizzle`. PostgreSQL's
-`TransactionConfig::default()` uses server defaults. Its typestated builder
-keeps `DEFERRABLE` on the combination where it has meaning:
+The query API above works the same way with `#[PostgresTable]`,
+`#[derive(PostgresSchema)]`, `#[derive(PostgresFromRow)]`, and
+`drizzle::postgres::{sync,tokio}::Drizzle`. The tokio driver's calls are
+`async`, and the blocking driver runs prepared statements on `db.conn_mut()`.
+Two things in the SQLite examples do not carry over: `autoincrement` (use
+`serial`, `bigserial`, `smallserial`, or `identity(...)` columns) and
+`TransactionConfig::Deferred`, which is a SQLite transaction mode.
+
+PostgreSQL's `TransactionConfig::default()` uses server defaults. Its
+typestated builder keeps `DEFERRABLE` on the combination where it has meaning:
 
 ```rust
 # #[cfg(feature = "postgres")]
@@ -1096,7 +1345,7 @@ and owns the connection or pool.
 
 ```toml
 [dependencies]
-drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["mysql-sync"] }
+drizzle = { version = "0.1", features = ["mysql-sync"] }
 mysql = "28"
 ```
 
@@ -1133,7 +1382,7 @@ The async adapter accepts either an owned `mysql_async::Conn` or a lazy pool:
 
 ```toml
 [dependencies]
-drizzle = { git = "https://github.com/themixednuts/drizzle-rs", features = ["mysql-async"] }
+drizzle = { version = "0.1", features = ["mysql-async"] }
 mysql_async = "0.37"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
@@ -1174,10 +1423,10 @@ enables their native-TLS backends, and Drizzle neither disables certificate
 validation nor silently changes the caller's transport policy.
 
 Before its first typed query on a connection, the adapter sets the session time
-zone to UTC and removes `NO_UNSIGNED_SUBTRACTION` from the session SQL mode.
-Those invariants keep temporal decoding and unsigned arithmetic consistent with
-the Rust types; using `conn_mut()` causes them to be restored before the next
-Drizzle query.
+zone to UTC and removes `NO_UNSIGNED_SUBTRACTION` and `REAL_AS_FLOAT` from the
+session SQL mode. Those invariants keep temporal decoding, unsigned arithmetic,
+and `REAL` columns consistent with the Rust types; using `conn_mut()` causes
+them to be restored before the next Drizzle query.
 
 Transactions use `TransactionConfig` for isolation level, access mode, and
 consistent snapshots. The typestated builder only exposes `.snapshot()` after
@@ -1216,8 +1465,7 @@ db.transaction(config, |tx| {
 
 Transactions stay scoped to the callback. Returning `Ok` commits; returning
 `Err` rolls back. Dropping or cancelling an async transaction future also
-prevents the active transaction from being reused without rollback. D1 uses
-its atomic batch API because the platform does not expose transaction handles.
+prevents the active transaction from being reused without rollback.
 
 The type surface deliberately leaves unsupported SQL unavailable:
 
@@ -1228,7 +1476,7 @@ The type surface deliberately leaves unsupported SQL unavailable:
 - String concatenation uses `concat(...)`; the builder never emits `||`, whose
   default MySQL meaning is logical OR.
 
-See [`examples/mysql.rs`](examples/mysql.rs) for the complete blocking example.
+See [`examples/mysql.rs`](https://github.com/themixednuts/drizzle-rs/blob/main/examples/mysql.rs) for the complete blocking example.
 
 ## CLI Reference
 
@@ -1247,12 +1495,12 @@ Other useful commands:
 | Command | Description |
 |---------|-------------|
 | `drizzle new` | Interactive schema builder |
-| `drizzle status` | Show applied migrations |
+| `drizzle status` | List local migration folders and whether each has a snapshot (it does not read the database; use `drizzle migrate --plan` for that) |
 | `drizzle check` | Validate config |
 | `drizzle export` | Print schema as raw SQL |
 | `drizzle up` | Upgrade migration snapshots to the latest format |
 
-`drizzle pull` is an alias for `introspect`. All commands accept `-c <path>` for a custom config file and `--db <name>` for multi-database configs.
+`drizzle pull` is an alias for `introspect`. Commands that read the config accept `-c <path>` for a custom config file and `--db <name>` for multi-database configs.
 
 ## License
 

@@ -9,10 +9,11 @@
 //! so the Transaction layer just aliases the canonical type with
 //! `Runner = Transaction<'conn, Schema>` (per driver). All typestate-advancing
 //! methods (`.value` / `.values` / `.r#where` / `.set` / `.on_conflict[*]` /
-//! `.returning` / `.from` / `.join_*` / `.group_by` / `.having` /
-//! `.order_by` / `.limit` / `.offset` / `.union[_all]` / `.intersect[_all]` /
-//! `.except[_all]` / `.into_cte`) now live exactly once in
-//! `builder/sqlite/common.rs`.
+//! `.returning` / `.from` / `.join` / `.*_join` / `.group_by` / `.having` /
+//! `.order_by` / `.limit` / `.offset` / `.union[_all]` / `.intersect` /
+//! `.except` / `.into_cte`) now live exactly once in
+//! `builder/sqlite/common.rs`. SQLite has no `INTERSECT ALL` or `EXCEPT ALL`,
+//! so the SQLite builders do not offer them.
 //!
 //! Re-exporting under the old names preserves the `TransactionBuilder` /
 //! `TransactionOnConflictBuilder` identifiers in user-facing error messages

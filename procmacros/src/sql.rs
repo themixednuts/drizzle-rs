@@ -48,7 +48,7 @@ impl Parse for SqlInput {
 /// A parsed segment of the SQL template
 #[derive(Clone)]
 enum SqlSegment {
-    /// Raw SQL text that becomes `SQL::text()`
+    /// Raw SQL text that becomes `SQL::raw()`
     Text(String),
     /// An expression inside {braces} that should have .`to_sql()` called on it
     /// (boxed: `syn::Expr` dwarfs the `Text` variant)

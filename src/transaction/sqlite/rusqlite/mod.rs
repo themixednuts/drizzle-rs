@@ -26,7 +26,7 @@ use drizzle_sqlite::{
 /// This is a thin type alias over the dialect-shared
 /// `TransactionBuilder`; every
 /// typestate-advancing method (`.value`/`.values`/`.r#where`/`.set`/
-/// `.on_conflict`/`.returning`/`.from`/`.join_*`/etc.) lives on the
+/// `.on_conflict`/`.returning`/`.from`/`.join`/`.*_join`/etc.) lives on the
 /// generic struct over there. Executor methods (`.execute`/`.all`/`.rows`/
 /// `.get`) — the only parts that need `rusqlite`-specific access to
 /// `self.runner.tx` — stay below in this module.
