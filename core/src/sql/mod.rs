@@ -453,6 +453,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         let mut buf = String::with_capacity(sql_cap);
         let mut params: SmallVec<[&V; 8]> = SmallVec::with_capacity(param_cap);
         let mut param_index = 1usize;
+        let mut sqlite_names = SQLiteNamedParams::default();
 
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "build.render");
@@ -463,16 +464,20 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                     self.write_select_columns(&mut buf, i);
                 }
                 SQLChunk::Param(param) => {
+                    let mut repeated_name = false;
                     if let Some(name) = param.placeholder.name
                         && V::DIALECT == Dialect::SQLite
                     {
                         let _ = buf.write_char(':');
                         let _ = buf.write_str(name);
+                        repeated_name = sqlite_names.is_repeat(name);
                     } else {
                         style.write(param_index, &mut buf);
                     }
                     param_index += 1;
-                    if let Some(value) = &param.value {
+                    // SQLite gives every distinct `:name` one parameter
+                    // slot, so a repeated name binds its value only once.
+                    if !repeated_name && let Some(value) = &param.value {
                         params.push(value.as_ref());
                     }
                 }
@@ -756,6 +761,33 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
         SQL {
             chunks: bound_chunks,
+        }
+    }
+}
+
+/// Tracks the `:name` parameters already bound for one `SQLite` statement.
+///
+/// `SQLite` gives every distinct parameter name a single slot, however often
+/// the name appears, while each positional `?` takes its own slot. A value
+/// list for the statement therefore holds one entry per distinct name, at the
+/// position of the name's first occurrence.
+#[derive(Default)]
+pub(crate) struct SQLiteNamedParams<'n> {
+    seen: SmallVec<[&'n str; 4]>,
+}
+
+impl<'n> SQLiteNamedParams<'n> {
+    /// Records `name` and reports whether an earlier occurrence already took
+    /// its slot.
+    pub(crate) fn is_repeat(&mut self, name: &'n str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        if self.seen.contains(&name) {
+            true
+        } else {
+            self.seen.push(name);
+            false
         }
     }
 }

@@ -9,7 +9,7 @@ macro_rules! shared_prepared_statement_suite {
             use super::*;
             #[allow(unused_imports)]
             use crate::common::helpers::AffectedRows;
-            use drizzle::core::expr::eq;
+            use drizzle::core::expr::{eq, or};
             use drizzle::error::DrizzleError;
 
             #[$table(NAME = "shared_prepared_users")]
@@ -55,6 +55,42 @@ macro_rules! shared_prepared_statement_suite {
                 assert_eq!(alice[0].name, "Alice");
                 assert_eq!(bob.name, "Bob");
                 assert!(nobody.is_empty());
+            }
+
+            #[drizzle::test($dialect)]
+            fn prepared_named_placeholder_can_repeat(db: &mut TestDb<SharedPreparedSchema>) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .values([
+                        InsertSharedPreparedUser::new("Alice")
+                            .with_id(1)
+                            .with_nickname("Al"),
+                        InsertSharedPreparedUser::new("Bob")
+                            .with_id(2)
+                            .with_nickname("Alice"),
+                        InsertSharedPreparedUser::new("Carol")
+                            .with_id(3)
+                            .with_nickname("Cee"),
+                    ])
+                    .execute();
+
+                // One binding supplies every occurrence of the placeholder.
+                let either = users.name.placeholder("shared_prepared_either");
+                let prepared = db
+                    .select(())
+                    .from(users)
+                    .r#where(or(eq(users.name, either), eq(users.nickname, either)))
+                    .order_by(asc(users.id))
+                    .prepare()
+                    .into_owned();
+
+                let rows: Vec<SelectSharedPreparedUser> =
+                    prepared.all(drizzle_client!(), [either.bind("Alice")]);
+                assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), [1, 2]);
+
+                let rows: Vec<SelectSharedPreparedUser> =
+                    prepared.all(drizzle_client!(), [either.bind("Cee")]);
+                assert_eq!(rows.iter().map(|row| row.id).collect::<Vec<_>>(), [3]);
             }
 
             #[drizzle::test($dialect)]

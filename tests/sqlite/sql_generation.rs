@@ -349,3 +349,39 @@ fn set_operation_operands_are_wrapped_only_when_needed(db: &mut TestDb<SimpleSch
     ids.sort_unstable();
     assert_eq!(ids, [1, 2, 3]);
 }
+
+#[drizzle::test]
+fn repeated_named_placeholder_binds_one_value(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+        ])
+        .execute();
+
+    let name = simple.name.placeholder("name");
+    let query = db
+        .select(())
+        .from(simple)
+        .r#where(or(eq(simple.name, name), eq(simple.name, name)));
+    assert_eq!(
+        query.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE ("simple"."name" = :name OR "simple"."name" = :name)"#
+    );
+
+    // Builder path: bind the placeholder on the SQL itself.
+    let bound = query
+        .to_sql()
+        .bind([name.bind::<SQLiteValue<'_>, _>("bob")]);
+    let rows: Vec<SelectSimple> = result!(db.all(bound))?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 2);
+
+    // Prepared path.
+    let prepared = query.prepare();
+    let rows: Vec<SelectSimple> = prepared.all(drizzle_client!(), [name.bind("alice")]);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 1);
+}
