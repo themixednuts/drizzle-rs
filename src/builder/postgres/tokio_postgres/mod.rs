@@ -25,7 +25,7 @@
 //!     ).await?;
 //!     tokio::spawn(async move { connection.await.unwrap() });
 //!
-//!     let (db, AppSchema { user }) = Drizzle::new(client, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(client);
 //!     db.create().await?;
 //!
 //!     // Insert
@@ -50,7 +50,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
-//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! # let (mut db, S { user }) = Drizzle::new(client);
 //! use drizzle::postgres::TransactionConfig;
 //!
 //! let count = db.transaction(TransactionConfig::default(), async |tx| {
@@ -75,7 +75,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
-//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! # let (mut db, S { user }) = Drizzle::new(client);
 //! db.transaction(TransactionConfig::default(), async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
@@ -106,7 +106,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
-//! # let (db, S { user }) = Drizzle::new(client, S::new());
+//! # let (db, S { user }) = Drizzle::new(client);
 //! let db_clone = db.clone();
 //! tokio::spawn(async move {
 //!     db_clone
@@ -132,7 +132,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
 //! # tokio::spawn(async move { conn.await.unwrap() });
-//! # let (db, S { user }) = Drizzle::new(client, S::new());
+//! # let (db, S { user }) = Drizzle::new(client);
 //!
 //! let find_name = user.name.placeholder("find_name");
 //!
@@ -242,21 +242,48 @@ pub(crate) fn tokio_postgres_materialize_params<'p>(
     (param_types, param_refs)
 }
 
-impl Drizzle {
-    /// Creates a new `Drizzle` instance.
+impl<Schema: Default> Drizzle<Schema> {
+    /// Creates a new `Drizzle` instance over `client`.
     ///
-    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    /// Returns `(Drizzle, Schema)`, with the schema built by `Default`. The
+    /// pattern that destructures the schema usually names its type. When
+    /// nothing else names it, put the type on the call, and use `()` for a
+    /// client with no schema:
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::tokio::Drizzle;
+    /// # #[PostgresTable] struct Users { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct Schema { users: Users }
+    /// # async fn connect() -> drizzle::Result<::tokio_postgres::Client> {
+    /// #     let (client, connection) =
+    /// #         ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls)
+    /// #             .await?;
+    /// #     tokio::spawn(async move { connection.await.unwrap() });
+    /// #     Ok(client)
+    /// # }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// let (db, Schema { users }) = Drizzle::new(connect().await?);
+    /// db.insert(users).values([InsertUsers::new("Alice")]).execute().await?;
+    ///
+    /// let (db, schema) = Drizzle::<Schema>::new(connect().await?);
+    /// db.insert(schema.users).values([InsertUsers::new("Bob")]).execute().await?;
+    ///
+    /// let (db, ()) = Drizzle::new(connect().await?);
+    /// # let _ = db;
+    /// # Ok(()) }
+    /// ```
     #[inline]
-    pub fn new<S: Copy>(client: Client, schema: S) -> (Drizzle<S>, S) {
+    pub fn new(client: Client) -> (Self, Schema) {
         let client = Arc::new(client);
         let registration = Arc::new(prepared::ClientRegistration::new(&client));
-        let drizzle = Drizzle {
+        let drizzle = Self {
             client,
-            schema,
+            schema: Schema::default(),
             statement_cache: prepared::ClientStatementCache::default(),
             registration,
         };
-        (drizzle, schema)
+        (drizzle, Schema::default())
     }
 }
 
@@ -517,7 +544,7 @@ impl<Schema> Drizzle<Schema> {
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
     /// # tokio::spawn(async move { conn.await.unwrap() });
-    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// # let (mut db, S { user }) = Drizzle::new(client);
     /// let count = db.transaction(TransactionConfig::default(), async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;

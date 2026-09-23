@@ -174,19 +174,57 @@ impl<Conn: Clone, S: Clone> Clone for Drizzle<Conn, S> {
     }
 }
 
-impl<Conn> Drizzle<Conn> {
-    /// Creates a new `Drizzle` instance.
+impl<Conn, Schema: Default> Drizzle<Conn, Schema> {
+    /// Creates a new `Drizzle` instance over `conn`.
     ///
-    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    /// Returns `(Drizzle, Schema)`, with the schema built by `Default`. The
+    /// pattern that destructures the schema usually names its type. When
+    /// nothing else names it, put the type on the call, and use `()` for a
+    /// connection with no schema:
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// use drizzle::sqlite::prelude::*;
+    /// use drizzle::sqlite::rusqlite::Drizzle;
+    /// use rusqlite::Connection;
+    ///
+    /// #[SQLiteTable]
+    /// struct Users {
+    ///     #[column(primary)]
+    ///     id: i32,
+    ///     name: String,
+    /// }
+    ///
+    /// #[derive(SQLiteSchema)]
+    /// struct Schema {
+    ///     users: Users,
+    /// }
+    ///
+    /// let (db, Schema { users }) = Drizzle::new(Connection::open_in_memory()?);
+    /// db.create()?;
+    /// db.insert(users).values([InsertUsers::new("Alice")]).execute()?;
+    ///
+    /// let (db, schema) = Drizzle::<Schema>::new(Connection::open_in_memory()?);
+    /// db.create()?;
+    /// db.insert(schema.users).values([InsertUsers::new("Bob")]).execute()?;
+    ///
+    /// let (db, ()) = Drizzle::new(Connection::open_in_memory()?);
+    /// # let _ = db;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
-    pub const fn new<S: Copy>(conn: Conn, schema: S) -> (Drizzle<Conn, S>, S) {
-        let drizzle = Drizzle {
+    pub fn new(conn: Conn) -> (Self, Schema) {
+        let drizzle = Self {
             conn,
-            schema,
+            schema: Schema::default(),
             #[cfg(feature = "libsql")]
             libsql_statement_cache: LibsqlStatementCache::new(),
         };
-        (drizzle, schema)
+        (drizzle, Schema::default())
     }
 }
 

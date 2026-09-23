@@ -639,7 +639,7 @@ async fn serve_with_mode(seed: u64, mode: PgMode) -> Result<ServerHandle, Fail> 
         } else {
             None
         };
-        let (db, _) = drizzle::postgres::tokio::Drizzle::new(client, Schema::new());
+        let (db, _) = drizzle::postgres::tokio::Drizzle::<Schema>::new(client);
         dbs.push(PgConn { db, statements });
     }
 

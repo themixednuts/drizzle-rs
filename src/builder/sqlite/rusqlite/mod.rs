@@ -20,7 +20,7 @@
 //!
 //! fn main() -> drizzle::Result<()> {
 //!     let conn = ::rusqlite::Connection::open_in_memory()?;
-//!     let (db, AppSchema { user, .. }) = Drizzle::new(conn, AppSchema::new());
+//!     let (db, AppSchema { user, .. }) = Drizzle::new(conn);
 //!     db.create()?;
 //!
 //!     // Insert
@@ -45,7 +45,7 @@
 //! # #[derive(SQLiteSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let conn = ::rusqlite::Connection::open_in_memory()?;
-//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn);
 //! # db.create()?;
 //! use drizzle::sqlite::TransactionConfig;
 //!
@@ -73,7 +73,7 @@
 //! # #[derive(SQLiteSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let conn = ::rusqlite::Connection::open_in_memory()?;
-//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn);
 //! # db.create()?;
 //! db.transaction(TransactionConfig::Deferred, |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
@@ -105,7 +105,7 @@
 //! # #[derive(SQLiteSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let conn = ::rusqlite::Connection::open_in_memory()?;
-//! # let (db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (db, S { user, .. }) = Drizzle::new(conn);
 //! # db.create()?;
 //!
 //! let find_name = user.name.placeholder("find_name");
@@ -321,7 +321,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// # #[derive(SQLiteSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let conn = ::rusqlite::Connection::open_in_memory()?;
-    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn);
     /// # db.create()?;
     /// let count = db.transaction(TransactionConfig::Deferred, |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;

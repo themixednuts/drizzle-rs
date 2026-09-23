@@ -32,7 +32,7 @@
 //!     let opts = ::mysql_async::Opts::from_url("mysql://root:mysql@localhost/app")
 //!         .map_err(|error| drizzle::error::DrizzleError::driver("MySQL", error))?;
 //!     let pool = ::mysql_async::Pool::new(opts);
-//!     let (db, AppSchema { user }) = Drizzle::new(pool, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(pool);
 //!     db.create().await?;
 //!
 //!     db.transaction(TransactionConfig::default(), async |tx| {
@@ -313,20 +313,49 @@ where
     }
 }
 
-impl<Connection> Drizzle<Connection> {
+impl<Connection, Schema: Default> Drizzle<Connection, Schema> {
     /// Attaches a schema without performing I/O.
+    ///
+    /// Returns `(Drizzle, Schema)`, with the schema built by `Default`. The
+    /// pattern that destructures the schema usually names its type. When
+    /// nothing else names it, put the type on the call, and use `()` for a
+    /// connection with no schema:
+    ///
+    /// ```no_run
+    /// # use drizzle::mysql::{mysql_async::Drizzle, prelude::*};
+    /// # #[MySQLTable]
+    /// # struct Users {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)]
+    /// #     id: u64,
+    /// #     #[column(VARCHAR(255))]
+    /// #     name: String,
+    /// # }
+    /// # #[derive(MySQLSchema)] struct Schema { users: Users }
+    /// # fn pool() -> drizzle::Result<::mysql_async::Pool> {
+    /// #     let opts = ::mysql_async::Opts::from_url("mysql://root:mysql@localhost/app")
+    /// #         .map_err(|error| drizzle::error::DrizzleError::driver("MySQL", error))?;
+    /// #     Ok(::mysql_async::Pool::new(opts))
+    /// # }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// let (db, Schema { users }) = Drizzle::new(pool()?);
+    /// db.insert(users).value(InsertUsers::new("Alice")).execute().await?;
+    ///
+    /// let (db, schema) = Drizzle::<_, Schema>::new(pool()?);
+    /// db.insert(schema.users).value(InsertUsers::new("Bob")).execute().await?;
+    ///
+    /// let (db, ()) = Drizzle::new(pool()?);
+    /// # db.disconnect().await?;
+    /// # Ok(()) }
+    /// ```
     #[must_use]
-    pub fn new<Schema: Copy>(
-        connection: Connection,
-        schema: Schema,
-    ) -> (Drizzle<Connection, Schema>, Schema) {
+    pub fn new(connection: Connection) -> (Self, Schema) {
         (
-            Drizzle {
+            Self {
                 connection,
-                schema,
+                schema: Schema::default(),
                 session_ready: false,
             },
-            schema,
+            Schema::default(),
         )
     }
 }

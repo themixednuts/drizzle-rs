@@ -16,7 +16,7 @@ struct Schema {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::default());
+    let (db, Schema { user, .. }) = Drizzle::new(conn);
 
     // A condition tuple is an AND of its elements, so every element must be
     // boolean-like. Text is not — this must be rejected.

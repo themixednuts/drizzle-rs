@@ -68,7 +68,7 @@
 //! #[event(fetch)]
 //! async fn fetch(_req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
 //!     let (db, AppSchema { user }) =
-//!         hyperdrive::connect(&env.hyperdrive("HYPERDRIVE")?, AppSchema::new())
+//!         hyperdrive::connect(&env.hyperdrive("HYPERDRIVE")?)
 //!             .await
 //!             .map_err(|e| worker::Error::RustError(e.to_string()))?;
 //!
@@ -109,7 +109,7 @@
 //! let migrations = drizzle::include_migrations!("./migrations");
 //!
 //! // Inside a `worker::Result` function, convert drizzle errors before `?`.
-//! let (mut db, _) = hyperdrive::connect(&env.hyperdrive("HYPERDRIVE")?, AppSchema::new())
+//! let (mut db, _) = hyperdrive::connect::<AppSchema>(&env.hyperdrive("HYPERDRIVE")?)
 //!     .await
 //!     .map_err(|e| worker::Error::RustError(e.to_string()))?;
 //! db.migrate(&migrations, Tracking::POSTGRES)
@@ -165,9 +165,8 @@ fn describe(error: &tokio_postgres::Error) -> String {
 /// Returns [`DrizzleError::Other`] if the binding cannot open a socket, if its
 /// connection string does not parse as a [`Config`], or if the `PostgreSQL`
 /// startup handshake fails.
-pub async fn connect<S: Copy>(
+pub async fn connect<S: Default>(
     hyperdrive: &Hyperdrive,
-    schema: S,
 ) -> drizzle_core::error::Result<(Drizzle<S>, S)> {
     let socket = hyperdrive.connect().map_err(|e| {
         DrizzleError::Other(format!("hyperdrive: failed to open socket: {e}").into())
@@ -180,7 +179,7 @@ pub async fn connect<S: Copy>(
             DrizzleError::Other(format!("hyperdrive: invalid connection string: {e}").into())
         })?;
 
-    connect_raw(&config, socket, schema).await
+    connect_raw(&config, socket).await
 }
 
 /// Connects over an already-opened [`Socket`] using an explicit [`Config`].
@@ -198,10 +197,9 @@ pub async fn connect<S: Copy>(
 /// # Errors
 ///
 /// Returns [`DrizzleError::Other`] if the `PostgreSQL` startup handshake fails.
-pub async fn connect_raw<S: Copy>(
+pub async fn connect_raw<S: Default>(
     config: &Config,
     socket: Socket,
-    schema: S,
 ) -> drizzle_core::error::Result<(Drizzle<S>, S)> {
     let (client, connection) = config.connect_raw(socket, NoTls).await.map_err(|e| {
         DrizzleError::Other(format!("hyperdrive: connect failed: {}", describe(&e)).into())
@@ -220,5 +218,5 @@ pub async fn connect_raw<S: Copy>(
         }
     });
 
-    Ok(Drizzle::new(client, schema))
+    Ok(Drizzle::new(client))
 }

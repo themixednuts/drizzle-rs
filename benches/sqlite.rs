@@ -80,7 +80,7 @@ fn rs_raw_blog() -> ::rusqlite::Connection {
 #[cfg(feature = "rusqlite")]
 fn rs_db() -> (drizzle::sqlite::rusqlite::Drizzle<Schema>, User) {
     let conn = ::rusqlite::Connection::open_in_memory().expect("open");
-    let (db, Schema { user }) = drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
+    let (db, Schema { user }) = drizzle::sqlite::rusqlite::Drizzle::<Schema>::new(conn);
     db.create().expect("create");
     (db, user)
 }
@@ -89,7 +89,7 @@ fn rs_db() -> (drizzle::sqlite::rusqlite::Drizzle<Schema>, User) {
 fn rs_db_blog() -> (drizzle::sqlite::rusqlite::Drizzle<BlogSchema>, User, Post) {
     let conn = ::rusqlite::Connection::open_in_memory().expect("open");
     let (db, BlogSchema { user, post }) =
-        drizzle::sqlite::rusqlite::Drizzle::new(conn, BlogSchema::new());
+        drizzle::sqlite::rusqlite::Drizzle::<BlogSchema>::new(conn);
     db.create().expect("create");
     (db, user, post)
 }
@@ -112,7 +112,7 @@ async fn tu_db() -> (drizzle::sqlite::turso::Drizzle<Schema>, User) {
         .await
         .expect("db");
     let conn = db.connect().expect("connect");
-    let (db, Schema { user }) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
+    let (db, Schema { user }) = drizzle::sqlite::turso::Drizzle::<Schema>::new(conn);
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
         .expect("create");
@@ -126,8 +126,7 @@ async fn tu_db_blog() -> (drizzle::sqlite::turso::Drizzle<BlogSchema>, User, Pos
         .await
         .expect("db");
     let conn = db.connect().expect("connect");
-    let (db, BlogSchema { user, post }) =
-        drizzle::sqlite::turso::Drizzle::new(conn, BlogSchema::new());
+    let (db, BlogSchema { user, post }) = drizzle::sqlite::turso::Drizzle::<BlogSchema>::new(conn);
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
         .expect("create users");
@@ -155,7 +154,7 @@ async fn ls_db() -> (drizzle::sqlite::libsql::Drizzle<Schema>, User) {
         .await
         .expect("db");
     let conn = db.connect().expect("connect");
-    let (db, Schema { user }) = drizzle::sqlite::libsql::Drizzle::new(conn, Schema::new());
+    let (db, Schema { user }) = drizzle::sqlite::libsql::Drizzle::<Schema>::new(conn);
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
         .expect("create");
@@ -169,8 +168,7 @@ async fn ls_db_blog() -> (drizzle::sqlite::libsql::Drizzle<BlogSchema>, User, Po
         .await
         .expect("db");
     let conn = db.connect().expect("connect");
-    let (db, BlogSchema { user, post }) =
-        drizzle::sqlite::libsql::Drizzle::new(conn, BlogSchema::new());
+    let (db, BlogSchema { user, post }) = drizzle::sqlite::libsql::Drizzle::<BlogSchema>::new(conn);
     db.execute(drizzle::core::SQL::raw(User::ddl_sql()))
         .await
         .expect("create users");
@@ -989,8 +987,7 @@ fn bench_mvcc(c: &mut Criterion) {
 
                 let _ = rx.recv();
                 let conn = ::rusqlite::Connection::open(&p).expect("open");
-                let (db, Schema { user }) =
-                    drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
+                let (db, Schema { user }) = drizzle::sqlite::rusqlite::Drizzle::<Schema>::new(conn);
                 let out: Vec<(i32, String, String)> = db
                     .select((user.id, user.name, user.email))
                     .from(user)
@@ -1028,9 +1025,9 @@ fn bench_mvcc(c: &mut Criterion) {
                     let rc = db.connect().expect("rc");
 
                     let (mut wdb, Schema { user: wu }) =
-                        drizzle::sqlite::turso::Drizzle::new(wc, Schema::new());
+                        drizzle::sqlite::turso::Drizzle::<Schema>::new(wc);
                     let (rdb, Schema { user: ru }) =
-                        drizzle::sqlite::turso::Drizzle::new(rc, Schema::new());
+                        drizzle::sqlite::turso::Drizzle::<Schema>::new(rc);
 
                     let w = async {
                         wdb.transaction(SQLiteTransactionType::Immediate, async |tx| {

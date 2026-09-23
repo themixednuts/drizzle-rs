@@ -175,7 +175,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # #[derive(PostgresSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
-    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// # let (mut db, S { user }) = Drizzle::new(client);
     /// db.transaction(TransactionConfig::default(), |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
     ///

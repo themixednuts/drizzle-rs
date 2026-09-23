@@ -127,7 +127,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let db_builder = Builder::new_local(":memory:").build().await?;
     /// # let conn = db_builder.connect()?;
-    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn);
     /// db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///

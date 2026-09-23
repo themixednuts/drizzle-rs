@@ -32,7 +32,7 @@ struct BadRow {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, Schema { user, post }) = Drizzle::new(conn, Schema::default());
+    let (db, Schema { user, post }) = Drizzle::new(conn);
 
     // GROUP BY user's primary key covers user's columns, but `post.title`
     // belongs to the joined table and is NOT functionally dependent on

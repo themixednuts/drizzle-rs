@@ -16,7 +16,7 @@ fn direct_connection_access_reestablishes_session_invariants() -> drizzle::Resul
     let mut connection = mysql::Conn::new(mysql_sync_setup::options())
         .map_err(|error| DrizzleError::driver("MySQL", error))?;
     mysql_sync_setup::reset_schema(&mut connection, &schema);
-    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection, schema);
+    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection);
     db.create()?;
 
     db.conn_mut().query_drop(
@@ -54,7 +54,7 @@ fn pooled_connection_is_returned_after_transaction_use() -> drizzle::Result<()> 
         .map_err(|error| DrizzleError::driver("MySQL", error))?;
     let schema = TestSchema::new();
     mysql_sync_setup::reset_schema(&mut connection, &schema);
-    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection, schema);
+    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection);
     db.create()?;
 
     db.transaction(TransactionConfig::default(), |tx| {
@@ -90,7 +90,7 @@ fn pooled_connection_introspects_and_pushes_on_its_checkout() -> drizzle::Result
         .map_err(|error| DrizzleError::driver("MySQL", error))?;
     let schema = TestSchema::new();
     mysql_sync_setup::reset_schema(&mut connection, &schema);
-    let (mut db, schema) = Drizzle::new(connection, schema);
+    let (mut db, schema) = Drizzle::<_, TestSchema>::new(connection);
 
     db.create()?;
     db.execute(SQL::raw("DROP TABLE test_posts"))?;

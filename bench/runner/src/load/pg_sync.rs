@@ -744,7 +744,7 @@ fn same_pg_setting(actual: &str, expected: &str) -> bool {
 fn seed_database_url_from_schema_cache(database_url: &str, seed: u64) -> Result<(), String> {
     let conn = ::postgres::Client::connect(database_url, ::postgres::NoTls)
         .map_err(|err| format!("postgres connect failed: {err}"))?;
-    let (mut db, schema) = drizzle::postgres::sync::Drizzle::new(conn, Schema::new());
+    let (mut db, schema) = drizzle::postgres::sync::Drizzle::<Schema>::new(conn);
 
     db.conn_mut()
         .execute("SELECT pg_advisory_lock($1)", &[&SEED_CACHE_LOCK_KEY])
@@ -1009,7 +1009,7 @@ fn reset_replication_role(db: &mut drizzle::postgres::sync::Drizzle<Schema>, ena
 fn connect_db(database_url: &str) -> Result<drizzle::postgres::sync::Drizzle<Schema>, String> {
     let conn = ::postgres::Client::connect(database_url, ::postgres::NoTls)
         .map_err(|err| format!("postgres connect failed: {err}"))?;
-    Ok(drizzle::postgres::sync::Drizzle::new(conn, Schema::new()).0)
+    Ok(drizzle::postgres::sync::Drizzle::<Schema>::new(conn).0)
 }
 
 /// Serialize a response on the worker thread and hand the bytes back.

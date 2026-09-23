@@ -147,12 +147,17 @@ If you already have a database, run `drizzle introspect` to reverse-engineer the
 use drizzle::sqlite::rusqlite::Drizzle;
 
 let conn = rusqlite::Connection::open("app.db")?;
-let (db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
+let (db, Schema { users, posts, comments }) = Drizzle::new(conn);
 # Ok(())
 # }
 # #[cfg(not(feature = "rusqlite"))]
 # fn main() {}
 ```
+
+`Drizzle::new` builds the schema value itself, and the pattern that
+destructures it names its type. When nothing else names it, put the type on
+the call: `Drizzle::<Schema>::new(conn)` (MySQL: `Drizzle::<_, Schema>::new(conn)`).
+Use `let (db, ()) = Drizzle::new(conn)` to run queries with no schema.
 
 > [!NOTE]
 > See [`examples/rusqlite.rs`](https://github.com/themixednuts/drizzle-rs/blob/main/examples/rusqlite.rs) for a full runnable example.
@@ -275,7 +280,7 @@ println!("cargo:rerun-if-env-changed=DRIZZLE_MIGRATE");
 
 if std::env::var("DRIZZLE_MIGRATE").is_ok() {
     let conn = rusqlite::Connection::open(cfg.url()?)?;
-    let (db, _) = Drizzle::new(conn, ());
+    let (db, ()) = Drizzle::new(conn);
     let migrations = MigrationDir::new(cfg.out_dir()).discover()?;
 
     if let MigrateOutcome::Applied { tags } = db.migrate(&migrations, cfg.tracking())? {
@@ -399,7 +404,7 @@ pub struct Schema {
 }
 
 # let conn = rusqlite::Connection::open_in_memory()?;
-# let (db, Schema { profiles }) = Drizzle::new(conn, Schema::new());
+# let (db, Schema { profiles }) = Drizzle::new(conn);
 # db.create()?;
 let dark = Settings { theme: "dark".into() };
 db.insert(profiles)
@@ -1071,7 +1076,7 @@ pub struct Schema {
 }
 
 # let conn = rusqlite::Connection::open_in_memory()?;
-# let (db, Schema { users, posts, tags, post_tags }) = Drizzle::new(conn, Schema::new());
+# let (db, Schema { users, posts, tags, post_tags }) = Drizzle::new(conn);
 # db.create()?;
 let authors = db
     .query(users)
@@ -1322,7 +1327,7 @@ let client = postgres::Client::connect(
     "host=localhost user=postgres password=postgres dbname=drizzle_test",
     postgres::NoTls,
 )?;
-let (mut db, Schema { accounts }) = Drizzle::new(client, Schema::new());
+let (mut db, Schema { accounts }) = Drizzle::new(client);
 # Ok(())
 # }
 # #[cfg(not(feature = "postgres-sync"))]
@@ -1371,7 +1376,7 @@ let options = mysql::Opts::from_url(
     "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test",
 )?;
 let connection = mysql::Conn::new(options)?;
-let (mut db, Schema { users, .. }) = Drizzle::new(connection, Schema::new());
+let (mut db, Schema { users, .. }) = Drizzle::new(connection);
 # Ok(())
 # }
 # #[cfg(not(feature = "mysql-sync"))]
@@ -1397,7 +1402,7 @@ let options = mysql_async::Opts::from_url(
     "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test",
 )?;
 let pool = mysql_async::Pool::new(options);
-let (db, ()) = Drizzle::new(pool, ());
+let (db, ()) = Drizzle::new(pool);
 // Calls on a pool-backed adapter are async and check out one connection per operation.
 db.disconnect().await?;
 # Ok(())

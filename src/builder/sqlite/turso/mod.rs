@@ -23,7 +23,7 @@
 //! async fn main() -> drizzle::Result<()> {
 //!     let db_builder = Builder::new_local(":memory:").build().await?;
 //!     let conn = db_builder.connect()?;
-//!     let (db, AppSchema { user }) = Drizzle::new(conn, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(conn);
 //!     db.create().await?;
 //!
 //!     // Insert
@@ -49,7 +49,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
-//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn);
 //! use drizzle::sqlite::TransactionConfig;
 //!
 //! let count = db.transaction(TransactionConfig::Deferred, async |tx| {
@@ -75,7 +75,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
-//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn);
 //! db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
@@ -106,7 +106,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
-//! # let (db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (db, S { user, .. }) = Drizzle::new(conn);
 //! let db_clone = db.clone();
 //! tokio::spawn(async move {
 //!     db_clone
@@ -342,7 +342,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let db_builder = Builder::new_local(":memory:").build().await?;
     /// # let conn = db_builder.connect()?;
-    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn);
     /// let count = db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;

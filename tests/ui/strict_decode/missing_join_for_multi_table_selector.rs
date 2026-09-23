@@ -32,7 +32,7 @@ struct UserPostRow {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, schema) = Drizzle::new(conn, Schema::default());
+    let (db, schema) = Drizzle::<Schema>::new(conn);
     let Schema { user, post: _ } = schema;
 
     let _rows: Vec<UserPostRow> = db.select(UserPostRow::Select).from(user).all().unwrap();

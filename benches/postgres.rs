@@ -93,7 +93,7 @@ fn ps_db() -> (drizzle::postgres::sync::Drizzle<Schema>, User) {
     let mut c = ::postgres::Client::connect(&url(), ::postgres::NoTls).expect("connect");
     c.batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .expect("drop");
-    let (mut db, Schema { user }) = drizzle::postgres::sync::Drizzle::new(c, Schema::new());
+    let (mut db, Schema { user }) = drizzle::postgres::sync::Drizzle::<Schema>::new(c);
     db.create().expect("create");
     (db, user)
 }
@@ -104,7 +104,7 @@ fn ps_db_blog() -> (drizzle::postgres::sync::Drizzle<BlogSchema>, User, Post) {
     c.batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .expect("drop");
     let (mut db, BlogSchema { user, post }) =
-        drizzle::postgres::sync::Drizzle::new(c, BlogSchema::new());
+        drizzle::postgres::sync::Drizzle::<BlogSchema>::new(c);
     db.create().expect("create");
     (db, user, post)
 }
@@ -135,7 +135,7 @@ async fn tp_db() -> (drizzle::postgres::tokio::Drizzle<Schema>, User) {
     c.batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .await
         .expect("drop");
-    let (db, Schema { user }) = drizzle::postgres::tokio::Drizzle::new(c, Schema::new());
+    let (db, Schema { user }) = drizzle::postgres::tokio::Drizzle::<Schema>::new(c);
     db.create().await.expect("create");
     (db, user)
 }
@@ -151,8 +151,7 @@ async fn tp_db_blog() -> (drizzle::postgres::tokio::Drizzle<BlogSchema>, User, P
     c.batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .await
         .expect("drop");
-    let (db, BlogSchema { user, post }) =
-        drizzle::postgres::tokio::Drizzle::new(c, BlogSchema::new());
+    let (db, BlogSchema { user, post }) = drizzle::postgres::tokio::Drizzle::<BlogSchema>::new(c);
     db.create().await.expect("create");
     (db, user, post)
 }

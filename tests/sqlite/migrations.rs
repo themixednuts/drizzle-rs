@@ -227,7 +227,7 @@ fn rusqlite_runtime_migrate_serializes_concurrent_runners() {
             let migration = migration.clone();
             std::thread::spawn(move || {
                 let connection = rusqlite::Connection::open(path).expect("open concurrent DB");
-                let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+                let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::<()>::new(connection);
                 barrier.wait();
                 database.migrate(&[migration], Tracking::SQLITE)
             })
@@ -618,7 +618,7 @@ async fn turso_up_to_date_migration_check_is_read_only() {
         .expect("build Turso database");
     let migration_connection = database.connect().expect("migration connection");
     let mut writer_connection = database.connect().expect("writer connection");
-    let (mut db, ()) = drizzle::sqlite::turso::Drizzle::new(migration_connection, ());
+    let (mut db, ()) = drizzle::sqlite::turso::Drizzle::<()>::new(migration_connection);
     let migration = Migration::new(
         "20260731000000_read_only_current_check",
         "CREATE TABLE records(value INTEGER NOT NULL)",
@@ -1017,7 +1017,7 @@ fn rusqlite_migrate_refuses_to_rerun_an_interrupted_migration() {
     let migration = simulate_interrupted_migration(&path);
 
     let connection = rusqlite::Connection::open(&path).expect("open DB");
-    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::<()>::new(connection);
     let error = database
         .migrate(&[migration], Tracking::SQLITE)
         .expect_err("a dirty tracking row must block migration");
@@ -1047,7 +1047,7 @@ fn rusqlite_repair_finishes_an_interrupted_migration() {
     assert!(!sqlite_table_exists(&path, "partial_second"));
 
     let connection = rusqlite::Connection::open(&path).expect("open DB");
-    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::<()>::new(connection);
     let outcome = database
         .migrate_with_repair(std::slice::from_ref(&migration), Tracking::SQLITE)
         .expect("repair should reconcile the interrupted migration");
@@ -1101,7 +1101,7 @@ fn rusqlite_repair_refuses_statements_it_cannot_prove() {
     drop(connection);
 
     let connection = rusqlite::Connection::open(&path).expect("reopen DB");
-    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::<()>::new(connection);
     let error = database
         .migrate_with_repair(&[migration], Tracking::SQLITE)
         .expect_err("an unprovable statement must not be silently skipped or re-run");
@@ -1125,7 +1125,7 @@ fn rusqlite_migrate_is_unaffected_when_nothing_is_dirty() {
     let migration = Migration::new(PARTIAL_TAG, PARTIAL_SQL);
 
     let connection = rusqlite::Connection::open(&path).expect("open DB");
-    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::new(connection, ());
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::<()>::new(connection);
 
     let outcome = database
         .migrate(std::slice::from_ref(&migration), Tracking::SQLITE)

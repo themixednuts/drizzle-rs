@@ -152,7 +152,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
     /// # tokio::spawn(async move { conn.await.unwrap() });
-    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// # let (mut db, S { user }) = Drizzle::new(client);
     /// db.transaction(TransactionConfig::default(), async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///

@@ -21,7 +21,7 @@ async fn main() {
         .await
         .expect("create in-memory database");
     let conn = db_builder.connect().expect("connect to database");
-    let (db, Schema { users, posts }) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
+    let (db, Schema { users, posts }) = drizzle::sqlite::turso::Drizzle::<Schema>::new(conn);
     db.create().await.expect("create tables");
 
     #[cfg(feature = "uuid")]

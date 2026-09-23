@@ -18,7 +18,7 @@ fn main() -> drizzle::Result<()> {
             posts,
             comments,
         },
-    ) = Drizzle::new(conn, Schema::new());
+    ) = Drizzle::<Schema>::new(conn);
 
     let migrations = drizzle::include_migrations!("./drizzle");
     db.migrate(&migrations, Tracking::SQLITE)?;

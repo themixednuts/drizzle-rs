@@ -243,8 +243,8 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
         .busy_timeout(std::time::Duration::from_millis(50))
         .expect("set writer busy timeout");
     let (mut first, SimpleSchema { simple }) =
-        drizzle::sqlite::turso::Drizzle::new(first_connection, SimpleSchema::new());
-    let (second, _) = drizzle::sqlite::turso::Drizzle::new(second_connection, SimpleSchema::new());
+        drizzle::sqlite::turso::Drizzle::<SimpleSchema>::new(first_connection);
+    let (second, _) = drizzle::sqlite::turso::Drizzle::<SimpleSchema>::new(second_connection);
     first.create().await.expect("create schema");
 
     let missing: drizzle::Result<SelectSimple> = first
@@ -360,7 +360,7 @@ async fn turso_strict_insert_returning_generates_integer_primary_key() {
         .expect("build Turso database");
     let connection = database.connect().expect("connect Turso database");
     let (mut db, StrictAutoSchema { rows }) =
-        drizzle::sqlite::turso::Drizzle::new(connection, StrictAutoSchema::new());
+        drizzle::sqlite::turso::Drizzle::<StrictAutoSchema>::new(connection);
     db.create().await.expect("create strict schema");
 
     let returned: SelectStrictAutoRow = db

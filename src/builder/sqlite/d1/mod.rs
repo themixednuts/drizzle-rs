@@ -53,7 +53,7 @@
 //! async fn fetch(_req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
 //!     // Schema is assumed current — applied out-of-band via wrangler.
 //!     let d1 = env.d1("DB")?;
-//!     let (db, AppSchema { user }) = Drizzle::new(d1, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(d1);
 //!
 //!     // `worker::Error` has no `From<drizzle::error::DrizzleError>`, so
 //!     // convert drizzle errors before using `?`.

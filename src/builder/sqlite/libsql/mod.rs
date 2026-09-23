@@ -23,7 +23,7 @@
 //! async fn main() -> drizzle::Result<()> {
 //!     let db_builder = Builder::new_local(":memory:").build().await?;
 //!     let conn = db_builder.connect()?;
-//!     let (db, AppSchema { user }) = Drizzle::new(conn, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(conn);
 //!     db.create().await?;
 //!
 //!     // Insert

@@ -51,7 +51,7 @@
 //!         // and expands to a `Vec<Migration>`.
 //!         let migrations = drizzle::include_migrations!("./drizzle");
 //!         let sql = state.storage().sql();
-//!         let (db, _) = Drizzle::new(sql, AppSchema::new());
+//!         let (db, _) = Drizzle::<AppSchema>::new(sql);
 //!         db.migrate(&migrations, Tracking::SQLITE)
 //!             .expect("durable migrations failed");
 //!         Self { state, env }
@@ -59,7 +59,7 @@
 //!
 //!     async fn fetch(&self, _req: Request) -> worker::Result<Response> {
 //!         let sql = self.state.storage().sql();
-//!         let (db, AppSchema { user }) = Drizzle::new(sql, AppSchema::new());
+//!         let (db, AppSchema { user }) = Drizzle::new(sql);
 //!         // `worker::Error` has no `From<drizzle::error::DrizzleError>`, so
 //!         // convert drizzle errors before using `?`.
 //!         db.insert(user)
@@ -299,7 +299,7 @@ where
     ///     fn new(state: State, env: Env) -> Self {
     ///         let migrations = drizzle::include_migrations!("./drizzle");
     ///         let sql = state.storage().sql();
-    ///         let (db, _) = Drizzle::new(sql, AppSchema::new());
+    ///         let (db, _) = Drizzle::<AppSchema>::new(sql);
     ///         db.migrate(&migrations, drizzle::migrations::Tracking::SQLITE)
     ///             .expect("durable migrations failed");
     ///         Self { state, env }

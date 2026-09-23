@@ -22,7 +22,7 @@ struct AggRow {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::default());
+    let (db, Schema { user, .. }) = Drizzle::new(conn);
 
     // Pure aggregate select — no GROUP BY needed
     let _: drizzle::Result<Vec<AggRow>> = db

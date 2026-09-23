@@ -16,5 +16,5 @@ pub struct Schema {
 pub fn database() -> Result<(Drizzle<mysql::Conn, Schema>, Schema), mysql::Error> {
     let options = mysql::Opts::from_url("mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test")?;
     let connection = mysql::Conn::new(options)?;
-    Ok(Drizzle::new(connection, Schema::new()))
+    Ok(Drizzle::<_, Schema>::new(connection))
 }

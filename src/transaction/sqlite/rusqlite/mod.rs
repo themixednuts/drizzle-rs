@@ -109,7 +109,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # #[derive(SQLiteSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let conn = ::rusqlite::Connection::open_in_memory()?;
-    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn);
     /// # db.create()?;
     /// db.transaction(TransactionConfig::Deferred, |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;

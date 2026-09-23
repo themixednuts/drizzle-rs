@@ -20,7 +20,7 @@
 //!
 //! fn main() -> drizzle::Result<()> {
 //!     let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
-//!     let (mut db, AppSchema { user }) = Drizzle::new(client, AppSchema::new());
+//!     let (mut db, AppSchema { user }) = Drizzle::new(client);
 //!     db.create()?;
 //!
 //!     // Insert
@@ -45,7 +45,7 @@
 //! # #[derive(PostgresSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
-//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! # let (mut db, S { user }) = Drizzle::new(client);
 //! use drizzle::postgres::TransactionConfig;
 //!
 //! let count = db.transaction(TransactionConfig::default(), |tx| {
@@ -69,7 +69,7 @@
 //! # #[derive(PostgresSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
-//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! # let (mut db, S { user }) = Drizzle::new(client);
 //! db.transaction(TransactionConfig::default(), |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
 //!
@@ -98,7 +98,7 @@
 //! # #[derive(PostgresSchema)] struct S { user: User }
 //! # fn main() -> drizzle::Result<()> {
 //! # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
-//! # let (mut db, S { user }) = Drizzle::new(client, S::new());
+//! # let (mut db, S { user }) = Drizzle::new(client);
 //!
 //! let find_name = user.name.placeholder("find_name");
 //!
@@ -192,19 +192,42 @@ pub(crate) fn postgres_sync_materialize_params<'p>(
     (param_types, param_refs)
 }
 
-impl Drizzle {
-    /// Creates a new `Drizzle` instance.
+impl<Schema: Default> Drizzle<Schema> {
+    /// Creates a new `Drizzle` instance over `client`.
     ///
-    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    /// Returns `(Drizzle, Schema)`, with the schema built by `Default`. The
+    /// pattern that destructures the schema usually names its type. When
+    /// nothing else names it, put the type on the call, and use `()` for a
+    /// client with no schema:
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::sync::Drizzle;
+    /// # #[PostgresTable] struct Users { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct Schema { users: Users }
+    /// # fn connect() -> drizzle::Result<::postgres::Client> {
+    /// #     Ok(::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?)
+    /// # }
+    /// # fn main() -> drizzle::Result<()> {
+    /// let (mut db, Schema { users }) = Drizzle::new(connect()?);
+    /// db.insert(users).values([InsertUsers::new("Alice")]).execute()?;
+    ///
+    /// let (mut db, schema) = Drizzle::<Schema>::new(connect()?);
+    /// db.insert(schema.users).values([InsertUsers::new("Bob")]).execute()?;
+    ///
+    /// let (db, ()) = Drizzle::new(connect()?);
+    /// # let _ = db;
+    /// # Ok(()) }
+    /// ```
     #[inline]
-    pub const fn new<S: Copy>(client: Client, schema: S) -> (Drizzle<S>, S) {
-        let drizzle = Drizzle {
+    pub fn new(client: Client) -> (Self, Schema) {
+        let drizzle = Self {
             client,
-            schema,
+            schema: Schema::default(),
             client_id: OnceLock::new(),
             statement_cache: OnceLock::new(),
         };
-        (drizzle, schema)
+        (drizzle, Schema::default())
     }
 }
 
@@ -476,7 +499,7 @@ impl<Schema> Drizzle<Schema> {
     /// # #[derive(PostgresSchema)] struct S { user: User }
     /// # fn main() -> drizzle::Result<()> {
     /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
-    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// # let (mut db, S { user }) = Drizzle::new(client);
     /// let count = db.transaction(TransactionConfig::default(), |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all()?;
