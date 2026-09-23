@@ -155,6 +155,12 @@ mod turso;
 // =============================================================================
 
 /// Generate field assignments for a driver, handling both tuple and named structs.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres"
+))]
 fn generate_field_assignments<F>(
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
     is_tuple: bool,
@@ -174,7 +180,7 @@ where
 }
 
 /// Generate a `TryFrom` implementation for a specific driver.
-#[cfg(feature = "sqlite")]
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 fn generate_driver_try_from(
     struct_name: &Ident,
     row_type: &TokenStream,
@@ -355,7 +361,10 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
     let drizzle_error = core_paths::drizzle_error();
     let sqlite_value = sqlite_paths::sqlite_value();
 
+    // Each enabled driver adds its impls; with none, only the shared ones remain.
+    #[allow(unused_mut)]
     let mut impl_blocks: Vec<TokenStream> = Vec::new();
+    #[allow(unused_variables)]
     let field_count = fields.len();
     #[cfg(any(feature = "rusqlite", feature = "libsql"))]
     let decode_named_by_name =

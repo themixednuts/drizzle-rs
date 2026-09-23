@@ -73,6 +73,8 @@ pub struct FieldInfo {
     pub default_fn: Option<TokenStream>,
     pub check_constraint: Option<String>,
     pub foreign_key: Option<MySQLReference>,
+    /// Only the relational query API (`query` feature) reads it.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))]
     pub relation_name: Option<String>,
     pub has_default: bool,
     pub marker_exprs: Vec<ExprPath>,

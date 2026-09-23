@@ -15,7 +15,10 @@ pub fn generate_enum_impl(
     let drizzle_error = core_paths::drizzle_error();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();
+    // Only the driver-specific impls below use these two.
+    #[allow(unused_variables)]
     let row_column_list = core_paths::row_column_list();
+    #[allow(unused_variables)]
     let type_set_cons = core_paths::type_set_cons();
     let impl_try_from_int = core_paths::impl_try_from_int();
     let value_type_for_dialect = core_paths::value_type_for_dialect();

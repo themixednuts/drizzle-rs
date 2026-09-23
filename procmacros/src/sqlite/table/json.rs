@@ -38,6 +38,7 @@ pub fn validate_json_fields(ctx: &MacroContext) -> Result<()> {
 ///
 /// `row` must implement `DrizzleRowByIndex` and `idx` must be a `usize`
 /// expression. The expression propagates decode errors with `?`.
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 pub fn row_decode(idx: &TokenStream, info: &FieldInfo, is_optional: bool) -> TokenStream {
     let base_type = info.base_type;
     if is_optional {
@@ -59,6 +60,7 @@ pub fn row_decode(idx: &TokenStream, info: &FieldInfo, is_optional: bool) -> Tok
 
 /// Reads a JSON field of a partial model, yielding `None` when the column is
 /// absent, SQL `NULL`, or not a decodable document.
+#[cfg(feature = "rusqlite")]
 pub fn partial_row_decode(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
     let base_type = info.base_type;
     quote! {{

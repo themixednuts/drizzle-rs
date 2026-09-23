@@ -6,6 +6,7 @@ use syn::{Attribute, DataEnum, Expr, ExprLit, ExprUnary, Lit, UnOp, spanned::Spa
 ///
 /// Handles positive literals (`3`), negative literals (`-1`), and
 /// returns a compile error for anything else.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 pub fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
     match expr {
         // Simple positive literal like `3`
@@ -51,6 +52,7 @@ pub fn has_explicit_discriminants(data: &DataEnum) -> bool {
 }
 
 /// Check if the type has a `#[repr(iN)]` or `#[repr(uN)]` attribute.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 pub fn has_integer_repr(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|attr| {
         if !attr.path().is_ident("repr") {
@@ -70,6 +72,7 @@ pub fn has_integer_repr(attrs: &[Attribute]) -> bool {
 ///
 /// Returns a vector of `(variant_ident, discriminant_value)` pairs.
 /// Emits a compile error if any two variants share the same discriminant.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 pub fn resolve_discriminants(data: &DataEnum) -> syn::Result<Vec<(&syn::Ident, i64)>> {
     let mut results = Vec::with_capacity(data.variants.len());
     // Track which value maps to which variant name (for error messages)

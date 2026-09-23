@@ -22,10 +22,12 @@ pub struct DialectTypes {
     /// The `SQLSchema` trait path (e.g., `drizzle::core::SQLSchema`)
     pub sql_schema: TokenStream,
     /// The schema type marker (e.g., `drizzle::sqlite::common::SQLiteSchemaType`)
+    #[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
     pub schema_type: TokenStream,
     /// The value type (e.g., `drizzle::sqlite::values::SQLiteValue`)
     pub value_type: TokenStream,
     /// Suffix used for implicit single-column unique constraint names.
+    #[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
     pub unique_constraint_suffix: &'static str,
 }
 
@@ -63,6 +65,7 @@ pub trait CompositeForeignKeyRef {
 
 /// Generate a `concatcp!` expression that produces a table name reference at compile time.
 /// Returns tokens for `<Table as SQLSchema<'_, SchemaType, Value<'_>>>::NAME`.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 fn table_name_const(struct_ident: &Ident, dt: &DialectTypes) -> TokenStream {
     let sql_schema = &dt.sql_schema;
     let schema_type = &dt.schema_type;
@@ -72,6 +75,7 @@ fn table_name_const(struct_ident: &Ident, dt: &DialectTypes) -> TokenStream {
 
 /// Generate a const fn block that resolves a column ZST's name at compile time.
 /// Returns tokens for `{ const fn col_name<...>(...) -> &str { C::NAME } col_name(&Table::new().field) }`.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 fn column_name_const(table_ident: &Ident, field_ident: &Ident, dt: &DialectTypes) -> TokenStream {
     let sql_schema = &dt.sql_schema;
     let value_type = &dt.value_type;
@@ -109,6 +113,7 @@ pub fn cross_table_column_name_const(
 }
 
 /// Generate a `concatcp!` expression for a constraint name like `{table_name}_{col_name}_{suffix}`.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 fn constraint_name_with_col_concatcp(
     struct_ident: &Ident,
     field_ident: &Ident,
@@ -463,6 +468,7 @@ pub fn generate_foreign_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
     (quote! { #(#fk_impls)* }, fk_list, fk_types, fk_zst_idents)
 }
 
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     field_infos: &[F],
     struct_ident: &Ident,

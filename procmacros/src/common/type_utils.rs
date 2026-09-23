@@ -42,6 +42,7 @@ pub fn option_inner_type(ty: &Type) -> Option<&Type> {
     })
 }
 
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
 pub fn unwrap_option(ty: &Type) -> &Type {
     option_inner_type(ty).unwrap_or(ty)
 }

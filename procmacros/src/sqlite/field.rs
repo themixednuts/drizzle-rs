@@ -262,6 +262,8 @@ pub struct FieldInfo<'a> {
     pub(crate) foreign_key: Option<ForeignKeyReference>,
 
     /// Optional reverse-relation name from `#[column(relation = "...")]`.
+    /// Only the relational query API (`query` feature) reads it.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))]
     pub(crate) relation_name: Option<String>,
 
     /// Resolved primary-key / unique state.
