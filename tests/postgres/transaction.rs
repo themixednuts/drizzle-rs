@@ -77,3 +77,62 @@ fn test_tokio_postgres_transaction_futures_are_send() {
 
     let _ = transaction_future;
 }
+
+#[drizzle::test]
+fn swallowed_statement_errors_fail_the_commit(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let outcome = result!(db.transaction(TransactionConfig::default(), |tx| {
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("kept")])
+                .execute()
+        )?;
+        // The error is ignored, but PostgreSQL has aborted the transaction,
+        // so COMMIT rolls back. This used to report success.
+        let _ = result!(tx.execute(SQL::raw("SELECT 1 / 0")));
+        Ok(())
+    }));
+    assert!(outcome.is_err(), "{outcome:?}");
+
+    let rows: Vec<SelectSimple> = db.select(()).from(simple).all();
+    assert!(rows.is_empty());
+}
+
+#[drizzle::test]
+fn a_failed_statement_rolls_back_only_its_savepoint(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    result!(db.transaction(TransactionConfig::default(), |tx| {
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("outer")])
+                .execute()
+        )?;
+        // The savepoint body ignores the error and returns Ok, but only
+        // rolling back to the savepoint recovers the transaction.
+        let savepoint = result!(tx.savepoint(|sp| {
+            result!(
+                sp.insert(simple)
+                    .values([InsertSimple::new("inner")])
+                    .execute()
+            )?;
+            let _ = result!(sp.execute(SQL::raw("SELECT 1 / 0")));
+            Ok(())
+        }));
+        assert!(savepoint.is_err());
+        result!(
+            tx.insert(simple)
+                .values([InsertSimple::new("after")])
+                .execute()
+        )?;
+        Ok(())
+    }))?;
+
+    let names: Vec<String> = db
+        .select(simple.name)
+        .from(simple)
+        .order_by(asc(simple.name))
+        .all();
+    assert_eq!(names, ["after", "outer"]);
+}

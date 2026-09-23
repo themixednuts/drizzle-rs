@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicU32;
 
-use crate::transaction::savepoint::sync_savepoint;
+use crate::transaction::savepoint::{AbortState, sync_savepoint_tracking};
 
 /// Returns an error indicating the transaction has already been consumed.
 fn tx_consumed_error() -> DrizzleError {
@@ -60,6 +60,7 @@ pub struct Transaction<'conn, Schema = ()> {
     tx: RefCell<Option<PgTransaction<'conn>>>,
     config: TransactionConfig,
     savepoint_depth: AtomicU32,
+    aborted: AbortState,
     schema: Schema,
     client_id: u64,
     statement_cache: StatementCache,
@@ -87,6 +88,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             tx: RefCell::new(Some(tx)),
             config,
             savepoint_depth: AtomicU32::new(0),
+            aborted: AbortState::new(),
             schema,
             client_id,
             statement_cache,
@@ -129,6 +131,23 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     #[inline]
     pub const fn config(&self) -> TransactionConfig {
         self.config
+    }
+
+    /// Converts a driver error from a statement run in this transaction.
+    ///
+    /// A server error aborts a PostgreSQL transaction (every later statement
+    /// fails and `COMMIT` rolls back), so it is recorded: committing then
+    /// reports the rollback instead of success.
+    fn statement_error(&self, error: postgres::Error) -> DrizzleError {
+        if error.as_db_error().is_some() {
+            self.aborted.mark();
+        }
+        // A stale cached statement cannot be retried here (the error aborted
+        // the transaction), but later work must not reuse it.
+        if crate::builder::postgres::postgres_sync::prepared::is_stale_statement(&error) {
+            self.statement_cache.clear_client(self.client_id);
+        }
+        DrizzleError::from(error)
     }
 
     /// Executes a raw SQL string with no parameters.
@@ -180,8 +199,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     where
         F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
     {
-        sync_savepoint(
+        sync_savepoint_tracking(
             &self.savepoint_depth,
+            &self.aborted,
             |sql| self.execute_raw(sql),
             || f(self),
         )
@@ -213,10 +233,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.execute.db");
         let statement = self
             .cached_statement(tx, &sql, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
         Ok(tx
             .execute(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)?)
+            .map_err(|error| self.statement_error(error))?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -261,10 +281,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         let statement = self
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         Ok(Rows::new(rows))
     }
@@ -295,10 +315,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         let statement = self
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
         let row = tx
             .query_one(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -331,15 +351,21 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
         let statement = self
             .cached_statement(tx, &sql, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         tx.query(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)
+            .map_err(|error| self.statement_error(error))
     }
 
     /// Commits the transaction
     pub(crate) fn commit(self) -> drizzle_core::error::Result<()> {
         let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+        // PostgreSQL answers COMMIT in an aborted transaction by rolling back
+        // without an error; report it instead of returning `Ok`.
+        if self.aborted.is_aborted() {
+            tx.rollback().map_err(DrizzleError::from)?;
+            return Err(crate::transaction::savepoint::aborted_transaction_error());
+        }
         tx.commit().map_err(DrizzleError::from)
     }
 
@@ -604,10 +630,10 @@ where
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         Ok(tx
             .execute(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)?)
+            .map_err(|error| self.runner.statement_error(error))?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -633,10 +659,10 @@ where
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -669,10 +695,10 @@ where
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
         Ok(Rows::new(rows))
     }
@@ -700,10 +726,10 @@ where
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let row = tx
             .query_one(&statement, &param_refs[..])
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
         <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
     }
