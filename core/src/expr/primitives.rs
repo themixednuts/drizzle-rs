@@ -442,6 +442,46 @@ where
 }
 
 // =============================================================================
+// Date and Time Values (Feature-Gated)
+// =============================================================================
+
+/// Lets a date or time value stand where an expression goes (`eq(col, value)`,
+/// `gt(col, value)`), typed as the SQL type its dialect stores it as.
+#[cfg(any(feature = "chrono", feature = "time"))]
+macro_rules! impl_value_expr {
+    ($($ty:ty),+ $(,)?) => {$(
+        impl<'a, V> Expr<'a, V> for $ty
+        where
+            V: SQLParam + 'a + From<Self> + Into<Cow<'a, V>>,
+            Self: ValueTypeForDialect<V::DialectMarker>,
+        {
+            type SQLType = <Self as ValueTypeForDialect<V::DialectMarker>>::SQLType;
+            type Nullable = NonNull;
+            type Aggregate = Scalar;
+        }
+    )+};
+}
+
+#[cfg(feature = "chrono")]
+impl_value_expr!(
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::Utc>,
+    chrono::DateTime<chrono::FixedOffset>,
+    chrono::Duration,
+);
+
+#[cfg(feature = "time")]
+impl_value_expr!(
+    time::Date,
+    time::Time,
+    time::PrimitiveDateTime,
+    time::OffsetDateTime,
+    time::Duration,
+);
+
+// =============================================================================
 // SQL Type - Backward Compatibility
 // Allows untyped columns (which return SQL) to work with typed functions.
 // =============================================================================

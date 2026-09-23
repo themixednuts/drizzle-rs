@@ -77,6 +77,29 @@ mod time_values {
             )
         );
     }
+
+    #[drizzle::test]
+    fn time_values_compare_in_filters(db: &mut TestDb<TimeSchema>) {
+        let TimeSchema { events } = schema;
+        let day = date!(2026 - 09 - 23);
+        let instant = datetime!(2026-09-23 7:30:15 UTC);
+        db.insert(events)
+            .values([
+                InsertTimeEvent::new(day, time!(9:30), datetime!(2026-09-23 9:30), instant)
+                    .with_id(1),
+            ])
+            .execute();
+
+        let matched: Vec<SelectTimeEvent> = db
+            .select(())
+            .from(events)
+            .r#where(drizzle::core::expr::and(
+                drizzle::core::expr::eq(events.day, day),
+                drizzle::core::expr::eq(events.instant, instant),
+            ))
+            .all();
+        assert_eq!(matched.len(), 1);
+    }
 }
 
 #[cfg(feature = "chrono")]
