@@ -370,8 +370,11 @@ fn plan_sync(creds: &MySQLCreds, set: &Migrations) -> Result<MigrationPlan, CliE
     let mut connection = connect_sync(creds)?;
     let lock_name = migration_lock_name_sync(&mut connection, set)?;
     with_migration_lock_sync(&mut connection, &lock_name, |connection| {
-        ensure_tracking_table_sync(connection, set)?;
-        let applied = query_applied_records_sync(connection, set)?;
+        let applied = match read_tracking_state_sync(connection, set)? {
+            super::TrackingState::Missing => Vec::new(),
+            super::TrackingState::Legacy(rows) => super::legacy_applied_records(set, &rows)?,
+            super::TrackingState::Current => query_applied_records_sync(connection, set)?,
+        };
         super::build_migration_plan(set, &applied)
     })
 }
@@ -468,6 +471,30 @@ fn release_migration_lock_sync(
             "MySQL no longer recognizes migration lock '{lock_name}' while releasing it"
         ))),
     }
+}
+
+/// Reads the tracking table's state without changing it.
+#[cfg(feature = "mysql-sync")]
+fn read_tracking_state_sync(
+    connection: &mut ::mysql::Conn,
+    set: &Migrations,
+) -> Result<super::TrackingState, CliError> {
+    let columns = decode_applied_names(query_sync_rows(connection, &column_names_sql(set))?)?;
+    let has_name = columns.iter().any(|column| column == "name");
+    let has_applied_at = columns.iter().any(|column| column == "applied_at");
+    if columns.is_empty() {
+        return Ok(super::TrackingState::Missing);
+    }
+    if has_name && has_applied_at {
+        return Ok(super::TrackingState::Current);
+    }
+    // A table from before migrations were recorded by name, or one whose
+    // upgrade stopped halfway.
+    let rows = decode_legacy_metadata(query_sync_rows(
+        connection,
+        &legacy_metadata_sql(set, has_name, has_applied_at),
+    )?)?;
+    Ok(super::TrackingState::Legacy(rows))
 }
 
 #[cfg(feature = "mysql-sync")]
@@ -815,8 +842,13 @@ async fn plan_async_inner(creds: &MySQLCreds, set: &Migrations) -> Result<Migrat
     let lock_name = migration_lock_name_async(&mut connection, set).await?;
     acquire_migration_lock_async(&mut connection, &lock_name).await?;
     let result = async {
-        ensure_tracking_table_async(&mut connection, set).await?;
-        let applied = query_applied_records_async(&mut connection, set).await?;
+        let applied = match read_tracking_state_async(&mut connection, set).await? {
+            super::TrackingState::Missing => Vec::new(),
+            super::TrackingState::Legacy(rows) => super::legacy_applied_records(set, &rows)?,
+            super::TrackingState::Current => {
+                query_applied_records_async(&mut connection, set).await?
+            }
+        };
         super::build_migration_plan(set, &applied)
     }
     .await;
@@ -933,6 +965,33 @@ async fn release_migration_lock_async(
             "MySQL no longer recognizes migration lock '{lock_name}' while releasing it"
         ))),
     }
+}
+
+/// Reads the tracking table's state without changing it.
+#[cfg(feature = "mysql-async")]
+async fn read_tracking_state_async(
+    connection: &mut ::mysql_async::Conn,
+    set: &Migrations,
+) -> Result<super::TrackingState, CliError> {
+    let columns = query_column_names_async(connection, set).await?;
+    let has_name = columns.iter().any(|column| column == "name");
+    let has_applied_at = columns.iter().any(|column| column == "applied_at");
+    if columns.is_empty() {
+        return Ok(super::TrackingState::Missing);
+    }
+    if has_name && has_applied_at {
+        return Ok(super::TrackingState::Current);
+    }
+    // A table from before migrations were recorded by name, or one whose
+    // upgrade stopped halfway.
+    let rows = decode_legacy_metadata(
+        query_async_rows(
+            connection,
+            &legacy_metadata_sql(set, has_name, has_applied_at),
+        )
+        .await?,
+    )?;
+    Ok(super::TrackingState::Legacy(rows))
 }
 
 #[cfg(feature = "mysql-async")]

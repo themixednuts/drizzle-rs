@@ -52,6 +52,42 @@ pub struct MigrationPlan {
     pub findings: Vec<String>,
 }
 
+/// A tracking table as `migrate --plan`, `--dry-run` and `--verify` read it:
+/// they must not create or upgrade it.
+pub(crate) enum TrackingState {
+    /// No tracking table: no migration has run.
+    Missing,
+    /// A table from before migrations were recorded by name, as its rows.
+    Legacy(Vec<drizzle_migrations::AppliedMigrationMetadata>),
+    /// The current layout.
+    Current,
+}
+
+/// The applied migrations of a legacy tracking table, matched to the local
+/// ones by timestamp and hash the way `migrate` upgrades the table.
+pub(crate) fn legacy_applied_records(
+    set: &Migrations,
+    rows: &[drizzle_migrations::AppliedMigrationMetadata],
+) -> Result<Vec<AppliedMigrationRecord>, CliError> {
+    let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), rows)
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    Ok(matched
+        .into_iter()
+        .map(|row| AppliedMigrationRecord {
+            hash: row.hash,
+            name: row.name,
+            dirty: false,
+        })
+        .collect())
+}
+
+/// Whether a SQLite database named by `path` exists. Opening a missing file
+/// would create it; `:memory:` and `file:` URIs are left to the driver.
+#[cfg(any(feature = "rusqlite", feature = "libsql"))]
+fn sqlite_database_exists(path: &str) -> bool {
+    path == ":memory:" || path.starts_with("file:") || std::path::Path::new(path).exists()
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct AppliedMigrationRecord {
     pub(crate) hash: String,
@@ -1073,13 +1109,10 @@ async fn repair_dirty_migrations_postgres_async(
 
 /// Reads the tracking table's state without changing it.
 #[cfg(feature = "rusqlite")]
-fn ensure_sqlite_tracking_table(
+fn read_sqlite_tracking_state(
     conn: &rusqlite::Connection,
     set: &Migrations,
-) -> Result<(), CliError> {
-    conn.execute(&set.create_table_sql(), [])
-        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
-
+) -> Result<TrackingState, CliError> {
     let pragma_sql = format!(
         "SELECT name FROM pragma_table_info('{}')",
         escape_sql_literal(set.table_name())
@@ -1092,8 +1125,11 @@ fn ensure_sqlite_tracking_table(
         .map_err(|e| CliError::MigrationError(e.to_string()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if columns.is_empty() {
+        return Ok(TrackingState::Missing);
+    }
     if columns.iter().any(|column| column == "name") {
-        return Ok(());
+        return Ok(TrackingState::Current);
     }
 
     let mut stmt = conn
@@ -1113,6 +1149,20 @@ fn ensure_sqlite_tracking_table(
         .map_err(|e| CliError::MigrationError(e.to_string()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    Ok(TrackingState::Legacy(rows))
+}
+
+#[cfg(feature = "rusqlite")]
+fn ensure_sqlite_tracking_table(
+    conn: &rusqlite::Connection,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    conn.execute(&set.create_table_sql(), [])
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
+
+    let TrackingState::Legacy(applied) = read_sqlite_tracking_state(conn, set)? else {
+        return Ok(());
+    };
 
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
@@ -1160,14 +1210,10 @@ fn ensure_sqlite_tracking_table(
 
 /// Reads the tracking table's state without changing it.
 #[cfg(any(feature = "libsql", feature = "turso"))]
-async fn ensure_sqlite_tracking_table_libsql(
+async fn read_sqlite_tracking_state_libsql(
     conn: &libsql::Connection,
     set: &Migrations,
-) -> Result<(), CliError> {
-    conn.execute(&set.create_table_sql(), ())
-        .await
-        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
-
+) -> Result<TrackingState, CliError> {
     let pragma_sql = format!(
         "SELECT name FROM pragma_table_info('{}')",
         escape_sql_literal(set.table_name())
@@ -1191,8 +1237,11 @@ async fn ensure_sqlite_tracking_table_libsql(
             has_name = true;
         }
     }
+    if !any_column {
+        return Ok(TrackingState::Missing);
+    }
     if has_name {
-        return Ok(());
+        return Ok(TrackingState::Current);
     }
 
     let mut rows = conn
@@ -1223,6 +1272,21 @@ async fn ensure_sqlite_tracking_table_libsql(
                 .map_err(|e| CliError::MigrationError(e.to_string()))?,
         });
     }
+    Ok(TrackingState::Legacy(applied))
+}
+
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn ensure_sqlite_tracking_table_libsql(
+    conn: &libsql::Connection,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    conn.execute(&set.create_table_sql(), ())
+        .await
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
+
+    let TrackingState::Legacy(applied) = read_sqlite_tracking_state_libsql(conn, set).await? else {
+        return Ok(());
+    };
 
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
@@ -1264,14 +1328,10 @@ async fn ensure_sqlite_tracking_table_libsql(
 
 /// Reads the tracking table's state without changing it.
 #[cfg(feature = "postgres-sync")]
-fn ensure_postgres_tracking_table_sync(
+fn read_postgres_tracking_state_sync(
     client: &mut postgres::Client,
     set: &Migrations,
-) -> Result<(), CliError> {
-    client
-        .execute(&set.create_table_sql(), &[])
-        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
-
+) -> Result<TrackingState, CliError> {
     let schema = set.schema_name().unwrap_or("public");
     let rows = client
         .query(
@@ -1284,8 +1344,11 @@ fn ensure_postgres_tracking_table_sync(
         .map(|row| row.try_get::<_, String>(0))
         .collect::<Result<Vec<_>, postgres::Error>>()
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if columns.is_empty() {
+        return Ok(TrackingState::Missing);
+    }
     if columns.iter().any(|column| column == "name") {
-        return Ok(());
+        return Ok(TrackingState::Current);
     }
 
     let rows = client
@@ -1308,6 +1371,21 @@ fn ensure_postgres_tracking_table_sync(
         })
         .collect::<Result<Vec<_>, postgres::Error>>()
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    Ok(TrackingState::Legacy(applied))
+}
+
+#[cfg(feature = "postgres-sync")]
+fn ensure_postgres_tracking_table_sync(
+    client: &mut postgres::Client,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    client
+        .execute(&set.create_table_sql(), &[])
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
+
+    let TrackingState::Legacy(applied) = read_postgres_tracking_state_sync(client, set)? else {
+        return Ok(());
+    };
 
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
@@ -1342,15 +1420,10 @@ fn ensure_postgres_tracking_table_sync(
 
 /// Reads the tracking table's state without changing it.
 #[cfg(feature = "tokio-postgres")]
-async fn ensure_postgres_tracking_table_async(
+async fn read_postgres_tracking_state_async(
     client: &tokio_postgres::Client,
     set: &Migrations,
-) -> Result<(), CliError> {
-    client
-        .execute(&set.create_table_sql(), &[])
-        .await
-        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
-
+) -> Result<TrackingState, CliError> {
     let schema = set.schema_name().unwrap_or("public");
     let rows = client
         .query(
@@ -1364,8 +1437,11 @@ async fn ensure_postgres_tracking_table_async(
         .map(|row| row.try_get::<_, String>(0))
         .collect::<Result<Vec<_>, tokio_postgres::Error>>()
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    if columns.is_empty() {
+        return Ok(TrackingState::Missing);
+    }
     if columns.iter().any(|column| column == "name") {
-        return Ok(());
+        return Ok(TrackingState::Current);
     }
 
     let rows = client
@@ -1389,6 +1465,23 @@ async fn ensure_postgres_tracking_table_async(
         })
         .collect::<Result<Vec<_>, tokio_postgres::Error>>()
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    Ok(TrackingState::Legacy(applied))
+}
+
+#[cfg(feature = "tokio-postgres")]
+async fn ensure_postgres_tracking_table_async(
+    client: &tokio_postgres::Client,
+    set: &Migrations,
+) -> Result<(), CliError> {
+    client
+        .execute(&set.create_table_sql(), &[])
+        .await
+        .map_err(|e| CliError::MigrationError(format!("Failed to create migrations table: {e}")))?;
+
+    let TrackingState::Legacy(applied) = read_postgres_tracking_state_async(client, set).await?
+    else {
+        return Ok(());
+    };
 
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
@@ -1854,12 +1947,18 @@ fn verify_sqlite_foreign_keys_cli(conn: &rusqlite::Connection) -> Result<(), Cli
 
 #[cfg(feature = "rusqlite")]
 fn inspect_sqlite_migrations(set: &Migrations, path: &str) -> Result<MigrationPlan, CliError> {
+    if !sqlite_database_exists(path) {
+        return build_migration_plan(set, &[]);
+    }
     let conn = rusqlite::Connection::open(path).map_err(|e| {
         CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
     })?;
 
-    ensure_sqlite_tracking_table(&conn, set)?;
-    let applied = query_applied_records_sqlite(&conn, set)?;
+    let applied = match read_sqlite_tracking_state(&conn, set)? {
+        TrackingState::Missing => Vec::new(),
+        TrackingState::Legacy(rows) => legacy_applied_records(set, &rows)?,
+        TrackingState::Current => query_applied_records_sqlite(&conn, set)?,
+    };
     build_migration_plan(set, &applied)
 }
 
@@ -2186,14 +2285,12 @@ fn inspect_postgres_sync_migrations(
 ) -> Result<MigrationPlan, CliError> {
     let mut client = connect_postgres_sync(creds)?;
 
-    if let Some(schema_sql) = set.create_schema_sql() {
-        client
-            .execute(&schema_sql, &[])
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    }
-
-    ensure_postgres_tracking_table_sync(&mut client, set)?;
-    let applied = query_applied_records_postgres_sync(&mut client, set)?;
+    // Read-only: no CREATE SCHEMA, no tracking table.
+    let applied = match read_postgres_tracking_state_sync(&mut client, set)? {
+        TrackingState::Missing => Vec::new(),
+        TrackingState::Legacy(rows) => legacy_applied_records(set, &rows)?,
+        TrackingState::Current => query_applied_records_postgres_sync(&mut client, set)?,
+    };
     build_migration_plan(set, &applied)
 }
 
@@ -2322,15 +2419,12 @@ async fn inspect_postgres_async_inner(
 ) -> Result<MigrationPlan, CliError> {
     let client = connect_postgres_async(creds).await?;
 
-    if let Some(schema_sql) = set.create_schema_sql() {
-        client
-            .execute(&schema_sql, &[])
-            .await
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    }
-
-    ensure_postgres_tracking_table_async(&client, set).await?;
-    let applied = query_applied_records_postgres_async(&client, set).await?;
+    // Read-only: no CREATE SCHEMA, no tracking table.
+    let applied = match read_postgres_tracking_state_async(&client, set).await? {
+        TrackingState::Missing => Vec::new(),
+        TrackingState::Legacy(rows) => legacy_applied_records(set, &rows)?,
+        TrackingState::Current => query_applied_records_postgres_async(&client, set).await?,
+    };
     build_migration_plan(set, &applied)
 }
 
@@ -2619,6 +2713,9 @@ async fn inspect_libsql_local_inner(
     set: &Migrations,
     path: &str,
 ) -> Result<MigrationPlan, CliError> {
+    if !sqlite_database_exists(path) {
+        return build_migration_plan(set, &[]);
+    }
     let db = libsql::Builder::new_local(path)
         .build()
         .await
@@ -2630,8 +2727,11 @@ async fn inspect_libsql_local_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
-    let applied = query_applied_records_libsql(&conn, set).await?;
+    let applied = match read_sqlite_tracking_state_libsql(&conn, set).await? {
+        TrackingState::Missing => Vec::new(),
+        TrackingState::Legacy(rows) => legacy_applied_records(set, &rows)?,
+        TrackingState::Current => query_applied_records_libsql(&conn, set).await?,
+    };
     build_migration_plan(set, &applied)
 }
 
@@ -2954,8 +3054,11 @@ async fn inspect_turso_inner(
         .connect()
         .map_err(|e| CliError::ConnectionError(e.to_string()))?;
 
-    ensure_sqlite_tracking_table_libsql(&conn, set).await?;
-    let applied = query_applied_records_turso(&conn, set).await?;
+    let applied = match read_sqlite_tracking_state_libsql(&conn, set).await? {
+        TrackingState::Missing => Vec::new(),
+        TrackingState::Legacy(rows) => legacy_applied_records(set, &rows)?,
+        TrackingState::Current => query_applied_records_turso(&conn, set).await?,
+    };
     build_migration_plan(set, &applied)
 }
 
@@ -5543,6 +5646,49 @@ mod tests {
         assert_eq!(plan.applied_count, 0);
         assert_eq!(plan.pending_count, 1, "interrupted migration is unfinished");
         assert_eq!(plan.findings.len(), 1);
+    }
+
+    /// `migrate --plan`, `--dry-run` and `--verify` must not write: no
+    /// database file, no tracking table.
+    #[cfg(feature = "rusqlite")]
+    #[test]
+    fn sqlite_plan_creates_neither_the_database_nor_the_tracking_table() {
+        use drizzle_migrations::{Migration, Migrations};
+
+        let set = Migrations::new(
+            vec![Migration::with_hash(
+                "20230331141203_first",
+                "hash_a",
+                1_680_271_923_000,
+                vec!["CREATE TABLE a(id INTEGER PRIMARY KEY)".to_string()],
+            )],
+            drizzle_types::Dialect::SQLite,
+        );
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let missing = dir.path().join("missing.db");
+        let plan = inspect_sqlite_migrations(&set, missing.to_str().expect("utf-8 path"))
+            .expect("plan a missing database");
+        assert_eq!(plan.pending_count, 1);
+        assert!(!missing.exists(), "planning created the database file");
+
+        let existing = dir.path().join("existing.db");
+        rusqlite::Connection::open(&existing)
+            .and_then(|conn| conn.execute("CREATE TABLE users(id INTEGER PRIMARY KEY)", []))
+            .expect("seed database");
+        let plan = inspect_sqlite_migrations(&set, existing.to_str().expect("utf-8 path"))
+            .expect("plan an existing database");
+        assert_eq!(plan.pending_count, 1);
+        let tracking_tables: i64 = rusqlite::Connection::open(&existing)
+            .and_then(|conn| {
+                conn.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name = ?1",
+                    [set.table_name()],
+                    |row| row.get(0),
+                )
+            })
+            .expect("inspect database");
+        assert_eq!(tracking_tables, 0, "planning created the tracking table");
     }
 
     #[test]
