@@ -2,7 +2,6 @@ use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
-use std::cell::RefCell;
 use std::marker::PhantomData;
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 
@@ -46,7 +45,11 @@ crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<'conn, Schema = ()> {
-    tx: RefCell<Option<TokioPgTransaction<'conn>>>,
+    // A plain `Option`, not a `RefCell`: the transaction must be `Sync` so
+    // futures that hold `&Transaction` across an `.await` stay `Send` (usable
+    // in `tokio::spawn` or a web handler). Only `commit`/`rollback`, which
+    // own `self`, take it out.
+    tx: Option<TokioPgTransaction<'conn>>,
     config: TransactionConfig,
     savepoints: AsyncSavepointState,
     schema: Schema,
@@ -57,7 +60,7 @@ impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
             .field("config", &self.config)
-            .field("is_active", &self.tx.borrow().is_some())
+            .field("is_active", &self.tx.is_some())
             .finish()
     }
 }
@@ -71,7 +74,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         statement_cache: ClientStatementCache,
     ) -> Self {
         Self {
-            tx: RefCell::new(Some(tx)),
+            tx: Some(tx),
             config,
             savepoints: AsyncSavepointState::new(),
             schema,
@@ -109,8 +112,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Executes a raw SQL string with no parameters.
     async fn execute_raw(&self, sql: &str) -> drizzle_core::error::Result<()> {
         self.savepoints.ensure_usable()?;
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         tx.execute(sql, &[]).await.map_err(DrizzleError::from)?;
         Ok(())
     }
@@ -187,8 +189,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql, &param_types)
@@ -223,8 +224,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
@@ -266,8 +266,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
@@ -303,8 +302,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
@@ -333,19 +331,19 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Commits the transaction
-    pub(crate) async fn commit(self) -> drizzle_core::error::Result<()> {
+    pub(crate) async fn commit(mut self) -> drizzle_core::error::Result<()> {
         if let Err(error) = self.savepoints.ensure_usable() {
-            let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+            let tx = self.tx.take().ok_or_else(tx_consumed_error)?;
             tx.rollback().await.map_err(DrizzleError::from)?;
             return Err(error);
         }
-        let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.take().ok_or_else(tx_consumed_error)?;
         tx.commit().await.map_err(DrizzleError::from)
     }
 
     /// Rolls back the transaction
-    pub(crate) async fn rollback(self) -> drizzle_core::error::Result<()> {
-        let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+    pub(crate) async fn rollback(mut self) -> drizzle_core::error::Result<()> {
+        let tx = self.tx.take().ok_or_else(tx_consumed_error)?;
         tx.rollback().await.map_err(DrizzleError::from)
     }
 }
@@ -417,8 +415,7 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let (param_types, param_refs) = materialize_params(&bind_params);
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
@@ -546,8 +543,7 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let (param_types, param_refs) = materialize_params(&bind_params);
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
@@ -640,8 +636,7 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
@@ -674,8 +669,7 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
@@ -713,8 +707,7 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
@@ -748,8 +741,7 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache

@@ -9,7 +9,6 @@
     dead_code,
     clippy::redundant_closure,
     clippy::needless_question_mark,
-    clippy::await_holding_refcell_ref,
     clippy::duplicated_attributes,
     clippy::single_component_path_imports
 )]
