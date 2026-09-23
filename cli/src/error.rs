@@ -35,6 +35,17 @@ pub enum CliError {
     #[error("Migration failed: {0}")]
     MigrationError(String),
 
+    /// A command that needs a live database found no credentials
+    #[error(
+        "No database credentials configured: `{0}` needs a database connection \
+         (add a [dbCredentials] section to drizzle.config.toml)"
+    )]
+    MissingCredentials(&'static str),
+
+    /// The user declined to continue, so nothing was applied
+    #[error("{0}")]
+    Aborted(String),
+
     /// Missing database driver
     #[error("No driver available for {dialect}. Build with '{feature}' feature enabled.")]
     MissingDriver {

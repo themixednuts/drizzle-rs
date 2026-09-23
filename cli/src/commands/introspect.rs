@@ -41,8 +41,9 @@ pub struct IntrospectOptions {
 /// # Errors
 ///
 /// Returns [`CliError`] if the requested database cannot be resolved,
-/// credentials are missing or invalid, connecting to the database fails, or
-/// writing the generated Rust schema files fails.
+/// credentials are missing ([`CliError::MissingCredentials`]) or invalid,
+/// connecting to the database fails, or writing the generated Rust schema
+/// files fails.
 pub fn run(
     config: &Config,
     db_name: Option<&str>,
@@ -120,7 +121,7 @@ pub fn run(
     let connection = overrides::resolve_connection(db, effective_dialect, &opts.connection)?;
     let Some(connection) = connection else {
         print_missing_credentials_help(effective_dialect);
-        return Ok(());
+        return Err(CliError::MissingCredentials("introspect"));
     };
     println!("  {}: {}", output::label("Driver"), connection.driver);
 
@@ -140,7 +141,7 @@ pub fn run(
     Ok(())
 }
 
-/// Print a helpful message when no database credentials are configured.
+/// Print how to configure credentials; the caller reports the failure.
 fn print_missing_credentials_help(effective_dialect: Dialect) {
     println!("{}", output::warning("No database credentials configured."));
     println!();

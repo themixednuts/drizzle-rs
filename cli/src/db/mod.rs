@@ -146,23 +146,33 @@ fn exclude_tracking_table(
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the confirmation prompt for a destructive plan
-/// fails, or if executing the planned SQL statements against the database
-/// fails.
+/// Returns [`CliError::Aborted`] if the user declines the confirmation prompt
+/// for a destructive plan, and [`CliError`] if the prompt itself fails or if
+/// executing the planned SQL statements against the database fails.
 pub fn apply_push(
     connection: &ResolvedConnection,
     plan: &PushPlan,
     force: bool,
 ) -> Result<(), CliError> {
+    apply_push_with_confirmation(connection, plan, force, confirm_destructive)
+}
+
+/// [`apply_push`] with the destructive-change prompt supplied by the caller.
+fn apply_push_with_confirmation(
+    connection: &ResolvedConnection,
+    plan: &PushPlan,
+    force: bool,
+    confirm: impl FnOnce() -> Result<bool, CliError>,
+) -> Result<(), CliError> {
     if plan.sql_statements.is_empty() {
         return Ok(());
     }
 
-    if plan.destructive && !force {
-        let confirmed = confirm_destructive()?;
-        if !confirmed {
-            return Ok(());
-        }
+    if plan.destructive && !force && !confirm()? {
+        return Err(CliError::Aborted(
+            "Push aborted: the destructive changes were not confirmed, so nothing was applied"
+                .into(),
+        ));
     }
 
     execute_statements(connection, &plan.sql_statements)
@@ -1057,6 +1067,7 @@ async fn repair_dirty_migrations_postgres_async(
     Ok(repaired)
 }
 
+/// Reads the tracking table's state without changing it.
 #[cfg(feature = "rusqlite")]
 fn ensure_sqlite_tracking_table(
     conn: &rusqlite::Connection,
@@ -1087,7 +1098,7 @@ fn ensure_sqlite_tracking_table(
             set.table_ident_sql()
         ))
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    let applied = stmt
+    let rows = stmt
         .query_map([], |row| {
             Ok(drizzle_migrations::AppliedMigrationMetadata {
                 id: row.get::<_, Option<i64>>(0)?,
@@ -1143,6 +1154,7 @@ fn ensure_sqlite_tracking_table(
     }
 }
 
+/// Reads the tracking table's state without changing it.
 #[cfg(any(feature = "libsql", feature = "turso"))]
 async fn ensure_sqlite_tracking_table_libsql(
     conn: &libsql::Connection,
@@ -1160,18 +1172,19 @@ async fn ensure_sqlite_tracking_table_libsql(
         .query(&pragma_sql, ())
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let mut any_column = false;
     let mut has_name = false;
     while let Some(row) = rows
         .next()
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?
     {
+        any_column = true;
         let name = row
             .get::<String>(0)
             .map_err(|e| CliError::MigrationError(e.to_string()))?;
         if name == "name" {
             has_name = true;
-            break;
         }
     }
     if has_name {
@@ -1194,18 +1207,16 @@ async fn ensure_sqlite_tracking_table_libsql(
         .await
         .map_err(|e| CliError::MigrationError(e.to_string()))?
     {
-        let hash = row
-            .get::<String>(1)
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-        let created_at = row
-            .get::<i64>(2)
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
         applied.push(drizzle_migrations::AppliedMigrationMetadata {
             id: row
                 .get::<Option<i64>>(0)
                 .map_err(|e| CliError::MigrationError(e.to_string()))?,
-            hash,
-            created_at,
+            hash: row
+                .get::<String>(1)
+                .map_err(|e| CliError::MigrationError(e.to_string()))?,
+            created_at: row
+                .get::<i64>(2)
+                .map_err(|e| CliError::MigrationError(e.to_string()))?,
         });
     }
 
@@ -1247,6 +1258,7 @@ async fn ensure_sqlite_tracking_table_libsql(
     Ok(())
 }
 
+/// Reads the tracking table's state without changing it.
 #[cfg(feature = "postgres-sync")]
 fn ensure_postgres_tracking_table_sync(
     client: &mut postgres::Client,
@@ -1324,6 +1336,7 @@ fn ensure_postgres_tracking_table_sync(
     Ok(())
 }
 
+/// Reads the tracking table's state without changing it.
 #[cfg(feature = "tokio-postgres")]
 async fn ensure_postgres_tracking_table_async(
     client: &tokio_postgres::Client,
@@ -5274,6 +5287,45 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
             .expect("read restored foreign-key mode");
         assert_eq!(foreign_keys, 1);
+    }
+
+    #[cfg(feature = "rusqlite")]
+    #[test]
+    fn declined_destructive_push_is_an_abort_and_applies_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("push.sqlite");
+        rusqlite::Connection::open(&db_path)
+            .expect("open sqlite")
+            .execute_batch("CREATE TABLE keep_me (id INTEGER PRIMARY KEY);")
+            .expect("seed table");
+
+        let connection = ResolvedConnection {
+            dialect: Dialect::Sqlite,
+            driver: Driver::Rusqlite,
+            credentials: Credentials::Sqlite {
+                path: db_path.to_string_lossy().into_owned().into_boxed_str(),
+            },
+        };
+        let plan = PushPlan {
+            sql_statements: vec!["DROP TABLE `keep_me`;".to_string()],
+            warnings: Vec::new(),
+            destructive: true,
+        };
+
+        let error = apply_push_with_confirmation(&connection, &plan, false, || Ok(false))
+            .expect_err("declining the prompt must not report success");
+        assert!(matches!(error, CliError::Aborted(_)), "{error:?}");
+        assert!(error.to_string().contains("aborted"), "{error}");
+
+        let kept: i64 = rusqlite::Connection::open(&db_path)
+            .expect("reopen sqlite")
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='keep_me'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query sqlite_master");
+        assert_eq!(kept, 1, "a declined push must not execute any statement");
     }
 
     #[cfg(feature = "rusqlite")]

@@ -50,7 +50,7 @@ pub struct PushOptions {
 /// Returns [`CliError`] if the database cannot be resolved, credentials are
 /// missing or invalid, the schema files fail to parse, connecting or applying
 /// the diff to the database fails, or the user declines a destructive
-/// operation when `--force` is not set.
+/// operation when `--force` is not set ([`CliError::Aborted`]).
 pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
@@ -76,7 +76,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
     let connection = overrides::resolve_connection(db, effective_dialect, &opts.connection)?;
     let Some(connection) = connection else {
         print_missing_credentials_help(effective_dialect);
-        return Ok(());
+        return Err(CliError::MissingCredentials("push"));
     };
     println!("  {}: {}", output::label("Driver"), connection.driver);
 
@@ -202,10 +202,8 @@ fn warn_unsupported_pg_filters(effective_dialect: Dialect, opts: &PushOptions) {
     }
 }
 
-/// Print a helpful message when no database credentials are configured.
+/// Print how to configure credentials; the caller reports the failure.
 fn print_missing_credentials_help(effective_dialect: Dialect) {
-    println!("{}", output::warning("No database credentials configured."));
-    println!();
     println!("Add credentials to your drizzle.config.toml:");
     println!();
     println!("  {}", output::muted("[dbCredentials]"));
