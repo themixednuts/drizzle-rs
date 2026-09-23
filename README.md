@@ -51,7 +51,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1", features = ["rusqlite"] }
+drizzle = { version = "0.2", features = ["rusqlite"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 ```
 
@@ -208,8 +208,8 @@ Add `drizzle-migrations` as a build dependency, then point it at your existing `
 
 ```toml
 [build-dependencies]
-drizzle = { version = "0.1", features = ["rusqlite"] }
-drizzle-migrations = "0.1"
+drizzle = { version = "0.2", features = ["rusqlite"] }
+drizzle-migrations = "0.2"
 rusqlite = { version = "0.39", features = ["bundled"] }
 ```
 
@@ -1352,7 +1352,7 @@ and owns the connection or pool.
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1", features = ["mysql-sync"] }
+drizzle = { version = "0.2", features = ["mysql-sync"] }
 mysql = "28"
 ```
 
@@ -1389,7 +1389,7 @@ The async adapter accepts either an owned `mysql_async::Conn` or a lazy pool:
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1", features = ["mysql-async"] }
+drizzle = { version = "0.2", features = ["mysql-async"] }
 mysql_async = "0.37"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

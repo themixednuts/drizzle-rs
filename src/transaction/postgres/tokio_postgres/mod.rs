@@ -92,7 +92,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// This cannot distinguish server-default isolation from explicit
     /// `READ COMMITTED`. Use [`Self::config`] when that distinction matters.
-    #[deprecated(since = "0.1.17", note = "use config()")]
+    #[deprecated(since = "0.2.0", note = "use config()")]
     #[inline]
     pub const fn tx_type(&self) -> PostgresTransactionType {
         match self.config.isolation() {

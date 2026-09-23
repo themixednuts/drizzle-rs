@@ -139,7 +139,7 @@ mod time_values {
     fn time_values_read_sqlite_datetime_text(db: &mut TestDb<TimeSchema>) {
         let TimeSchema { events } = schema;
         // SQLite's own date and time functions put a space between date and
-        // time and write no offset (the time is UTC). Versions before 0.1.17
+        // time and write no offset (the time is UTC). Versions before 0.2.0
         // wrote a TIME with ISO 8601's `T` prefix.
         result!(db.execute(SQL::raw(
             r#"INSERT INTO "time_events" ("id", "day", "starts", "local", "instant")

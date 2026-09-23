@@ -83,7 +83,7 @@ just pg-shell   # connect with psql
 
 ## Releases & Versioning (pre-1.0)
 
-While the project is pre-1.0, **every release is a patch bump** (`0.1.x → 0.1.(x+1)`) by default. The trend is intentional — pinning to a 0.1.x version means "I accept anything between 0.1.x and 0.1.<latest>", and we want that contract to hold for the whole 0.1 series.
+While the project is pre-1.0, **every release is a patch bump** (`0.2.x → 0.2.(x+1)`) by default. The trend is intentional — pinning to a 0.2.x version means "I accept anything between 0.2.x and 0.2.<latest>", and we want that contract to hold for the whole 0.2 series. (0.2.0 was the one deliberate minor bump so far: it followed 0.1.16 and collected the breaking changes of the v0.1.17 release audit.)
 
 The release tooling enforces this:
 
@@ -101,11 +101,11 @@ The release tooling enforces this:
 | `perf:` | patch | performance only |
 | `test:` | patch | test-only |
 | `feat:` | **patch** (pre-1.0 policy) | new public API — tagged for changelog but doesn't escalate the version |
-| `feat!:` / `BREAKING CHANGE:` footer | **minor** (in 0.x: `0.1.x → 0.2.0`) | intentional breaking API change |
+| `feat!:` / `BREAKING CHANGE:` footer | **minor** (in 0.x: `0.2.x → 0.3.0`) | intentional breaking API change |
 
 ### When to roll the second number
 
-Until we hit 1.0, stay on `0.1.x` and use `feat!:` only when you genuinely want to declare a `0.2.0`. When ready for 1.0:
+Until we hit 1.0, stay on `0.2.x` and use `feat!:` only when you genuinely want to declare a `0.3.0`. When ready for 1.0:
 
 - Flip `features_always_increment_minor` to `true` in `release-plz.toml` so `feat:` starts incrementing minor again.
 - Re-enable `semver_check = true` so accidental API breaks get caught.
@@ -113,9 +113,9 @@ Until we hit 1.0, stay on `0.1.x` and use `feat!:` only when you genuinely want 
 
 ### Internal crates are pinned exactly — keep it that way
 
-Every intra-workspace dependency in `[workspace.dependencies]` uses an exact requirement (`version = "=0.1.x"`), and release-plz rewrites these in lockstep on each release (its requirement updater preserves the `=` operator). **Never loosen these to `"0.1"`.**
+Every intra-workspace dependency in `[workspace.dependencies]` uses an exact requirement (`version = "=0.2.x"`), and release-plz rewrites these in lockstep on each release (its requirement updater preserves the `=` operator). **Never loosen these to `"0.2"`.**
 
-Why: the workspace crates release as one atomic unit — `feat:` commits ship in patch releases (see the table above), driver major bumps land inside 0.1.x, and `drizzle-macros` output must match the runtime crates exactly. A caret requirement published to crates.io asserts that any 0.1.x mix is compatible, which is false. That assertion is how drizzle 0.1.15 shipped resolvable against drizzle-core/sqlite/macros 0.1.9, putting turso 0.6.1 and 0.7.2 in the same tree with colliding types (stale lockfiles and pins satisfy `^0.1` without pulling internals forward). Exact pins make a torn graph unrepresentable, and the "Verify published resolution" step in `publish.yml` fails the release if crates.io ever resolves the umbrella against mismatched internals.
+Why: the workspace crates release as one atomic unit — `feat:` commits ship in patch releases (see the table above), driver major bumps land inside a minor series, and `drizzle-macros` output must match the runtime crates exactly. A caret requirement published to crates.io asserts that any mix within a minor series is compatible, which is false. That assertion is how drizzle 0.1.15 shipped resolvable against drizzle-core/sqlite/macros 0.1.9, putting turso 0.6.1 and 0.7.2 in the same tree with colliding types (stale lockfiles and pins satisfy `^0.1` without pulling internals forward). Exact pins make a torn graph unrepresentable, and the "Verify published resolution" step in `publish.yml` fails the release if crates.io ever resolves the umbrella against mismatched internals.
 
 ### Manual override
 

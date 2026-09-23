@@ -308,7 +308,7 @@ mod time_text {
     use time::format_description::well_known::{Iso8601, Rfc3339};
     use time::macros::format_description;
 
-    /// `HH:MM:SS[.fraction]`. Versions before 0.1.17 wrote ISO 8601's `T`
+    /// `HH:MM:SS[.fraction]`. Versions before 0.2.0 wrote ISO 8601's `T`
     /// prefix, which is accepted too.
     pub(crate) fn time(text: &str) -> Result<time::Time, time::error::Parse> {
         let text = text.strip_prefix('T').unwrap_or(text);
