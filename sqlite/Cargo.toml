@@ -33,9 +33,8 @@ turso = { workspace = true, optional = true }
 puffin = { workspace = true, optional = true }
 
 [dev-dependencies]
-# Keep this path-only so Cargo omits it from the published manifest. Publishing
-# it with the workspace version creates a registry cycle because drizzle-macros
-# optionally depends on drizzle-sqlite.
+# Path-only, so Cargo omits it from the published manifest: only this crate's
+# tests expand the macros.
 drizzle-macros = { path = "../procmacros", features = ["sqlite"] }
 drizzle-types = { workspace = true }
 drizzle-migrations = { workspace = true }

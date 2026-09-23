@@ -26,96 +26,50 @@ paste = { workspace = true }
 drizzle-migrations = { workspace = true }
 # Shared type definitions
 drizzle-types = { workspace = true, features = ["std"] }
-drizzle-core = { workspace = true, default-features = true, optional = true }
-drizzle-sqlite = { workspace = true, default-features = true, optional = true }
-drizzle-postgres = { workspace = true, default-features = true, optional = true }
-drizzle-mysql = { workspace = true, default-features = true, optional = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
-rusqlite = { workspace = true, optional = true }
-libsql = { workspace = true, optional = true }
-turso = { workspace = true, optional = true }
-postgres = { workspace = true, optional = true }
-tokio-postgres = { workspace = true, optional = true }
-bytes = { workspace = true, optional = true }
 
+# The macros only generate code, so neither the runtime crates nor any database
+# driver is a regular dependency. A proc-macro links its dependencies into the
+# compiler plugin: drivers there would build before the macros could run (twice
+# in release builds, once for the host), and rusqlite and libsql cannot link
+# together because both bundle SQLite.
+#
+# The doctests compile against the real `drizzle`, and every feature below
+# forwards to it. The path-only dependency is stripped on publish, along with
+# the `drizzle/...` entries in `[features]`.
 [dev-dependencies]
-drizzle-core = { workspace = true, default-features = true }
-drizzle-sqlite = { workspace = true, default-features = true }
-drizzle-postgres = { workspace = true, default-features = true }
-drizzle-mysql = { workspace = true, default-features = true }
+drizzle = { path = ".." }
 uuid = { workspace = true }
-const_format = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [features]
 default = []
-# Type/value features are cfg flags for codegen plus *weak* forwards into
-# whichever dialect crates are already activated. Using `foo/bar` (non-weak)
-# would activate optional dialect deps — e.g. `uuid` pulling in drizzle-postgres
-# for a rusqlite-only consumer.
-serde = ["drizzle-core?/serde", "drizzle-sqlite?/serde", "drizzle-postgres?/serde", "drizzle-mysql?/serde"]
-sqlite = ["dep:drizzle-core", "dep:drizzle-sqlite"]
-postgres = ["dep:drizzle-core", "dep:drizzle-postgres"]
-mysql = ["dep:drizzle-core", "dep:drizzle-mysql"]
-uuid = [
-    "drizzle-core?/uuid",
-    "drizzle-sqlite?/uuid",
-    "drizzle-postgres?/uuid",
-    "drizzle-mysql?/uuid",
-    "rusqlite?/uuid",
-]
-arrayvec = ["drizzle-core?/arrayvec", "drizzle-mysql?/arrayvec"]
-# PostgreSQL optional type features
-chrono = ["drizzle-core?/chrono", "drizzle-sqlite?/chrono", "drizzle-postgres?/chrono", "drizzle-mysql?/chrono"]
-time = ["drizzle-core?/time", "drizzle-sqlite?/time", "drizzle-postgres?/time", "drizzle-mysql?/time"]
-rust-decimal = ["drizzle-core?/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-mysql?/rust-decimal"]
-cidr = ["drizzle-core?/cidr", "drizzle-postgres?/cidr"]
-geo-types = ["drizzle-core?/geo-types", "drizzle-postgres?/geo-types"]
-bit-vec = ["drizzle-core?/bit-vec", "drizzle-postgres?/bit-vec"]
-compact-str = ["drizzle-core?/compact-str", "drizzle-postgres?/compact-str", "drizzle-mysql?/compact-str"]
-bytes = [
-    "dep:bytes",
-    "drizzle-core?/bytes",
-    "drizzle-sqlite?/bytes",
-    "drizzle-postgres?/bytes",
-    "drizzle-mysql?/bytes",
-]
-smallvec = [
-    "drizzle-core?/smallvec-types",
-    "drizzle-sqlite?/smallvec",
-    "drizzle-postgres?/smallvec",
-    "drizzle-mysql?/smallvec",
-]
-rusqlite = ["sqlite", "dep:rusqlite", "drizzle-core/rusqlite", "drizzle-sqlite/rusqlite"]
-libsql = ["sqlite", "dep:libsql", "drizzle-core/libsql", "drizzle-sqlite/libsql"]
-turso = ["sqlite", "dep:turso", "drizzle-core/turso", "drizzle-sqlite/turso"]
-# PostgreSQL driver-specific features
-postgres-sync = [
-    "postgres",
-    "dep:postgres",
-    "dep:bytes",
-    "drizzle-core/postgres-sync",
-    "drizzle-postgres/postgres-sync",
-]
-tokio-postgres = [
-    "postgres",
-    "dep:tokio-postgres",
-    "dep:bytes",
-    "drizzle-core/tokio-postgres",
-    "drizzle-postgres/tokio-postgres",
-]
-# AWS Aurora Data API — toggles emission of `impl TryFrom<&AwsDataApiRow>` and
-# `FromDrizzleRow<AwsDataApiRow>` alongside the existing postgres impls.
-aws-data-api = [
-    "postgres",
-    "drizzle-postgres/aws-data-api",
-]
+# Each feature is a code-generation switch for the macros. The `drizzle/...`
+# entries only apply to this crate's own doctests (see `[dev-dependencies]`).
+sqlite = ["drizzle/sqlite"]
+postgres = ["drizzle/postgres"]
+mysql = ["drizzle/mysql"]
+serde = ["drizzle/serde"]
+uuid = ["drizzle/uuid"]
+arrayvec = ["drizzle/arrayvec"]
+chrono = ["drizzle/chrono"]
+time = ["drizzle/time"]
+rust-decimal = ["drizzle/rust-decimal"]
+cidr = ["drizzle/cidr"]
+geo-types = ["drizzle/geo-types"]
+bit-vec = ["drizzle/bit-vec"]
+compact-str = ["drizzle/compact-str"]
+bytes = ["drizzle/bytes"]
+smallvec = ["drizzle/smallvec-types"]
+# SQLite drivers
+rusqlite = ["sqlite", "drizzle/rusqlite"]
+libsql = ["sqlite", "drizzle/libsql"]
+turso = ["sqlite", "drizzle/turso"]
+# PostgreSQL drivers
+postgres-sync = ["postgres", "drizzle/postgres-sync"]
+tokio-postgres = ["postgres", "drizzle/tokio-postgres"]
+# AWS Aurora Data API: emits `AwsDataApiRow` conversions alongside the others.
+aws-data-api = ["postgres", "drizzle/aws-data-api"]
 # Relational query API code generation
-query = [
-    "drizzle-core?/query",
-    "drizzle-sqlite?/query",
-    "drizzle-postgres?/query",
-    "drizzle-mysql?/query",
-]
+query = ["drizzle/query"]

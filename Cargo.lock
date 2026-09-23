@@ -2520,31 +2520,20 @@ dependencies = [
 name = "drizzle-macros"
 version = "0.1.16"
 dependencies = [
- "bytes",
- "const_format",
- "drizzle-core",
+ "drizzle",
  "drizzle-migrations",
- "drizzle-mysql",
- "drizzle-postgres",
- "drizzle-sqlite",
  "drizzle-types",
  "heck",
- "libsql",
  "paste",
  "pluralizer",
- "postgres",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
  "rand 0.9.2",
- "rusqlite",
  "serde",
  "serde_json",
  "syn 2.0.117",
- "tokio",
- "tokio-postgres",
  "toml 0.9.12+spec-1.1.0",
- "turso",
  "uuid",
 ]
 
