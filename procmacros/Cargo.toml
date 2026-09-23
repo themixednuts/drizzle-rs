@@ -8,6 +8,8 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+# The `include_migrations!` doctest's fixture.
+exclude = ["/drizzle"]
 
 [lib]
 proc-macro = true
@@ -34,11 +36,15 @@ toml = { workspace = true }
 # in release builds, once for the host), and rusqlite and libsql cannot link
 # together because both bundle SQLite.
 #
-# The doctests compile against the real `drizzle`, and every feature below
-# forwards to it. The path-only dependency is stripped on publish, along with
-# the `drizzle/...` entries in `[features]`.
+# The doctests compile against the real `drizzle`, re-exported under that name
+# by the unpublished `doctests` crate; every feature below forwards to it (see
+# doctests/lib.rs for why it is not `drizzle` itself). The path-only
+# dependency is stripped on publish, along with the `drizzle/...` entries in
+# `[features]`. `const_format` is here because the macros look it up by name,
+# and the doctests' `drizzle` is not the package they would find it through.
 [dev-dependencies]
-drizzle = { path = ".." }
+drizzle = { package = "drizzle-macros-doctests", path = "doctests" }
+const_format = { workspace = true }
 uuid = { workspace = true }
 
 [features]

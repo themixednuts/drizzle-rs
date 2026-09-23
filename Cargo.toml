@@ -22,6 +22,7 @@ required-features = ["serde"]
 resolver = "3"
 members = [
   "procmacros",
+  "procmacros/doctests",
   "core",
   "sqlite",
   "postgres",
