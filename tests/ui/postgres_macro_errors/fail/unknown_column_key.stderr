@@ -1,0 +1,5 @@
+error: unknown PostgreSQL column attribute `uniqe`; did you mean `unique`?
+ --> tests/ui/postgres_macro_errors/fail/unknown_column_key.rs:5:23
+  |
+5 |     #[column(primary, uniqe)]
+  |                       ^^^^^

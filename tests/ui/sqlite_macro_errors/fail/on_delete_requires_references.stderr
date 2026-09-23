@@ -1,0 +1,6 @@
+error: on_delete requires a references attribute.
+       Example: #[column(references = Table::column, on_delete = CASCADE)]
+ --> tests/ui/sqlite_macro_errors/fail/on_delete_requires_references.rs:8:22
+  |
+8 |     #[column(unique, on_delete = CASCADE)]
+  |                      ^^^^^^^^^

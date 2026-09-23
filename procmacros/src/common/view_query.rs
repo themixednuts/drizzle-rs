@@ -288,7 +288,7 @@ impl Parse for ViewQuery {
 fn parse_comma_separated_paths(input: ParseStream) -> Result<Vec<Path>> {
     let mut items = Vec::new();
     while !input.is_empty() {
-        items.push(input.parse::<Path>()?);
+        items.push(parse_column_path(input)?);
         if !input.is_empty() {
             input.parse::<Token![,]>()?;
         }
@@ -321,7 +321,20 @@ fn parse_select_item(input: ParseStream) -> Result<SelectItem> {
             return Ok(SelectItem::Expr(parse_query_expr(input)?));
         }
     }
-    Ok(SelectItem::Column(input.parse::<Path>()?))
+    Ok(SelectItem::Column(parse_column_path(input)?))
+}
+
+/// Parses a column as `Table::column`; the table may be qualified
+/// (`schema::Users::name`).
+fn parse_column_path(input: ParseStream) -> Result<Path> {
+    let path: Path = input.parse()?;
+    if path.segments.len() < 2 {
+        return Err(syn::Error::new_spanned(
+            &path,
+            "expected a column as `Table::column`",
+        ));
+    }
+    Ok(path)
 }
 
 /// Parse a JOIN clause: `(Table, condition_expr)`
@@ -369,7 +382,7 @@ fn parse_query_expr(input: ParseStream) -> Result<QueryExpr> {
     }
 
     // Otherwise, parse as column path (Table::col)
-    Ok(QueryExpr::Column(input.parse::<Path>()?))
+    Ok(QueryExpr::Column(parse_column_path(input)?))
 }
 
 /// Is this identifier a known expression function?
@@ -575,14 +588,25 @@ fn parse_logical_list(content: ParseStream, is_and: bool) -> Result<QueryExpr> {
 // TABLE EXTRACTION HELPERS
 // =============================================================================
 
-/// Extract the table type (first segment) from a `Table::column` path.
+/// The table type of a `Table::column` path: every segment but the column,
+/// so a qualified path (`schema::Users::name`) keeps its module path.
 fn extract_table_from_column(path: &Path) -> Option<syn::Type> {
-    if path.segments.len() >= 2 {
-        let table_ident = &path.segments[0].ident;
-        syn::parse_str::<syn::Type>(&table_ident.to_string()).ok()
-    } else {
-        None
+    if path.segments.len() < 2 {
+        return None;
     }
+    let segments = path
+        .segments
+        .iter()
+        .take(path.segments.len() - 1)
+        .cloned()
+        .collect();
+    Some(syn::Type::Path(syn::TypePath {
+        qself: None,
+        path: Path {
+            leading_colon: path.leading_colon,
+            segments,
+        },
+    }))
 }
 
 /// Convert a bare table path (e.g., `VqUser`) to a type.
@@ -796,7 +820,8 @@ pub fn generate_const_sql(
 
     // Generate table ref parts from a Table::column path (extracts table from first segment)
     let table_ref_from_column_path = |col_path: &Path| -> Vec<TokenStream> {
-        let ty = extract_table_from_column(col_path).unwrap();
+        let ty = extract_table_from_column(col_path)
+            .expect("column paths are checked for a table when parsed");
         match dialect {
             Dialect::Postgres => vec![
                 quote! { "\"" },
@@ -1193,12 +1218,11 @@ pub fn generate_validation(
     // Build table instantiation: `let table = Table::new();`
     let table_lets: Vec<TokenStream> = tables
         .iter()
-        .map(|ty| {
-            let var_name = syn::Ident::new(
-                &format!("_tbl_{}", quote!(#ty).to_string().to_lowercase()),
-                proc_macro2::Span::call_site(),
-            );
-            quote! { let #var_name = #ty::new(); }
+        .enumerate()
+        .map(|(index, ty)| {
+            // Numbered, since a qualified table path is no identifier.
+            let var_name = quote::format_ident!("_tbl_{index}");
+            quote! { let #var_name = <#ty>::new(); }
         })
         .collect();
 

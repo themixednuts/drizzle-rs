@@ -6,6 +6,7 @@ use syn::{Data, DeriveInput, Fields, Result};
 
 /// Generates the `PostgresSchema` derive implementation
 pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<TokenStream> {
+    crate::common::reject_schema_trait_derives(input, "PostgresSchema")?;
     let struct_name = &input.ident;
 
     // Get paths for fully-qualified types

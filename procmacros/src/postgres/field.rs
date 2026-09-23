@@ -15,7 +15,7 @@ use crate::common::{
     type_is_primitive_date_time, type_is_string_like, type_is_time_date, type_is_time_time,
     type_is_uuid, type_is_vec_u8, unwrap_option, vec_inner_type,
 };
-use crate::common::{make_uppercase_path, render_default};
+use crate::common::{make_uppercase_path, render_default, unknown_key_message};
 
 // Note: drizzle_types::postgres::TypeCategory exists but has different feature gates.
 // The local TypeCategory is kept for now to maintain feature flag consistency.
@@ -831,6 +831,33 @@ fn postgres_array_info(ty: &Type) -> Option<PostgreSQLType> {
     category.to_postgres_type()
 }
 
+/// Every key `#[column(...)]` accepts on a PostgreSQL table, for suggestions.
+const POSTGRES_COLUMN_KEYS: &[&str] = &[
+    "primary",
+    "unique",
+    "serial",
+    "bigserial",
+    "smallserial",
+    "identity",
+    "generated",
+    "json",
+    "jsonb",
+    "enum",
+    "varchar",
+    "char",
+    "name",
+    "collate",
+    "default",
+    "default_fn",
+    "check",
+    "references",
+    "relation",
+    "on_delete",
+    "on_update",
+    "deferrable",
+    "initially_deferred",
+];
+
 impl FieldInfo {
     /// Whether schema, expression, bind, and row conversion are owned by
     /// `DrizzlePostgresColumn` rather than by a built-in field category.
@@ -892,6 +919,7 @@ impl FieldInfo {
         let mut column_name = None;
         let mut collate: Option<String> = None;
         let mut relation_name: Option<String> = None;
+        let mut seen_column_attribute = false;
         for attr in &field.attrs {
             if let Some(column_info) = Self::parse_column_attribute(
                 attr,
@@ -899,6 +927,15 @@ impl FieldInfo {
                 supports_bounded_character_type,
                 name.span(),
             )? {
+                // Only one attribute was ever read; a second one would drop
+                // its options without a word.
+                if seen_column_attribute {
+                    return Err(Error::new_spanned(
+                        attr,
+                        "a field takes one #[column(...)] attribute; list every option in it",
+                    ));
+                }
+                seen_column_attribute = true;
                 flags = column_info.flags;
                 default = column_info.default;
                 default_fn = column_info.default_fn;
@@ -920,7 +957,6 @@ impl FieldInfo {
                 marker_exprs = column_info.marker_exprs;
                 explicit_type = column_info.explicit_type;
                 type_args = column_info.type_args;
-                break;
             }
         }
 
@@ -1109,6 +1145,10 @@ impl FieldInfo {
         }
 
         let mut flags = HashSet::new();
+        let mut on_delete: Option<(String, Ident)> = None;
+        let mut on_update: Option<(String, Ident)> = None;
+        let mut deferrable: Option<Ident> = None;
+        let mut initially_deferred: Option<Ident> = None;
         let mut default = None;
         let mut default_kind: Option<&'static str> = None;
         let mut default_fn = None;
@@ -1431,121 +1471,113 @@ impl FieldInfo {
                         marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT_FN"));
                     }
                     "CHECK" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            let lit: Lit = meta.input.parse()?;
-                            if let Lit::Str(s) = lit {
-                                check_constraint = Some(s.value());
-                                flags.insert(PostgreSQLFlag::Check(s.value()));
-                                marker_exprs.push(make_uppercase_path(path_ident, "CHECK"));
-                            }
-                        }
+                        meta.input.parse::<Token![=]>()?;
+                        let lit: Lit = meta.input.parse()?;
+                        let Lit::Str(s) = lit else {
+                            return Err(syn::Error::new_spanned(
+                                lit,
+                                "check requires a string literal, e.g. check = \"score >= 0\"",
+                            ));
+                        };
+                        check_constraint = Some(s.value());
+                        flags.insert(PostgreSQLFlag::Check(s.value()));
+                        marker_exprs.push(make_uppercase_path(path_ident, "CHECK"));
                     }
                     "REFERENCES" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            let path: ExprPath = meta.input.parse()?;
-                            foreign_key = Some(Self::parse_reference(&path)?);
-                            marker_exprs.push(make_uppercase_path(path_ident, "REFERENCES"));
-                        }
+                        meta.input.parse::<Token![=]>()?;
+                        let path: ExprPath = meta.input.parse()?;
+                        foreign_key = Some(Self::parse_reference(&path)?);
+                        marker_exprs.push(make_uppercase_path(path_ident, "REFERENCES"));
                     }
                     "RELATION" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            let lit: Lit = meta.input.parse()?;
-                            if let Lit::Str(s) = lit {
-                                let name = s.value();
-                                if syn::parse_str::<Ident>(&name).is_err() {
-                                    return Err(syn::Error::new_spanned(
-                                        &s,
-                                        format!(
-                                            "relation = \"{name}\" must be a valid Rust identifier"
-                                        ),
-                                    ));
-                                }
-                                relation_name = Some(name);
-                                marker_exprs.push(make_uppercase_path(path_ident, "RELATION"));
-                            } else {
+                        meta.input.parse::<Token![=]>()?;
+                        let lit: Lit = meta.input.parse()?;
+                        if let Lit::Str(s) = lit {
+                            let name = s.value();
+                            if syn::parse_str::<Ident>(&name).is_err() {
                                 return Err(syn::Error::new_spanned(
-                                    lit,
-                                    "relation requires a string literal, e.g. relation = \"authored\"",
+                                    &s,
+                                    format!(
+                                        "relation = \"{name}\" must be a valid Rust identifier"
+                                    ),
                                 ));
                             }
-                        }
-                    }
-                    "ON_DELETE" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            let action_ident: Ident = meta.input.parse()?;
-                            let action_upper = action_ident.to_string().to_ascii_uppercase();
-                            let action = Self::validate_referential_action(&action_ident)?;
-                            if let Some(ref mut fk) = foreign_key {
-                                fk.on_delete = Some(action);
-                            } else {
-                                return Err(syn::Error::new_spanned(
-                                    &action_ident,
-                                    references_required_message(true, false),
-                                ));
-                            }
-                            marker_exprs.push(make_uppercase_path(path_ident, "ON_DELETE"));
-                            // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                            marker_exprs.push(make_uppercase_path(&action_ident, &action_upper));
-                        }
-                    }
-                    "ON_UPDATE" => {
-                        if meta.input.peek(Token![=]) {
-                            meta.input.parse::<Token![=]>()?;
-                            let action_ident: Ident = meta.input.parse()?;
-                            let action_upper = action_ident.to_string().to_ascii_uppercase();
-                            let action = Self::validate_referential_action(&action_ident)?;
-                            if let Some(ref mut fk) = foreign_key {
-                                fk.on_update = Some(action);
-                            } else {
-                                return Err(syn::Error::new_spanned(
-                                    &action_ident,
-                                    references_required_message(false, true),
-                                ));
-                            }
-                            marker_exprs.push(make_uppercase_path(path_ident, "ON_UPDATE"));
-                            // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                            marker_exprs.push(make_uppercase_path(&action_ident, &action_upper));
-                        }
-                    }
-                    "DEFERRABLE" => {
-                        if let Some(ref mut fk) = foreign_key {
-                            fk.deferrable = true;
+                            relation_name = Some(name);
+                            marker_exprs.push(make_uppercase_path(path_ident, "RELATION"));
                         } else {
                             return Err(syn::Error::new_spanned(
-                                path_ident,
-                                references_required_message(false, false),
+                                lit,
+                                "relation requires a string literal, e.g. relation = \"authored\"",
                             ));
                         }
+                    }
+                    "ON_DELETE" | "ON_UPDATE" => {
+                        meta.input.parse::<Token![=]>()?;
+                        let action_ident: Ident = meta.input.parse()?;
+                        let action_upper = action_ident.to_string().to_ascii_uppercase();
+                        let action = Self::validate_referential_action(&action_ident)?;
+                        // Applied once every key is read, so the order of
+                        // `references` and the actions does not matter.
+                        if path == "ON_DELETE" {
+                            on_delete = Some((action, path_ident.clone()));
+                        } else {
+                            on_update = Some((action, path_ident.clone()));
+                        }
+                        marker_exprs.push(make_uppercase_path(path_ident, &path));
+                        // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                        marker_exprs.push(make_uppercase_path(&action_ident, &action_upper));
+                    }
+                    "DEFERRABLE" => {
+                        deferrable = Some(path_ident.clone());
                         marker_exprs.push(make_uppercase_path(path_ident, "DEFERRABLE"));
                     }
                     "INITIALLY_DEFERRED" => {
-                        if let Some(ref mut fk) = foreign_key {
-                            fk.deferrable = true;
-                            fk.initially_deferred = true;
-                        } else {
-                            return Err(syn::Error::new_spanned(
-                                path_ident,
-                                references_required_message(false, false),
-                            ));
-                        }
+                        initially_deferred = Some(path_ident.clone());
                         marker_exprs.push(make_uppercase_path(path_ident, "INITIALLY_DEFERRED"));
                     }
                     _ => {
                         return Err(syn::Error::new_spanned(
                             &meta.path,
-                            format!("unknown #[column] attribute `{path_ident}`.\n\
-                                     Supported: primary, unique, serial, bigserial, smallserial, identity, \
-                                     generated, json, jsonb, enum, name, default, default_fn, check, references, \
-                                     relation, on_delete, on_update, deferrable, initially_deferred"),
+                            unknown_key_message(
+                                "PostgreSQL column attribute",
+                                &path_ident.to_string(),
+                                POSTGRES_COLUMN_KEYS,
+                            ),
                         ));
                     }
                 }
                 Ok(())
             })?;
+        }
+
+        // Referential options need a `references`, wherever it was written.
+        if let Some(fk) = foreign_key.as_mut() {
+            if let Some((action, _)) = on_delete.take() {
+                fk.on_delete = Some(action);
+            }
+            if let Some((action, _)) = on_update.take() {
+                fk.on_update = Some(action);
+            }
+            if deferrable.is_some() || initially_deferred.is_some() {
+                fk.deferrable = true;
+            }
+            if initially_deferred.is_some() {
+                fk.initially_deferred = true;
+            }
+        } else if let Some((_, key)) = on_delete.as_ref().or(on_update.as_ref()) {
+            return Err(syn::Error::new_spanned(
+                key,
+                references_required_message(on_delete.is_some(), on_update.is_some()),
+            ));
+        } else if let Some(key) = deferrable.as_ref().or(initially_deferred.as_ref()) {
+            return Err(syn::Error::new_spanned(
+                key,
+                format!(
+                    "{} requires a references attribute.\n\
+                     Example: #[column(references = Table::column, deferrable)]",
+                    key.to_string().to_ascii_lowercase()
+                ),
+            ));
         }
 
         if default_fn.is_some() && default.is_some() {

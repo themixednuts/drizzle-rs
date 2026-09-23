@@ -1,0 +1,5 @@
+error: unknown SQLite column attribute `primay`; did you mean `primary`?
+ --> tests/ui/sqlite_macro_errors/fail/unknown_column_flag.rs:7:14
+  |
+7 |     #[column(primay)]
+  |              ^^^^^^

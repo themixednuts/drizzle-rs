@@ -803,6 +803,12 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// let _schema = Schema::new();
 /// # }
 /// ```
+///
+/// # Generated trait impls
+///
+/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
+/// schema struct (every field is a zero-sized table or index handle). Don't
+/// derive those traits too: a second impl fails to compile with E0119.
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteSchema)]
 pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
@@ -814,6 +820,13 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Derive a `PostgreSQL` schema from named table, index, view and enum fields.
+///
+/// # Generated trait impls
+///
+/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
+/// schema struct (every field is a zero-sized table or index handle). Don't
+/// derive those traits too: a second impl fails to compile with E0119.
 #[cfg(feature = "postgres")]
 #[proc_macro_derive(PostgresSchema)]
 pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
@@ -1562,6 +1575,12 @@ pub fn MySQLIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Derive a `MySQL` schema from named table and index fields.
+///
+/// # Generated trait impls
+///
+/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
+/// schema struct (every field is a zero-sized table or index handle). Don't
+/// derive those traits too: a second impl fails to compile with E0119.
 #[cfg(feature = "mysql")]
 #[proc_macro_derive(MySQLSchema)]
 pub fn mysql_schema_derive(input: TokenStream) -> TokenStream {

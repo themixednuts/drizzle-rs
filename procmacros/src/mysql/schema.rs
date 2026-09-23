@@ -6,6 +6,7 @@ use syn::{Data, DeriveInput, Fields, Result};
 
 /// Generate the runtime schema implementation for MySQL tables and indexes.
 pub fn generate_mysql_schema_derive_impl(input: &DeriveInput) -> Result<TokenStream> {
+    crate::common::reject_schema_trait_derives(input, "MySQLSchema")?;
     let struct_name = &input.ident;
     let fields = match &input.data {
         Data::Struct(data) => match &data.fields {

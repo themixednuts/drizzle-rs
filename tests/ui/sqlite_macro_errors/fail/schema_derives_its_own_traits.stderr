@@ -1,0 +1,5 @@
+error: `SQLiteSchema` already implements `Debug` for the schema; remove it from this derive
+  --> tests/ui/sqlite_macro_errors/fail/schema_derives_its_own_traits.rs:11:10
+   |
+11 | #[derive(Debug)]
+   |          ^^^^^

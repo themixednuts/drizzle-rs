@@ -153,16 +153,7 @@ impl SQLiteType {
                      \n\
                      Use: #[column(enum)] or #[column(integer, enum)]"
                 }
-                "not_null" => {
-                    "Use Option<T> in your struct field to represent nullable columns instead of 'not_null' attribute.\n\
-                     \n\
-                     Drizzle RS uses Rust's type system for nullability:\n\
-                     - Field type `T` = NOT NULL column\n\
-                     - Field type `Option<T>` = NULL allowed column\n\
-                     \n\
-                     See: https://sqlite.org/lang_createtable.html#notnullconst\n\
-                     Example: pub email: Option<String> for nullable TEXT"
-                }
+                "not_null" => NOT_NULL_HINT,
                 _ => return Ok(()),
             };
 
@@ -356,6 +347,43 @@ fn parse_item(input: ParseStream) -> Result<Expr> {
     }
 }
 
+/// Why `#[column(not_null)]` is not a thing.
+const NOT_NULL_HINT: &str = "Use Option<T> in your struct field to represent nullable columns instead of 'not_null' attribute.\n\
+     \n\
+     Drizzle RS uses Rust's type system for nullability:\n\
+     - Field type `T` = NOT NULL column\n\
+     - Field type `Option<T>` = NULL allowed column\n\
+     \n\
+     See: https://sqlite.org/lang_createtable.html#notnullconst\n\
+     Example: pub email: Option<String> for nullable TEXT";
+
+/// Every key `#[column(...)]` accepts on a SQLite table, for suggestions.
+const SQLITE_COLUMN_KEYS: &[&str] = &[
+    "primary",
+    "primary_key",
+    "unique",
+    "autoincrement",
+    "json",
+    "enum",
+    "integer",
+    "text",
+    "blob",
+    "real",
+    "numeric",
+    "boolean",
+    "any",
+    "default",
+    "default_fn",
+    "references",
+    "relation",
+    "on_delete",
+    "on_update",
+    "name",
+    "collate",
+    "check",
+    "generated",
+];
+
 #[derive(Default)]
 struct ParsedArgs {
     default_value: Option<Expr>,
@@ -367,6 +395,9 @@ struct ParsedArgs {
     on_update: Option<String>,
     /// Reverse-relation accessor name from `relation = "..."`.
     relation: Option<String>,
+    /// Where `on_delete`, `on_update` and `relation` were written, for the
+    /// errors that need a `references` beside them.
+    reference_option_spans: Vec<proc_macro2::Span>,
     name: Option<Expr>,
     /// SQLite collation name from `collate = "NOCASE"` (or other built-in /
     /// custom registered collation). Stored as the literal name; emitted
@@ -395,6 +426,8 @@ struct AttributeData {
     on_update: Option<String>,
     /// Reverse-relation accessor name from `relation = "..."`.
     relation: Option<String>,
+    /// See [`ParsedArgs::reference_option_spans`].
+    reference_option_spans: Vec<proc_macro2::Span>,
     attr_name: Option<String>,
     /// SQLite collation name. See [`ParsedArgs::collate`].
     collate: Option<String>,
@@ -494,8 +527,17 @@ impl<'a> FieldInfo<'a> {
                                         ));
                                     }
                                     args.explicit_type = Some(sqlite_type);
+                                } else if upper == "NOT_NULL" {
+                                    return Err(Error::new_spanned(ident, NOT_NULL_HINT));
                                 } else {
-                                    args.flags.insert(ident_str);
+                                    return Err(Error::new_spanned(
+                                        ident,
+                                        crate::common::unknown_key_message(
+                                            "SQLite column attribute",
+                                            &ident_str,
+                                            SQLITE_COLUMN_KEYS,
+                                        ),
+                                    ));
                                 }
                             }
                         }
@@ -521,6 +563,16 @@ impl<'a> FieldInfo<'a> {
                                     .push(make_uppercase_path(param, "DEFAULT_FN"));
                             }
                             "REFERENCES" => {
+                                match &*assign.right {
+                                    Expr::Path(path) if path.path.segments.len() == 2 => {}
+                                    other => {
+                                        return Err(Error::new_spanned(
+                                            other,
+                                            "references must name a column as `Table::column`, \
+                                             with the table struct in scope",
+                                        ));
+                                    }
+                                }
                                 args.references = Some(*assign.right.clone());
                                 args.marker_exprs
                                     .push(make_uppercase_path(param, "REFERENCES"));
@@ -542,6 +594,7 @@ impl<'a> FieldInfo<'a> {
                                         ));
                                     }
                                     args.relation = Some(name);
+                                    args.reference_option_spans.push(param.span());
                                     args.marker_exprs
                                         .push(make_uppercase_path(param, "RELATION"));
                                 } else {
@@ -551,35 +604,34 @@ impl<'a> FieldInfo<'a> {
                                     ));
                                 }
                             }
-                            "ON_DELETE" => {
-                                if let Expr::Path(action_path) = &*assign.right
-                                    && let Some(action_ident) = action_path.path.get_ident()
-                                {
-                                    let action_upper =
-                                        action_ident.to_string().to_ascii_uppercase();
-                                    args.on_delete =
-                                        Self::validate_referential_action(action_ident).ok();
-                                    args.marker_exprs
-                                        .push(make_uppercase_path(param, "ON_DELETE"));
-                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                    args.marker_exprs
-                                        .push(make_uppercase_path(action_ident, &action_upper));
+                            "ON_DELETE" | "ON_UPDATE" => {
+                                let Expr::Path(action_path) = &*assign.right else {
+                                    return Err(Error::new_spanned(
+                                        &assign.right,
+                                        format!(
+                                            "{} expects an action: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT or NO_ACTION",
+                                            upper.to_ascii_lowercase()
+                                        ),
+                                    ));
+                                };
+                                let Some(action_ident) = action_path.path.get_ident() else {
+                                    return Err(Error::new_spanned(
+                                        action_path,
+                                        "expected a single action such as CASCADE",
+                                    ));
+                                };
+                                let action = Self::validate_referential_action(action_ident)?;
+                                let action_upper = action_ident.to_string().to_ascii_uppercase();
+                                if upper == "ON_DELETE" {
+                                    args.on_delete = Some(action);
+                                } else {
+                                    args.on_update = Some(action);
                                 }
-                            }
-                            "ON_UPDATE" => {
-                                if let Expr::Path(action_path) = &*assign.right
-                                    && let Some(action_ident) = action_path.path.get_ident()
-                                {
-                                    let action_upper =
-                                        action_ident.to_string().to_ascii_uppercase();
-                                    args.on_update =
-                                        Self::validate_referential_action(action_ident).ok();
-                                    args.marker_exprs
-                                        .push(make_uppercase_path(param, "ON_UPDATE"));
-                                    // Add marker for the action value (CASCADE, SET_NULL, etc.)
-                                    args.marker_exprs
-                                        .push(make_uppercase_path(action_ident, &action_upper));
-                                }
+                                args.reference_option_spans.push(param.span());
+                                args.marker_exprs.push(make_uppercase_path(param, &upper));
+                                // Add marker for the action value (CASCADE, SET_NULL, etc.)
+                                args.marker_exprs
+                                    .push(make_uppercase_path(action_ident, &action_upper));
                             }
                             "NAME" => {
                                 args.name = Some(*assign.right.clone());
@@ -597,15 +649,26 @@ impl<'a> FieldInfo<'a> {
                                     }) => {
                                         args.collate = Some(lit_str.value());
                                     }
-                                    Expr::Path(path) => {
-                                        if let Some(ident) = path.path.get_ident() {
-                                            let upper = ident.to_string().to_ascii_uppercase();
+                                    Expr::Path(path) if path.path.get_ident().is_some() => {
+                                        let ident = path.path.get_ident().expect("checked above");
+                                        let upper = ident.to_string().to_ascii_uppercase();
+                                        // The built-in collations have prelude markers for
+                                        // hover docs; any other name is a collation the
+                                        // application registers, written as given.
+                                        if matches!(upper.as_str(), "BINARY" | "NOCASE" | "RTRIM") {
                                             args.collate = Some(upper.clone());
                                             args.marker_exprs
                                                 .push(make_uppercase_path(ident, &upper));
+                                        } else {
+                                            args.collate = Some(ident.to_string());
                                         }
                                     }
-                                    _ => {}
+                                    other => {
+                                        return Err(Error::new_spanned(
+                                            other,
+                                            "collate expects a collation name, e.g. collate = NOCASE or collate = \"my_collation\"",
+                                        ));
+                                    }
                                 }
                                 args.marker_exprs
                                     .push(make_uppercase_path(param, "COLLATE"));
@@ -628,7 +691,11 @@ impl<'a> FieldInfo<'a> {
                             _ => {
                                 return Err(Error::new_spanned(
                                     param,
-                                    format!("unrecognized SQLite column attribute `{param_str}`"),
+                                    crate::common::unknown_key_message(
+                                        "SQLite column attribute",
+                                        &param_str,
+                                        SQLITE_COLUMN_KEYS,
+                                    ),
                                 ));
                             }
                         }
@@ -780,6 +847,8 @@ impl<'a> FieldInfo<'a> {
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
                 data.relation = data.relation.or(args.relation);
+                data.reference_option_spans
+                    .extend(args.reference_option_spans);
                 data.collate = data.collate.or(args.collate);
 
                 if let Some(Expr::Path(path)) = args.references {
@@ -830,6 +899,8 @@ impl<'a> FieldInfo<'a> {
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
                 data.relation = data.relation.or(args.relation);
+                data.reference_option_spans
+                    .extend(args.reference_option_spans);
                 data.collate = data.collate.or(args.collate);
 
                 if let Some(Expr::Path(path)) = args.references {
@@ -849,20 +920,23 @@ impl<'a> FieldInfo<'a> {
         {
             let msg =
                 references_required_message(data.on_delete.is_some(), data.on_update.is_some());
-            // Use the first marker as span source for the error
-            if let Some(marker) = data.marker_exprs.first() {
-                return Err(Error::new_spanned(marker, msg));
-            }
-            return Err(Error::new(proc_macro2::Span::call_site(), msg));
+            let span = data
+                .reference_option_spans
+                .first()
+                .copied()
+                .unwrap_or_else(proc_macro2::Span::call_site);
+            return Err(Error::new(span, msg));
         }
 
         // Validate: relation requires references
         if data.relation.is_some() && data.references_path.is_none() {
             let msg = relation_requires_references_message();
-            if let Some(marker) = data.marker_exprs.first() {
-                return Err(Error::new_spanned(marker, msg));
-            }
-            return Err(Error::new(proc_macro2::Span::call_site(), msg));
+            let span = data
+                .reference_option_spans
+                .first()
+                .copied()
+                .unwrap_or_else(proc_macro2::Span::call_site);
+            return Err(Error::new(span, msg));
         }
 
         Ok(data)

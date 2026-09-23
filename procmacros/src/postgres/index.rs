@@ -579,15 +579,16 @@ fn parse_column_references(columns: &[Expr]) -> Result<Vec<ColumnReference>> {
         if let Expr::Path(ExprPath { path, .. }) = column {
             let segments: Vec<_> = path.segments.iter().collect();
 
-            if segments.len() != 2 {
+            if segments.len() < 2 {
                 return Err(Error::new_spanned(
                     column,
                     "Column references must be in the format Table::column",
                 ));
             }
 
-            let table_name = segments[0].ident.to_string();
-            let column_name = segments[1].ident.to_string();
+            // `schema::Users::name`: the table is the segment before the column.
+            let table_name = segments[segments.len() - 2].ident.to_string();
+            let column_name = segments[segments.len() - 1].ident.to_string();
 
             column_refs.push(ColumnReference {
                 table_name,
@@ -624,14 +625,21 @@ fn extract_table_from_column(column: &Expr) -> Result<Type> {
     if let Expr::Path(expr_path) = column {
         let path = &expr_path.path;
         if path.segments.len() >= 2 {
-            // Extract table name (first segment)
-            let table_ident = &path.segments[0].ident;
-
-            // Create table type
-            let table_type = syn::parse_str::<Type>(&table_ident.to_string())
-                .map_err(|_| Error::new_spanned(column, "invalid table name"))?;
-
-            Ok(table_type)
+            // The table is every segment but the column, so a qualified
+            // path (`schema::Users::name`) keeps its module path.
+            let segments = path
+                .segments
+                .iter()
+                .take(path.segments.len() - 1)
+                .cloned()
+                .collect();
+            Ok(Type::Path(syn::TypePath {
+                qself: None,
+                path: syn::Path {
+                    leading_colon: path.leading_colon,
+                    segments,
+                },
+            }))
         } else {
             Err(Error::new_spanned(
                 column,

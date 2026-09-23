@@ -15,7 +15,7 @@ use crate::common::{
     type_is_arrayvec_u8, type_is_bool, type_is_datetime_tz, type_is_float, type_is_int,
     type_is_json_value, type_is_naive_date, type_is_naive_datetime, type_is_naive_time,
     type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like, type_is_time_date,
-    type_is_time_time, type_is_uuid, type_is_vec_u8,
+    type_is_time_time, type_is_uuid, type_is_vec_u8, unknown_key_message,
 };
 use drizzle_types::{
     Dialect,
@@ -526,6 +526,70 @@ impl FieldInfo {
     }
 }
 
+/// Every key `#[column(...)]` accepts on a MySQL table, for suggestions.
+const MYSQL_COLUMN_KEYS: &[&str] = &[
+    "primary",
+    "primary_key",
+    "unique",
+    "auto_increment",
+    "json",
+    "enum",
+    "set",
+    "name",
+    "default",
+    "default_fn",
+    "check",
+    "references",
+    "relation",
+    "on_delete",
+    "on_update",
+    "collate",
+    "charset",
+    "character_set",
+    "comment",
+    "generated",
+    "bigint",
+    "bigint_unsigned",
+    "binary",
+    "bit",
+    "blob",
+    "bool",
+    "boolean",
+    "char",
+    "date",
+    "datetime",
+    "decimal",
+    "decimal_unsigned",
+    "double",
+    "double_unsigned",
+    "float",
+    "float_unsigned",
+    "int",
+    "int_unsigned",
+    "integer",
+    "integer_unsigned",
+    "longblob",
+    "longtext",
+    "mediumblob",
+    "mediumint",
+    "mediumint_unsigned",
+    "mediumtext",
+    "numeric",
+    "real",
+    "smallint",
+    "smallint_unsigned",
+    "text",
+    "time",
+    "timestamp",
+    "tinyblob",
+    "tinyint",
+    "tinyint_unsigned",
+    "tinytext",
+    "varbinary",
+    "varchar",
+    "year",
+];
+
 fn parse_column_attrs(field: &Field) -> Result<ParsedColumn> {
     let mut out = ParsedColumn::default();
     for attr in &field.attrs {
@@ -616,7 +680,7 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
                 let ty = MySQLType::parse_attribute(&upper).ok_or_else(|| {
                     Error::new_spanned(
                         path,
-                        format!("unrecognized MySQL column attribute `{name}`"),
+                        unknown_key_message("MySQL column attribute", &name, MYSQL_COLUMN_KEYS),
                     )
                 })?;
                 set_explicit_type(field, out, ty)?;
@@ -656,7 +720,7 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
             _ => {
                 return Err(Error::new_spanned(
                     value,
-                    format!("unrecognized MySQL column attribute `{name}`"),
+                    unknown_key_message("MySQL column attribute", &name, MYSQL_COLUMN_KEYS),
                 ));
             }
         },
@@ -697,7 +761,7 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
                 let ty = MySQLType::parse_attribute(&upper).ok_or_else(|| {
                     Error::new_spanned(
                         &list,
-                        format!("unrecognized MySQL column attribute `{name}`"),
+                        unknown_key_message("MySQL column attribute", &name, MYSQL_COLUMN_KEYS),
                     )
                 })?;
                 out.type_args = parse_type_args(&list)?;

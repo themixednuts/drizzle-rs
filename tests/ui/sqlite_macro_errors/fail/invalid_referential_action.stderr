@@ -1,0 +1,5 @@
+error: invalid referential action `EXPLODE`; expected one of: CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, NO_ACTION
+  --> tests/ui/sqlite_macro_errors/fail/invalid_referential_action.rs:14:50
+   |
+14 |     #[column(references = Users::id, on_delete = EXPLODE)]
+   |                                                  ^^^^^^^

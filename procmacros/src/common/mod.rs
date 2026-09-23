@@ -25,7 +25,10 @@ pub mod view_query;
 pub use constraint::Constraint;
 pub use context::ModelType;
 pub use default::render_default;
-pub use diagnostics::{references_required_message, relation_requires_references_message};
+pub use diagnostics::{
+    references_required_message, reject_schema_trait_derives, relation_requires_references_message,
+    unknown_key_message,
+};
 pub use helpers::{extract_struct_fields, make_uppercase_path, parse_column_reference};
 pub use table_pipeline::{
     count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,

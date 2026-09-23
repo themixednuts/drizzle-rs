@@ -1,0 +1,5 @@
+error: references must name a column as `Table::column`, with the table struct in scope
+ --> tests/ui/sqlite_macro_errors/fail/references_requires_table_column.rs:8:27
+  |
+8 |     #[column(references = user_id)]
+  |                           ^^^^^^^

@@ -1,0 +1,5 @@
+error: expected a column as `Table::column`
+  --> tests/ui/view_query_sqlite/fail/column_without_table.rs:13:16
+   |
+13 |         select(id, User::name),
+   |                ^^
