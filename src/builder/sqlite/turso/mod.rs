@@ -142,6 +142,26 @@ pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
+/// Runs a prepared statement and returns the number of rows it changed.
+///
+/// A statement with a `RETURNING` clause returns rows, which turso's
+/// `execute` rejects after the change is applied. It is stepped to
+/// completion instead; the rows it returned are the rows it changed.
+pub(crate) async fn run_statement(
+    statement: &mut turso::Statement,
+    params: Vec<turso::Value>,
+) -> turso::Result<u64> {
+    if statement.column_count() == 0 {
+        return statement.execute(params).await;
+    }
+    let mut rows = statement.query(params).await?;
+    let mut changed = 0;
+    while rows.next().await?.is_some() {
+        changed += 1;
+    }
+    Ok(changed)
+}
+
 async fn turso_execute_cached(
     conn: &Connection,
     sql: &str,
@@ -149,7 +169,7 @@ async fn turso_execute_cached(
 ) -> turso::Result<u64> {
     conn.execute_batch("").await?;
     let mut stmt = conn.prepare_cached(sql).await?;
-    stmt.execute(params).await
+    run_statement(&mut stmt, params).await
 }
 
 async fn turso_query_cached(

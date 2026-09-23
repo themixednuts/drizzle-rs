@@ -161,6 +161,43 @@ pub type DrizzleBuilder<'a, Schema, Builder, State> =
 
 crate::drizzle_prepare_impl!();
 
+/// Runs a prepared statement and returns the number of rows it changed.
+///
+/// A statement with a `RETURNING` clause returns rows, which rusqlite's
+/// `execute` rejects after SQLite has already applied the change. It is
+/// stepped to completion instead; the rows it returned are the rows it
+/// changed.
+pub(crate) fn run_statement<P: rusqlite::Params>(
+    statement: &mut rusqlite::Statement<'_>,
+    params: P,
+) -> rusqlite::Result<usize> {
+    if statement.column_count() == 0 {
+        return statement.execute(params);
+    }
+    let mut rows = statement.query(params)?;
+    let mut changed = 0;
+    while rows.next()?.is_some() {
+        changed += 1;
+    }
+    Ok(changed)
+}
+
+/// Runs `sql` and returns the number of rows it changed (see
+/// [`run_statement`]). Statements without a `RETURNING` clause keep
+/// rusqlite's `execute`, which also rejects trailing statements.
+pub(crate) fn execute_sql<P: rusqlite::Params>(
+    conn: &Connection,
+    sql: &str,
+    params: P,
+    returns_rows: bool,
+) -> rusqlite::Result<usize> {
+    if returns_rows {
+        run_statement(&mut conn.prepare(sql)?, params)
+    } else {
+        conn.execute(sql, params)
+    }
+}
+
 impl<Schema> common::Drizzle<Connection, Schema> {
     pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
     where
@@ -174,7 +211,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         let (sql_str, params) = query.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        self.conn.execute(&sql_str, params_from_iter(params))
+        execute_sql(
+            &self.conn,
+            &sql_str,
+            params_from_iter(params),
+            query.has_returning(),
+        )
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -1363,10 +1405,13 @@ where
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.execute");
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        self.runner
-            .conn
-            .execute(&sql_str, params_from_iter(params.iter().copied()))
-            .with_query(|| QueryContext::new(&sql_str, &params))
+        execute_sql(
+            &self.runner.conn,
+            &sql_str,
+            params_from_iter(params.iter().copied()),
+            self.builder.sql.has_returning(),
+        )
+        .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.

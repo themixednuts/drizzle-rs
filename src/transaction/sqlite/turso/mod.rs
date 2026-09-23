@@ -30,7 +30,7 @@ async fn turso_transaction_execute_cached(
     params: Vec<turso::Value>,
 ) -> turso::Result<u64> {
     let mut statement = tx.prepare_cached(sql).await?;
-    statement.execute(params).await
+    crate::builder::sqlite::turso::run_statement(&mut statement, params).await
 }
 
 async fn turso_transaction_query_cached(

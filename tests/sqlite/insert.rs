@@ -788,3 +788,42 @@ fn out_of_range_setter_argument_panics_instead_of_storing_null() {
     // `u64::MAX` has no `i64` value. This used to insert NULL.
     let _: SQLiteInsertValue<'_, SQLiteValue<'_>, i64> = u64::MAX.into();
 }
+
+#[drizzle::test]
+fn execute_on_a_returning_statement_reports_the_changed_rows(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    // `.execute()` on a RETURNING builder applies the change and reports it.
+    // It used to insert the row and then fail with "Execute returned
+    // results", which invited a retry that inserted it twice.
+    let inserted = result!(
+        db.insert(simple)
+            .values([
+                InsertSimple::new("a").with_id(1),
+                InsertSimple::new("b").with_id(2)
+            ])
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(inserted, 2);
+
+    let updated = result!(
+        db.update(simple)
+            .set(UpdateSimple::default().with_name("c"))
+            .r#where(eq(simple.id, 1))
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(updated, 1);
+
+    let deleted = result!(
+        db.delete(simple)
+            .r#where(eq(simple.id, 2))
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(deleted, 1);
+
+    let names: Vec<String> = db.select(simple.name).from(simple).all();
+    assert_eq!(names, ["c"]);
+}

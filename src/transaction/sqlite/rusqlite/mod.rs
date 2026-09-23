@@ -159,7 +159,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = query.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        self.tx.execute(&sql_str, params_from_iter(params))
+        crate::builder::sqlite::rusqlite::execute_sql(
+            &self.tx,
+            &sql_str,
+            params_from_iter(params),
+            query.has_returning(),
+        )
     }
 
     /// Runs a query and returns all matching rows within the transaction
@@ -267,7 +272,12 @@ where
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.execute");
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        Ok(self.runner.tx.execute(&sql_str, params_from_iter(params))?)
+        Ok(crate::builder::sqlite::rusqlite::execute_sql(
+            &self.runner.tx,
+            &sql_str,
+            params_from_iter(params),
+            self.builder.sql.has_returning(),
+        )?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.

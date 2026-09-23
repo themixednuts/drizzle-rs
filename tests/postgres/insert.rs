@@ -554,3 +554,36 @@ fn multi_row_insert_of_default_rows_inserts_every_row(db: &mut TestDb<InsertRows
     let labels: Vec<String> = db.select(default_rows.label).from(default_rows).all();
     assert_eq!(labels, ["x", "x", "x"]);
 }
+
+#[drizzle::test]
+fn execute_on_a_returning_statement_reports_the_changed_rows(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let inserted = result!(
+        db.insert(simple)
+            .values([InsertSimple::new("a"), InsertSimple::new("b")])
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(inserted, 2);
+
+    let updated = result!(
+        db.update(simple)
+            .set(UpdateSimple::default().with_name("c"))
+            .r#where(eq(simple.name, "a"))
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(updated, 1);
+
+    let deleted = result!(
+        db.delete(simple)
+            .r#where(eq(simple.name, "b"))
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(deleted, 1);
+
+    let names: Vec<String> = db.select(simple.name).from(simple).all();
+    assert_eq!(names, ["c"]);
+}

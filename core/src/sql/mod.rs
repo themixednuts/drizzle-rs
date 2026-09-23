@@ -430,6 +430,22 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         buf
     }
 
+    /// Whether this statement has a `RETURNING` clause (outside any
+    /// parentheses), so it returns rows although it changes data.
+    #[must_use]
+    pub fn has_returning(&self) -> bool {
+        let mut depth = 0usize;
+        for chunk in &self.chunks {
+            match chunk {
+                SQLChunk::Token(Token::LPAREN) => depth += 1,
+                SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+                SQLChunk::Token(Token::RETURNING) if depth == 0 => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
     /// Returns the SQL string with every bound value written as a literal
     /// instead of a placeholder, for statements that cannot take parameters,
     /// such as the body of a `CREATE VIEW`.
