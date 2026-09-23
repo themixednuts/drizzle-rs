@@ -370,6 +370,30 @@ struct UserEmailsView {
     email: String,
 }
 
+// The WHERE value is bound by the builder, but a view body cannot take
+// parameters: the DDL writes it as a literal.
+#[SQLiteView(
+    NAME = "first_user_emails",
+    DEFINITION = {
+        let builder = drizzle::sqlite::builder::QueryBuilder::new::<AppTestSchema>();
+        let AppTestSchema { user, .. } = AppTestSchema::new();
+        builder
+            .select((user.id, user.email))
+            .from(user)
+            .r#where(eq(user.name, "User A"))
+    }
+)]
+struct FirstUserEmailsView {
+    id: i32,
+    email: String,
+}
+
+#[derive(SQLiteSchema)]
+struct BoundViewSchema {
+    user: User,
+    first_user_emails: FirstUserEmailsView,
+}
+
 #[SQLiteView(DEFINITION = "SELECT id FROM users")]
 struct DefaultNameView {
     id: i32,
@@ -537,6 +561,31 @@ fn test_schema_with_view(db: &mut TestDb<ViewTestSchema>) {
         !statements.iter().any(|sql| sql.contains("existing_users")),
         "Existing view should not be created"
     );
+}
+
+#[drizzle::test]
+fn view_definition_writes_bound_values_as_literals(db: &mut TestDb<BoundViewSchema>) {
+    let BoundViewSchema {
+        user,
+        first_user_emails,
+    } = schema;
+
+    assert_eq!(
+        FirstUserEmailsView::create_view_sql(),
+        r#"CREATE VIEW `first_user_emails` AS SELECT "users"."id", "users"."email" FROM "users" WHERE "users"."name" = 'User A';"#
+    );
+
+    db.insert(user)
+        .values([
+            InsertUser::new("a@example.com", "User A"),
+            InsertUser::new("b@example.com", "User B"),
+        ])
+        .execute();
+    let emails: Vec<String> = db
+        .select(first_user_emails.email)
+        .from(first_user_emails)
+        .all();
+    assert_eq!(emails, ["a@example.com"]);
 }
 
 #[drizzle::test]

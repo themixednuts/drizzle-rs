@@ -791,6 +791,191 @@ impl SQLParam for PostgresValue<'_> {
     fn pagination_param(value: usize) -> Option<Self> {
         i64::try_from(value).ok().map(Self::Bigint)
     }
+
+    fn write_literal(&self, buf: &mut String) -> bool {
+        let mut literal = String::new();
+        let written = write_postgres_literal(self, &mut literal).is_some();
+        if written {
+            buf.push_str(&literal);
+        }
+        written
+    }
+}
+
+/// Appends a quoted string literal; `None` for text PostgreSQL cannot store.
+fn write_quoted_literal(buf: &mut String, text: &str) -> Option<()> {
+    if text.contains('\0') {
+        return None;
+    }
+    buf.push('\'');
+    buf.push_str(&text.replace('\'', "''"));
+    buf.push('\'');
+    Some(())
+}
+
+/// Appends `'text'::type`.
+fn write_cast_literal(buf: &mut String, text: &str, sql_type: &str) -> Option<()> {
+    write_quoted_literal(buf, text)?;
+    buf.push_str("::");
+    buf.push_str(sql_type);
+    Some(())
+}
+
+fn float_text(value: f64) -> String {
+    if value.is_nan() {
+        "NaN".to_string()
+    } else if value.is_infinite() {
+        if value.is_sign_positive() {
+            "Infinity"
+        } else {
+            "-Infinity"
+        }
+        .to_string()
+    } else {
+        format!("{value:?}")
+    }
+}
+
+/// Writes `value` as a PostgreSQL literal. Built-in types carry an explicit
+/// cast so the literal keeps its type in any context; an enum variant is an
+/// untyped string that PostgreSQL resolves against the enum it is compared
+/// with, since the enum's type may live outside the `search_path`.
+fn write_postgres_literal(value: &PostgresValue<'_>, buf: &mut String) -> Option<()> {
+    use core::fmt::Write;
+    match value {
+        PostgresValue::Null => buf.push_str("NULL"),
+        PostgresValue::Smallint(v) => {
+            let _ = write!(buf, "{v}::smallint");
+        }
+        PostgresValue::Integer(v) => {
+            let _ = write!(buf, "{v}::integer");
+        }
+        PostgresValue::Bigint(v) => {
+            let _ = write!(buf, "{v}::bigint");
+        }
+        PostgresValue::Real(v) => write_cast_literal(buf, &float_text(f64::from(*v)), "real")?,
+        PostgresValue::DoublePrecision(v) => {
+            write_cast_literal(buf, &float_text(*v), "double precision")?;
+        }
+        #[cfg(feature = "rust-decimal")]
+        PostgresValue::Numeric(v) => write_cast_literal(buf, &v.to_string(), "numeric")?,
+        PostgresValue::Text(text) => write_quoted_literal(buf, text)?,
+        PostgresValue::Bytea(bytes) => {
+            let mut hex = String::with_capacity(2 + bytes.len() * 2);
+            hex.push_str("\\x");
+            for byte in bytes.iter() {
+                let _ = write!(hex, "{byte:02x}");
+            }
+            write_cast_literal(buf, &hex, "bytea")?;
+        }
+        PostgresValue::Boolean(v) => buf.push_str(if *v { "TRUE" } else { "FALSE" }),
+        #[cfg(feature = "uuid")]
+        PostgresValue::Uuid(v) => write_cast_literal(buf, &v.to_string(), "uuid")?,
+        #[cfg(feature = "serde")]
+        PostgresValue::Json(v) => write_cast_literal(buf, &v.to_string(), "json")?,
+        #[cfg(feature = "serde")]
+        PostgresValue::Jsonb(v) => write_cast_literal(buf, &v.to_string(), "jsonb")?,
+        PostgresValue::Enum(v) => write_quoted_literal(buf, v.variant_name())?,
+        #[cfg(feature = "chrono")]
+        PostgresValue::Date(v) => write_cast_literal(buf, &v.to_string(), "date")?,
+        #[cfg(feature = "chrono")]
+        PostgresValue::Time(v) => write_cast_literal(buf, &v.to_string(), "time")?,
+        #[cfg(feature = "chrono")]
+        PostgresValue::Timestamp(v) => write_cast_literal(buf, &v.to_string(), "timestamp")?,
+        #[cfg(feature = "chrono")]
+        PostgresValue::TimestampTz(v) => {
+            write_cast_literal(buf, &v.to_rfc3339(), "timestamptz")?;
+        }
+        #[cfg(feature = "chrono")]
+        PostgresValue::Interval(v) => {
+            let micros = v.num_microseconds()?;
+            write_cast_literal(buf, &format!("{micros} microseconds"), "interval")?;
+        }
+        #[cfg(feature = "time")]
+        PostgresValue::TimeDate(v) => write_cast_literal(buf, &v.to_string(), "date")?,
+        #[cfg(feature = "time")]
+        PostgresValue::TimeTime(v) => write_cast_literal(buf, &v.to_string(), "time")?,
+        #[cfg(feature = "time")]
+        PostgresValue::TimeTimestamp(v) => {
+            write_cast_literal(buf, &format!("{} {}", v.date(), v.time()), "timestamp")?;
+        }
+        #[cfg(feature = "time")]
+        PostgresValue::TimeTimestampTz(v) => {
+            let utc = v.to_offset(time::UtcOffset::UTC);
+            write_cast_literal(
+                buf,
+                &format!("{} {}+00", utc.date(), utc.time()),
+                "timestamptz",
+            )?;
+        }
+        #[cfg(feature = "time")]
+        PostgresValue::TimeInterval(v) => {
+            let micros = v.whole_microseconds();
+            write_cast_literal(buf, &format!("{micros} microseconds"), "interval")?;
+        }
+        #[cfg(feature = "cidr")]
+        PostgresValue::Inet(v) => write_cast_literal(buf, &v.to_string(), "inet")?,
+        #[cfg(feature = "cidr")]
+        PostgresValue::Cidr(v) => write_cast_literal(buf, &v.to_string(), "cidr")?,
+        #[cfg(feature = "cidr")]
+        PostgresValue::MacAddr(bytes) => {
+            let text = bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<Vec<_>>()
+                .join(":");
+            write_cast_literal(buf, &text, "macaddr")?;
+        }
+        #[cfg(feature = "cidr")]
+        PostgresValue::MacAddr8(bytes) => {
+            let text = bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<Vec<_>>()
+                .join(":");
+            write_cast_literal(buf, &text, "macaddr8")?;
+        }
+        #[cfg(feature = "geo-types")]
+        PostgresValue::Point(v) => {
+            let text = format!("({:?},{:?})", v.x(), v.y());
+            write_cast_literal(buf, &text, "point")?;
+        }
+        #[cfg(feature = "geo-types")]
+        PostgresValue::LineString(v) => {
+            let points = v
+                .coords()
+                .map(|coord| format!("({:?},{:?})", coord.x, coord.y))
+                .collect::<Vec<_>>()
+                .join(",");
+            write_cast_literal(buf, &format!("[{points}]"), "path")?;
+        }
+        #[cfg(feature = "geo-types")]
+        PostgresValue::Rect(v) => {
+            let (min, max) = (v.min(), v.max());
+            let text = format!("(({:?},{:?}),({:?},{:?}))", max.x, max.y, min.x, min.y);
+            write_cast_literal(buf, &text, "box")?;
+        }
+        #[cfg(feature = "bit-vec")]
+        PostgresValue::BitVec(v) => {
+            buf.push_str("B'");
+            for bit in v.iter() {
+                buf.push(if bit { '1' } else { '0' });
+            }
+            buf.push('\'');
+        }
+        PostgresValue::Array(values) if values.is_empty() => buf.push_str("'{}'"),
+        PostgresValue::Array(values) => {
+            buf.push_str("ARRAY[");
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    buf.push_str(", ");
+                }
+                write_postgres_literal(value, buf)?;
+            }
+            buf.push(']');
+        }
+    }
+    Some(())
 }
 
 impl<'a> From<PostgresValue<'a>> for SQL<'a, PostgresValue<'a>> {

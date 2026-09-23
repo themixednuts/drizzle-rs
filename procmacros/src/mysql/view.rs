@@ -437,10 +437,13 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     );
     let definition_info = if definition_expr.is_some() {
         quote! {
-            #std_cow::Owned(
-                <Self as #sql_view<'_, #mysql_schema_type, #mysql_value<'_>>>::definition(self)
-                    .sql()
-            )
+            {
+                // A view body cannot take bound parameters, so values the
+                // definition binds are written as literals.
+                let definition =
+                    <Self as #sql_view<'_, #mysql_schema_type, #mysql_value<'_>>>::definition(self);
+                #std_cow::Owned(definition.inline_sql().unwrap_or_else(|| definition.sql()))
+            }
         }
     } else {
         quote!(#std_cow::Borrowed(Self::VIEW_DEFINITION_SQL))

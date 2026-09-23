@@ -430,6 +430,38 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         buf
     }
 
+    /// Returns the SQL string with every bound value written as a literal
+    /// instead of a placeholder, for statements that cannot take parameters,
+    /// such as the body of a `CREATE VIEW`.
+    ///
+    /// Returns `None` when a placeholder has no bound value, or a value has
+    /// no literal form in this dialect (see [`SQLParam::write_literal`]).
+    #[must_use]
+    pub fn inline_sql(&self) -> Option<String> {
+        let (sql_cap, _) = self.render_capacity_estimate();
+        let mut buf = String::with_capacity(sql_cap);
+        for (i, chunk) in self.chunks.iter().enumerate() {
+            match chunk {
+                SQLChunk::Param(param) => {
+                    let value = param.value.as_ref()?;
+                    if !value.as_ref().write_literal(&mut buf) {
+                        return None;
+                    }
+                }
+                _ => chunk.write(&mut buf),
+            }
+
+            if self.ends_select_head(i) {
+                self.write_select_columns(&mut buf, i);
+            }
+
+            if self.needs_space(i) {
+                buf.push(' ');
+            }
+        }
+        Some(buf)
+    }
+
     /// Generates the SQL string and collects parameter references in a single pass.
     ///
     /// This is the preferred method for driver execution paths since it avoids
