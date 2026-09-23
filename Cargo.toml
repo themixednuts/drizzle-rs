@@ -54,7 +54,7 @@ keywords = ["drizzle", "rizzle", "orm", "database", "sqlite"]
 description = "A type-safe SQL query builder for Rust"
 license = "MIT"
 repository = "https://github.com/themixednuts/drizzle-rs"
-rust-version = "1.95"
+rust-version = "1.98"
 
 [workspace.dependencies]
 drizzle = { path = "." }

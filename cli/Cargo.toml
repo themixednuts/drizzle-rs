@@ -74,6 +74,8 @@ assert_cmd = { workspace = true }
 predicates = { workspace = true }
 
 [features]
+# CI builds the CLI with no driver and with each driver feature alone
+# (ci.yml, "Check CLI driver builds for warnings"). List new drivers there.
 default = []
 
 # SQLite drivers
