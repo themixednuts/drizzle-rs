@@ -430,6 +430,54 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         buf
     }
 
+    /// Whether this statement has a `RETURNING` clause (outside any
+    /// parentheses), so it returns rows although it changes data.
+    #[must_use]
+    pub fn has_returning(&self) -> bool {
+        let mut depth = 0usize;
+        for chunk in &self.chunks {
+            match chunk {
+                SQLChunk::Token(Token::LPAREN) => depth += 1,
+                SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+                SQLChunk::Token(Token::RETURNING) if depth == 0 => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Returns the SQL string with every bound value written as a literal
+    /// instead of a placeholder, for statements that cannot take parameters,
+    /// such as the body of a `CREATE VIEW`.
+    ///
+    /// Returns `None` when a placeholder has no bound value, or a value has
+    /// no literal form in this dialect (see [`SQLParam::write_literal`]).
+    #[must_use]
+    pub fn inline_sql(&self) -> Option<String> {
+        let (sql_cap, _) = self.render_capacity_estimate();
+        let mut buf = String::with_capacity(sql_cap);
+        for (i, chunk) in self.chunks.iter().enumerate() {
+            match chunk {
+                SQLChunk::Param(param) => {
+                    let value = param.value.as_ref()?;
+                    if !value.as_ref().write_literal(&mut buf) {
+                        return None;
+                    }
+                }
+                _ => chunk.write(&mut buf),
+            }
+
+            if self.ends_select_head(i) {
+                self.write_select_columns(&mut buf, i);
+            }
+
+            if self.needs_space(i) {
+                buf.push(' ');
+            }
+        }
+        Some(buf)
+    }
+
     /// Generates the SQL string and collects parameter references in a single pass.
     ///
     /// This is the preferred method for driver execution paths since it avoids
@@ -453,30 +501,35 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         let mut buf = String::with_capacity(sql_cap);
         let mut params: SmallVec<[&V; 8]> = SmallVec::with_capacity(param_cap);
         let mut param_index = 1usize;
+        let mut sqlite_names = SQLiteNamedParams::default();
 
         #[cfg(feature = "profiling")]
         crate::drizzle_profile_scope!("sql_render", "build.render");
         for (i, chunk) in self.chunks.iter().enumerate() {
             match chunk {
-                SQLChunk::Token(Token::SELECT) => {
-                    chunk.write(&mut buf);
-                    self.write_select_columns(&mut buf, i);
-                }
                 SQLChunk::Param(param) => {
+                    let mut repeated_name = false;
                     if let Some(name) = param.placeholder.name
                         && V::DIALECT == Dialect::SQLite
                     {
                         let _ = buf.write_char(':');
                         let _ = buf.write_str(name);
+                        repeated_name = sqlite_names.is_repeat(name);
                     } else {
                         style.write(param_index, &mut buf);
                     }
                     param_index += 1;
-                    if let Some(value) = &param.value {
+                    // SQLite gives every distinct `:name` one parameter
+                    // slot, so a repeated name binds its value only once.
+                    if !repeated_name && let Some(value) = &param.value {
                         params.push(value.as_ref());
                     }
                 }
                 _ => chunk.write(&mut buf),
+            }
+
+            if self.ends_select_head(i) {
+                self.write_select_columns(&mut buf, i);
             }
 
             if self.needs_space(i) {
@@ -508,10 +561,6 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         let mut param_index = 1usize;
         for (i, chunk) in self.chunks.iter().enumerate() {
             match chunk {
-                SQLChunk::Token(Token::SELECT) => {
-                    chunk.write(buf);
-                    self.write_select_columns(buf, i);
-                }
                 SQLChunk::Param(param) => {
                     if let Some(name) = param.placeholder.name
                         && V::DIALECT == Dialect::SQLite
@@ -524,6 +573,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
                     param_index += 1;
                 }
                 _ => chunk.write(buf),
+            }
+
+            if self.ends_select_head(i) {
+                self.write_select_columns(buf, i);
             }
 
             if self.needs_space(i) {
@@ -540,30 +593,72 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         chunk: &SQLChunk<'a, V>,
         index: usize,
     ) {
-        match chunk {
-            SQLChunk::Token(Token::SELECT) => {
-                chunk.write(buf);
-                self.write_select_columns(buf, index);
-            }
-            _ => chunk.write(buf),
+        chunk.write(buf);
+        if self.ends_select_head(index) {
+            self.write_select_columns(buf, index);
         }
     }
 
-    /// Write appropriate columns for SELECT statement
+    /// Whether the chunk at `index` ends a `SELECT` head with no projection,
+    /// so the projection must be expanded before the `FROM` that follows.
+    ///
+    /// The head is `SELECT`, `SELECT DISTINCT`, or `PostgreSQL`'s
+    /// `SELECT DISTINCT ON (...)`.
+    fn ends_select_head(&self, index: usize) -> bool {
+        if !matches!(
+            self.chunks.get(index + 1),
+            Some(SQLChunk::Token(Token::FROM))
+        ) {
+            return false;
+        }
+        let token_at = |position: Option<usize>| match position.and_then(|p| self.chunks.get(p)) {
+            Some(SQLChunk::Token(token)) => Some(*token),
+            _ => None,
+        };
+
+        match self.chunks[index] {
+            SQLChunk::Token(Token::SELECT) => true,
+            SQLChunk::Token(Token::DISTINCT) => {
+                matches!(token_at(index.checked_sub(1)), Some(Token::SELECT))
+            }
+            SQLChunk::Token(Token::RPAREN) => {
+                // Find the `(` this `)` closes, then look for `SELECT DISTINCT ON`.
+                let mut depth = 0usize;
+                let mut open = None;
+                for position in (0..index).rev() {
+                    match self.chunks[position] {
+                        SQLChunk::Token(Token::RPAREN) => depth += 1,
+                        SQLChunk::Token(Token::LPAREN) if depth == 0 => {
+                            open = Some(position);
+                            break;
+                        }
+                        SQLChunk::Token(Token::LPAREN) => depth -= 1,
+                        _ => {}
+                    }
+                }
+                open.is_some_and(|open| {
+                    matches!(token_at(open.checked_sub(1)), Some(Token::ON))
+                        && matches!(token_at(open.checked_sub(2)), Some(Token::DISTINCT))
+                        && matches!(token_at(open.checked_sub(3)), Some(Token::SELECT))
+                })
+            }
+            _ => false,
+        }
+    }
+
+    /// Write the projection of a `SELECT` head that ends at `head_end` and
+    /// has no explicit column list: every column of the tables in the
+    /// following `FROM` clause, or `*` for any other source.
     #[inline]
-    pub(crate) fn write_select_columns(
-        &self,
-        buf: &mut impl core::fmt::Write,
-        select_index: usize,
-    ) {
-        let chunks = self.chunks.get(select_index + 1..select_index + 3);
+    pub(crate) fn write_select_columns(&self, buf: &mut impl core::fmt::Write, head_end: usize) {
+        let chunks = self.chunks.get(head_end + 1..head_end + 3);
         match chunks {
             Some([SQLChunk::Token(Token::FROM), SQLChunk::Table(_)]) => {
                 let _ = buf.write_char(' ');
                 let mut first = true;
                 let mut depth = 0usize;
 
-                for (index, chunk) in self.chunks.iter().enumerate().skip(select_index + 2) {
+                for (index, chunk) in self.chunks.iter().enumerate().skip(head_end + 2) {
                     match chunk {
                         SQLChunk::Token(Token::LPAREN) => depth += 1,
                         SQLChunk::Token(Token::RPAREN) if depth == 0 => break,
@@ -756,6 +851,33 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
         SQL {
             chunks: bound_chunks,
+        }
+    }
+}
+
+/// Tracks the `:name` parameters already bound for one `SQLite` statement.
+///
+/// `SQLite` gives every distinct parameter name a single slot, however often
+/// the name appears, while each positional `?` takes its own slot. A value
+/// list for the statement therefore holds one entry per distinct name, at the
+/// position of the name's first occurrence.
+#[derive(Default)]
+pub(crate) struct SQLiteNamedParams<'n> {
+    seen: SmallVec<[&'n str; 4]>,
+}
+
+impl<'n> SQLiteNamedParams<'n> {
+    /// Records `name` and reports whether an earlier occurrence already took
+    /// its slot.
+    pub(crate) fn is_repeat(&mut self, name: &'n str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        if self.seen.contains(&name) {
+            true
+        } else {
+            self.seen.push(name);
+            false
         }
     }
 }

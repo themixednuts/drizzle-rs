@@ -15,6 +15,12 @@ use time::{
     Date as TimeDate, Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime, Time as TimeTime,
 };
 
+#[cfg(feature = "jiff")]
+use jiff::{
+    Timestamp as JiffTimestamp,
+    civil::{Date as JiffDate, DateTime as JiffDateTime, Time as JiffTime},
+};
+
 #[cfg(feature = "cidr")]
 use cidr::{IpCidr, IpInet};
 
@@ -92,6 +98,18 @@ pub enum OwnedPostgresValue {
     /// INTERVAL values (time crate)
     #[cfg(feature = "time")]
     TimeInterval(TimeDuration),
+    /// DATE values (`jiff::civil::Date`)
+    #[cfg(feature = "jiff")]
+    JiffDate(JiffDate),
+    /// TIME values (`jiff::civil::Time`)
+    #[cfg(feature = "jiff")]
+    JiffTime(JiffTime),
+    /// TIMESTAMP values without timezone (`jiff::civil::DateTime`)
+    #[cfg(feature = "jiff")]
+    JiffDateTime(JiffDateTime),
+    /// TIMESTAMPTZ values (`jiff::Timestamp`, an instant)
+    #[cfg(feature = "jiff")]
+    JiffTimestamp(JiffTimestamp),
 
     // Network address types
     /// INET values (host address with optional netmask)
@@ -407,6 +425,50 @@ impl OwnedPostgresValue {
         }
     }
 
+    /// Returns the date value if this is DATE (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_date(&self) -> Option<&JiffDate> {
+        match self {
+            Self::JiffDate(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the time value if this is TIME (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_time(&self) -> Option<&JiffTime> {
+        match self {
+            Self::JiffTime(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp value if this is TIMESTAMP (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_datetime(&self) -> Option<&JiffDateTime> {
+        match self {
+            Self::JiffDateTime(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp with timezone value if this is TIMESTAMPTZ (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_timestamp(&self) -> Option<&JiffTimestamp> {
+        match self {
+            Self::JiffTimestamp(value) => Some(value),
+            _ => None,
+        }
+    }
+
     /// Returns the inet value if this is INET.
     #[inline]
     #[cfg(feature = "cidr")]
@@ -545,6 +607,14 @@ impl OwnedPostgresValue {
             Self::TimeTimestampTz(value) => PostgresValue::TimeTimestampTz(*value),
             #[cfg(feature = "time")]
             Self::TimeInterval(value) => PostgresValue::TimeInterval(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffDate(value) => PostgresValue::JiffDate(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffTime(value) => PostgresValue::JiffTime(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffDateTime(value) => PostgresValue::JiffDateTime(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffTimestamp(value) => PostgresValue::JiffTimestamp(*value),
             #[cfg(feature = "cidr")]
             Self::Inet(value) => PostgresValue::Inet(*value),
             #[cfg(feature = "cidr")]
@@ -616,6 +686,14 @@ impl OwnedPostgresValue {
             Self::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(value),
             #[cfg(feature = "time")]
             Self::TimeInterval(value) => T::from_postgres_time_interval(value),
+            #[cfg(feature = "jiff")]
+            Self::JiffDate(value) => T::from_postgres_jiff_date(value),
+            #[cfg(feature = "jiff")]
+            Self::JiffTime(value) => T::from_postgres_jiff_time(value),
+            #[cfg(feature = "jiff")]
+            Self::JiffDateTime(value) => T::from_postgres_jiff_datetime(value),
+            #[cfg(feature = "jiff")]
+            Self::JiffTimestamp(value) => T::from_postgres_jiff_timestamp(value),
             #[cfg(feature = "cidr")]
             Self::Inet(value) => T::from_postgres_inet(value),
             #[cfg(feature = "cidr")]
@@ -688,6 +766,14 @@ impl OwnedPostgresValue {
             Self::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(*value),
             #[cfg(feature = "time")]
             Self::TimeInterval(value) => T::from_postgres_time_interval(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffDate(value) => T::from_postgres_jiff_date(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffTime(value) => T::from_postgres_jiff_time(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffDateTime(value) => T::from_postgres_jiff_datetime(*value),
+            #[cfg(feature = "jiff")]
+            Self::JiffTimestamp(value) => T::from_postgres_jiff_timestamp(*value),
             #[cfg(feature = "cidr")]
             Self::Inet(value) => T::from_postgres_inet(*value),
             #[cfg(feature = "cidr")]
@@ -765,6 +851,14 @@ impl core::fmt::Display for OwnedPostgresValue {
             Self::TimeTimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "time")]
             Self::TimeInterval(dur) => format!("{} seconds", dur.whole_seconds()),
+            #[cfg(feature = "jiff")]
+            Self::JiffDate(date) => date.to_string(),
+            #[cfg(feature = "jiff")]
+            Self::JiffTime(time) => time.to_string(),
+            #[cfg(feature = "jiff")]
+            Self::JiffDateTime(ts) => ts.to_string(),
+            #[cfg(feature = "jiff")]
+            Self::JiffTimestamp(ts) => ts.to_string(),
 
             // Network address types
             #[cfg(feature = "cidr")]
@@ -867,6 +961,14 @@ impl<'a> From<PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::TimeTimestampTz(v) => Self::TimeTimestampTz(v),
             #[cfg(feature = "time")]
             PostgresValue::TimeInterval(v) => Self::TimeInterval(v),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDate(v) => Self::JiffDate(v),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTime(v) => Self::JiffTime(v),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDateTime(v) => Self::JiffDateTime(v),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTimestamp(v) => Self::JiffTimestamp(v),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(net) => Self::Inet(net),
             #[cfg(feature = "cidr")]
@@ -931,6 +1033,14 @@ impl<'a> From<&PostgresValue<'a>> for OwnedPostgresValue {
             PostgresValue::TimeTimestampTz(value) => Self::TimeTimestampTz(*value),
             #[cfg(feature = "time")]
             PostgresValue::TimeInterval(value) => Self::TimeInterval(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDate(value) => Self::JiffDate(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTime(value) => Self::JiffTime(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDateTime(value) => Self::JiffDateTime(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTimestamp(value) => Self::JiffTimestamp(*value),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => Self::Inet(*value),
             #[cfg(feature = "cidr")]
@@ -998,6 +1108,14 @@ impl From<OwnedPostgresValue> for PostgresValue<'_> {
             OwnedPostgresValue::TimeTimestampTz(v) => PostgresValue::TimeTimestampTz(v),
             #[cfg(feature = "time")]
             OwnedPostgresValue::TimeInterval(v) => PostgresValue::TimeInterval(v),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffDate(v) => PostgresValue::JiffDate(v),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffTime(v) => PostgresValue::JiffTime(v),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffDateTime(v) => PostgresValue::JiffDateTime(v),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffTimestamp(v) => PostgresValue::JiffTimestamp(v),
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(net) => PostgresValue::Inet(net),
             #[cfg(feature = "cidr")]
@@ -1065,6 +1183,14 @@ impl<'a> From<&'a OwnedPostgresValue> for PostgresValue<'a> {
             OwnedPostgresValue::TimeTimestampTz(value) => PostgresValue::TimeTimestampTz(*value),
             #[cfg(feature = "time")]
             OwnedPostgresValue::TimeInterval(value) => PostgresValue::TimeInterval(*value),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffDate(value) => PostgresValue::JiffDate(*value),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffTime(value) => PostgresValue::JiffTime(*value),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffDateTime(value) => PostgresValue::JiffDateTime(*value),
+            #[cfg(feature = "jiff")]
+            OwnedPostgresValue::JiffTimestamp(value) => PostgresValue::JiffTimestamp(*value),
             #[cfg(feature = "cidr")]
             OwnedPostgresValue::Inet(value) => PostgresValue::Inet(*value),
             #[cfg(feature = "cidr")]
@@ -1319,6 +1445,34 @@ impl From<OffsetDateTime> for OwnedPostgresValue {
 impl From<TimeDuration> for OwnedPostgresValue {
     fn from(value: TimeDuration) -> Self {
         Self::TimeInterval(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<JiffDate> for OwnedPostgresValue {
+    fn from(value: JiffDate) -> Self {
+        Self::JiffDate(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<JiffTime> for OwnedPostgresValue {
+    fn from(value: JiffTime) -> Self {
+        Self::JiffTime(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<JiffDateTime> for OwnedPostgresValue {
+    fn from(value: JiffDateTime) -> Self {
+        Self::JiffDateTime(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<JiffTimestamp> for OwnedPostgresValue {
+    fn from(value: JiffTimestamp) -> Self {
+        Self::JiffTimestamp(value)
     }
 }
 
@@ -1764,6 +1918,70 @@ impl TryFrom<OwnedPostgresValue> for TimeDuration {
             OwnedPostgresValue::TimeInterval(dur) => Ok(dur),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {value:?} to time::Duration").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl TryFrom<OwnedPostgresValue> for JiffDate {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::JiffDate(date) => Ok(date),
+            OwnedPostgresValue::JiffDateTime(ts) => Ok(ts.date()),
+            OwnedPostgresValue::JiffTimestamp(ts) => {
+                Ok(jiff::tz::Offset::UTC.to_datetime(ts).date())
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::civil::Date").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl TryFrom<OwnedPostgresValue> for JiffTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::JiffTime(time) => Ok(time),
+            OwnedPostgresValue::JiffDateTime(ts) => Ok(ts.time()),
+            OwnedPostgresValue::JiffTimestamp(ts) => {
+                Ok(jiff::tz::Offset::UTC.to_datetime(ts).time())
+            }
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::civil::Time").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl TryFrom<OwnedPostgresValue> for JiffDateTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::JiffDateTime(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::civil::DateTime").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl TryFrom<OwnedPostgresValue> for JiffTimestamp {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::JiffTimestamp(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::Timestamp").into(),
             )),
         }
     }

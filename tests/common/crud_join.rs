@@ -8,7 +8,7 @@ macro_rules! shared_crud_join_suite {
         mod shared_crud_join_contract {
             use super::*;
             use drizzle::core::{
-                asc,
+                asc, desc,
                 expr::{eq, lower},
             };
 
@@ -186,6 +186,133 @@ macro_rules! shared_crud_join_suite {
                     db.select(()).from(users).except(bob).all();
                 assert_eq!(difference.len(), 1);
                 assert_eq!(difference[0].name, "Alice");
+            }
+
+            #[drizzle::test($dialect)]
+            fn set_operation_operands_keep_their_own_clauses(
+                db: &mut TestDb<SharedCrudJoinSchema>,
+            ) {
+                let SharedCrudJoinSchema { users, .. } = schema;
+
+                db.insert(users)
+                    .values([
+                        InsertSharedCrudUser::new("Alice", true).with_id(1),
+                        InsertSharedCrudUser::new("Bob", true).with_id(2),
+                        InsertSharedCrudUser::new("Carol", false).with_id(3),
+                    ])
+                    .execute();
+
+                let qb = || drizzle::$dialect::builder::QueryBuilder::new::<SharedCrudJoinSchema>();
+
+                // ORDER BY and LIMIT on the left operand belong to that operand.
+                let mut first_and_bob: Vec<i32> = db
+                    .select(users.id)
+                    .from(users)
+                    .order_by(asc(users.id))
+                    .limit(1)
+                    .union(
+                        qb().select(users.id)
+                            .from(users)
+                            .r#where(eq(users.name, "Bob")),
+                    )
+                    .all();
+                first_and_bob.sort_unstable();
+                assert_eq!(first_and_bob, [1, 2]);
+
+                // On the right operand they must not limit the whole compound.
+                let mut alice_and_last: Vec<i32> = db
+                    .select(users.id)
+                    .from(users)
+                    .r#where(eq(users.name, "Alice"))
+                    .union(
+                        qb().select(users.id)
+                            .from(users)
+                            .order_by(desc(users.id))
+                            .limit(1),
+                    )
+                    .all();
+                alice_and_last.sort_unstable();
+                assert_eq!(alice_and_last, [1, 3]);
+
+                // A compound right operand is evaluated first: {2} ∪ ({1,2,3} − {2}).
+                let mut nested: Vec<i32> = db
+                    .select(users.id)
+                    .from(users)
+                    .r#where(eq(users.id, 2))
+                    .union(
+                        qb().select(users.id)
+                            .from(users)
+                            .except(qb().select(users.id).from(users).r#where(eq(users.id, 2))),
+                    )
+                    .all();
+                nested.sort_unstable();
+                assert_eq!(nested, [1, 2, 3]);
+
+                // A chain applies left to right, even where INTERSECT binds
+                // tighter than UNION: ({1} ∪ {2}) ∩ {2}.
+                let chained: Vec<i32> = db
+                    .select(users.id)
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .union(qb().select(users.id).from(users).r#where(eq(users.id, 2)))
+                    .intersect(qb().select(users.id).from(users).r#where(eq(users.id, 2)))
+                    .all();
+                assert_eq!(chained, [2]);
+            }
+
+            #[drizzle::test($dialect)]
+            fn offset_without_limit_skips_rows(db: &mut TestDb<SharedCrudJoinSchema>) {
+                let SharedCrudJoinSchema { users, .. } = schema;
+
+                db.insert(users)
+                    .values([
+                        InsertSharedCrudUser::new("Alice", true).with_id(1),
+                        InsertSharedCrudUser::new("Bob", true).with_id(2),
+                        InsertSharedCrudUser::new("Carol", false).with_id(3),
+                    ])
+                    .execute();
+
+                let skipped: Vec<i32> = db.select(users.id).from(users).offset(1).all();
+                assert_eq!(skipped.len(), 2);
+
+                let carol = drizzle::$dialect::builder::QueryBuilder::new::<SharedCrudJoinSchema>()
+                    .select(users.id)
+                    .from(users)
+                    .r#where(eq(users.id, 3));
+                let compound: Vec<i32> = db
+                    .select(users.id)
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .union(carol)
+                    .offset(1)
+                    .all();
+                assert_eq!(compound.len(), 1);
+            }
+
+            #[drizzle::test($dialect)]
+            fn select_distinct_all_columns_expands_the_projection(
+                db: &mut TestDb<SharedCrudJoinSchema>,
+            ) {
+                let SharedCrudJoinSchema { users, .. } = schema;
+
+                db.insert(users)
+                    .values([
+                        InsertSharedCrudUser::new("Alice", true).with_id(1),
+                        InsertSharedCrudUser::new("Bob", false).with_id(2),
+                    ])
+                    .execute();
+
+                let stmt = db.select_distinct(()).from(users);
+                let shape = crate::common::helpers::sql_shape(&stmt.to_sql().sql());
+                assert!(
+                    shape.starts_with("SELECTDISTINCTshared_crud_users.id,shared_crud_users.name,"),
+                    "{shape}"
+                );
+                let mut rows: Vec<SelectSharedCrudUser> = stmt.all();
+                rows.sort_by_key(|row| row.id);
+                assert_eq!(rows.len(), 2);
+                assert_eq!((rows[0].id, rows[0].name.as_str()), (1, "Alice"));
+                assert_eq!((rows[1].id, rows[1].name.as_str()), (2, "Bob"));
             }
 
             #[drizzle::test($dialect)]

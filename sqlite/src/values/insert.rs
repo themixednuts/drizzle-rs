@@ -39,43 +39,56 @@ pub enum SQLiteInsertValue<'a, V: SQLParam, T> {
 }
 
 impl<'a, T> SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
-    /// Converts this `InsertValue` to an owned version with 'static lifetime
+    /// Converts this `InsertValue` to an owned version with 'static lifetime.
+    ///
+    /// The whole SQL fragment is kept: placeholders stay unbound and
+    /// expressions such as `json(?)` keep their shape, with every bound value
+    /// detached from its borrow.
     #[must_use]
     pub fn into_owned(self) -> SQLiteInsertValue<'static, SQLiteValue<'static>, T> {
         match self {
             SQLiteInsertValue::Omit => SQLiteInsertValue::Omit,
             SQLiteInsertValue::Null => SQLiteInsertValue::Null,
             SQLiteInsertValue::Value(wrapper) => {
-                // Extract the parameter value, convert to owned, then back to static SQLiteValue
-                let static_sql = match wrapper.value.chunks.first() {
-                    Some(drizzle_core::SQLChunk::Param(param)) => param.value.as_ref().map_or_else(
-                        || drizzle_core::SQL::param(SQLiteValue::Null),
-                        |val| {
-                            let owned_val = OwnedSQLiteValue::from(val.as_ref().clone());
-                            let static_val: SQLiteValue<'static> = owned_val.into();
-                            drizzle_core::SQL::param(static_val)
-                        },
-                    ),
-                    _ => drizzle_core::SQL::param(SQLiteValue::Null),
-                };
+                let static_sql = wrapper
+                    .value
+                    .into_owned_with(|value| SQLiteValue::from(OwnedSQLiteValue::from(value)));
                 SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(static_sql))
             }
         }
     }
 }
 
+/// Converts a setter argument to the column's type, then to a bound value.
+///
+/// # Panics
+///
+/// Panics when the argument does not fit the column type (an integer out of
+/// range, a JSON payload that fails to serialize), rather than storing NULL in
+/// its place.
 impl<'a, T, U> From<T> for SQLiteInsertValue<'a, SQLiteValue<'a>, U>
 where
     T: TryInto<SQLiteValue<'a>> + TryInto<U>,
     U: TryInto<SQLiteValue<'a>>,
 {
     fn from(value: T) -> Self {
-        let sql = TryInto::<U>::try_into(value)
-            .map(|v| v.try_into().unwrap_or_default())
-            .map_or_else(
-                |_| SQL::from(SQLiteValue::Null),
-                |v: SQLiteValue<'a>| SQL::from(v),
-            );
+        // A value that does not fit the column type is a caller bug; storing
+        // NULL in its place would lose it silently.
+        let column_value = TryInto::<U>::try_into(value).unwrap_or_else(|_| {
+            panic!(
+                "a `{}` does not fit a `{}` column",
+                core::any::type_name::<T>(),
+                core::any::type_name::<U>()
+            )
+        });
+        let sql = SQL::from(
+            TryInto::<SQLiteValue<'a>>::try_into(column_value).unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a SQLite value",
+                    core::any::type_name::<U>()
+                )
+            }),
+        );
         SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'a>, T>::new(sql))
     }
 }

@@ -45,27 +45,20 @@ pub enum PostgresInsertValue<'a, V: SQLParam, T> {
 }
 
 impl<'a, T> PostgresInsertValue<'a, PostgresValue<'a>, T> {
-    /// Converts this `InsertValue` to an owned version with 'static lifetime
+    /// Converts this `InsertValue` to an owned version with 'static lifetime.
+    ///
+    /// The whole SQL fragment is kept: placeholders stay unbound and
+    /// expressions keep their shape, with every bound value detached from its
+    /// borrow.
     #[must_use]
     pub fn into_owned(self) -> PostgresInsertValue<'static, PostgresValue<'static>, T> {
         match self {
             PostgresInsertValue::Omit => PostgresInsertValue::Omit,
             PostgresInsertValue::Null => PostgresInsertValue::Null,
             PostgresInsertValue::Value(wrapper) => {
-                // Convert PostgresValue parameters to owned values
-                let static_sql = match wrapper.value.chunks.first() {
-                    Some(SQLChunk::Param(param)) => param.value.as_ref().map_or_else(
-                        || SQL::param(PostgresValue::Null),
-                        |postgres_val| {
-                            let owned_postgres_val =
-                                OwnedPostgresValue::from(postgres_val.as_ref().clone());
-                            let static_postgres_val = PostgresValue::from(owned_postgres_val);
-                            SQL::param(static_postgres_val)
-                        },
-                    ),
-                    // Non-parameter chunk, convert to NULL for simplicity
-                    _ => SQL::param(PostgresValue::Null),
-                };
+                let static_sql = wrapper
+                    .value
+                    .into_owned_with(|value| PostgresValue::from(OwnedPostgresValue::from(value)));
                 PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'static>, T>::new(
                     static_sql,
                 ))
@@ -76,17 +69,27 @@ impl<'a, T> PostgresInsertValue<'a, PostgresValue<'a>, T> {
 
 // Conversion implementations for PostgresValue-based InsertValue
 
-// Generic conversion from any type T to InsertValue (for same type T)
-// This works for types that implement TryInto<PostgresValue>, like enums,
-// ArrayString, ArrayVec, etc.
+/// Converts any value that converts to a [`PostgresValue`] (enums,
+/// `ArrayString`, `ArrayVec`, ...).
+///
+/// # Panics
+///
+/// Panics when the value fails to convert (a JSON payload that fails to
+/// serialize, for example), rather than storing NULL in its place.
 impl<'a, T> From<T> for PostgresInsertValue<'a, PostgresValue<'a>, T>
 where
     T: TryInto<PostgresValue<'a>>,
 {
     fn from(value: T) -> Self {
-        let sql = value.try_into().map_or_else(
-            |_| SQL::from(PostgresValue::Null),
-            |v: PostgresValue<'a>| SQL::from(v),
+        // A failed conversion is a caller bug; storing NULL in its place would
+        // lose the value silently.
+        let sql = SQL::from(
+            TryInto::<PostgresValue<'a>>::try_into(value).unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a PostgreSQL value",
+                    core::any::type_name::<T>()
+                )
+            }),
         );
         PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'a>, T>::new(sql))
     }

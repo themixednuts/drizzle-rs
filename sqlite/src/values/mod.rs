@@ -230,6 +230,44 @@ impl core::fmt::Display for SQLiteValue<'_> {
 impl SQLParam for SQLiteValue<'_> {
     const DIALECT: Dialect = Dialect::SQLite;
     type DialectMarker = drizzle_core::dialect::SQLiteDialect;
+
+    fn write_literal(&self, buf: &mut String) -> bool {
+        use core::fmt::Write;
+        match self {
+            SQLiteValue::Null => buf.push_str("NULL"),
+            SQLiteValue::Integer(value) => {
+                let _ = write!(buf, "{value}");
+            }
+            // `{:?}` keeps a decimal point or exponent, so SQLite reads a
+            // REAL rather than an INTEGER. SQLite has no NaN literal, and
+            // stores NaN as NULL anyway.
+            SQLiteValue::Real(value) if value.is_nan() => return false,
+            SQLiteValue::Real(value) if value.is_infinite() => {
+                buf.push_str(if value.is_sign_positive() {
+                    "9e999"
+                } else {
+                    "-9e999"
+                });
+            }
+            SQLiteValue::Real(value) => {
+                let _ = write!(buf, "{value:?}");
+            }
+            SQLiteValue::Text(text) if text.contains('\0') => return false,
+            SQLiteValue::Text(text) => {
+                buf.push('\'');
+                buf.push_str(&text.replace('\'', "''"));
+                buf.push('\'');
+            }
+            SQLiteValue::Blob(bytes) => {
+                buf.push_str("X'");
+                for byte in bytes.iter() {
+                    let _ = write!(buf, "{byte:02X}");
+                }
+                buf.push('\'');
+            }
+        }
+        true
+    }
 }
 
 impl<'a> From<SQLiteValue<'a>> for SQL<'a, SQLiteValue<'a>> {

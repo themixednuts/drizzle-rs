@@ -10,13 +10,13 @@
 use crate::common::SqliteDialect;
 use crate::common::generators as common_gen;
 use crate::paths::sqlite as sqlite_paths;
-use proc_macro2::{Ident, TokenStream};
-use quote::quote;
+use proc_macro2::TokenStream;
+use quote::{ToTokens, quote};
 
 /// Generate `SQLite` `ToSQL` trait implementation.
 ///
 /// Delegates to the common generator with `SQLite` dialect.
-pub fn generate_to_sql(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
+pub fn generate_to_sql(struct_ident: &impl ToTokens, body: &TokenStream) -> TokenStream {
     common_gen::generate_to_sql::<SqliteDialect>(struct_ident, body)
 }
 
@@ -25,7 +25,7 @@ pub fn generate_to_sql(struct_ident: &Ident, body: &TokenStream) -> TokenStream 
 /// Delegates to the common generator with `SQLite` dialect.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_sql_column(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     table: &TokenStream,
     table_type: &TokenStream,
     foreign_keys: &TokenStream,
@@ -51,7 +51,10 @@ pub fn generate_sql_column(
 }
 
 /// Generate `SQLite` `SQLiteColumn` trait implementation
-pub fn generate_sqlite_column(struct_ident: &Ident, is_autoincrement: &TokenStream) -> TokenStream {
+pub fn generate_sqlite_column(
+    struct_ident: &impl ToTokens,
+    is_autoincrement: &TokenStream,
+) -> TokenStream {
     let sqlite_column = sqlite_paths::sqlite_column();
 
     quote! {
@@ -63,7 +66,7 @@ pub fn generate_sqlite_column(struct_ident: &Ident, is_autoincrement: &TokenStre
 
 /// Generate `SQLite` `SQLiteTable` trait implementation
 pub fn generate_sqlite_table(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     without_rowid: &TokenStream,
     strict: &TokenStream,
 ) -> TokenStream {
@@ -90,7 +93,7 @@ pub fn generate_sql_table(config: SQLTableConfig<'_>) -> TokenStream {
 ///
 /// Delegates to the common generator with `SQLite` dialect.
 pub fn generate_sql_schema(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     const_sql: &TokenStream,
@@ -102,7 +105,7 @@ pub fn generate_sql_schema(
 ///
 /// Delegates to the common generator with `SQLite` dialect.
 pub fn generate_sql_schema_field(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     sql: &TokenStream,

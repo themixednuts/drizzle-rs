@@ -145,6 +145,15 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
         generated.statements.len()
     );
 
+    // Data-loss and review notes from the diff, as push prints them.
+    if !generated.warnings.is_empty() {
+        println!("{}", output::warning("Warnings:"));
+        for warning in &generated.warnings {
+            println!("  {} {}", output::warning("-"), warning);
+        }
+        println!();
+    }
+
     let prefix_mode = db
         .migrations
         .as_ref()

@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "drizzle-durable-object-example"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+drizzle = { path = "../..", default-features = false, features = ["durable", "query"] }
+worker = "0.8"
+wasm-bindgen = "0.2"

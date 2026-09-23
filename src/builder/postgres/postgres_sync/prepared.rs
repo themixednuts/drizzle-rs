@@ -102,7 +102,57 @@ impl std::fmt::Debug for StatementCache {
     }
 }
 
+/// Whether `error` rejected a cached statement that no longer fits its
+/// session: the schema changed under it ("cached plan must not change result
+/// type") or the connection behind it was replaced ("prepared statement ...
+/// does not exist"). Both come from planning, before the statement runs.
+pub(crate) fn is_stale_statement(error: &postgres::Error) -> bool {
+    use postgres::error::SqlState;
+    match error.code() {
+        Some(code) if *code == SqlState::INVALID_SQL_STATEMENT_NAME => true,
+        Some(code) if *code == SqlState::FEATURE_NOT_SUPPORTED => {
+            error.as_db_error().is_some_and(|db| {
+                db.message()
+                    .contains("cached plan must not change result type")
+            })
+        }
+        _ => false,
+    }
+}
+
 impl StatementCache {
+    /// Drops the statement cached for `sql` on `client`, so the next use
+    /// prepares it again.
+    pub(crate) fn evict_for(&self, client: &Client, sql: &str, param_types: &[Type]) {
+        let Some(client_id) = registered_client_id(client) else {
+            return;
+        };
+        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        cache.retain(|cached| {
+            !(cached.client_id == client_id
+                && cached.sql.as_ref() == sql
+                && cached.param_types.as_ref() == param_types)
+        });
+    }
+
+    /// Drops the cached statement for `sql`, so the next use prepares it
+    /// again.
+    pub(crate) fn evict(&self, client_id: u64, sql: &str, param_types: &[Type]) {
+        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        cache.retain(|cached| {
+            !(cached.client_id == client_id
+                && cached.sql.as_ref() == sql
+                && cached.param_types.as_ref() == param_types)
+        });
+    }
+
+    /// Drops every statement cached for a connection: after its schema
+    /// changed, or when the connection itself may be replaced.
+    pub(crate) fn clear_client(&self, client_id: u64) {
+        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
+        cache.retain(|cached| cached.client_id != client_id);
+    }
+
     pub(crate) fn statement(
         &self,
         client: &mut Client,
@@ -235,6 +285,10 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         self.statement_cache.statement(client, sql, param_types)
     }
 
+    pub(crate) fn evict_statement(&self, client: &Client, sql: &str, param_types: &[Type]) {
+        self.statement_cache.evict_for(client, sql, param_types);
+    }
+
     /// Gets the number of parameters in the query
     pub fn param_count(&self) -> usize {
         self.inner.params.len()
@@ -303,6 +357,10 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         param_types: &[Type],
     ) -> Result<Statement, postgres::Error> {
         self.statement_cache.statement(client, sql, param_types)
+    }
+
+    pub(crate) fn evict_statement(&self, client: &Client, sql: &str, param_types: &[Type]) {
+        self.statement_cache.evict_for(client, sql, param_types);
     }
 }
 

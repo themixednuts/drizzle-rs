@@ -525,7 +525,7 @@ impl From<time::Date> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -536,18 +536,22 @@ impl From<&time::Date> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
 
+/// `HH:MM:SS.fraction`, as SQLite's time functions read it. (ISO 8601's
+/// time-only format starts with a `T`, which they reject.)
 #[cfg(feature = "time")]
 impl From<time::Time> for SQLiteValue<'_> {
     fn from(value: time::Time) -> Self {
         SQLiteValue::Text(Cow::Owned(
             value
-                .format(&time::format_description::well_known::Iso8601::TIME)
-                .unwrap_or_default(),
+                .format(time::macros::format_description!(
+                    "[hour]:[minute]:[second].[subsecond]"
+                ))
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -555,11 +559,7 @@ impl From<time::Time> for SQLiteValue<'_> {
 #[cfg(feature = "time")]
 impl From<&time::Time> for SQLiteValue<'_> {
     fn from(value: &time::Time) -> Self {
-        SQLiteValue::Text(Cow::Owned(
-            value
-                .format(&time::format_description::well_known::Iso8601::TIME)
-                .unwrap_or_default(),
-        ))
+        Self::from(*value)
     }
 }
 
@@ -569,7 +569,7 @@ impl From<time::PrimitiveDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE_TIME)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -580,7 +580,7 @@ impl From<&time::PrimitiveDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Iso8601::DATE_TIME)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -591,7 +591,7 @@ impl From<time::OffsetDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -602,7 +602,7 @@ impl From<&time::OffsetDateTime> for SQLiteValue<'_> {
         SQLiteValue::Text(Cow::Owned(
             value
                 .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default(),
+                .unwrap_or_else(|_| value.to_string()),
         ))
     }
 }
@@ -618,6 +618,68 @@ impl From<time::Duration> for SQLiteValue<'_> {
 impl From<&time::Duration> for SQLiteValue<'_> {
     fn from(value: &time::Duration) -> Self {
         SQLiteValue::Text(Cow::Owned(format!("{}s", value.whole_seconds())))
+    }
+}
+
+// --- jiff ---
+//
+// ISO 8601 text, as SQLite's date and time functions read it. A civil
+// datetime puts a space between date and time, as `datetime()` and
+// `CURRENT_TIMESTAMP` do; a timestamp is RFC 3339 in UTC.
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::Date> for SQLiteValue<'_> {
+    fn from(value: jiff::civil::Date) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::Date> for SQLiteValue<'_> {
+    fn from(value: &jiff::civil::Date) -> Self {
+        Self::from(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::Time> for SQLiteValue<'_> {
+    fn from(value: jiff::civil::Time) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::Time> for SQLiteValue<'_> {
+    fn from(value: &jiff::civil::Time) -> Self {
+        Self::from(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::DateTime> for SQLiteValue<'_> {
+    fn from(value: jiff::civil::DateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(format!("{} {}", value.date(), value.time())))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::DateTime> for SQLiteValue<'_> {
+    fn from(value: &jiff::civil::DateTime) -> Self {
+        Self::from(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::Timestamp> for SQLiteValue<'_> {
+    fn from(value: jiff::Timestamp) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::Timestamp> for SQLiteValue<'_> {
+    fn from(value: &jiff::Timestamp) -> Self {
+        Self::from(*value)
     }
 }
 
@@ -670,13 +732,25 @@ impl<'a> From<&'a Uuid> for SQLiteValue<'a> {
 }
 
 // --- Option Types ---
+/// `None` is NULL.
+///
+/// # Panics
+///
+/// Panics when `T`'s conversion fails (for example a JSON payload whose
+/// `Serialize` implementation errors), rather than storing NULL in place of
+/// the value.
 impl<T> From<Option<T>> for SQLiteValue<'_>
 where
     T: TryInto<Self>,
 {
     fn from(value: Option<T>) -> Self {
         value.map_or(SQLiteValue::Null, |v| {
-            v.try_into().unwrap_or(SQLiteValue::Null)
+            v.try_into().unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a SQLite value",
+                    core::any::type_name::<T>()
+                )
+            })
         })
     }
 }

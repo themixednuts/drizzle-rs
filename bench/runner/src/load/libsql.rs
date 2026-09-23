@@ -1016,7 +1016,7 @@ async fn open_connection(
         None
     };
 
-    let (db, _) = drizzle::sqlite::libsql::Drizzle::new(conn, Schema::new());
+    let (db, _) = drizzle::sqlite::libsql::Drizzle::<Schema>::new(conn);
     Ok(LibsqlResource { db, statements })
 }
 
@@ -1038,7 +1038,7 @@ async fn serve_with_mode(seed: u64, mode: LibsqlMode) -> Result<ServerHandle, Fa
         .connect()
         .map_err(|err| Fail::new(Code::RunFail, format!("libsql connect failed: {err}")))?;
     enable_wal(&conn).await?;
-    let (db, schema) = drizzle::sqlite::libsql::Drizzle::new(conn, Schema::new());
+    let (db, schema) = drizzle::sqlite::libsql::Drizzle::<Schema>::new(conn);
     db.create()
         .await
         .map_err(|err| Fail::new(Code::RunFail, format!("libsql create failed: {err}")))?;

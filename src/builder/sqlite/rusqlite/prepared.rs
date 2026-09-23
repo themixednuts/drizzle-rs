@@ -70,7 +70,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.execute.db");
         let mut stmt = conn.prepare_cached(sql_str)?;
-        stmt.execute(params_from_iter(params)).map_err(Into::into)
+        super::run_statement(&mut stmt, params_from_iter(params)).map_err(Into::into)
     }
 
     /// Runs the prepared statement and returns all matching rows
@@ -198,7 +198,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.execute.db");
         let mut stmt = conn.prepare_cached(sql_str)?;
-        Ok(stmt.execute(params_from_iter(params))?)
+        Ok(super::run_statement(&mut stmt, params_from_iter(params))?)
     }
 
     /// Runs the prepared statement and returns all matching rows

@@ -27,7 +27,7 @@ impl drizzle::core::Tag for UTag {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, _schema) = Drizzle::new(conn, Schema::default());
+    let (db, _schema) = Drizzle::<Schema>::new(conn);
 
     let u = User::alias::<UTag>();
     let _rows: Vec<UserRow> = db.select(UserRow::Select).from(u).all().unwrap();

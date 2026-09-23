@@ -9,7 +9,6 @@
     dead_code,
     clippy::redundant_closure,
     clippy::needless_question_mark,
-    clippy::await_holding_refcell_ref,
     clippy::duplicated_attributes,
     clippy::single_component_path_imports
 )]
@@ -32,8 +31,6 @@ pub(crate) use drizzle_builder_join_impl;
 pub(crate) use drizzle_pg_builder_join_impl;
 #[doc(hidden)]
 pub(crate) use drizzle_pg_builder_join_using_impl;
-#[doc(hidden)]
-pub(crate) use transaction_builder_join_impl;
 
 /// Result type for drizzle operations.
 #[doc(inline)]
@@ -254,7 +251,7 @@ pub mod sqlite {
     #[cfg_attr(docsrs, doc(cfg(all(feature = "durable", target_arch = "wasm32"))))]
     pub mod durable {
         #[doc(inline)]
-        pub use crate::builder::sqlite::durable::{Drizzle, DrizzleBuilder};
+        pub use crate::builder::sqlite::durable::{Drizzle, DrizzleBuilder, DurableStorage};
         #[doc(inline)]
         pub use crate::transaction::sqlite::durable::Transaction;
     }

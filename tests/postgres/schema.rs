@@ -76,6 +76,53 @@ struct SimpleViewMat {
     name: String,
 }
 
+// The WHERE value is bound by the builder, but a view body cannot take
+// parameters: the DDL writes it as a literal.
+#[PostgresView(
+    NAME = "quoted_simple_view",
+    DEFINITION = {
+        let builder = drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
+        let SimpleSchema { simple } = SimpleSchema::new();
+        builder
+            .select((simple.id, simple.name))
+            .from(simple)
+            .r#where(eq(simple.name, "It's"))
+    }
+)]
+struct QuotedSimpleView {
+    id: i32,
+    name: String,
+}
+
+#[derive(PostgresSchema)]
+struct BoundViewSchema {
+    simple: Simple,
+    quoted_simple_view: QuotedSimpleView,
+}
+
+#[drizzle::test]
+fn view_definition_writes_bound_values_as_literals(db: &mut TestDb<BoundViewSchema>) {
+    let BoundViewSchema {
+        simple,
+        quoted_simple_view,
+    } = schema;
+
+    let sql = QuotedSimpleView::create_view_sql();
+    assert!(
+        sql.ends_with(r#"FROM "simple" WHERE "simple"."name" = 'It''s';"#),
+        "{sql}"
+    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("It's"), InsertSimple::new("Other")])
+        .execute();
+    let names: Vec<String> = db
+        .select(quoted_simple_view.name)
+        .from(quoted_simple_view)
+        .all();
+    assert_eq!(names, ["It's"]);
+}
+
 #[PostgresView(DEFINITION = "SELECT id FROM simple")]
 struct DefaultNameView {
     id: i32,

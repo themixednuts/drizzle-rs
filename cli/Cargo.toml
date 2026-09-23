@@ -28,7 +28,6 @@ pkg-fmt = "zip"
 # Core drizzle dependencies
 drizzle-migrations = { workspace = true }
 drizzle-types = { workspace = true, features = ["std", "serde", "schemars", "uuid", "chrono", "time", "geo-types", "cidr", "bit-vec"] }
-drizzle-seed = { workspace = true, optional = true, default-features = false }
 
 # CLI framework
 clap = { workspace = true }
@@ -61,7 +60,6 @@ native-tls = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = ["rt", "macros"] }
 libsql = { workspace = true, optional = true }
-turso = { workspace = true, optional = true }
 mysql = { workspace = true, optional = true }
 mysql_async = { workspace = true, optional = true }
 mysql_common = { workspace = true, optional = true }
@@ -79,9 +77,10 @@ predicates = { workspace = true }
 default = []
 
 # SQLite drivers
-rusqlite = ["dep:rusqlite", "dep:drizzle-seed", "drizzle-seed/sqlite"]
-libsql = ["dep:libsql", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
-turso = ["dep:turso", "dep:libsql", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
+rusqlite = ["dep:rusqlite"]
+libsql = ["dep:libsql", "dep:tokio"]
+# Turso (remote) connects through the libsql client.
+turso = ["dep:libsql", "dep:tokio"]
 
 # PostgreSQL drivers
 # Both drivers need `tokio-postgres` for `PostgresCreds::connection_config`
@@ -92,8 +91,6 @@ postgres-sync = [
   "dep:tokio-postgres",
   "dep:postgres-native-tls",
   "dep:native-tls",
-  "dep:drizzle-seed",
-  "drizzle-seed/postgres",
 ]
 tokio-postgres = [
   "dep:tokio-postgres",
@@ -103,8 +100,6 @@ tokio-postgres = [
   "dep:postgres-native-tls",
   "dep:native-tls",
   "dep:tokio",
-  "dep:drizzle-seed",
-  "drizzle-seed/postgres",
 ]
 
 # MySQL drivers. Both use mysql_common's value and row boundary types; the
@@ -114,15 +109,17 @@ mysql-async = ["dep:mysql_async", "dep:mysql_common", "dep:tokio"]
 
 # Cloudflare D1 HTTP driver (CLI-only — runtime D1 uses the Worker binding via
 # the main `drizzle` crate's `d1` feature, not this).
-d1-http = ["dep:reqwest", "dep:tokio", "dep:drizzle-seed", "drizzle-seed/sqlite"]
+d1-http = ["dep:reqwest", "dep:tokio"]
 
-# Optional PostgreSQL value-type passthroughs for seed
-uuid = ["dep:drizzle-seed", "drizzle-seed/uuid"]
-serde = ["dep:drizzle-seed", "drizzle-seed/serde"]
-chrono = ["dep:drizzle-seed", "drizzle-seed/chrono"]
-cidr = ["dep:drizzle-seed", "drizzle-seed/cidr"]
-geo-types = ["dep:drizzle-seed", "drizzle-seed/geo-types"]
-bit-vec = ["dep:drizzle-seed", "drizzle-seed/bit-vec"]
+# These used to forward value types to drizzle-seed, which the CLI never
+# used. They do nothing now and remain so existing install commands keep
+# working.
+uuid = []
+serde = []
+chrono = []
+cidr = []
+geo-types = []
+bit-vec = []
 
 # Convenience bundles
 sqlite-all = ["rusqlite", "libsql", "turso", "d1-http"]

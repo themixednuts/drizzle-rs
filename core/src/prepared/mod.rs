@@ -5,7 +5,7 @@ use crate::prelude::*;
 use crate::{
     error::DrizzleError,
     param::{Param, ParamBind},
-    sql::{SQL, SQLChunk},
+    sql::{SQL, SQLChunk, SQLiteNamedParams},
     traits::{SQLParam, ToSQL},
 };
 use compact_str::CompactString;
@@ -136,8 +136,18 @@ where
     let mut positional_iter = positional_params.into_iter();
 
     let mut bound_params = SmallVec::<[V; 8]>::with_capacity(params.len());
+    let mut sqlite_names = SQLiteNamedParams::default();
 
     for param in params {
+        // SQLite renders a named parameter as `:name` and gives each distinct
+        // name one slot, so only its first occurrence binds a value.
+        if V::DIALECT == crate::dialect::Dialect::SQLite
+            && let Some(name) = param_name_fn(param)
+            && sqlite_names.is_repeat(name)
+        {
+            continue;
+        }
+
         // For parameters, prioritize internal values first, then external bindings
         if let Some(value) = param_value_fn(param) {
             // Use internal parameter value (from prepared statement)

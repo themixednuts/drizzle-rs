@@ -53,7 +53,7 @@
 //! async fn fetch(_req: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
 //!     // Schema is assumed current — applied out-of-band via wrangler.
 //!     let d1 = env.d1("DB")?;
-//!     let (db, AppSchema { user }) = Drizzle::new(d1, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(d1);
 //!
 //!     // `worker::Error` has no `From<drizzle::error::DrizzleError>`, so
 //!     // convert drizzle errors before using `?`.
@@ -80,8 +80,9 @@
 //!   Use [`Drizzle::batch`] to submit multiple statements as a single atomic
 //!   unit — D1 wraps a batch in an implicit transaction.
 //! - **Row decoding is serde-based.** Rows come back as column-keyed objects,
-//!   so `SelectX` models must implement `serde::Deserialize`. `SQLiteFromRow`
-//!   derives this when the `serde` feature is enabled.
+//!   so a row type must implement `serde::Deserialize`. Generated `SelectX`
+//!   and `PartialSelectX` models do when the `query` feature is enabled;
+//!   derive it on your own row structs.
 //! - **Integers are limited to ±2^53.** D1 parameters and results travel as
 //!   JS numbers, so `i64` values outside `Number.MAX_SAFE_INTEGER` lose
 //!   precision. Store larger identifiers as TEXT or BLOB.

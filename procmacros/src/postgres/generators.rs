@@ -12,13 +12,13 @@
 use crate::common::PostgresDialect;
 use crate::common::generators as common_gen;
 use crate::paths::postgres as postgres_paths;
-use proc_macro2::{Ident, TokenStream};
-use quote::quote;
+use proc_macro2::TokenStream;
+use quote::{ToTokens, quote};
 
 /// Generate `PostgreSQL` `ToSQL` trait implementation.
 ///
 /// Delegates to the common generator with `PostgreSQL` dialect.
-pub fn generate_to_sql(struct_ident: &Ident, body: &TokenStream) -> TokenStream {
+pub fn generate_to_sql(struct_ident: &impl ToTokens, body: &TokenStream) -> TokenStream {
     common_gen::generate_to_sql::<PostgresDialect>(struct_ident, body)
 }
 
@@ -27,7 +27,7 @@ pub fn generate_to_sql(struct_ident: &Ident, body: &TokenStream) -> TokenStream 
 /// Delegates to the common generator with `PostgreSQL` dialect.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_sql_column(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     table: &TokenStream,
     table_type: &TokenStream,
     foreign_keys: &TokenStream,
@@ -57,7 +57,10 @@ pub fn generate_sql_column(
 // =============================================================================
 
 /// Generate `PostgresColumn` trait implementation
-pub fn generate_postgres_column(struct_ident: &Ident, is_serial: &TokenStream) -> TokenStream {
+pub fn generate_postgres_column(
+    struct_ident: &impl ToTokens,
+    is_serial: &TokenStream,
+) -> TokenStream {
     let postgres_column = postgres_paths::postgres_column();
 
     quote! {
@@ -68,7 +71,7 @@ pub fn generate_postgres_column(struct_ident: &Ident, is_serial: &TokenStream) -
 }
 
 /// Generate `PostgresTable` trait implementation
-pub fn generate_postgres_table(struct_ident: &Ident) -> TokenStream {
+pub fn generate_postgres_table(struct_ident: &impl ToTokens) -> TokenStream {
     let postgres_table = postgres_paths::postgres_table();
 
     quote! {
@@ -89,7 +92,7 @@ pub fn generate_sql_table(config: SQLTableConfig<'_>) -> TokenStream {
 ///
 /// Delegates to the common generator with `PostgreSQL` dialect.
 pub fn generate_sql_schema(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     const_sql: &TokenStream,
@@ -101,7 +104,7 @@ pub fn generate_sql_schema(
 ///
 /// Delegates to the common generator with `PostgreSQL` dialect.
 pub fn generate_sql_schema_field(
-    struct_ident: &Ident,
+    struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     sql: &TokenStream,

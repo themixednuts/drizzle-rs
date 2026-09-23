@@ -71,7 +71,7 @@ async fn main() -> drizzle::Result<()> {
         .await
         .expect("seed");
 
-    let (mut db, Schema { order }) = Drizzle::new(client, Schema::new());
+    let (mut db, Schema { order }) = Drizzle::new(client);
 
     // Raw reference client, so the uncached and prepared baselines run in a
     // transaction of their own against the same server.

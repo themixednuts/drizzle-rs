@@ -299,7 +299,28 @@ impl Snapshot<PostgresEntity> {
         scoped.filter_serial_sequences_except(&managed);
         scoped.normalize_columns_for_push();
         scoped.retain_sequences(&managed);
+        scoped.retain_roles_declared_by(desired);
         scoped
+    }
+
+    /// Keeps only the live roles (and the privileges granted to them) that
+    /// `desired` declares, so the diff never drops a role nothing manages:
+    /// the database's own, a hosting provider's (`rdsadmin`, `anon`), or an
+    /// application's login role.
+    fn retain_roles_declared_by(&mut self, desired: &Self) {
+        let declared: HashSet<&str> = desired
+            .ddl
+            .iter()
+            .filter_map(|entity| match entity {
+                PostgresEntity::Role(role) => Some(role.name.as_ref()),
+                _ => None,
+            })
+            .collect();
+        self.ddl.retain(|entity| match entity {
+            PostgresEntity::Role(role) => declared.contains(role.name.as_ref()),
+            PostgresEntity::Privilege(privilege) => declared.contains(privilege.grantee.as_ref()),
+            _ => true,
+        });
     }
 }
 
@@ -503,6 +524,45 @@ mod tests {
         // name: unchanged type, ordinal stripped
         assert_eq!(columns[2].sql_type.as_ref(), "text");
         assert!(columns[2].ordinal_position.is_none());
+    }
+
+    #[test]
+    fn prepare_for_push_leaves_undeclared_roles_alone() {
+        use crate::postgres::ddl::{Privilege, PrivilegeType, Role};
+
+        let mut live = PostgresSnapshot::new();
+        live.add_entity(PostgresEntity::Schema(Schema::new("public")));
+        live.add_entity(make_table("public", "users"));
+        live.add_entity(PostgresEntity::Role(Role::new("app_login")));
+        live.add_entity(PostgresEntity::Privilege(Privilege::new(
+            "public",
+            "users",
+            "app_login",
+            PrivilegeType::Select,
+        )));
+
+        let mut desired = PostgresSnapshot::new();
+        desired.add_entity(make_table("public", "users"));
+
+        let result = live.prepare_for_push(&desired);
+        assert!(
+            !result
+                .ddl
+                .iter()
+                .any(|e| matches!(e, PostgresEntity::Role(_) | PostgresEntity::Privilege(_))),
+            "{:?}",
+            result.ddl
+        );
+        let plan = crate::diff(
+            &crate::schema::Snapshot::Postgres(result),
+            &crate::schema::Snapshot::Postgres(desired),
+        )
+        .expect("diff");
+        assert!(
+            plan.statements.iter().all(|sql| !sql.contains("ROLE")),
+            "{:?}",
+            plan.statements
+        );
     }
 
     #[test]

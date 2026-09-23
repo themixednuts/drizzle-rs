@@ -137,6 +137,25 @@ struct ExternalAccounts {
     id: u64,
 }
 
+// The WHERE value is bound by the builder, but a view body cannot take
+// parameters: the DDL writes it as a literal.
+#[MySQLView(
+    NAME = "quoted_account_emails",
+    DEFINITION = {
+        let builder = drizzle::mysql::builder::QueryBuilder::new::<AccountsIndexSchema>();
+        let AccountsIndexSchema { accounts, .. } = AccountsIndexSchema::new();
+        builder
+            .select((accounts.id, accounts.email))
+            .from(accounts)
+            .r#where(drizzle::core::expr::eq(accounts.email, "C:\\tmp\\O'Brien"))
+    }
+)]
+struct QuotedAccountEmails {
+    id: u64,
+    #[column(VARCHAR(255))]
+    email: String,
+}
+
 #[derive(MySQLSchema)]
 struct ViewSchema {
     accounts: Accounts,
@@ -422,7 +441,7 @@ fn table_metadata_preserves_mysql_database_unsigned_and_generated_details() {
 #[test]
 fn mysql_views_use_the_standard_typed_table_api_and_render_mysql_ddl() {
     assert_mysql_selector::<AccountEmails>();
-    assert_mysql_expr::<AccountEmailsEmail>();
+    assert_mysql_expr::<account_emails::Email>();
 
     let sql = AccountEmails::create_view_sql();
     assert_eq!(
@@ -445,6 +464,14 @@ fn mysql_views_use_the_standard_typed_table_api_and_render_mysql_ddl() {
     assert_eq!(
         EscapedPaths::ddl_sql(),
         "CREATE VIEW `escaped_paths` AS SELECT `odd``db`.`par``ents`.`pa``th` AS `path` FROM `odd``db`.`par``ents` WHERE `odd``db`.`par``ents`.`pa``th` = 'C:\\\\tmp\\\\O''Brien';"
+    );
+}
+
+#[test]
+fn mysql_view_definition_writes_bound_values_as_literals() {
+    assert_eq!(
+        QuotedAccountEmails::create_view_sql(),
+        "CREATE VIEW `quoted_account_emails` AS SELECT `accounts`.`id`, `accounts`.`email` FROM `app_db`.`accounts` WHERE `accounts`.`email` = 'C:\\\\tmp\\\\O''Brien';"
     );
 }
 

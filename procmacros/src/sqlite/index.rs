@@ -397,14 +397,21 @@ fn extract_table_from_column(column: &Expr) -> Result<Type> {
     if let Expr::Path(expr_path) = column {
         let path = &expr_path.path;
         if path.segments.len() >= 2 {
-            // Extract table name (first segment)
-            let table_ident = &path.segments[0].ident;
-
-            // Create table type
-            let table_type = syn::parse_str::<Type>(&table_ident.to_string())
-                .map_err(|_| Error::new_spanned(column, "invalid table name"))?;
-
-            Ok(table_type)
+            // The table is every segment but the column, so a qualified
+            // path (`schema::Users::name`) keeps its module path.
+            let segments = path
+                .segments
+                .iter()
+                .take(path.segments.len() - 1)
+                .cloned()
+                .collect();
+            Ok(Type::Path(syn::TypePath {
+                qself: None,
+                path: syn::Path {
+                    leading_colon: path.leading_colon,
+                    segments,
+                },
+            }))
         } else {
             Err(Error::new_spanned(
                 column,

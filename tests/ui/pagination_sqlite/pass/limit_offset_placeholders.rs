@@ -15,7 +15,7 @@ struct Schema {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::default());
+    let (db, Schema { user, .. }) = Drizzle::new(conn);
 
     let limit = user.id.placeholder("limit");
     let offset = user.id.placeholder("offset");

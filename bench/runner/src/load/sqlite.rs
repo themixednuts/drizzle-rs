@@ -579,7 +579,7 @@ pub(crate) fn create_and_seed(path: &Path, seed: u64) -> Result<(), Fail> {
              PRAGMA temp_store = MEMORY;",
         )
         .map_err(|err| Fail::new(Code::RunFail, format!("sqlite pragmas failed: {err}")))?;
-    let (db, schema) = drizzle::sqlite::rusqlite::Drizzle::new(seed_conn, Schema::new());
+    let (db, schema) = drizzle::sqlite::rusqlite::Drizzle::<Schema>::new(seed_conn);
 
     // Create tables via drizzle
     db.create()
@@ -691,7 +691,7 @@ fn open_sqlite_db(path: &Path, mode: SqliteMode) -> Result<SqliteDb, Fail> {
     if mode == SqliteMode::RusqliteUnprepared {
         conn.set_prepared_statement_cache_capacity(0);
     }
-    Ok(drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new()).0)
+    Ok(drizzle::sqlite::rusqlite::Drizzle::<Schema>::new(conn).0)
 }
 
 /// Read-side tuning for every pooled connection, and the TypeScript SQLite

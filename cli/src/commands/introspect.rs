@@ -41,8 +41,9 @@ pub struct IntrospectOptions {
 /// # Errors
 ///
 /// Returns [`CliError`] if the requested database cannot be resolved,
-/// credentials are missing or invalid, connecting to the database fails, or
-/// writing the generated Rust schema files fails.
+/// credentials are missing ([`CliError::MissingCredentials`]) or invalid,
+/// connecting to the database fails, or writing the generated Rust schema
+/// files fails.
 pub fn run(
     config: &Config,
     db_name: Option<&str>,
@@ -98,6 +99,7 @@ pub fn run(
             opts.filters.extensions_filters.as_deref(),
             db.extensions_filters.as_deref(),
         ),
+        roles: Some(db.effective_entities().roles),
     };
 
     println!("{}", output::heading("Introspecting database..."));
@@ -120,7 +122,7 @@ pub fn run(
     let connection = overrides::resolve_connection(db, effective_dialect, &opts.connection)?;
     let Some(connection) = connection else {
         print_missing_credentials_help(effective_dialect);
-        return Ok(());
+        return Err(CliError::MissingCredentials("introspect"));
     };
     println!("  {}: {}", output::label("Driver"), connection.driver);
 
@@ -140,10 +142,8 @@ pub fn run(
     Ok(())
 }
 
-/// Print a helpful message when no database credentials are configured.
+/// Print how to configure credentials; the caller reports the failure.
 fn print_missing_credentials_help(effective_dialect: Dialect) {
-    println!("{}", output::warning("No database credentials configured."));
-    println!();
     println!("Add credentials to your drizzle.config.toml:");
     println!();
     println!("  {}", output::muted("[dbCredentials]"));
@@ -187,6 +187,15 @@ fn print_introspection_summary(result: &crate::db::IntrospectResult, init_metada
             output::success("Found"),
             result.view_count
         );
+    }
+
+    // Objects the generated schema could not express, and similar notes.
+    if !result.warnings.is_empty() {
+        println!();
+        println!("{}", output::warning("Warnings:"));
+        for warning in &result.warnings {
+            println!("  {} {}", output::warning("-"), warning);
+        }
     }
 
     println!();

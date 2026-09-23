@@ -12,6 +12,12 @@ pub fn apply_snapshot_filters(
     dialect: Dialect,
     filters: &SnapshotFilters,
 ) -> Result<(), CliError> {
+    // Roles are filtered even when nothing else is: unless `entities.roles`
+    // enables them, push and pull leave every role and privilege alone.
+    if let (Some(roles), Snapshot::Postgres(postgres)) = (&filters.roles, &mut *snapshot) {
+        retain_postgres_roles(postgres, roles);
+    }
+
     if filters.is_empty() {
         return Ok(());
     }
@@ -26,6 +32,21 @@ pub fn apply_snapshot_filters(
         (Dialect::Mysql, Snapshot::MySQL(mysql)) => apply_mysql_snapshot_filters(mysql, filters),
         _ => Err(CliError::DialectMismatch),
     }
+}
+
+/// Keeps the roles `entities.roles` includes, and the privileges granted to
+/// them; with roles disabled (the default) that is none.
+fn retain_postgres_roles(
+    snapshot: &mut drizzle_migrations::postgres::PostgresSnapshot,
+    roles: &crate::config::RolesFilter,
+) {
+    use drizzle_types::postgres::ddl::PostgresEntity;
+
+    snapshot.ddl.retain(|entity| match entity {
+        PostgresEntity::Role(role) => roles.should_include(role.name.as_ref()),
+        PostgresEntity::Privilege(privilege) => roles.should_include(privilege.grantee.as_ref()),
+        _ => true,
+    });
 }
 
 fn apply_mysql_snapshot_filters(
@@ -292,6 +313,7 @@ mod tests {
                 tables: Some(vec!["posts".to_string(), "post_view".to_string()]),
                 schemas: None,
                 extensions: None,
+                roles: None,
             },
         )
         .expect("filter");
@@ -337,6 +359,7 @@ mod tests {
                 tables: Some(vec!["new_table".to_string()]),
                 schemas: None,
                 extensions: None,
+                roles: None,
             },
         )
         .expect("filter");
@@ -347,5 +370,73 @@ mod tests {
         assert!(postgres.ddl.iter().any(
             |entity| matches!(entity, PostgresEntity::Schema(schema) if schema.name == "public")
         ));
+    }
+
+    /// Push and pull leave roles alone unless `entities.roles` enables them;
+    /// otherwise push would plan `DROP ROLE` for provider and login roles.
+    #[test]
+    fn postgres_roles_are_kept_only_when_entities_roles_includes_them() {
+        use crate::config::RolesFilter;
+        use drizzle_migrations::postgres::PostgresSnapshot;
+        use drizzle_types::postgres::ddl::{PostgresEntity, Privilege, PrivilegeType, Role};
+
+        let snapshot = || {
+            let mut snapshot = PostgresSnapshot::new();
+            for role in ["app_login", "anon"] {
+                snapshot.add_entity(PostgresEntity::Role(Role::new(role)));
+                snapshot.add_entity(PostgresEntity::Privilege(Privilege::new(
+                    "public",
+                    "users",
+                    role,
+                    PrivilegeType::Select,
+                )));
+            }
+            Snapshot::Postgres(snapshot)
+        };
+        let kept = |roles: Option<RolesFilter>| {
+            let mut snapshot = snapshot();
+            apply_snapshot_filters(
+                &mut snapshot,
+                Dialect::Postgresql,
+                &SnapshotFilters {
+                    tables: None,
+                    schemas: None,
+                    extensions: None,
+                    roles,
+                },
+            )
+            .expect("filter");
+            let Snapshot::Postgres(snapshot) = snapshot else {
+                panic!("expected PostgreSQL snapshot")
+            };
+            let mut names = snapshot
+                .ddl
+                .iter()
+                .filter_map(|entity| match entity {
+                    PostgresEntity::Role(role) => Some(format!("role {}", role.name)),
+                    PostgresEntity::Privilege(privilege) => {
+                        Some(format!("grant {}", privilege.grantee))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        };
+
+        assert!(kept(Some(RolesFilter::default())).is_empty());
+        assert_eq!(
+            kept(Some(RolesFilter::Config {
+                provider: None,
+                include: None,
+                exclude: Some(vec!["anon".to_string()]),
+            })),
+            ["grant app_login", "role app_login"]
+        );
+        assert_eq!(
+            kept(None).len(),
+            4,
+            "no roles filter leaves roles as they are"
+        );
     }
 }

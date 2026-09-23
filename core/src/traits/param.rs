@@ -31,6 +31,17 @@ pub trait SQLParam: Clone + core::fmt::Debug {
         let _ = value;
         None
     }
+
+    /// Appends this value to `buf` as a SQL literal of this dialect.
+    ///
+    /// Used where a statement cannot take bound parameters, such as the body
+    /// of a `CREATE VIEW`. Returns `false`, having written nothing, when the
+    /// value has no literal form; the default knows none.
+    #[inline]
+    fn write_literal(&self, buf: &mut crate::prelude::String) -> bool {
+        let _ = buf;
+        false
+    }
 }
 
 // Implement SQLParam for common types

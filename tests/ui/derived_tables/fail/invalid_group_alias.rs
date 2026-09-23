@@ -10,8 +10,8 @@ struct Users {
     email: String,
 }
 
-type InvalidGroupedSelection = Scoped<SelectCols<(UsersName,)>, Cons<Users, Nil>>;
-type GroupedColumns = Cons<UsersEmail, Nil>;
+type InvalidGroupedSelection = Scoped<SelectCols<(users::Name,)>, Cons<Users, Nil>>;
+type GroupedColumns = Cons<users::Email, Nil>;
 
 fn require_valid_group<Selection>()
 where

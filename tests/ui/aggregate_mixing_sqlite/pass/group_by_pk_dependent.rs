@@ -34,7 +34,7 @@ struct PkRow {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, Schema { user, post }) = Drizzle::new(conn, Schema::default());
+    let (db, Schema { user, post }) = Drizzle::new(conn);
 
     // GROUP BY the table's primary key functionally determines every other
     // column of that table (SQL:1999), so scalar columns pass without being

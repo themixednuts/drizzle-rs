@@ -19,4 +19,4 @@ help: the following other types implement trait `BooleanLike`
 ...
    | impl BooleanLike for crate::mysql::types::Boolean {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::mysql::types::Boolean`
-   = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Boolean>` to implement `BitOr<UserAge>`
+   = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Boolean>` to implement `BitOr<Age>`

@@ -51,7 +51,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1", features = ["rusqlite"] }
+drizzle = { version = "0.2", features = ["rusqlite"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 ```
 
@@ -133,6 +133,8 @@ pub struct Schema {
 # fn main() {}
 ```
 
+Each table also gets a module of column types named after it: `users::Name` is the type of `Users::name`, should you need to name it. The module keeps these types apart from your own, so a `User` table can have a `role: UserRole` column.
+
 If you already have a database, run `drizzle introspect` to reverse-engineer the schema instead of writing it by hand.
 
 ### 4. Connect & Query
@@ -147,12 +149,17 @@ If you already have a database, run `drizzle introspect` to reverse-engineer the
 use drizzle::sqlite::rusqlite::Drizzle;
 
 let conn = rusqlite::Connection::open("app.db")?;
-let (db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
+let (db, Schema { users, posts, comments }) = Drizzle::new(conn);
 # Ok(())
 # }
 # #[cfg(not(feature = "rusqlite"))]
 # fn main() {}
 ```
+
+`Drizzle::new` builds the schema value itself, and the pattern that
+destructures it names its type. When nothing else names it, put the type on
+the call: `Drizzle::<Schema>::new(conn)` (MySQL: `Drizzle::<_, Schema>::new(conn)`).
+Use `let (db, ()) = Drizzle::new(conn)` to run queries with no schema.
 
 > [!NOTE]
 > See [`examples/rusqlite.rs`](https://github.com/themixednuts/drizzle-rs/blob/main/examples/rusqlite.rs) for a full runnable example.
@@ -169,7 +176,7 @@ let (db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
 | `mysql-sync`, `mysql-async` | MySQL drivers (`mysql` / `mysql_async`) |
 | `query` | [Relational queries](#relational-queries) (`db.query(...)`) |
 | `serde` | [JSON columns](#json-columns) |
-| `uuid`, `chrono`, `time`, `rust-decimal` | Column types from those crates |
+| `uuid`, `chrono`, `time`, `jiff`, `rust-decimal` | Column types from those crates |
 | `arrayvec`, `compact-str`, `bytes`, `smallvec-types` | Inline and zero-copy string/byte column types |
 | `cidr`, `geo-types`, `bit-vec` | PostgreSQL network, geometric, and bit-string types |
 | `math` | SQLite math functions (see [Expressions](#expressions)) |
@@ -201,8 +208,8 @@ Add `drizzle-migrations` as a build dependency, then point it at your existing `
 
 ```toml
 [build-dependencies]
-drizzle = { version = "0.1", features = ["rusqlite"] }
-drizzle-migrations = "0.1"
+drizzle = { version = "0.2", features = ["rusqlite"] }
+drizzle-migrations = "0.2"
 rusqlite = { version = "0.39", features = ["bundled"] }
 ```
 
@@ -275,7 +282,7 @@ println!("cargo:rerun-if-env-changed=DRIZZLE_MIGRATE");
 
 if std::env::var("DRIZZLE_MIGRATE").is_ok() {
     let conn = rusqlite::Connection::open(cfg.url()?)?;
-    let (db, _) = Drizzle::new(conn, ());
+    let (db, ()) = Drizzle::new(conn);
     let migrations = MigrationDir::new(cfg.out_dir()).discover()?;
 
     if let MigrateOutcome::Applied { tags } = db.migrate(&migrations, cfg.tracking())? {
@@ -399,7 +406,7 @@ pub struct Schema {
 }
 
 # let conn = rusqlite::Connection::open_in_memory()?;
-# let (db, Schema { profiles }) = Drizzle::new(conn, Schema::new());
+# let (db, Schema { profiles }) = Drizzle::new(conn);
 # db.create()?;
 let dark = Settings { theme: "dark".into() };
 db.insert(profiles)
@@ -1071,7 +1078,7 @@ pub struct Schema {
 }
 
 # let conn = rusqlite::Connection::open_in_memory()?;
-# let (db, Schema { users, posts, tags, post_tags }) = Drizzle::new(conn, Schema::new());
+# let (db, Schema { users, posts, tags, post_tags }) = Drizzle::new(conn);
 # db.create()?;
 let authors = db
     .query(users)
@@ -1322,7 +1329,7 @@ let client = postgres::Client::connect(
     "host=localhost user=postgres password=postgres dbname=drizzle_test",
     postgres::NoTls,
 )?;
-let (mut db, Schema { accounts }) = Drizzle::new(client, Schema::new());
+let (mut db, Schema { accounts }) = Drizzle::new(client);
 # Ok(())
 # }
 # #[cfg(not(feature = "postgres-sync"))]
@@ -1345,7 +1352,7 @@ and owns the connection or pool.
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1", features = ["mysql-sync"] }
+drizzle = { version = "0.2", features = ["mysql-sync"] }
 mysql = "28"
 ```
 
@@ -1371,7 +1378,7 @@ let options = mysql::Opts::from_url(
     "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test",
 )?;
 let connection = mysql::Conn::new(options)?;
-let (mut db, Schema { users, .. }) = Drizzle::new(connection, Schema::new());
+let (mut db, Schema { users, .. }) = Drizzle::new(connection);
 # Ok(())
 # }
 # #[cfg(not(feature = "mysql-sync"))]
@@ -1382,7 +1389,7 @@ The async adapter accepts either an owned `mysql_async::Conn` or a lazy pool:
 
 ```toml
 [dependencies]
-drizzle = { version = "0.1", features = ["mysql-async"] }
+drizzle = { version = "0.2", features = ["mysql-async"] }
 mysql_async = "0.37"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
@@ -1397,7 +1404,7 @@ let options = mysql_async::Opts::from_url(
     "mysql://drizzle:drizzle@127.0.0.1:3307/drizzle_test",
 )?;
 let pool = mysql_async::Pool::new(options);
-let (db, ()) = Drizzle::new(pool, ());
+let (db, ()) = Drizzle::new(pool);
 // Calls on a pool-backed adapter are async and check out one connection per operation.
 db.disconnect().await?;
 # Ok(())
@@ -1471,8 +1478,10 @@ The type surface deliberately leaves unsupported SQL unavailable:
 
 - MySQL mutations return `MySQLMutationResult` metadata, not SQL `RETURNING` rows.
 - Full joins and partial-index predicates are rejected; MySQL does not support them.
-- `.offset(n)` without an explicit limit is rendered with MySQL's documented
-  maximum-limit sentinel, because MySQL has no standalone `OFFSET` syntax.
+- `.offset(n)` without an explicit limit renders a `LIMIT` of `i64::MAX`
+  first, because MySQL has no standalone `OFFSET` syntax. (MySQL's manual
+  suggests `18446744073709551615`, but after a `UNION` that value overflows and
+  the query returns no rows.)
 - String concatenation uses `concat(...)`; the builder never emits `||`, whose
   default MySQL meaning is logical OR.
 

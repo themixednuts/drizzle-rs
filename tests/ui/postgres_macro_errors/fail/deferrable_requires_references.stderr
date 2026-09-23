@@ -1,0 +1,6 @@
+error: deferrable requires a references attribute.
+       Example: #[column(references = Table::column, deferrable)]
+ --> tests/ui/postgres_macro_errors/fail/deferrable_requires_references.rs:8:14
+  |
+8 |     #[column(deferrable)]
+  |              ^^^^^^^^^^

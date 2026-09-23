@@ -1,4 +1,4 @@
-error[E0599]: the method `force_index` exists for struct `QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>`, but its trait bounds were not satisfied
+error[E0599]: the method `force_index` exists for struct `QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>`, but its trait bounds were not satisfied
   --> tests/ui/mysql_builder/fail/mixed_index_hint_kinds.rs:25:10
    |
 21 |       let _ = builder
@@ -23,9 +23,9 @@ error[E0599]: the method `force_index` exists for struct `QueryBuilder<'_, Schem
    | |_- doesn't satisfy `_: MySQLIndexHintExt` or `_: MySQLTable<'a>`
    |
    = note: the following trait bounds were not satisfied:
-           `QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLTable<'a>`
-           which is required by `QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLIndexHintExt`
-           `&QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLTable<'a>`
-           which is required by `&QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLIndexHintExt`
-           `&mut QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLTable<'a>`
-           which is required by `&mut QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLIndexHintExt`
+           `QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLTable<'a>`
+           which is required by `QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLIndexHintExt`
+           `&QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLTable<'a>`
+           which is required by `&QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLIndexHintExt`
+           `&mut QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLTable<'a>`
+           which is required by `&mut QueryBuilder<'_, Schema, drizzle::mysql::builder::SelectIndexHintSet<drizzle::mysql::helpers::UseIndex>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>: drizzle::mysql::prelude::MySQLIndexHintExt`

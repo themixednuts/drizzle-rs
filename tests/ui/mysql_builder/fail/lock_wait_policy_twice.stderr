@@ -1,4 +1,4 @@
-error[E0599]: no method named `skip_locked` found for struct `QueryBuilder<'_, Schema, SelectForSet<drizzle::mysql::builder::ForUpdate, drizzle::mysql::builder::NoWait>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>` in the current scope
+error[E0599]: no method named `skip_locked` found for struct `QueryBuilder<'_, Schema, SelectForSet<drizzle::mysql::builder::ForUpdate, drizzle::mysql::builder::NoWait>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>` in the current scope
   --> tests/ui/mysql_builder/fail/lock_wait_policy_twice.rs:21:10
    |
 16 |       let _ = builder
@@ -8,7 +8,7 @@ error[E0599]: no method named `skip_locked` found for struct `QueryBuilder<'_, S
 19 | |         .for_update()
 20 | |         .nowait()
 21 | |         .skip_locked();
-   | |         -^^^^^^^^^^^ method not found in `QueryBuilder<'_, Schema, SelectForSet<drizzle::mysql::builder::ForUpdate, drizzle::mysql::builder::NoWait>, Users, Scoped<SelectCols<(UsersId,)>, Cons<Users, Nil>>, (u64,)>`
+   | |         -^^^^^^^^^^^ method not found in `QueryBuilder<'_, Schema, SelectForSet<drizzle::mysql::builder::ForUpdate, drizzle::mysql::builder::NoWait>, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,)>`
    | |_________|
    |
    |

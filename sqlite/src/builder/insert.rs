@@ -354,8 +354,11 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         let columns = target.conflict_columns();
         let target_where = target.conflict_where_clause().map(SQL::raw);
         let target_sql = SQL::join(columns.iter().map(|c| SQL::ident(*c)), Token::COMMA);
-        OnConflictBuilder::new(self.sql, ConflictColumnsTarget::new(target_sql))
-            .with_target_where_sql(target_where)
+        OnConflictBuilder::new(
+            crate::helpers::before_upsert(self.sql),
+            ConflictColumnsTarget::new(target_sql),
+        )
+        .with_target_where_sql(target_where)
     }
 
     /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
@@ -365,7 +368,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     pub fn on_conflict_do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
         let conflict_sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING]);
         InsertBuilder {
-            sql: self.sql.append(conflict_sql),
+            sql: crate::helpers::before_upsert(self.sql).append(conflict_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

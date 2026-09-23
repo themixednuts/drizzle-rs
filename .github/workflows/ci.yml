@@ -197,25 +197,25 @@ jobs:
           - name: sync
             mysql-version: "8.4"
             features: mysql-sync
-            test-features: mysql-sync,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
+            test-features: mysql-sync,query,serde,uuid,chrono,time,jiff,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           - name: async
             mysql-version: "8.4"
             features: mysql-async
-            test-features: mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
+            test-features: mysql-async,query,serde,uuid,chrono,time,jiff,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           - name: unified
             mysql-version: "8.4"
             features: mysql-sync,mysql-async
-            test-features: mysql-sync,mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
+            test-features: mysql-sync,mysql-async,query,serde,uuid,chrono,time,jiff,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           # Run the same minimal/full/live contracts through each adapter on
           # the oldest server in the documented compatibility range.
           - name: minimum-sync
             mysql-version: "8.0.31"
             features: mysql-sync
-            test-features: mysql-sync,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
+            test-features: mysql-sync,query,serde,uuid,chrono,time,jiff,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
           - name: minimum-async
             mysql-version: "8.0.31"
             features: mysql-async
-            test-features: mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
+            test-features: mysql-async,query,serde,uuid,chrono,time,jiff,rust-decimal,arrayvec,compact-str,bytes,smallvec-types
     services:
       mysql:
         image: mysql:${{ matrix.mysql-version }}
@@ -370,7 +370,7 @@ jobs:
         run: >-
           cargo test -p drizzle --test lib
           --features
-          "rusqlite,libsql,postgres-sync,tokio-postgres,mysql-sync,mysql-async,query,serde,uuid,chrono,time,rust-decimal,arrayvec,compact-str,bytes,smallvec-types,cidr,geo-types,bit-vec"
+          "rusqlite,libsql,postgres-sync,tokio-postgres,mysql-sync,mysql-async,query,serde,uuid,chrono,time,jiff,rust-decimal,arrayvec,compact-str,bytes,smallvec-types,cidr,geo-types,bit-vec"
           -- --test-threads=1
 
   test-turso:
@@ -575,6 +575,9 @@ jobs:
 
       - name: Check Durable driver (query)
         run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features durable,query
+
+      - name: Check Durable Object example
+        run: cargo check --manifest-path examples/durable_object/Cargo.toml --target wasm32-unknown-unknown
 
       - name: Check Hyperdrive driver
         run: cargo check -p drizzle --target wasm32-unknown-unknown --no-default-features --features hyperdrive

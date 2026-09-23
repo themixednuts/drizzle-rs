@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             posts,
             comments,
         },
-    ) = Drizzle::new(conn, Schema::new());
+    ) = Drizzle::<Schema>::new(conn);
     db.create()?;
 
     // Seed enough data so the assertions below have something to chew on.

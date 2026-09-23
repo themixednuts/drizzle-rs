@@ -45,7 +45,10 @@ impl LibsqlExecutor for Connection {
         sql: &str,
         params: Vec<libsql::Value>,
     ) -> drizzle_core::error::Result<u64> {
-        self.execute(sql, params).await.map_err(Into::into)
+        let statement = self.prepare(sql).await?;
+        super::run_statement(&statement, params)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -63,7 +66,10 @@ impl LibsqlExecutor for libsql::Transaction {
         sql: &str,
         params: Vec<libsql::Value>,
     ) -> drizzle_core::error::Result<u64> {
-        self.execute(sql, params).await.map_err(Into::into)
+        let statement = self.prepare(sql).await?;
+        super::run_statement(&statement, params)
+            .await
+            .map_err(Into::into)
     }
 }
 

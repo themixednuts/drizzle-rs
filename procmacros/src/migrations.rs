@@ -16,9 +16,31 @@ pub fn include_migrations_impl(input: TokenStream) -> syn::Result<TokenStream> {
     let manifest_dir = PathBuf::from(manifest_dir);
     let migrations_dir = manifest_dir.join(path_value);
 
+    // Embedding no migrations would compile, then leave every database
+    // unmigrated at runtime; a wrong path is a compile error instead.
+    if !migrations_dir.is_dir() {
+        return Err(syn::Error::new(
+            path_lit.span(),
+            format!(
+                "include_migrations!: no migrations directory at `{}` \
+                 (the path is relative to the crate's Cargo.toml; \
+                 `drizzle generate` creates it)",
+                migrations_dir.display()
+            ),
+        ));
+    }
+
     let discovered = drizzle_migrations::MigrationDir::new(&migrations_dir)
         .discover()
-        .map_err(|e| syn::Error::new(Span::call_site(), e.to_string()))?;
+        .map_err(|e| {
+            syn::Error::new(
+                path_lit.span(),
+                format!(
+                    "include_migrations!: cannot read `{}`: {e}",
+                    migrations_dir.display()
+                ),
+            )
+        })?;
     let sql_paths = resolve_sql_paths(&migrations_dir, &discovered)?;
     let migration_ty = crate::paths::migrations::migration();
 
@@ -85,4 +107,18 @@ fn include_path_expr(manifest_dir: &Path, sql_path: &Path) -> TokenStream {
 
     let absolute = LitStr::new(&sql_path.to_string_lossy(), Span::call_site());
     quote!(#absolute)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::include_migrations_impl;
+
+    #[test]
+    fn a_missing_directory_is_an_error_that_names_it() {
+        let message = include_migrations_impl(quote::quote!("./no/such/migrations"))
+            .expect_err("a missing directory must not embed an empty list")
+            .to_string();
+        assert!(message.contains("no migrations directory at"), "{message}");
+        assert!(message.contains("migrations"), "{message}");
+    }
 }

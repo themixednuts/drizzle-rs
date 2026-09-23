@@ -380,3 +380,14 @@ via_mysql_value!(
     both: [time::Date, time::Time, time::PrimitiveDateTime],
     owned: [time::OffsetDateTime]
 );
+
+#[cfg(feature = "jiff")]
+via_mysql_value!(
+    both: [
+        jiff::civil::Date,
+        jiff::civil::Time,
+        jiff::civil::DateTime,
+        jiff::Timestamp,
+    ],
+    owned: []
+);

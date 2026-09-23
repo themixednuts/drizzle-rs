@@ -241,6 +241,13 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         attrs: &table_attrs,
     };
 
+    let column_field_idents: Vec<&syn::Ident> =
+        ctx.field_infos.iter().map(|info| &info.ident).collect();
+    let columns_module = crate::common::column_types::generate_columns_module(
+        ctx.struct_ident,
+        ctx.struct_vis,
+        &column_field_idents,
+    );
     let (column_definitions, column_zst_idents) =
         column_definitions::generate_column_definitions(&ctx)?;
     let column_fields = column_definitions::generate_column_fields(&ctx, &column_zst_idents);
@@ -437,10 +444,13 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     );
     let definition_info = if definition_expr.is_some() {
         quote! {
-            #std_cow::Owned(
-                <Self as #sql_view<'_, #mysql_schema_type, #mysql_value<'_>>>::definition(self)
-                    .sql()
-            )
+            {
+                // A view body cannot take bound parameters, so values the
+                // definition binds are written as literals.
+                let definition =
+                    <Self as #sql_view<'_, #mysql_schema_type, #mysql_value<'_>>>::definition(self);
+                #std_cow::Owned(definition.inline_sql().unwrap_or_else(|| definition.sql()))
+            }
         }
     } else {
         quote!(#std_cow::Borrowed(Self::VIEW_DEFINITION_SQL))
@@ -484,6 +494,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             }
         }
 
+        #columns_module
         #column_accessors
         #column_definitions
         #foreign_key_impls

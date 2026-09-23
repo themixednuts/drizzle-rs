@@ -245,12 +245,16 @@ macro_rules! impl_join_helpers {
                 .append(&condition)
         }
 
-        /// Helper function to create a NATURAL JOIN clause
-        pub fn natural_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
+        /// Helper function to create a NATURAL JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(table, $crate::Join::new().natural(), condition)
+            use $crate::ToSQL;
+            $crate::Join::new().natural().to_sql().append(&table)
         }
 
         /// Helper function to create a JOIN clause
@@ -261,15 +265,16 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new(), condition)
         }
 
-        /// Helper function to create a NATURAL LEFT JOIN clause
-        pub fn natural_left_join<'a, Table>(
-            table: Table,
-            condition: impl $ConditionTrait,
-        ) -> $SQLType
+        /// Helper function to create a NATURAL LEFT JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_left_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(table, $crate::Join::new().natural().left(), condition)
+            use $crate::ToSQL;
+            $crate::Join::new().natural().left().to_sql().append(&table)
         }
 
         /// Helper function to create a LEFT JOIN clause
@@ -288,30 +293,37 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().left().outer(), condition)
         }
 
-        /// Helper function to create a NATURAL LEFT OUTER JOIN clause
-        pub fn natural_left_outer_join<'a, Table>(
-            table: Table,
-            condition: impl $ConditionTrait,
-        ) -> $SQLType
+        /// Helper function to create a NATURAL LEFT OUTER JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_left_outer_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(
-                table,
-                $crate::Join::new().natural().left().outer(),
-                condition,
-            )
+            use $crate::ToSQL;
+            $crate::Join::new()
+                .natural()
+                .left()
+                .outer()
+                .to_sql()
+                .append(&table)
         }
 
-        /// Helper function to create a NATURAL RIGHT JOIN clause
-        pub fn natural_right_join<'a, Table>(
-            table: Table,
-            condition: impl $ConditionTrait,
-        ) -> $SQLType
+        /// Helper function to create a NATURAL RIGHT JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_right_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(table, $crate::Join::new().natural().right(), condition)
+            use $crate::ToSQL;
+            $crate::Join::new()
+                .natural()
+                .right()
+                .to_sql()
+                .append(&table)
         }
 
         /// Helper function to create a RIGHT JOIN clause
@@ -333,30 +345,33 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().right().outer(), condition)
         }
 
-        /// Helper function to create a NATURAL RIGHT OUTER JOIN clause
-        pub fn natural_right_outer_join<'a, Table>(
-            table: Table,
-            condition: impl $ConditionTrait,
-        ) -> $SQLType
+        /// Helper function to create a NATURAL RIGHT OUTER JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_right_outer_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(
-                table,
-                $crate::Join::new().natural().right().outer(),
-                condition,
-            )
+            use $crate::ToSQL;
+            $crate::Join::new()
+                .natural()
+                .right()
+                .outer()
+                .to_sql()
+                .append(&table)
         }
 
-        /// Helper function to create a NATURAL FULL JOIN clause
-        pub fn natural_full_join<'a, Table>(
-            table: Table,
-            condition: impl $ConditionTrait,
-        ) -> $SQLType
+        /// Helper function to create a NATURAL FULL JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_full_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(table, $crate::Join::new().natural().full(), condition)
+            use $crate::ToSQL;
+            $crate::Join::new().natural().full().to_sql().append(&table)
         }
 
         /// Helper function to create a FULL JOIN clause
@@ -375,30 +390,37 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().full().outer(), condition)
         }
 
-        /// Helper function to create a NATURAL FULL OUTER JOIN clause
-        pub fn natural_full_outer_join<'a, Table>(
-            table: Table,
-            condition: impl $ConditionTrait,
-        ) -> $SQLType
+        /// Helper function to create a NATURAL FULL OUTER JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_full_outer_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(
-                table,
-                $crate::Join::new().natural().full().outer(),
-                condition,
-            )
+            use $crate::ToSQL;
+            $crate::Join::new()
+                .natural()
+                .full()
+                .outer()
+                .to_sql()
+                .append(&table)
         }
 
-        /// Helper function to create a NATURAL INNER JOIN clause
-        pub fn natural_inner_join<'a, Table>(
-            table: Table,
-            condition: impl $ConditionTrait,
-        ) -> $SQLType
+        /// Helper function to create a NATURAL INNER JOIN clause.
+        ///
+        /// A natural join matches the columns both sides share by name,
+        /// so it takes no ON condition.
+        pub fn natural_inner_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
         {
-            join_internal(table, $crate::Join::new().natural().inner(), condition)
+            use $crate::ToSQL;
+            $crate::Join::new()
+                .natural()
+                .inner()
+                .to_sql()
+                .append(&table)
         }
 
         /// Helper function to create an INNER JOIN clause

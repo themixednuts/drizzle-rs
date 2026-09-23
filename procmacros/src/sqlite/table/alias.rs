@@ -1,3 +1,4 @@
+use crate::common::column_types::{aliased_column_type, column_type};
 use crate::common::generate_expr_impl;
 use crate::generators::{generate_impl, generate_sql_column_info};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths, std as std_paths};
@@ -6,14 +7,13 @@ use crate::sqlite::generators::{
     generate_sql_table, generate_sqlite_column, generate_sqlite_table, generate_to_sql,
 };
 use crate::sqlite::table::context::MacroContext;
-use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 /// Generates an aliased version of a table struct
 ///
 /// For a table `Users` with fields `id` and `name`, this generates:
-/// - `AliasedUsers` struct with `AliasedUsersId` and `AliasedUsersName` fields
+/// - `AliasedUsers` struct with `users::AliasedId` and `users::AliasedName` fields
 /// - Each aliased field contains the table alias name
 /// - `Users::alias::<Tag>() -> UsersAlias<Tag>` method
 pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
@@ -47,9 +47,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         .iter()
         .map(|field| {
             let field_name = &field.ident;
-            // Use same casing as original column types to avoid conflicts
-            let field_name_pascal = field_name.to_string().to_upper_camel_case();
-            let aliased_field_type = format_ident!("Aliased{}{}", table_name, field_name_pascal);
+            let aliased_field_type = aliased_column_type(table_name, field_name);
 
             (field_name, aliased_field_type)
         })
@@ -57,19 +55,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
 
     // Generate the aliased field type definitions
     let aliased_field_definitions: Vec<TokenStream> = ctx.field_infos.iter().zip(aliased_fields.iter()).map(|(field, (_, aliased_field_type))| -> syn::Result<TokenStream> {
-        let field_name = &field.ident;
-        // Use the same naming pattern as original column types
-        let field_name_pascal = field_name.to_string().to_upper_camel_case();
-        let original_field_type = format_ident!("{}{}", table_name, field_name_pascal);
-        // Generate struct definition
-        let struct_def = quote! {
-            #[allow(non_upper_case_globals, dead_code)]
-            #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
-            #struct_vis struct #aliased_field_type {
-                alias: &'static str,
-            }
-        };
+        let original_field_type = column_type(table_name, &field.ident);
 
+        // The struct itself is in the table's column module.
         // Generate constructor impl
         let impl_new = generate_impl(aliased_field_type, &quote! {
             pub const fn new(alias: &'static str) -> Self {
@@ -174,7 +162,6 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
         let select_cols = core_paths::select_cols();
 
         Ok(quote! {
-            #struct_def
             #impl_new
             #sql_column_info_impl
             #sql_column_impl

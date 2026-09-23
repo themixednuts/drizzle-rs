@@ -72,7 +72,7 @@ async fn main() -> drizzle::Result<()> {
         .await
         .expect("seed");
 
-    let (db, Schema { order, detail: _ }) = Drizzle::new(client, Schema::new());
+    let (db, Schema { order, detail: _ }) = Drizzle::new(client);
 
     // --- Scenario 1: by-id select — drizzle builder vs raw prepared vs raw text ---
     const ITERS: i32 = 500;

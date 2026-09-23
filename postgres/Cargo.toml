@@ -17,6 +17,7 @@ serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true, features = ["serde", "alloc"] }
 time = { workspace = true, optional = true }
+jiff = { workspace = true, optional = true }
 cidr = { workspace = true, optional = true, features = ["serde"] }
 geo-types = { workspace = true, optional = true, features = ["serde"] }
 bit-vec = { workspace = true, optional = true }
@@ -66,6 +67,12 @@ time = [
     "dep:time",
     "postgres?/with-time-0_3",
     "tokio-postgres?/with-time-0_3",
+]
+
+jiff = [
+    "dep:jiff",
+    "postgres?/with-jiff-0_2",
+    "tokio-postgres?/with-jiff-0_2",
 ]
 
 cidr = ["dep:cidr", "postgres?/with-cidr-0_3", "tokio-postgres?/with-cidr-0_3"]

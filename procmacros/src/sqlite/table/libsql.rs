@@ -135,8 +135,14 @@ fn generate_field_from_row_impl(
     // Codec-owned types use DrizzleRowByIndex for unified conversion. Option<T>
     // only maps SQL NULL to None; invalid non-NULL values remain errors.
     // UUIDs share the path: `FromSQLiteValue` on the declared type handles
-    // BLOB and TEXT storage without naming `::uuid::Uuid`.
-    if info.uses_sqlite_column_codec() || info.type_category() == TypeCategory::Uuid {
+    // BLOB and TEXT storage without naming `::uuid::Uuid`. Date and time
+    // values (chrono, time, jiff) parse their TEXT through it too.
+    if info.uses_sqlite_column_codec()
+        || matches!(
+            info.type_category(),
+            TypeCategory::Uuid | TypeCategory::DateTime
+        )
+    {
         // idx is a usize expression here (before i32 cast for libsql)
         if is_optional {
             return Ok(quote! {

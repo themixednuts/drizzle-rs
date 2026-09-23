@@ -1,9 +1,20 @@
+use crate::prelude::{Cow, Vec};
 use crate::{
-    PaginationArg, SQL, SQLChunk, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr,
+    ColumnRef, PaginationArg, SQL, SQLChunk, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr,
     traits::SQLParam, types::BooleanLike,
 };
 
 /// Helper function to create a SELECT statement with the given columns
+/// The `LIMIT` MySQL renders before an `OFFSET` that has no limit of its own.
+///
+/// MySQL has no bare `OFFSET`. Its manual suggests `18446744073709551615`
+/// (`u64::MAX`) for "every remaining row", but for a `UNION` MySQL adds the
+/// offset to the limit, and `u64::MAX + offset` wraps: the query returns no
+/// rows (MySQL 8.0 and 8.4). `i64::MAX` is just as unbounded in practice and
+/// leaves room for any offset.
+#[doc(hidden)]
+pub const MYSQL_UNBOUNDED_LIMIT: &str = "9223372036854775807";
+
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -21,6 +32,83 @@ where
     SQL::from_iter([Token::SELECT, Token::DISTINCT]).append(columns.into_sql())
 }
 
+/// Clauses found outside any parentheses of a query used as a set-operation
+/// operand.
+#[derive(Debug, Default, Clone, Copy)]
+struct OperandShape {
+    /// `ORDER BY`, `LIMIT`, `OFFSET` or a locking `FOR` clause, which would
+    /// otherwise apply to the whole compound (or be rejected before it).
+    has_tail: bool,
+    /// A `UNION` or `EXCEPT` operator.
+    has_union_or_except: bool,
+    /// An `INTERSECT` operator.
+    has_intersect: bool,
+    /// The query opens with a `WITH` clause.
+    starts_with_cte: bool,
+}
+
+impl OperandShape {
+    fn of<V: SQLParam>(sql: &SQL<'_, V>) -> Self {
+        let mut shape = Self::default();
+        let mut depth = 0usize;
+        let mut leading = true;
+
+        for chunk in &sql.chunks {
+            match chunk {
+                // A sqlcommenter comment may precede the query.
+                SQLChunk::Raw(text) if leading && text.trim_start().starts_with("/*") => {
+                    continue;
+                }
+                SQLChunk::Token(Token::LPAREN) => depth += 1,
+                SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+                SQLChunk::Token(Token::WITH) if leading => shape.starts_with_cte = true,
+                SQLChunk::Token(Token::ORDER | Token::LIMIT | Token::OFFSET | Token::FOR)
+                    if depth == 0 =>
+                {
+                    shape.has_tail = true;
+                }
+                SQLChunk::Token(Token::UNION | Token::EXCEPT) if depth == 0 => {
+                    shape.has_union_or_except = true;
+                }
+                SQLChunk::Token(Token::INTERSECT) if depth == 0 => shape.has_intersect = true,
+                _ => {}
+            }
+            leading = false;
+        }
+
+        shape
+    }
+
+    const fn is_compound(self) -> bool {
+        self.has_union_or_except || self.has_intersect
+    }
+}
+
+/// Makes `operand` a single set-operation operand.
+///
+/// `PostgreSQL` and `MySQL` accept a parenthesized query there. `SQLite` does
+/// not, so the operand becomes a derived table instead; its columns keep their
+/// names and order.
+fn group_set_operand<'a, V: SQLParam>(operand: SQL<'a, V>) -> SQL<'a, V> {
+    match V::DIALECT {
+        crate::Dialect::SQLite => {
+            SQL::from_iter([Token::SELECT, Token::STAR, Token::FROM]).append(operand.parens())
+        }
+        crate::Dialect::PostgreSQL | crate::Dialect::MySQL => operand.parens(),
+    }
+}
+
+/// Joins two queries with a set operator, grouping an operand whenever it
+/// would not otherwise parse as one operand of this operator:
+///
+/// - an operand with its own `ORDER BY` / `LIMIT` / `OFFSET`, which would
+///   otherwise limit the whole compound or be rejected before the operator;
+/// - a compound right operand, so `a.union(b.except(c))` is `A ∪ (B − C)`;
+/// - a right operand that opens with `WITH`;
+/// - on `PostgreSQL` and `MySQL`, a left `UNION` / `EXCEPT` compound joined by
+///   `INTERSECT`, which binds tighter there, so chains apply left to right.
+///
+/// Plain operands and left-to-right chains render unchanged.
 fn set_op<'a, Value, L, R>(left: L, op: Token, all: bool, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -29,6 +117,27 @@ where
 {
     let left = left.into_sql();
     let right = right.into_sql();
+
+    let left_shape = OperandShape::of(&left);
+    let intersect_binds_tighter = !matches!(Value::DIALECT, crate::Dialect::SQLite);
+    let left = if left_shape.has_tail
+        || (intersect_binds_tighter
+            && matches!(op, Token::INTERSECT)
+            && left_shape.has_union_or_except)
+    {
+        group_set_operand(left)
+    } else {
+        left
+    };
+
+    let right_shape = OperandShape::of(&right);
+    let right = if right_shape.has_tail || right_shape.is_compound() || right_shape.starts_with_cte
+    {
+        group_set_operand(right)
+    } else {
+        right
+    };
+
     let op_sql = if all {
         SQL::from(op).push(Token::ALL)
     } else {
@@ -106,6 +215,83 @@ where
     Table: SQLTable<'a, Type, Value>,
 {
     SQL::from_iter([Token::INSERT, Token::INTO]).append(table)
+}
+
+/// Renders the `(columns) VALUES (..), (..)` of a multi-row `INSERT` whose
+/// rows set different columns.
+///
+/// The column list holds every column any row sets, in the order the rows
+/// first name them, and a row that leaves one of those columns unset gets
+/// `DEFAULT` in that cell: what omitting the column means for a single-row
+/// insert. `PostgreSQL` and `MySQL` accept `DEFAULT` there; `SQLite` does not.
+///
+/// `rows` pairs each row's `SQLModel::columns()` with its `values()`, which
+/// holds one value per column, joined by commas. Returns `None` when a row's
+/// values do not split into one value per column.
+#[doc(hidden)]
+pub fn insert_values_with_defaults<'a, V: SQLParam>(
+    rows: Vec<(Cow<'static, [ColumnRef]>, SQL<'a, V>)>,
+) -> Option<SQL<'a, V>> {
+    let mut columns: Vec<ColumnRef> = Vec::new();
+    for (row_columns, _) in &rows {
+        for column in row_columns.iter() {
+            if !columns.contains(column) {
+                columns.push(*column);
+            }
+        }
+    }
+
+    let mut values = SQL::with_capacity_chunks(rows.len().saturating_mul(columns.len() * 2 + 2));
+    for (index, (row_columns, row_values)) in rows.into_iter().enumerate() {
+        let mut cells = split_top_level_commas(row_values);
+        if cells.len() != row_columns.len() {
+            return None;
+        }
+        if index > 0 {
+            values.push_mut(Token::COMMA);
+        }
+        values.push_mut(Token::LPAREN);
+        for (position, column) in columns.iter().enumerate() {
+            if position > 0 {
+                values.push_mut(Token::COMMA);
+            }
+            match row_columns.iter().position(|set| set == column) {
+                Some(cell) => values.append_mut(core::mem::take(&mut cells[cell])),
+                None => values.push_mut(Token::DEFAULT),
+            }
+        }
+        values.push_mut(Token::RPAREN);
+    }
+
+    Some(
+        SQL::columns(&columns)
+            .parens()
+            .push(Token::VALUES)
+            .append(values),
+    )
+}
+
+/// Splits `sql` at the commas outside any parentheses.
+fn split_top_level_commas<'a, V: SQLParam>(sql: SQL<'a, V>) -> Vec<SQL<'a, V>> {
+    let mut parts = Vec::new();
+    let mut current = SQL::empty();
+    let mut depth = 0usize;
+    for chunk in sql.chunks {
+        match chunk {
+            SQLChunk::Token(Token::LPAREN) => depth += 1,
+            SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+            SQLChunk::Token(Token::COMMA) if depth == 0 => {
+                parts.push(core::mem::take(&mut current));
+                continue;
+            }
+            _ => {}
+        }
+        current.chunks.push(chunk);
+    }
+    if !current.chunks.is_empty() || !parts.is_empty() {
+        parts.push(current);
+    }
+    parts
 }
 
 /// Helper function to create a FROM clause

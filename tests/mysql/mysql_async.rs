@@ -29,7 +29,7 @@ async fn setup_pool() -> (
     let mut connection = pool.get_conn().await.expect("checkout MySQL connection");
     mysql_async_setup::reset_schema(&mut connection, &schema).await;
     drop(connection);
-    let (db, schema) = Drizzle::new(pool, schema);
+    let (db, schema) = Drizzle::<_, TestSchema>::new(pool);
     db.create().await.expect("create MySQL test schema");
     (db, schema, guard)
 }
@@ -53,7 +53,7 @@ async fn direct_connection_access_reestablishes_session_invariants() -> drizzle:
         .await
         .expect("connect to MySQL");
     mysql_async_setup::reset_schema(&mut connection, &schema).await;
-    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection, schema);
+    let (mut db, TestSchema { users, .. }) = Drizzle::new(connection);
     db.create().await?;
 
     db.conn_mut()

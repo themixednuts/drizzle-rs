@@ -1,8 +1,8 @@
 //! Cloudflare Durable Objects SQL storage driver (sync, WASM-only).
 //!
-//! Each Durable Object has its own embedded SQLite database accessed through
-//! [`worker::SqlStorage`]. Unlike [D1](super::d1), it supports full
-//! transactions and savepoints.
+//! Each Durable Object has its own embedded SQLite database. The driver runs
+//! on a [`DurableStorage`], built once from the object's `State`. Unlike
+//! [D1](super::d1), it supports transactions and nested savepoints.
 //!
 //! # Requirements
 //!
@@ -19,17 +19,18 @@
 //!
 //! # Quick start
 //!
-//! Migrate inside `DurableObject::new` so the schema is current before any
-//! `fetch` / `alarm` / websocket event is dispatched. The constructor is
-//! synchronous and runs to completion before the runtime delivers the first
-//! request.
+//! Build the driver and migrate inside `DurableObject::new`, so the schema is
+//! current before any `fetch` / `alarm` / websocket event is dispatched, and
+//! keep the driver on the object. The constructor is synchronous and runs to
+//! completion before the runtime delivers the first request.
+//! [`examples/durable_object`] is this example as a compiled crate.
 //!
 //! ```rust
 //! # let _ = r####"
 //! use drizzle::migrations::Tracking;
+//! use drizzle::sqlite::durable::{Drizzle, DurableStorage};
 //! use drizzle::sqlite::prelude::*;
-//! use drizzle::sqlite::durable::Drizzle;
-//! use worker::{durable_object, DurableObject, Env, Request, Response, State};
+//! use worker::{DurableObject, Env, Request, Response, State, durable_object};
 //!
 //! #[SQLiteTable]
 //! struct User {
@@ -39,37 +40,36 @@
 //! }
 //!
 //! #[derive(SQLiteSchema)]
-//! struct AppSchema { user: User }
+//! struct AppSchema {
+//!     user: User,
+//! }
 //!
 //! #[durable_object]
-//! pub struct Counter { state: State, env: Env }
+//! pub struct Counter {
+//!     db: Drizzle<AppSchema>,
+//! }
 //!
 //! impl DurableObject for Counter {
-//!     fn new(state: State, env: Env) -> Self {
-//!         // Runs once per DO instantiation (cold start / after eviction).
-//!         // `include_migrations!` embeds the migration files at compile time
-//!         // and expands to a `Vec<Migration>`.
+//!     fn new(mut state: State, _env: Env) -> Self {
+//!         // Runs once per instantiation (cold start or after eviction).
+//!         // `include_migrations!` embeds the migration files at compile time.
 //!         let migrations = drizzle::include_migrations!("./drizzle");
-//!         let sql = state.storage().sql();
-//!         let (db, _) = Drizzle::new(sql, AppSchema::new());
+//!         let (db, _) = Drizzle::new(DurableStorage::new(&mut state));
 //!         db.migrate(&migrations, Tracking::SQLITE)
 //!             .expect("durable migrations failed");
-//!         Self { state, env }
+//!         Self { db }
 //!     }
 //!
 //!     async fn fetch(&self, _req: Request) -> worker::Result<Response> {
-//!         let sql = self.state.storage().sql();
-//!         let (db, AppSchema { user }) = Drizzle::new(sql, AppSchema::new());
+//!         let AppSchema { user } = *self.db.schema();
 //!         // `worker::Error` has no `From<drizzle::error::DrizzleError>`, so
 //!         // convert drizzle errors before using `?`.
-//!         db.insert(user)
-//!             .values([InsertUser::new("Alice")])
-//!             .execute()
-//!             .map_err(|e| worker::Error::RustError(e.to_string()))?;
-//!         let users: Vec<SelectUser> = db
-//!             .select(())
-//!             .from(user)
-//!             .all()
+//!         let users: Vec<SelectUser> = self
+//!             .db
+//!             .transaction(|tx| {
+//!                 tx.insert(user).values([InsertUser::new("Alice")]).execute()?;
+//!                 tx.select(()).from(user).all()
+//!             })
 //!             .map_err(|e| worker::Error::RustError(e.to_string()))?;
 //!         Response::ok(format!("{} users", users.len()))
 //!     }
@@ -77,13 +77,22 @@
 //! # "####;
 //! ```
 //!
+//! [`examples/durable_object`]: https://github.com/themixednuts/drizzle-rs/tree/main/examples/durable_object
+//!
 //! # Notes
 //!
 //! - **Row decoding is serde-based.** Rows come back as column-keyed objects,
-//!   so `SelectX` models must implement `serde::Deserialize`. `SQLiteFromRow`
-//!   derives this when the `serde` feature is enabled.
-//! - **Transactions and nested savepoints** are supported via
-//!   [`Drizzle::transaction`] and [`Transaction::savepoint`].
+//!   so a row type must implement `serde::Deserialize`. Generated `SelectX`
+//!   and `PartialSelectX` models do when the `query` feature is enabled;
+//!   derive it on your own row structs.
+//! - **Transactions run through the runtime.** Durable Object SQL rejects
+//!   `BEGIN`, `COMMIT` and `SAVEPOINT` statements, so [`Drizzle::transaction`]
+//!   and [`Transaction::savepoint`] use the storage's `transactionSync`, which
+//!   nests savepoints. Their callbacks must stay synchronous, as the rest of
+//!   this driver is.
+//! - **Writes are atomic per event anyway.** The runtime commits the writes an
+//!   event makes without an intervening `await` together, so a transaction is
+//!   for rolling back on an error, not for isolation.
 //!
 //! # Statement caching
 //!
@@ -99,6 +108,9 @@
 //! re-rendering. It just cannot skip the storage engine's own parse.
 
 pub(crate) mod prepared;
+mod storage;
+
+pub use storage::DurableStorage;
 
 use ::worker::{SqlStorage, SqlStorageValue};
 use drizzle_core::error::DrizzleError;
@@ -116,19 +128,17 @@ crate::drizzle_prepare_impl!();
 use crate::builder::sqlite::common;
 #[cfg(feature = "query")]
 use crate::builder::sqlite::common::QueryRowFormat;
-use crate::transaction::savepoint::sync_transaction;
-
-pub type Drizzle<Schema = ()> = common::Drizzle<SqlStorage, Schema>;
+pub type Drizzle<Schema = ()> = common::Drizzle<DurableStorage, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
-    common::DrizzleBuilder<'a, common::Drizzle<SqlStorage, Schema>, Schema, Builder, State>;
+    common::DrizzleBuilder<'a, common::Drizzle<DurableStorage, Schema>, Schema, Builder, State>;
 
 #[cfg(feature = "query")]
-impl common::private::Sealed for SqlStorage {}
+impl common::private::Sealed for DurableStorage {}
 
 // Column-keyed serde rows: relational queries wrap base columns into a single
 // "__base" JSON text column. See `common::QueryRowFormat`.
 #[cfg(feature = "query")]
-impl QueryRowFormat for SqlStorage {
+impl QueryRowFormat for DurableStorage {
     const WRAP_BASE_JSON: bool = true;
 }
 
@@ -159,13 +169,13 @@ where
         .map_err(|e| DrizzleError::Other(e.to_string().into()))
 }
 
-impl<Schema> common::Drizzle<SqlStorage, Schema> {
+impl<Schema> common::Drizzle<DurableStorage, Schema> {
     /// Executes a statement and returns the number of rows written.
     pub fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
-        let cursor = exec_query(&self.conn, &query)?;
+        let cursor = exec_query(self.conn.sql(), &query)?;
         // Drain the cursor so `rows_written` is populated.
         let _ = cursor
             .to_array::<serde::de::IgnoredAny>()
@@ -183,7 +193,7 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
         C: Default + Extend<R>,
     {
-        let cursor = exec_query(&self.conn, &query)?;
+        let cursor = exec_query(self.conn.sql(), &query)?;
         let rows: Vec<R> = cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
@@ -198,7 +208,7 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
         R: for<'de> serde::Deserialize<'de>,
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
-        let cursor = exec_query(&self.conn, &query)?;
+        let cursor = exec_query(self.conn.sql(), &query)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?
@@ -211,11 +221,14 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
     ///
     /// Commits when the callback returns `Ok` and rolls back on `Err` or a
     /// panic, then returns the callback's value (or propagates the error or
-    /// panic).
+    /// panic). The transaction runs through the storage's `transactionSync`,
+    /// because Durable Object SQL rejects `BEGIN`.
     ///
     /// The callback receives a `&Transaction<Schema>` that supports the same
     /// query-builder surface as `Drizzle` (select / insert / update / delete /
     /// with) plus [`Transaction::savepoint`] for nested savepoints.
+    ///
+    /// [`Transaction::savepoint`]: crate::transaction::sqlite::durable::Transaction::savepoint
     pub fn transaction<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
@@ -223,43 +236,16 @@ impl<Schema> common::Drizzle<SqlStorage, Schema> {
             &crate::transaction::sqlite::durable::Transaction<Schema>,
         ) -> drizzle_core::error::Result<R>,
     {
-        let tx = self.start(drizzle_sqlite::TransactionConfig::Deferred)?;
-        sync_transaction(
-            tx,
-            "sqlite.durable",
-            || {
-                drizzle_core::drizzle_trace_tx!("commit", "sqlite.durable");
-            },
-            || {
-                drizzle_core::drizzle_trace_tx!("rollback", "sqlite.durable");
-            },
-            |tx| f(tx),
-            |tx| tx.commit(),
-            |tx| tx.rollback(),
-        )
-    }
-
-    fn start(
-        &self,
-        config: drizzle_sqlite::TransactionConfig,
-    ) -> drizzle_core::error::Result<crate::transaction::sqlite::durable::Transaction<Schema>>
-    where
-        Schema: Copy,
-    {
-        let sql = match config {
-            drizzle_sqlite::TransactionConfig::Deferred => "BEGIN",
-            drizzle_sqlite::TransactionConfig::Immediate => "BEGIN IMMEDIATE",
-            drizzle_sqlite::TransactionConfig::Exclusive => "BEGIN EXCLUSIVE",
-        };
         drizzle_core::drizzle_trace_tx!("begin", "sqlite.durable");
-        self.conn
-            .exec(sql, None)
-            .map_err(|error| DrizzleError::Other(error.to_string().into()))?;
-        Ok(crate::transaction::sqlite::durable::Transaction::new(
-            self.conn.clone(),
-            config,
-            self.schema,
-        ))
+        let tx =
+            crate::transaction::sqlite::durable::Transaction::new(self.conn.clone(), self.schema);
+        let result = self.conn.transaction(|| f(&tx));
+        if result.is_ok() {
+            drizzle_core::drizzle_trace_tx!("commit", "sqlite.durable");
+        } else {
+            drizzle_core::drizzle_trace_tx!("rollback", "sqlite.durable");
+        }
+        result
     }
 }
 
@@ -272,6 +258,7 @@ where
         let schema = Schema::default();
         for stmt in schema.create_statements()? {
             self.conn
+                .sql()
                 .exec(&stmt, None)
                 .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         }
@@ -279,7 +266,7 @@ where
     }
 }
 
-impl<Schema> common::Drizzle<SqlStorage, Schema>
+impl<Schema> common::Drizzle<DurableStorage, Schema>
 where
     Schema: Copy,
 {
@@ -296,13 +283,12 @@ where
     /// ```rust
     /// # let _ = r####"
     /// impl DurableObject for Counter {
-    ///     fn new(state: State, env: Env) -> Self {
+    ///     fn new(mut state: State, _env: Env) -> Self {
     ///         let migrations = drizzle::include_migrations!("./drizzle");
-    ///         let sql = state.storage().sql();
-    ///         let (db, _) = Drizzle::new(sql, AppSchema::new());
+    ///         let (db, _) = Drizzle::<AppSchema>::new(DurableStorage::new(&mut state));
     ///         db.migrate(&migrations, drizzle::migrations::Tracking::SQLITE)
     ///             .expect("durable migrations failed");
-    ///         Self { state, env }
+    ///         Self { db }
     ///     }
     ///
     ///     async fn fetch(&self, req: Request) -> worker::Result<Response> {
@@ -329,20 +315,20 @@ where
             tracking,
         );
 
+        let sql = self.conn.sql();
         let applied_before_table_write =
-            durable_applied_names_before_migration_table_write(&self.conn, &set)?;
+            durable_applied_names_before_migration_table_write(sql, &set)?;
         super::reject_foreign_key_suspending_migrations(
             set.pending(&applied_before_table_write),
             "Durable Object",
         )?;
-        ensure_durable_migration_table(&self.conn, &set)?;
+        ensure_durable_migration_table(sql, &set)?;
 
         // Durable Object storage runs this whole flow in one transaction, so
         // this path never writes a dirty marker itself. It can still inherit
         // one from a non-transactional runner against the same SQLite file, and
         // stacking migrations on an unfinished one is exactly what we refuse.
-        let dirty_cursor = self
-            .conn
+        let dirty_cursor = sql
             .exec(&set.dirty_names_sql(), None)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         let dirty_names: Vec<String> = dirty_cursor
@@ -357,8 +343,7 @@ where
 
         // Read already-applied migration names
         let applied_sql = set.applied_names_sql();
-        let applied_cursor = self
-            .conn
+        let applied_cursor = sql
             .exec(&applied_sql, None)
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         let applied_names: Vec<String> = applied_cursor
@@ -380,11 +365,13 @@ where
                 for stmt in migration.statements() {
                     if !stmt.trim().is_empty() {
                         tx.inner()
+                            .sql()
                             .exec(stmt, None)
                             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
                     }
                 }
                 tx.inner()
+                    .sql()
                     .exec(&set.record_migration_sql(migration), None)
                     .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
                 applied.push(migration.tag().to_string());
@@ -554,7 +541,7 @@ where
 {
     /// Runs the query and returns the number of rows written.
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
-        let cursor = exec_query(&self.runner.conn, &self.builder.sql)?;
+        let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;
         let _ = cursor
             .to_array::<serde::de::IgnoredAny>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
@@ -566,7 +553,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let cursor = exec_query(&self.runner.conn, &self.builder.sql)?;
+        let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))
@@ -577,7 +564,7 @@ where
     where
         R: for<'de> serde::Deserialize<'de>,
     {
-        let cursor = exec_query(&self.runner.conn, &self.builder.sql)?;
+        let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;
         cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?
@@ -647,7 +634,7 @@ where
         builder.order_by_sql,
         builder.limit,
         builder.offset,
-        SqlStorage::WRAP_BASE_JSON,
+        DurableStorage::WRAP_BASE_JSON,
     );
     let (sql, bind_params) = query_sql.build();
     let values: Vec<SqlStorageValue> = bind_params
@@ -692,7 +679,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        relational_find_many(&self.runner.conn, self.builder)
+        relational_find_many(self.runner.conn.sql(), self.builder)
     }
 }
 
@@ -820,7 +807,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             + drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        relational_find_many_partial(&self.runner.conn, self.builder)
+        relational_find_many_partial(self.runner.conn.sql(), self.builder)
     }
 }
 
@@ -861,12 +848,12 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 
 #[cfg(feature = "query")]
 impl<'a, T, Rels>
-    common::DrizzlePreparedQuery<'a, SqlStorage, T, Rels, drizzle_core::query::AllColumns>
+    common::DrizzlePreparedQuery<'a, DurableStorage, T, Rels, drizzle_core::query::AllColumns>
 {
     /// Executes the prepared relational query and returns all matching rows.
     pub fn find_many<const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Vec<
@@ -891,7 +878,7 @@ impl<'a, T, Rels>
 
         let (sql, bound) = self.inner.bind(params)?;
         let values: Vec<SqlStorageValue> = bound.map(|v| sqlite_value_to_storage(&v)).collect();
-        let rows = query_json_rows(conn, sql, values)?;
+        let rows = query_json_rows(conn.sql(), sql, values)?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()
@@ -902,7 +889,7 @@ impl<'a, T, Rels>
     /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
     pub fn find_first<const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Option<
@@ -923,12 +910,12 @@ impl<'a, T, Rels>
 
 #[cfg(feature = "query")]
 impl<'a, T, Rels>
-    common::DrizzlePreparedQuery<'a, SqlStorage, T, Rels, drizzle_core::query::PartialColumns>
+    common::DrizzlePreparedQuery<'a, DurableStorage, T, Rels, drizzle_core::query::PartialColumns>
 {
     /// Executes the prepared relational query and returns all matching rows.
     pub fn find_many<const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Vec<
@@ -953,7 +940,7 @@ impl<'a, T, Rels>
 
         let (sql, bound) = self.inner.bind(params)?;
         let values: Vec<SqlStorageValue> = bound.map(|v| sqlite_value_to_storage(&v)).collect();
-        let rows = query_json_rows(conn, sql, values)?;
+        let rows = query_json_rows(conn.sql(), sql, values)?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()
@@ -964,7 +951,7 @@ impl<'a, T, Rels>
     /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
     pub fn find_first<const N: usize>(
         &self,
-        conn: &SqlStorage,
+        conn: &DurableStorage,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<
         Option<

@@ -3,6 +3,7 @@
 //! This module provides shared abstractions to reduce code duplication between
 //! the dialect-specific macro implementations.
 
+pub mod column_types;
 pub mod constraint;
 pub mod constraints;
 mod context;
@@ -25,7 +26,10 @@ pub mod view_query;
 pub use constraint::Constraint;
 pub use context::ModelType;
 pub use default::render_default;
-pub use diagnostics::{references_required_message, relation_requires_references_message};
+pub use diagnostics::{
+    references_required_message, reject_schema_trait_derives, relation_requires_references_message,
+    unknown_key_message,
+};
 pub use helpers::{extract_struct_fields, make_uppercase_path, parse_column_reference};
 pub use table_pipeline::{
     count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
@@ -39,12 +43,14 @@ pub use type_mapping::{sqlite_column_type_is_numeric, sqlite_column_type_to_sql_
 pub use type_utils::type_is_array_char;
 #[cfg(feature = "sqlite")]
 pub use type_utils::type_is_byte_slice;
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
+pub use type_utils::unwrap_option;
 pub use type_utils::{
     is_option_type, option_inner_type, type_is_array_string, type_is_array_u8, type_is_arrayvec_u8,
     type_is_bool, type_is_datetime_tz, type_is_float, type_is_int, type_is_json_value,
     type_is_naive_date, type_is_naive_datetime, type_is_naive_time, type_is_offset_datetime,
     type_is_primitive_date_time, type_is_string_like, type_is_time_date, type_is_time_time,
-    type_is_uuid, type_is_vec_u8, unwrap_option,
+    type_is_uuid, type_is_vec_u8,
 };
 #[cfg(feature = "postgres")]
 pub use type_utils::{

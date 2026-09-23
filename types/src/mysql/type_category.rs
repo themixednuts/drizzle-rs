@@ -99,17 +99,27 @@ impl TypeCategory {
             return Self::DateTimeTz;
         }
 
-        if type_str.contains("time::Date") || type_str == "Date" {
-            return Self::TimeDate;
-        }
-        if type_str.contains("time::Time") {
-            return Self::TimeTime;
-        }
-        if type_str.contains("PrimitiveDateTime") {
+        // A date and time without a zone before a bare date: jiff spells them
+        // `civil::DateTime` and `civil::Date`.
+        if type_str.contains("PrimitiveDateTime")
+            || type_str.contains("civil::DateTime")
+            || type_str == "DateTime"
+        {
             return Self::TimePrimitiveDateTime;
         }
-        if type_str.contains("OffsetDateTime") {
+        if type_str.contains("OffsetDateTime")
+            || type_str.contains("jiff::Timestamp")
+            || type_str == "Timestamp"
+        {
             return Self::TimeOffsetDateTime;
+        }
+        if type_str.contains("time::Date") || type_str.contains("civil::Date") || type_str == "Date"
+        {
+            return Self::TimeDate;
+        }
+        if type_str.contains("time::Time") || type_str.contains("civil::Time") || type_str == "Time"
+        {
+            return Self::TimeTime;
         }
 
         if type_str.contains("String") {

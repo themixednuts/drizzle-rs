@@ -3,7 +3,7 @@ use crate::prelude::*;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
 use drizzle_core::{
-    SQL, Token, helpers as core_helpers,
+    SQL, SQLChunk, Token, helpers as core_helpers,
     traits::{SQLModel, ToSQL},
 };
 
@@ -155,9 +155,26 @@ where
     let columns_info = rows[0].columns();
     let columns_slice = columns_info.as_ref();
 
-    // Check if this is a DEFAULT VALUES case (no columns)
+    // Every column takes its default. `DEFAULT VALUES` inserts one row, and
+    // SQLite has no `DEFAULT` keyword inside VALUES, so several such rows
+    // insert NULL into `rowid`, which assigns the next rowid and leaves every
+    // declared column to its default. (A WITHOUT ROWID table rejects this
+    // with "no column named rowid" instead of inserting a single row.)
     if columns_slice.is_empty() {
-        return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
+        if rows.len() == 1 {
+            return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
+        }
+        let mut values_sql = SQL::with_capacity_chunks(rows.len().saturating_mul(4));
+        for index in 0..rows.len() {
+            if index > 0 {
+                values_sql.push_mut(Token::COMMA);
+            }
+            values_sql.append_mut(SQL::from(Token::NULL).parens());
+        }
+        return SQL::raw("rowid")
+            .parens()
+            .push(Token::VALUES)
+            .append(values_sql);
     }
 
     let columns_sql = SQL::columns(columns_slice);
@@ -172,6 +189,55 @@ where
     }
 
     columns_sql.parens().push(Token::VALUES).append(values_sql)
+}
+
+/// An `OFFSET` for a query without a `LIMIT`.
+///
+/// `SQLite` only accepts `OFFSET` as part of a `LIMIT` clause; a negative
+/// limit means "no limit".
+#[track_caller]
+pub(crate) fn standalone_offset<'a, P>(offset: P) -> SQL<'a, SQLiteValue<'a>>
+where
+    P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
+{
+    SQL::from(Token::LIMIT)
+        .append(SQL::raw("-1"))
+        .append(core_helpers::offset(offset))
+}
+
+/// Ends an `INSERT ... SELECT` so an upsert clause can follow it.
+///
+/// When the final `SELECT` ends in its `FROM` clause, SQLite parses the `ON`
+/// of `ON CONFLICT` as a join constraint and rejects the statement. A
+/// trailing `WHERE true` closes the `SELECT`, as SQLite's documentation
+/// recommends. Inserts from VALUES, and `SELECT`s that already end in a
+/// `WHERE`, `GROUP BY`, `HAVING`, `WINDOW`, `ORDER BY` or `LIMIT`, are
+/// returned unchanged.
+pub(crate) fn before_upsert<'a>(sql: SQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
+    let mut depth = 0usize;
+    let mut ends_in_from = false;
+    for chunk in &sql.chunks {
+        match chunk {
+            SQLChunk::Token(Token::LPAREN) => depth += 1,
+            SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+            SQLChunk::Token(Token::SELECT) if depth == 0 => ends_in_from = false,
+            SQLChunk::Token(Token::FROM) if depth == 0 => ends_in_from = true,
+            SQLChunk::Token(
+                Token::WHERE
+                | Token::GROUP
+                | Token::HAVING
+                | Token::WINDOW
+                | Token::ORDER
+                | Token::LIMIT,
+            ) if depth == 0 => ends_in_from = false,
+            _ => {}
+        }
+    }
+    if ends_in_from {
+        sql.push(Token::WHERE).append(SQL::raw("true"))
+    } else {
+        sql
+    }
 }
 
 /// Helper function to create a RETURNING clause - `SQLite` specific

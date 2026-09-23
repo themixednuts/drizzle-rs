@@ -54,11 +54,11 @@ macro_rules! shared_expression_suite {
             type FixtureRow = InsertSharedExpressionRow<
                 'static,
                 (
-                    SharedExpressionRowIdSet,
-                    SharedExpressionRowNameSet,
-                    SharedExpressionRowScoreSet,
-                    SharedExpressionRowQuantitySet,
-                    SharedExpressionRowActiveSet,
+                    shared_expression_row::IdSet,
+                    shared_expression_row::NameSet,
+                    shared_expression_row::ScoreSet,
+                    shared_expression_row::QuantitySet,
+                    shared_expression_row::ActiveSet,
                 ),
             >;
 
@@ -78,11 +78,11 @@ macro_rules! shared_expression_suite {
             fn bob() -> InsertSharedExpressionRow<
                 'static,
                 (
-                    SharedExpressionRowIdSet,
-                    SharedExpressionRowNameSet,
-                    SharedExpressionRowScoreSet,
-                    SharedExpressionRowQuantityNotSet,
-                    SharedExpressionRowActiveSet,
+                    shared_expression_row::IdSet,
+                    shared_expression_row::NameSet,
+                    shared_expression_row::ScoreSet,
+                    shared_expression_row::QuantityNotSet,
+                    shared_expression_row::ActiveSet,
                 ),
             > {
                 InsertSharedExpressionRow::new("bob", -3.75, false).with_id(2)
@@ -131,6 +131,69 @@ macro_rules! shared_expression_suite {
                     .order_by(asc(rows.id))
                     .all();
                 assert_eq!(remainders, [1, 2, 0, 1]);
+            }
+
+            #[drizzle::test($dialect)]
+            fn arithmetic_operands_keep_their_grouping(db: &mut TestDb<SharedExpressionSchema>) {
+                let SharedExpressionSchema { rows, .. } = schema;
+                db.insert(rows).values(fixture()).execute();
+                db.insert(rows).value(bob()).execute();
+
+                // id * (id + 1) is 2, 6, 12, 20. Read without the parentheses
+                // it is id * id + 1: 2, 5, 10, 17.
+                let right_grouped = db
+                    .select(rows.id)
+                    .from(rows)
+                    .r#where(gt(rows.id * (rows.id + 1), 10))
+                    .to_sql()
+                    .sql();
+                assert!(
+                    crate::common::helpers::sql_shape(&right_grouped)
+                        .contains("shared_expression_rows.id*(shared_expression_rows.id+?)>?"),
+                    "{right_grouped}"
+                );
+                let products: Vec<i32> = db
+                    .select(rows.id)
+                    .from(rows)
+                    .r#where(gt(rows.id * (rows.id + 1), 10))
+                    .order_by(asc(rows.id))
+                    .all();
+                assert_eq!(products, [3, 4]);
+
+                // (|id| + 1) * 2 is 6 only for id 2; ungrouped it is |id| + 2.
+                let doubled: Vec<i32> = db
+                    .select(rows.id)
+                    .from(rows)
+                    .r#where(eq((abs(rows.id) + 1) * 2, 6))
+                    .all();
+                assert_eq!(doubled, [2]);
+
+                // id - (id - 1) is 1 on every row; ungrouped it is -1.
+                let ones: i64 = db
+                    .select(count(rows.id))
+                    .from(rows)
+                    .r#where(eq(rows.id - (rows.id - 1), 1))
+                    .get();
+                assert_eq!(ones, 4);
+
+                // A chain SQL already reads the way it was built stays flat.
+                let flat = db
+                    .select(rows.id)
+                    .from(rows)
+                    .r#where(eq(abs(rows.id) * 2 - 1 - 1, 2))
+                    .to_sql()
+                    .sql();
+                assert!(
+                    crate::common::helpers::sql_shape(&flat)
+                        .contains("ABS(shared_expression_rows.id)*?-?-?=?"),
+                    "{flat}"
+                );
+                let flat_ids: Vec<i32> = db
+                    .select(rows.id)
+                    .from(rows)
+                    .r#where(eq(abs(rows.id) * 2 - 1 - 1, 2))
+                    .all();
+                assert_eq!(flat_ids, [2]);
             }
 
             #[drizzle::test($dialect)]

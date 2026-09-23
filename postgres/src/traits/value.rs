@@ -263,6 +263,54 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
+    /// Convert from a DATE value (jiff)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] if the target type cannot represent a DATE.
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_date(value: jiff::civil::Date) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert DATE (jiff) {value:?} to target type").into(),
+        ))
+    }
+
+    /// Convert from a TIME value (jiff)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] if the target type cannot represent a TIME.
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_time(value: jiff::civil::Time) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert TIME (jiff) {value:?} to target type").into(),
+        ))
+    }
+
+    /// Convert from a TIMESTAMP value (jiff)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] if the target type cannot represent a TIMESTAMP.
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_datetime(value: jiff::civil::DateTime) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert TIMESTAMP (jiff) {value:?} to target type").into(),
+        ))
+    }
+
+    /// Convert from a TIMESTAMPTZ value (jiff)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] if the target type cannot represent a TIMESTAMPTZ.
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_timestamp(value: jiff::Timestamp) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            format!("cannot convert TIMESTAMPTZ (jiff) {value:?} to target type").into(),
+        ))
+    }
+
     /// Convert from an INET value
     ///
     /// # Errors
@@ -1190,6 +1238,26 @@ impl<T: FromPostgresValue> FromPostgresValue for Option<T> {
     #[cfg(feature = "time")]
     fn from_postgres_time_interval(value: time::Duration) -> Result<Self, DrizzleError> {
         T::from_postgres_time_interval(value).map(Some)
+    }
+
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_date(value: jiff::civil::Date) -> Result<Self, DrizzleError> {
+        T::from_postgres_jiff_date(value).map(Some)
+    }
+
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_time(value: jiff::civil::Time) -> Result<Self, DrizzleError> {
+        T::from_postgres_jiff_time(value).map(Some)
+    }
+
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_datetime(value: jiff::civil::DateTime) -> Result<Self, DrizzleError> {
+        T::from_postgres_jiff_datetime(value).map(Some)
+    }
+
+    #[cfg(feature = "jiff")]
+    fn from_postgres_jiff_timestamp(value: jiff::Timestamp) -> Result<Self, DrizzleError> {
+        T::from_postgres_jiff_timestamp(value).map(Some)
     }
 
     #[cfg(feature = "cidr")]
@@ -2932,6 +3000,42 @@ impl FromPostgresValue for time::Duration {
     impl_from_postgres_value_errors!("time::Duration");
 
     fn from_postgres_time_interval(value: time::Duration) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl FromPostgresValue for jiff::civil::Date {
+    impl_from_postgres_value_errors!("jiff::civil::Date");
+
+    fn from_postgres_jiff_date(value: jiff::civil::Date) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl FromPostgresValue for jiff::civil::Time {
+    impl_from_postgres_value_errors!("jiff::civil::Time");
+
+    fn from_postgres_jiff_time(value: jiff::civil::Time) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl FromPostgresValue for jiff::civil::DateTime {
+    impl_from_postgres_value_errors!("jiff::civil::DateTime");
+
+    fn from_postgres_jiff_datetime(value: jiff::civil::DateTime) -> Result<Self, DrizzleError> {
+        Ok(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl FromPostgresValue for jiff::Timestamp {
+    impl_from_postgres_value_errors!("jiff::Timestamp");
+
+    fn from_postgres_jiff_timestamp(value: jiff::Timestamp) -> Result<Self, DrizzleError> {
         Ok(value)
     }
 }

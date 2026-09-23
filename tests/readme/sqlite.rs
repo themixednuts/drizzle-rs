@@ -44,7 +44,7 @@ pub fn database() -> drizzle::Result<(Drizzle<Schema>, Schema)> {
             posts,
             comments,
         },
-    ) = Drizzle::new(connection, Schema::new());
+    ) = Drizzle::<Schema>::new(connection);
 
     db.create()?;
     db.insert(users)

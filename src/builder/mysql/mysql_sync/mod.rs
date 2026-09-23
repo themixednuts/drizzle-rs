@@ -37,7 +37,7 @@
 //!         .map_err(|error| drizzle::error::DrizzleError::driver("MySQL", error))?;
 //!     let connection = ::mysql::Conn::new(opts)
 //!         .map_err(|error| drizzle::error::DrizzleError::driver("MySQL", error))?;
-//!     let (mut db, AppSchema { user }) = Drizzle::new(connection, AppSchema::new());
+//!     let (mut db, AppSchema { user }) = Drizzle::new(connection);
 //!     db.create()?;
 //!
 //!     db.insert(user).value(InsertUser::new("Alice")).execute()?;
@@ -295,21 +295,51 @@ impl<Connection, Schema> core::fmt::Debug for Drizzle<Connection, Schema> {
     }
 }
 
-impl<Connection> Drizzle<Connection> {
+impl<Connection, Schema: Default> Drizzle<Connection, Schema> {
     /// Attaches a schema to an upstream MySQL connection or checked-out pool
     /// connection. Construction performs no I/O.
+    ///
+    /// Returns `(Drizzle, Schema)`, with the schema built by `Default`. The
+    /// pattern that destructures the schema usually names its type. When
+    /// nothing else names it, put the type on the call, and use `()` for a
+    /// connection with no schema:
+    ///
+    /// ```no_run
+    /// # use drizzle::mysql::{mysql_sync::Drizzle, prelude::*};
+    /// # #[MySQLTable]
+    /// # struct Users {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)]
+    /// #     id: u64,
+    /// #     #[column(VARCHAR(255))]
+    /// #     name: String,
+    /// # }
+    /// # #[derive(MySQLSchema)] struct Schema { users: Users }
+    /// # fn connect() -> drizzle::Result<::mysql::Conn> {
+    /// #     let opts = ::mysql::Opts::from_url("mysql://root:mysql@localhost/app")
+    /// #         .map_err(|error| drizzle::error::DrizzleError::driver("MySQL", error))?;
+    /// #     ::mysql::Conn::new(opts)
+    /// #         .map_err(|error| drizzle::error::DrizzleError::driver("MySQL", error))
+    /// # }
+    /// # fn main() -> drizzle::Result<()> {
+    /// let (mut db, Schema { users }) = Drizzle::new(connect()?);
+    /// db.insert(users).value(InsertUsers::new("Alice")).execute()?;
+    ///
+    /// let (mut db, schema) = Drizzle::<_, Schema>::new(connect()?);
+    /// db.insert(schema.users).value(InsertUsers::new("Bob")).execute()?;
+    ///
+    /// let (db, ()) = Drizzle::new(connect()?);
+    /// # let _ = db;
+    /// # Ok(()) }
+    /// ```
     #[must_use]
-    pub fn new<Schema: Copy>(
-        connection: Connection,
-        schema: Schema,
-    ) -> (Drizzle<Connection, Schema>, Schema) {
+    pub fn new(connection: Connection) -> (Self, Schema) {
         (
-            Drizzle {
+            Self {
                 connection,
-                schema,
+                schema: Schema::default(),
                 session_ready: false,
             },
-            schema,
+            Schema::default(),
         )
     }
 }

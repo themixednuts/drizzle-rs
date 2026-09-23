@@ -6,10 +6,10 @@
 //!
 //! ```toml
 //! # With std (default)
-//! drizzle-core = "0.1"
+//! drizzle-core = "0.2"
 //!
 //! # no_std with allocator
-//! drizzle-core = { version = "0.1", default-features = false, features = ["alloc"] }
+//! drizzle-core = { version = "0.2", default-features = false, features = ["alloc"] }
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]

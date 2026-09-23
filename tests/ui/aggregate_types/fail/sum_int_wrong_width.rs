@@ -21,7 +21,7 @@ struct SumRow {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::default());
+    let (db, Schema { user, .. }) = Drizzle::new(conn);
 
     let _rows: Vec<SumRow> = db
         .select(alias(sum(user.age), "total"))

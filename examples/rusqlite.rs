@@ -12,8 +12,7 @@ fn main() {
     use crate::schema::{InsertPosts, InsertUsers, Posts, Schema, SelectPosts, SelectUsers, Users};
 
     let conn = Connection::open_in_memory().expect("open connection");
-    let (db, Schema { users, posts }) =
-        drizzle::sqlite::rusqlite::Drizzle::new(conn, Schema::new());
+    let (db, Schema { users, posts }) = drizzle::sqlite::rusqlite::Drizzle::<Schema>::new(conn);
     db.create().expect("create tables");
 
     #[cfg(feature = "uuid")]

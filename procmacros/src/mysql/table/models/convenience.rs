@@ -3,12 +3,12 @@
 //! Generates `with_*` methods for Insert, Update, and `PartialSelect` models.
 
 use super::super::context::{MacroContext, ModelType};
+use crate::common::column_types::{insert_state_param, set_marker};
 use crate::mysql::field::{FieldInfo, TypeCategory};
 use crate::{
     common::rust_type_to_nullability,
     paths::{core as core_paths, mysql as mysql_paths},
 };
-use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -57,27 +57,24 @@ fn generate_insert_convenience_method(
     let method_name = format_ident!("with_{}", field_name);
     let insert_model = &ctx.insert_model_ident;
 
-    // Create generic parameters: field names as markers (UserName, UserEmail)
+    // One generic parameter per field for its insert state (`__Name`)
     let generic_params: Vec<_> = ctx
         .field_infos
         .iter()
-        .map(|f| {
-            let pascal = f.ident.to_string().to_upper_camel_case();
-            format_ident!("{}{}", ctx.struct_ident, pascal)
-        })
+        .map(|f| insert_state_param(ctx.struct_ident, &f.ident))
         .collect();
 
     // Create return type pattern: this field becomes Set, others stay generic
-    let return_pattern_generics: Vec<_> = ctx
+    let return_pattern_generics: Vec<TokenStream> = ctx
         .field_infos
         .iter()
+        .zip(&generic_params)
         .enumerate()
-        .map(|(i, f)| {
-            let pascal = f.ident.to_string().to_upper_camel_case();
+        .map(|(i, (f, param))| {
             if i == field_index {
-                format_ident!("{}{}Set", ctx.struct_ident, pascal)
+                set_marker(ctx.struct_ident, &f.ident)
             } else {
-                format_ident!("{}{}", ctx.struct_ident, pascal)
+                quote!(#param)
             }
         })
         .collect();

@@ -803,7 +803,7 @@ pub mod mysql_sync_setup {
             .collect::<Vec<_>>();
         let mut connection = mysql::Conn::new(options()).expect("connect to MySQL test database");
         reset_schema(&mut connection, &schema);
-        let (mut db, schema) = Drizzle::new(connection, schema);
+        let (mut db, schema) = Drizzle::new(connection);
 
         if let Err(error) = db.create() {
             let test_db = test_db::TestDb::new(db, "mysql-sync", schema_ddl);
@@ -913,7 +913,7 @@ pub mod mysql_async_setup {
             .await
             .expect("connect to MySQL test database");
         reset_schema(&mut connection, &schema).await;
-        let (mut db, schema) = Drizzle::new(connection, schema);
+        let (mut db, schema) = Drizzle::new(connection);
 
         if let Err(error) = db.create().await {
             let test_db = test_db::TestDb::new(db, "mysql-async", schema_ddl);
@@ -948,11 +948,11 @@ pub mod rusqlite_setup {
         let conn = Connection::open(&db_path).expect("Failed to create database");
         conn.execute_batch("PRAGMA foreign_keys = ON")
             .expect("Failed to enable foreign keys");
-        let (db, _) = Drizzle::new(conn, ());
+        let (db, ()) = Drizzle::new(conn);
         TestDb::new(db, "rusqlite", Vec::new()).with_db_path(db_path)
     }
 
-    pub fn setup_empty_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+    pub fn setup_empty_db<S: Copy + Default + drizzle::core::SQLSchemaImpl>(
         schema: S,
     ) -> (TestDb<Drizzle<S>>, S) {
         let db_path = temp_db_path();
@@ -963,7 +963,7 @@ pub mod rusqlite_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(conn, schema);
+        let (db, schema) = Drizzle::new(conn);
         let test_db = TestDb::new(db, "rusqlite", schema_ddl).with_db_path(db_path);
         (test_db, schema)
     }
@@ -1006,7 +1006,7 @@ pub mod rusqlite_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(conn, schema);
+        let (db, schema) = Drizzle::new(conn);
         let migrations = vec![Migration::with_hash(
             "0000_schema_init",
             "schema_init",
@@ -1050,11 +1050,11 @@ pub mod libsql_setup {
         conn.execute("PRAGMA foreign_keys = ON", libsql::params![])
             .await
             .expect("Failed to enable foreign keys");
-        let (db, _) = Drizzle::new(conn, ());
+        let (db, ()) = Drizzle::new(conn);
         TestDb::new(db, "libsql", Vec::new()).with_db_path(db_path)
     }
 
-    pub async fn setup_empty_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+    pub async fn setup_empty_db<S: Copy + Default + drizzle::core::SQLSchemaImpl>(
         schema: S,
     ) -> (TestDb<Drizzle<S>>, S) {
         let db_path = temp_db_path();
@@ -1073,7 +1073,7 @@ pub mod libsql_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(conn, schema);
+        let (db, schema) = Drizzle::new(conn);
         let test_db = TestDb::new(db, "libsql", schema_ddl).with_db_path(db_path);
         (test_db, schema)
     }
@@ -1137,7 +1137,7 @@ pub mod libsql_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(conn, schema);
+        let (db, schema) = Drizzle::new(conn);
         let migrations = vec![Migration::with_hash(
             "0000_schema_init",
             "schema_init",
@@ -1181,11 +1181,11 @@ pub mod turso_setup {
         conn.execute("PRAGMA foreign_keys = ON", turso::params![])
             .await
             .expect("Failed to enable foreign keys");
-        let (db, _) = Drizzle::new(conn, ());
+        let (db, ()) = Drizzle::new(conn);
         TestDb::new(db, "turso", Vec::new()).with_db_path(db_path)
     }
 
-    pub async fn setup_empty_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+    pub async fn setup_empty_db<S: Copy + Default + drizzle::core::SQLSchemaImpl>(
         schema: S,
     ) -> (TestDb<Drizzle<S>>, S) {
         let db_path = temp_db_path();
@@ -1204,7 +1204,7 @@ pub mod turso_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(conn, schema);
+        let (db, schema) = Drizzle::new(conn);
         let test_db = TestDb::new(db, "turso", schema_ddl).with_db_path(db_path);
         (test_db, schema)
     }
@@ -1268,7 +1268,7 @@ pub mod turso_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (mut db, schema) = Drizzle::new(conn, schema);
+        let (mut db, schema) = Drizzle::new(conn);
         let migrations = vec![Migration::with_hash(
             "0000_schema_init",
             "schema_init",
@@ -1483,7 +1483,7 @@ pub mod postgres_sync_setup {
             .batch_execute(&setup_sql)
             .expect("Failed to create test schema");
 
-        let (db, _) = Drizzle::new(client, ());
+        let (db, ()) = Drizzle::new(client);
         TestDb {
             db,
             schema_name,
@@ -1492,7 +1492,7 @@ pub mod postgres_sync_setup {
         }
     }
 
-    pub fn setup_empty_named_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+    pub fn setup_empty_named_db<S: Copy + Default + drizzle::core::SQLSchemaImpl>(
         schema_name: impl Into<String>,
         schema: S,
     ) -> (TestDb<S>, S) {
@@ -1515,7 +1515,7 @@ pub mod postgres_sync_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(client, schema);
+        let (db, schema) = Drizzle::new(client);
         let test_db = TestDb {
             db,
             schema_name,
@@ -1579,7 +1579,7 @@ pub mod postgres_sync_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (mut db, schema) = Drizzle::new(client, schema);
+        let (mut db, schema) = Drizzle::new(client);
 
         let migrations = vec![Migration::with_hash(
             "0000_schema_init",
@@ -1841,7 +1841,7 @@ pub mod tokio_postgres_setup {
             .await
             .expect("Failed to create test schema");
 
-        let (db, _) = Drizzle::new(client, ());
+        let (db, ()) = Drizzle::new(client);
         TestDb {
             db,
             schema_name,
@@ -1850,7 +1850,7 @@ pub mod tokio_postgres_setup {
         }
     }
 
-    pub async fn setup_empty_named_db<S: Copy + drizzle::core::SQLSchemaImpl>(
+    pub async fn setup_empty_named_db<S: Copy + Default + drizzle::core::SQLSchemaImpl>(
         schema_name: impl Into<String>,
         schema: S,
     ) -> (TestDb<S>, S) {
@@ -1882,7 +1882,7 @@ pub mod tokio_postgres_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (db, schema) = Drizzle::new(client, schema);
+        let (db, schema) = Drizzle::new(client);
         let test_db = TestDb {
             db,
             schema_name,
@@ -1967,7 +1967,7 @@ pub mod tokio_postgres_setup {
             .create_statements()
             .expect("create statements")
             .collect();
-        let (mut db, schema) = Drizzle::new(client, schema);
+        let (mut db, schema) = Drizzle::new(client);
         let migrations = vec![Migration::with_hash(
             "0000_schema_init",
             "schema_init",

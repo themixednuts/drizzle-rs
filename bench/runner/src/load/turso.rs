@@ -628,7 +628,7 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
     // same tuning as the ones opened after it; otherwise one connection in eight
     // would serve requests with a different page cache.
     apply_read_tuning(&conn).await?;
-    let (db, schema) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
+    let (db, schema) = drizzle::sqlite::turso::Drizzle::<Schema>::new(conn);
     db.create()
         .await
         .map_err(|err| Fail::new(Code::RunFail, format!("turso create failed: {err}")))?;
@@ -676,7 +676,7 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
             .connect()
             .map_err(|err| Fail::new(Code::RunFail, format!("turso connect failed: {err}")))?;
         apply_read_tuning(&conn).await?;
-        let (db, _) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
+        let (db, _) = drizzle::sqlite::turso::Drizzle::<Schema>::new(conn);
         connections.push(db);
     }
 

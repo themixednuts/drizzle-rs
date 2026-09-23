@@ -48,9 +48,10 @@ pub struct MigrateOptions {
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if mutually exclusive flags are combined, the database
-/// or credentials cannot be resolved, connecting to the database fails, or
-/// applying migrations fails.
+/// Returns [`CliError`] if mutually exclusive flags are combined, the
+/// migrations directory does not exist, the database or credentials cannot be
+/// resolved (including no credentials at all), connecting to the database
+/// fails, or applying migrations fails.
 pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Result<(), CliError> {
     validate_mutex_opts(opts)?;
 
@@ -63,11 +64,14 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
 
     let out_dir = db.migrations_dir();
 
-    // Check if migrations directory exists
+    // A missing directory usually means a wrong `out` path or working
+    // directory. Reporting success would let a deploy step "apply" nothing.
     if !out_dir.exists() {
-        println!("  {}", output::warning("No migrations directory found."));
-        println!("  Run 'drizzle generate' to create your first migration.");
-        return Ok(());
+        return Err(CliError::Other(format!(
+            "Migrations directory not found: {}. Run `drizzle generate` to create your \
+             first migration, or check `out` in drizzle.config.toml.",
+            out_dir.display()
+        )));
     }
 
     // Codegen-only drivers (e.g. durable-sqlite) have no remote endpoint for the
@@ -82,7 +86,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Resu
         overrides::resolve_connection(db, db.dialect, &ConnectionOverrides::default())?;
     let Some(connection) = connection else {
         print_missing_credentials_help(db.dialect);
-        return Ok(());
+        return Err(CliError::MissingCredentials("migrate"));
     };
 
     let plan = if opts.verify || opts.plan || opts.safe {
@@ -160,21 +164,26 @@ fn print_durable_sqlite_notice(out_dir: &std::path::Path) {
         output::warning("Durable Objects SQLite runs inside the Workers runtime.")
     );
     println!();
-    println!("  The CLI can't apply migrations to a DO from outside.");
+    println!("  The CLI can't apply migrations to a DO from outside. Apply them when the");
+    println!("  object starts:");
     println!(
-        "  Apply them at `DurableObject` init time by importing `{}/migrations.js`",
+        "  - Rust: embed them with `drizzle::include_migrations!(\"{}\")` and call",
         out_dir.display()
     );
-    println!("  and running each statement against `state.storage().sql()`.");
+    println!("    `db.migrate(..)` in `DurableObject::new`.");
+    println!(
+        "  - JavaScript: import `{}/migrations.js` and run each statement with",
+        out_dir.display()
+    );
+    println!("    `ctx.storage.sql.exec()` inside `ctx.storage.transactionSync()`.");
     println!();
     println!(
         "  (This command only generates the SQL + JS bundle — run `drizzle generate` for that.)"
     );
 }
 
+/// Print how to configure credentials; the caller reports the failure.
 fn print_missing_credentials_help(dialect: Dialect) {
-    println!("{}", output::warning("No database credentials configured."));
-    println!();
     println!("Add credentials to your drizzle.config.toml:");
     println!();
     println!("  {}", output::muted("[dbCredentials]"));

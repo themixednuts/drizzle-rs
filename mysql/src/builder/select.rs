@@ -476,7 +476,8 @@ where
 {
     /// Skips rows without an explicit limit.
     ///
-    /// MySQL renders its maximum-limit sentinel before the offset.
+    /// MySQL has no bare `OFFSET`, so this renders `LIMIT 9223372036854775807`
+    /// before the offset (see [`drizzle_core::helpers::MYSQL_UNBOUNDED_LIMIT`]).
     #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where

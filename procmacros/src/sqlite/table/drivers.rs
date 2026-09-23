@@ -87,8 +87,14 @@ pub fn generate_field_conversion_with_index<D: DriverConfig>(
     // Codec-owned types use DrizzleRowByIndex for driver-agnostic conversion.
     // UUIDs decode the same way: `FromSQLiteValue` on the declared type picks
     // BLOB or TEXT storage at runtime, so the expansion never assumes the
-    // field is spelled `::uuid::Uuid`.
-    if info.uses_sqlite_column_codec() || info.type_category() == TypeCategory::Uuid {
+    // field is spelled `::uuid::Uuid`. Date and time values (chrono, time,
+    // jiff) parse their TEXT through it as well, rather than staying `String`.
+    if info.uses_sqlite_column_codec()
+        || matches!(
+            info.type_category(),
+            TypeCategory::Uuid | TypeCategory::DateTime
+        )
+    {
         let base_type = info.base_type;
         if is_optional {
             return Ok(quote! {

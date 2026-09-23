@@ -176,9 +176,24 @@ fn migrate_upgrades_legacy_custom_tracking_table() {
     .expect("insert custom legacy applied row");
     drop(conn);
 
+    // --verify reads the legacy table as it is and leaves the upgrade to a
+    // real run.
     cargo_bin_cmd!("drizzle")
         .current_dir(root)
         .args(["migrate", "--verify"])
+        .assert()
+        .success();
+
+    let conn = rusqlite::Connection::open(&db_path).expect("reopen sqlite");
+    assert_eq!(
+        tracking_columns(&conn, "custom_migrations"),
+        vec!["id", "hash", "created_at"]
+    );
+    drop(conn);
+
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["migrate"])
         .assert()
         .success();
 

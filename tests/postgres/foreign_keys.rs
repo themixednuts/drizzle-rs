@@ -33,6 +33,23 @@ pub struct FkSetDefaultSchema {
     pub fk_set_default: FkSetDefault,
 }
 
+/// Referential options may come before `references`; they used to be
+/// rejected ("on_delete requires a references attribute") in that order.
+#[PostgresTable]
+pub struct FkActionsFirst {
+    #[column(serial, primary)]
+    pub id: i32,
+    #[column(ON_DELETE = CASCADE, DEFERRABLE, REFERENCES = FkParent::id)]
+    pub parent_id: i32,
+}
+
+#[test]
+fn referential_options_may_precede_references() {
+    let sql = FkActionsFirst::create_table_sql();
+    assert!(sql.contains("ON DELETE CASCADE"), "{sql}");
+    assert!(sql.contains("DEFERRABLE"), "{sql}");
+}
+
 #[test]
 fn test_on_delete_set_default_sql() {
     let sql = FkSetDefault::create_table_sql();

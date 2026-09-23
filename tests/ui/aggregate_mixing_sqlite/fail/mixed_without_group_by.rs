@@ -23,7 +23,7 @@ struct MixedRow {
 
 fn main() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let (db, Schema { user, .. }) = Drizzle::new(conn, Schema::default());
+    let (db, Schema { user, .. }) = Drizzle::new(conn);
 
     // Scalar column `name` not in GROUP BY (only non-key `email` is grouped) —
     // should fail. Grouping by a non-primary-key column does not functionally

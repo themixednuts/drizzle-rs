@@ -47,8 +47,8 @@ help: the trait `AcceptsNullability<drizzle::core::expr::Null>` is not implement
    | impl AcceptsNullability<NonNull> for NonNull {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `drizzle::core::expr::NonNull`, found `drizzle::core::expr::Null`
-   = note: required for `MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>` to implement `From<ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>>`
-   = note: required for `ColumnBinOp<UsersOptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>` to implement `Into<MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>>`
+   = note: required for `MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>` to implement `From<ColumnBinOp<OptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>>`
+   = note: required for `ColumnBinOp<OptionalVisits, i64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigInt, drizzle::core::expr::Null>` to implement `Into<MySQLUpdateValue<'_, drizzle::mysql::MySQLValue<'_>, i64, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull>>`
 note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
   --> tests/ui/update_assignments/mysql/fail/expression_type.rs:6:1
    |

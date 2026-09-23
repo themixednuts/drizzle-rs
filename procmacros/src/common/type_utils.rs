@@ -42,6 +42,7 @@ pub fn option_inner_type(ty: &Type) -> Option<&Type> {
     })
 }
 
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
 pub fn unwrap_option(ty: &Type) -> &Type {
     option_inner_type(ty).unwrap_or(ty)
 }
@@ -152,28 +153,12 @@ pub fn type_is_char_array(ty: &Type) -> bool {
 }
 
 pub fn type_is_array_string(ty: &Type) -> bool {
-    let Some(path) = type_path(ty) else {
-        return false;
-    };
-
-    if path
-        .segments
-        .last()
-        .is_some_and(|seg| seg.ident == "ArrayString")
-    {
-        return true;
-    }
-
-    #[cfg(feature = "compact-str")]
-    if path
-        .segments
-        .last()
-        .is_some_and(|seg| seg.ident == "CompactString")
-    {
-        return true;
-    }
-
-    false
+    type_path(ty)
+        .and_then(|path| path.segments.last())
+        .is_some_and(|seg| {
+            seg.ident == "ArrayString"
+                || (cfg!(feature = "compact-str") && seg.ident == "CompactString")
+        })
 }
 
 #[cfg(feature = "smallvec")]
@@ -294,10 +279,12 @@ pub fn type_is_naive_datetime(ty: &Type) -> bool {
         .is_some_and(|id| id == "NaiveDateTime")
 }
 
+/// chrono's `DateTime<Tz>`. jiff's `civil::DateTime` takes no type parameter
+/// and has no time zone (see [`type_is_primitive_date_time`]).
 pub fn type_is_datetime_tz(ty: &Type) -> bool {
     type_path(ty)
-        .and_then(last_path_ident)
-        .is_some_and(|id| id == "DateTime")
+        .and_then(|path| path.segments.last())
+        .is_some_and(|segment| segment.ident == "DateTime" && !segment.arguments.is_empty())
 }
 
 #[allow(dead_code)]
@@ -305,28 +292,36 @@ pub fn type_is_chrono_datetime(ty: &Type) -> bool {
     type_is_naive_datetime(ty) || type_is_datetime_tz(ty)
 }
 
+/// `time::Date` or `jiff::civil::Date`.
 pub fn type_is_time_date(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Date")
 }
 
+/// `time::Time` or `jiff::civil::Time`.
 pub fn type_is_time_time(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
         .is_some_and(|id| id == "Time")
 }
 
+/// A date and time without a time zone: `time::PrimitiveDateTime`, or
+/// jiff's `civil::DateTime` (which, unlike chrono's, takes no type parameter).
 pub fn type_is_primitive_date_time(ty: &Type) -> bool {
     type_path(ty)
-        .and_then(last_path_ident)
-        .is_some_and(|id| id == "PrimitiveDateTime")
+        .and_then(|path| path.segments.last())
+        .is_some_and(|segment| {
+            segment.ident == "PrimitiveDateTime"
+                || (segment.ident == "DateTime" && segment.arguments.is_empty())
+        })
 }
 
+/// An instant: `time::OffsetDateTime` or `jiff::Timestamp`.
 pub fn type_is_offset_datetime(ty: &Type) -> bool {
     type_path(ty)
         .and_then(last_path_ident)
-        .is_some_and(|id| id == "OffsetDateTime")
+        .is_some_and(|id| id == "OffsetDateTime" || id == "Timestamp")
 }
 
 #[cfg(feature = "postgres")]

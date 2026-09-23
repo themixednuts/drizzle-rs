@@ -137,7 +137,7 @@ fn standalone_offset_is_valid_mysql() {
 
     assert_eq!(
         query.to_sql().sql(),
-        "SELECT `users`.`id` FROM `users` WHERE `users`.`active` = ? ORDER BY `users`.`id` ASC LIMIT 18446744073709551615 OFFSET ?"
+        "SELECT `users`.`id` FROM `users` WHERE `users`.`active` = ? ORDER BY `users`.`id` ASC LIMIT 9223372036854775807 OFFSET ?"
     );
 }
 
@@ -213,7 +213,7 @@ fn mysql_8031_set_operation_surface_is_complete() {
     );
     assert_eq!(
         query().union(query()).offset(3).to_sql().sql(),
-        format!("{operand} UNION {operand} LIMIT 18446744073709551615 OFFSET ?")
+        format!("{operand} UNION {operand} LIMIT 9223372036854775807 OFFSET ?")
     );
 }
 

@@ -119,6 +119,46 @@ mod execution {
         records: NumericEnumRecord,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PostgresEnum)]
+    #[repr(i64)]
+    enum UserRole {
+        #[default]
+        Member = 0,
+        Admin = 1,
+    }
+
+    // `User.role: UserRole` used to generate a column type named `UserRole`,
+    // the enum's own name. Column types live in the table's module now:
+    // `user::Role`.
+    #[PostgresTable(name = "collision_users")]
+    struct User {
+        #[column(primary, serial)]
+        id: i32,
+        #[column(enum)]
+        role: UserRole,
+    }
+
+    #[derive(PostgresSchema)]
+    struct UserSchema {
+        user: User,
+    }
+
+    #[drizzle::test]
+    fn column_type_does_not_take_the_name_of_its_enum(db: &mut TestDb<UserSchema>) {
+        let UserSchema { user } = schema;
+
+        // `with_role` spells `UserRole` beside the insert-state parameters.
+        db.insert(user)
+            .values([InsertUser::new(UserRole::Member).with_role(UserRole::Admin)])
+            .execute();
+
+        let rows: Vec<SelectUser> = db.select(()).from(user).all();
+        assert_eq!(rows[0].role, UserRole::Admin);
+
+        let column: user::Role = user.role;
+        assert_eq!(column, user::Role);
+    }
+
     #[PostgresTable(name = "numeric_enum_parents")]
     struct NumericEnumParent {
         // Keep the repr enum first: optional relation decoding probes the

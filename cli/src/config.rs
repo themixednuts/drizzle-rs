@@ -1298,51 +1298,14 @@ impl DatabaseConfig {
     ///
     /// # Errors
     ///
-    /// Returns [`Error`] if a glob pattern is invalid, if expanding a glob
-    /// fails, or if the resolved pattern matches zero files.
+    /// Returns [`Error`] if a listed path is missing, if a glob pattern is
+    /// invalid, fails to expand or matches no file (see
+    /// [`resolve_schema_patterns`]), or if nothing is listed at all.
     pub fn schema_files(&self) -> Result<Vec<PathBuf>, Error> {
-        let mut files = Vec::new();
-
-        for pattern in self.schema.iter() {
-            let pat = pattern.trim();
-
-            // If it's not a glob pattern, treat it as a direct path (better Windows behavior).
-            let is_glob = pat.contains('*') || pat.contains('?') || pat.contains('[');
-            if !is_glob {
-                let p = PathBuf::from(pat);
-                if p.exists() {
-                    files.push(p);
-                    continue;
-                }
-            }
-
-            // Glob patterns: normalize separators to avoid `\` being treated as an escape.
-            let pat_norm = pat.replace('\\', "/");
-            match glob::glob(&pat_norm) {
-                Ok(paths) => {
-                    let matched: Vec<_> = paths.filter_map(Result::ok).collect();
-                    if matched.is_empty() && !is_glob {
-                        let p = PathBuf::from(&pat_norm);
-                        if p.exists() {
-                            files.push(p);
-                        }
-                    } else {
-                        files.extend(matched);
-                    }
-                }
-                Err(e) => return Err(Error::Glob(pat.into(), e)),
-            }
-        }
-
-        // Keep only real files (glob can return directories).
-        files.retain(|p| p.is_file());
-        files.sort();
-        files.dedup();
-
+        let files = resolve_schema_patterns(self.schema.iter())?;
         if files.is_empty() {
             return Err(Error::NoSchemaFiles(self.schema_display()));
         }
-
         Ok(files)
     }
 
@@ -1671,6 +1634,64 @@ impl Config {
     }
 }
 
+/// Resolves schema paths and glob patterns to the files they name.
+///
+/// Every listed path must exist, and every glob pattern must be valid, read
+/// cleanly and match at least one file. Reading fewer schema files than the
+/// config lists would make `push` and `generate` treat the missing tables as
+/// removed.
+///
+/// # Errors
+///
+/// Returns [`Error::SchemaPathNotFound`] for a path that does not exist,
+/// [`Error::Glob`] for an invalid pattern, [`Error::GlobRead`] when expanding
+/// a pattern fails, and [`Error::SchemaPatternMatchedNothing`] for a pattern
+/// that matches no file.
+pub fn resolve_schema_patterns<'a>(
+    patterns: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<PathBuf>, Error> {
+    let mut files = Vec::new();
+
+    for pattern in patterns {
+        let pat = pattern.trim();
+        let is_glob = pat.contains('*') || pat.contains('?') || pat.contains('[');
+
+        if !is_glob {
+            // A direct path; accept either separator on Windows.
+            let path = PathBuf::from(pat);
+            let normalized = PathBuf::from(pat.replace('\\', "/"));
+            if path.is_file() {
+                files.push(path);
+            } else if normalized.is_file() {
+                files.push(normalized);
+            } else {
+                return Err(Error::SchemaPathNotFound(pat.into()));
+            }
+            continue;
+        }
+
+        // Normalize separators so `\` is not read as an escape.
+        let pat_norm = pat.replace('\\', "/");
+        let paths = glob::glob(&pat_norm).map_err(|e| Error::Glob(pat.into(), e))?;
+        let mut matched = false;
+        for entry in paths {
+            let path = entry.map_err(|e| Error::GlobRead(pat.into(), e))?;
+            // Glob can return directories.
+            if path.is_file() {
+                files.push(path);
+                matched = true;
+            }
+        }
+        if !matched {
+            return Err(Error::SchemaPatternMatchedNothing(pat.into()));
+        }
+    }
+
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
 // ============================================================================
 // Errors
 // ============================================================================
@@ -1697,6 +1718,15 @@ pub enum Error {
 
     #[error("invalid glob '{0}': {1}")]
     Glob(String, #[source] glob::PatternError),
+
+    #[error("failed to read a path matched by glob '{0}': {1}")]
+    GlobRead(String, #[source] glob::GlobError),
+
+    #[error("schema path '{0}' does not exist")]
+    SchemaPathNotFound(String),
+
+    #[error("schema pattern '{0}' matches no file")]
+    SchemaPatternMatchedNothing(String),
 
     #[error("no schema files found: {0}")]
     NoSchemaFiles(String),
@@ -2612,5 +2642,42 @@ mod tests {
         let db = cfg.default_database().unwrap();
         let files = db.schema_files().unwrap();
         assert_eq!(files, vec![schema_path]);
+    }
+
+    /// Reading fewer schema files than listed would make push and generate
+    /// treat the missing tables as dropped, so every listed path must exist
+    /// and every pattern must match.
+    #[test]
+    fn schema_resolution_rejects_any_missing_path_or_empty_pattern() {
+        let tmp = TempDir::new().unwrap();
+        let present = tmp.path().join("present.rs");
+        fs::write(&present, "pub struct Present;").unwrap();
+        let present = present.to_string_lossy().replace('\\', "/");
+        let missing = tmp
+            .path()
+            .join("missing.rs")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let empty_glob = format!(
+            "{}/nothing/*.rs",
+            tmp.path().to_string_lossy().replace('\\', "/")
+        );
+
+        assert_eq!(
+            resolve_schema_patterns([present.as_str()]).unwrap().len(),
+            1
+        );
+        assert!(matches!(
+            resolve_schema_patterns([present.as_str(), missing.as_str()]),
+            Err(Error::SchemaPathNotFound(path)) if path == missing
+        ));
+        assert!(matches!(
+            resolve_schema_patterns([present.as_str(), empty_glob.as_str()]),
+            Err(Error::SchemaPatternMatchedNothing(pattern)) if pattern == empty_glob
+        ));
+        assert!(matches!(
+            resolve_schema_patterns(["src/[.rs"]),
+            Err(Error::Glob(..))
+        ));
     }
 }

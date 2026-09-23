@@ -27,6 +27,7 @@ use drizzle_sqlite::{
 
 /// Shared `SQLite` drizzle builder wrapper for all `SQLite` drivers.
 #[derive(Debug)]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
     pub(crate) runner: &'a Runner,
     pub(crate) builder: Builder,
@@ -34,6 +35,7 @@ pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
 }
 
 /// Intermediate builder for typed ON CONFLICT within a Drizzle wrapper.
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
     runner: &'a Runner,
     builder: OnConflictBuilder<'b, Schema, Table>,
@@ -101,6 +103,11 @@ impl LibsqlStatementCache {
         Self(std::sync::Mutex::new(None))
     }
 
+    /// Drops the cached statement.
+    pub(crate) fn clear(&self) {
+        *self.0.lock().unwrap_or_else(|err| err.into_inner()) = None;
+    }
+
     pub(crate) fn take(&self, sql: &str) -> Option<LibsqlCachedStatement> {
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         if cache
@@ -113,7 +120,12 @@ impl LibsqlStatementCache {
         }
     }
 
+    /// Keeps `cached` for reuse, reset first: a statement left mid-step
+    /// (after `get()` read one row) holds the connection's read transaction
+    /// open, which can serve later reads a stale snapshot and blocks WAL
+    /// checkpoints until the statement is reused or evicted.
     pub(crate) fn store(&self, cached: LibsqlCachedStatement) {
+        cached.statement.reset();
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         *cache = Some(cached);
     }
@@ -162,19 +174,57 @@ impl<Conn: Clone, S: Clone> Clone for Drizzle<Conn, S> {
     }
 }
 
-impl<Conn> Drizzle<Conn> {
-    /// Creates a new `Drizzle` instance.
+impl<Conn, Schema: Default> Drizzle<Conn, Schema> {
+    /// Creates a new `Drizzle` instance over `conn`.
     ///
-    /// Returns a tuple of (Drizzle, Schema) for destructuring.
+    /// Returns `(Drizzle, Schema)`, with the schema built by `Default`. The
+    /// pattern that destructures the schema usually names its type. When
+    /// nothing else names it, put the type on the call, and use `()` for a
+    /// connection with no schema:
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// use drizzle::sqlite::prelude::*;
+    /// use drizzle::sqlite::rusqlite::Drizzle;
+    /// use rusqlite::Connection;
+    ///
+    /// #[SQLiteTable]
+    /// struct Users {
+    ///     #[column(primary)]
+    ///     id: i32,
+    ///     name: String,
+    /// }
+    ///
+    /// #[derive(SQLiteSchema)]
+    /// struct Schema {
+    ///     users: Users,
+    /// }
+    ///
+    /// let (db, Schema { users }) = Drizzle::new(Connection::open_in_memory()?);
+    /// db.create()?;
+    /// db.insert(users).values([InsertUsers::new("Alice")]).execute()?;
+    ///
+    /// let (db, schema) = Drizzle::<Schema>::new(Connection::open_in_memory()?);
+    /// db.create()?;
+    /// db.insert(schema.users).values([InsertUsers::new("Bob")]).execute()?;
+    ///
+    /// let (db, ()) = Drizzle::new(Connection::open_in_memory()?);
+    /// # let _ = db;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
-    pub const fn new<S: Copy>(conn: Conn, schema: S) -> (Drizzle<Conn, S>, S) {
-        let drizzle = Drizzle {
+    pub fn new(conn: Conn) -> (Self, Schema) {
+        let drizzle = Self {
             conn,
-            schema,
+            schema: Schema::default(),
             #[cfg(feature = "libsql")]
             libsql_statement_cache: LibsqlStatementCache::new(),
         };
-        (drizzle, schema)
+        (drizzle, Schema::default())
     }
 }
 
@@ -194,7 +244,11 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 
     /// Gets a mutable reference to the underlying connection.
     #[inline]
-    pub const fn conn_mut(&mut self) -> &mut Conn {
+    pub fn conn_mut(&mut self) -> &mut Conn {
+        // The caller may replace the connection; a statement cached on the old
+        // one would keep running there.
+        #[cfg(feature = "libsql")]
+        self.libsql_statement_cache.clear();
         &mut self.conn
     }
 
@@ -359,6 +413,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 /// - `'db` — runner reference
 /// - `'a` — expression/value lifetime (independent of the runner)
 #[cfg(all(feature = "sqlite", feature = "query"))]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleQueryBuilder<
     'db,
     'a,

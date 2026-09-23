@@ -64,6 +64,13 @@
 //   complexity of the function — splitting them produces indirection without
 //   reducing cognitive load. The 100-line clippy default is a poor proxy here.
 #![allow(clippy::too_many_lines)]
+// Built with no dialect (for example as a dependency of `drizzle` with default
+// features), every dialect module is compiled out and the shared helpers they
+// use go unused.
+#![cfg_attr(
+    not(any(feature = "sqlite", feature = "postgres", feature = "mysql")),
+    allow(dead_code, unused_imports)
+)]
 
 extern crate proc_macro;
 
@@ -368,6 +375,9 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
 /// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
 ///   set columns with `with_*()` methods
+/// - `users` - A module with one type per column: `users::Name` is the type of
+///   `Users::name`. Keeping them there leaves the names beside the table to
+///   you, so a `User` table can have a `role: UserRole` column
 ///
 /// # Nullability
 ///
@@ -796,6 +806,12 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 /// let _schema = Schema::new();
 /// # }
 /// ```
+///
+/// # Generated trait impls
+///
+/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
+/// schema struct (every field is a zero-sized table or index handle). Don't
+/// derive those traits too: a second impl fails to compile with E0119.
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteSchema)]
 pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
@@ -807,6 +823,13 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Derive a `PostgreSQL` schema from named table, index, view and enum fields.
+///
+/// # Generated trait impls
+///
+/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
+/// schema struct (every field is a zero-sized table or index handle). Don't
+/// derive those traits too: a second impl fails to compile with E0119.
 #[cfg(feature = "postgres")]
 #[proc_macro_derive(PostgresSchema)]
 pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
@@ -973,10 +996,25 @@ pub fn sql(input: TokenStream) -> TokenStream {
 
 /// Embed migrations at compile time and return `Vec<Migration>`.
 ///
-/// ```rust,no_run
-/// # fn main() {
-/// let _: Vec<drizzle::migrations::Migration> = drizzle::include_migrations!("./drizzle");
-/// # }
+/// ```rust,ignore
+/// let migrations: Vec<drizzle::migrations::Migration> = drizzle::include_migrations!("./drizzle");
+/// ```
+///
+/// The path is relative to the crate's `Cargo.toml`. A missing or unreadable
+/// directory is a compile error, not an empty list.
+///
+/// # Rebuilding after `drizzle generate`
+///
+/// Every embedded `migration.sql` is tracked, so editing one rebuilds the
+/// crate. A *new* migration folder is not: a procedural macro cannot ask the
+/// compiler to watch a directory. Add a build script so that generating a
+/// migration rebuilds the crate that embeds them:
+///
+/// ```rust,ignore
+/// // build.rs
+/// fn main() {
+///     println!("cargo:rerun-if-changed=drizzle");
+/// }
 /// ```
 #[proc_macro]
 pub fn include_migrations(input: TokenStream) -> TokenStream {
@@ -1303,6 +1341,9 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
 /// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
 ///   set columns with `with_*()` methods
+/// - `users` - A module with one type per column: `users::Name` is the type of
+///   `Users::name`. Keeping them there leaves the names beside the table to
+///   you, so a `User` table can have a `role: UserRole` column
 ///
 /// # Nullability
 ///
@@ -1492,6 +1533,12 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 ///   from different tables (e.g. a direct foreign key and a junction table)
 /// - a table with exactly two foreign keys, to two other distinct tables,
 ///   also links them many-to-many (`posts.tags()` and `tags.posts()`)
+///
+/// # Generated Types
+///
+/// For a table `Users`, the macro generates `SelectUsers`, `InsertUsers` and
+/// `UpdateUsers`, and a module `users` with one type per column:
+/// `users::Name` is the type of `Users::name`.
 #[cfg(feature = "mysql")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -1540,6 +1587,12 @@ pub fn MySQLIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Derive a `MySQL` schema from named table and index fields.
+///
+/// # Generated trait impls
+///
+/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
+/// schema struct (every field is a zero-sized table or index handle). Don't
+/// derive those traits too: a second impl fails to compile with E0119.
 #[cfg(feature = "mysql")]
 #[proc_macro_derive(MySQLSchema)]
 pub fn mysql_schema_derive(input: TokenStream) -> TokenStream {

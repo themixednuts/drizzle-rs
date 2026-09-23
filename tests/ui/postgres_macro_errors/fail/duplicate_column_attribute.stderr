@@ -1,0 +1,5 @@
+error: a field takes one #[column(...)] attribute; list every option in it
+ --> tests/ui/postgres_macro_errors/fail/duplicate_column_attribute.rs:8:5
+  |
+8 |     #[column(unique)]
+  |     ^^^^^^^^^^^^^^^^^

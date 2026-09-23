@@ -193,6 +193,12 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         is_composite_pk,
     };
 
+    let field_idents: Vec<&syn::Ident> = ctx.field_infos.iter().map(|info| info.ident).collect();
+    let columns_module = crate::common::column_types::generate_columns_module(
+        struct_ident,
+        struct_vis,
+        &field_idents,
+    );
     let (column_definitions, column_zst_idents) =
         column_definitions::generate_column_definitions(&ctx)?;
     let column_fields = column_definitions::generate_column_fields(&ctx, &column_zst_idents);
@@ -423,10 +429,13 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     );
     let sql_view_definition_sql = if definition_expr.is_some() {
         quote! {
-            #std_cow::Owned(
-                <Self as #sql_view<'_, #sqlite_schema_type, #sqlite_value<'_>>>::definition(self)
-                    .sql()
-            )
+            {
+                // A view body cannot take bound parameters, so values the
+                // definition binds are written as literals.
+                let definition =
+                    <Self as #sql_view<'_, #sqlite_schema_type, #sqlite_value<'_>>>::definition(self);
+                #std_cow::Owned(definition.inline_sql().unwrap_or_else(|| definition.sql()))
+            }
         }
     } else {
         quote! { #std_cow::Borrowed(Self::VIEW_DEFINITION_SQL) }
@@ -468,6 +477,8 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         #struct_vis struct #struct_ident {
             #column_fields
         }
+
+        #columns_module
 
         impl #struct_ident {
             pub const VIEW_NAME: &'static str = #view_name_lit;

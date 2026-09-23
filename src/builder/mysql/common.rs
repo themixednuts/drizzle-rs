@@ -23,6 +23,7 @@ use drizzle_mysql::{
 
 /// A MySQL dialect builder attached to a concrete driver runner.
 #[derive(Debug)]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleBuilder<'db, Runner, Schema, Builder, State> {
     pub(crate) runner: Runner,
     pub(crate) builder: Builder,
@@ -31,6 +32,7 @@ pub struct DrizzleBuilder<'db, Runner, Schema, Builder, State> {
 
 /// MySQL relational query attached to a connection, pool, or transaction.
 #[cfg(feature = "query")]
+#[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleQueryBuilder<
     'db,
     'q,
@@ -604,7 +606,6 @@ impl<'db, 'q, Runner, Schema>
         self.map(|builder| builder.delete(table))
     }
 
-    #[must_use]
     pub fn with<C>(self, cte: &C) -> Self
     where
         C: builder::CTEDefinition<'q>,

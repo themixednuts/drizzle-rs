@@ -1,8 +1,8 @@
-error[E0277]: the trait bound `(Posts, PostsUserId): JoinArg<'_, Users>` is not satisfied
+error[E0277]: the trait bound `(Posts, UserId): JoinArg<'_, Users>` is not satisfied
   --> tests/ui/mysql_builder/fail/join_on_non_boolean.rs:28:21
    |
 28 |         .inner_join((posts, posts.user_id));
-   |          ---------- ^^^^^^^^^^^^^^^^^^^^^^ the trait `JoinArg<'_, Users>` is not implemented for `(Posts, PostsUserId)`
+   |          ---------- ^^^^^^^^^^^^^^^^^^^^^^ the trait `JoinArg<'_, Users>` is not implemented for `(Posts, UserId)`
    |          |
    |          required by a bound introduced by this call
    |
@@ -15,7 +15,7 @@ help: the trait `JoinArg<'_, T>` is conditionally implemented for `(U, C)`
    | |             C: $ConditionTrait,
    | |________________---------------^
    |                  |
-   |                  unsatisfied requirement introduced here: `PostsUserId: drizzle::mysql::helpers::JoinCondition<'_>`
+   |                  unsatisfied requirement introduced here: `UserId: drizzle::mysql::helpers::JoinCondition<'_>`
    |
   ::: mysql/src/helpers.rs
    |

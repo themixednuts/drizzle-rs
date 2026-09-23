@@ -6,6 +6,7 @@ use syn::{Data, DeriveInput, Fields, Result};
 
 /// Generates the `SQLite` Schema derive implementation
 pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenStream> {
+    crate::common::reject_schema_trait_derives(input, "SQLiteSchema")?;
     let struct_name = &input.ident;
 
     // Get paths for fully-qualified types

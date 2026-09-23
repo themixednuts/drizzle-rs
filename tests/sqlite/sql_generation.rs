@@ -264,3 +264,185 @@ fn test_with_subquery_parenthesized_in_set_and_funcs(db: &mut TestDb<SimpleSchem
         "sql: {func_sql}"
     );
 }
+
+#[drizzle::test]
+fn set_operation_operands_are_wrapped_only_when_needed(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    let qb = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("carol").with_id(3),
+        ])
+        .execute();
+
+    // A plain compound and a left-to-right chain render as before.
+    let plain = qb
+        .select(simple.id)
+        .from(simple)
+        .union(qb.select(simple.id).from(simple));
+    assert_eq!(
+        plain.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" UNION SELECT "simple"."id" FROM "simple""#
+    );
+    let chain = qb
+        .select(simple.id)
+        .from(simple)
+        .union(qb.select(simple.id).from(simple))
+        .except(qb.select(simple.id).from(simple));
+    assert_eq!(
+        chain.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" UNION SELECT "simple"."id" FROM "simple" EXCEPT SELECT "simple"."id" FROM "simple""#
+    );
+
+    // SQLite rejects a parenthesized compound operand, so an operand that
+    // carries its own ORDER BY / LIMIT becomes a derived table.
+    let limited_left = db
+        .select(simple.id)
+        .from(simple)
+        .order_by([asc(simple.id)])
+        .limit(1)
+        .union(qb.select(simple.id).from(simple).r#where(eq(simple.id, 3)));
+    assert_eq!(
+        limited_left.to_sql().sql(),
+        r#"SELECT * FROM (SELECT "simple"."id" FROM "simple" ORDER BY "simple"."id" ASC LIMIT 1) UNION SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ?"#
+    );
+    let mut ids: Vec<i32> = limited_left.all();
+    ids.sort_unstable();
+    assert_eq!(ids, [1, 3]);
+
+    let limited_right = db
+        .select(simple.id)
+        .from(simple)
+        .r#where(eq(simple.id, 1))
+        .union(
+            qb.select(simple.id)
+                .from(simple)
+                .order_by([desc(simple.id)])
+                .limit(1),
+        );
+    assert_eq!(
+        limited_right.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ? UNION SELECT * FROM (SELECT "simple"."id" FROM "simple" ORDER BY "simple"."id" DESC LIMIT 1)"#
+    );
+    let mut ids: Vec<i32> = limited_right.all();
+    ids.sort_unstable();
+    assert_eq!(ids, [1, 3]);
+
+    // A compound right operand is grouped: {2} ∪ ({1,2,3} − {2}).
+    let nested = db
+        .select(simple.id)
+        .from(simple)
+        .r#where(eq(simple.id, 2))
+        .union(
+            qb.select(simple.id)
+                .from(simple)
+                .except(qb.select(simple.id).from(simple).r#where(eq(simple.id, 2))),
+        );
+    assert_eq!(
+        nested.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ? UNION SELECT * FROM (SELECT "simple"."id" FROM "simple" EXCEPT SELECT "simple"."id" FROM "simple" WHERE "simple"."id" = ?)"#
+    );
+    let mut ids: Vec<i32> = nested.all();
+    ids.sort_unstable();
+    assert_eq!(ids, [1, 2, 3]);
+}
+
+#[drizzle::test]
+fn offset_without_limit_renders_unbounded_limit(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    let qb = drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("carol").with_id(3),
+        ])
+        .execute();
+
+    let skipped = db.select(simple.id).from(simple).offset(1);
+    assert_eq!(
+        skipped.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT -1 OFFSET 1"#
+    );
+    let ids: Vec<i32> = skipped.all();
+    assert_eq!(ids.len(), 2);
+
+    // After an explicit LIMIT the OFFSET follows it directly.
+    let paged = db.select(simple.id).from(simple).limit(2).offset(1);
+    assert_eq!(
+        paged.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT 2 OFFSET 1"#
+    );
+
+    let compound = db
+        .select(simple.id)
+        .from(simple)
+        .union(qb.select(simple.id).from(simple))
+        .offset(2);
+    assert_eq!(
+        compound.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" UNION SELECT "simple"."id" FROM "simple" LIMIT -1 OFFSET 2"#
+    );
+    let ids: Vec<i32> = compound.all();
+    assert_eq!(ids.len(), 1);
+}
+
+#[drizzle::test]
+fn select_distinct_all_columns_sql(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+        ])
+        .execute();
+
+    let stmt = db.select_distinct(()).from(simple);
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"SELECT DISTINCT "simple"."id", "simple"."name" FROM "simple""#
+    );
+    let rows: Vec<SelectSimple> = stmt.all();
+    assert_eq!(rows.len(), 2);
+}
+
+#[drizzle::test]
+fn repeated_named_placeholder_binds_one_value(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+        ])
+        .execute();
+
+    let name = simple.name.placeholder("name");
+    let query = db
+        .select(())
+        .from(simple)
+        .r#where(or(eq(simple.name, name), eq(simple.name, name)));
+    assert_eq!(
+        query.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE ("simple"."name" = :name OR "simple"."name" = :name)"#
+    );
+
+    // Builder path: bind the placeholder on the SQL itself.
+    let bound = query
+        .to_sql()
+        .bind([name.bind::<SQLiteValue<'_>, _>("bob")]);
+    let rows: Vec<SelectSimple> = result!(db.all(bound))?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 2);
+
+    // Prepared path.
+    let prepared = query.prepare();
+    let rows: Vec<SelectSimple> = prepared.all(drizzle_client!(), [name.bind("alice")]);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 1);
+}

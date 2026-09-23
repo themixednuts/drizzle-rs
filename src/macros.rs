@@ -1,20 +1,46 @@
 #[doc(hidden)]
 macro_rules! drizzle_builder_join_impl {
     () => {
-        drizzle_builder_join_impl!(natural, drizzle_core::AfterJoin);
-        drizzle_builder_join_impl!(natural_left, drizzle_core::AfterLeftJoin);
+        drizzle_builder_join_impl!(@natural natural, drizzle_core::AfterJoin);
+        drizzle_builder_join_impl!(@natural natural_left, drizzle_core::AfterLeftJoin);
         drizzle_builder_join_impl!(left, drizzle_core::AfterLeftJoin);
         drizzle_builder_join_impl!(left_outer, drizzle_core::AfterLeftJoin);
-        drizzle_builder_join_impl!(natural_left_outer, drizzle_core::AfterLeftJoin);
-        drizzle_builder_join_impl!(natural_right, drizzle_core::AfterRightJoin);
+        drizzle_builder_join_impl!(@natural natural_left_outer, drizzle_core::AfterLeftJoin);
+        drizzle_builder_join_impl!(@natural natural_right, drizzle_core::AfterRightJoin);
         drizzle_builder_join_impl!(right, drizzle_core::AfterRightJoin);
         drizzle_builder_join_impl!(right_outer, drizzle_core::AfterRightJoin);
-        drizzle_builder_join_impl!(natural_right_outer, drizzle_core::AfterRightJoin);
-        drizzle_builder_join_impl!(natural_full, drizzle_core::AfterFullJoin);
+        drizzle_builder_join_impl!(@natural natural_right_outer, drizzle_core::AfterRightJoin);
+        drizzle_builder_join_impl!(@natural natural_full, drizzle_core::AfterFullJoin);
         drizzle_builder_join_impl!(full, drizzle_core::AfterFullJoin);
         drizzle_builder_join_impl!(full_outer, drizzle_core::AfterFullJoin);
-        drizzle_builder_join_impl!(natural_full_outer, drizzle_core::AfterFullJoin);
+        drizzle_builder_join_impl!(@natural natural_full_outer, drizzle_core::AfterFullJoin);
         drizzle_builder_join_impl!(inner, drizzle_core::AfterJoin);
+    };
+    (@natural $type:ident, $join_trait:path) => {
+        paste::paste! {
+            /// Adds a NATURAL join: the database matches the columns both
+            /// sides share by name, so it takes a source and no ON condition.
+            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinSource<'a>>(
+                self,
+                source: J,
+            ) -> DrizzleBuilder<
+                'd,
+                Runner,
+                Schema,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
+                SelectJoinSet,
+            >
+            where
+                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+            {
+                let builder = self.builder.[<$type _join>](source);
+                DrizzleBuilder {
+                    runner: self.runner,
+                    builder,
+                    state: ::core::marker::PhantomData,
+                }
+            }
+        }
     };
     ($type:ident, $join_trait:path) => {
         paste::paste! {
@@ -45,19 +71,19 @@ macro_rules! drizzle_builder_join_impl {
 #[doc(hidden)]
 macro_rules! drizzle_pg_builder_join_impl {
     () => {
-        drizzle_pg_builder_join_impl!(natural, drizzle_core::AfterJoin);
-        drizzle_pg_builder_join_impl!(natural_left, drizzle_core::AfterLeftJoin);
+        drizzle_pg_builder_join_impl!(@natural natural, drizzle_core::AfterJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_left, drizzle_core::AfterLeftJoin);
         drizzle_pg_builder_join_impl!(left, drizzle_core::AfterLeftJoin);
         drizzle_pg_builder_join_impl!(left_outer, drizzle_core::AfterLeftJoin);
-        drizzle_pg_builder_join_impl!(natural_left_outer, drizzle_core::AfterLeftJoin);
-        drizzle_pg_builder_join_impl!(natural_right, drizzle_core::AfterRightJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_left_outer, drizzle_core::AfterLeftJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_right, drizzle_core::AfterRightJoin);
         drizzle_pg_builder_join_impl!(right, drizzle_core::AfterRightJoin);
         drizzle_pg_builder_join_impl!(right_outer, drizzle_core::AfterRightJoin);
-        drizzle_pg_builder_join_impl!(natural_right_outer, drizzle_core::AfterRightJoin);
-        drizzle_pg_builder_join_impl!(natural_full, drizzle_core::AfterFullJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_right_outer, drizzle_core::AfterRightJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_full, drizzle_core::AfterFullJoin);
         drizzle_pg_builder_join_impl!(full, drizzle_core::AfterFullJoin);
         drizzle_pg_builder_join_impl!(full_outer, drizzle_core::AfterFullJoin);
-        drizzle_pg_builder_join_impl!(natural_full_outer, drizzle_core::AfterFullJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_full_outer, drizzle_core::AfterFullJoin);
         drizzle_pg_builder_join_impl!(inner, drizzle_core::AfterJoin);
         drizzle_pg_builder_join_impl!(@lateral inner_join_lateral, AfterJoin);
         drizzle_pg_builder_join_impl!(
@@ -136,6 +162,32 @@ macro_rules! drizzle_pg_builder_join_impl {
                 runner: self.runner,
                 builder,
                 state: ::core::marker::PhantomData,
+            }
+        }
+    };
+    (@natural $type:ident, $join_trait:path) => {
+        paste::paste! {
+            /// Adds a NATURAL join: the database matches the columns both
+            /// sides share by name, so it takes a source and no ON condition.
+            pub fn [<$type _join>]<J: drizzle_postgres::helpers::JoinSource<'a>>(
+                self,
+                source: J,
+            ) -> DrizzleBuilder<
+                'd,
+                Runner,
+                Schema,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
+                SelectJoinSet,
+            >
+            where
+                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+            {
+                let builder = self.builder.[<$type _join>](source);
+                DrizzleBuilder {
+                    runner: self.runner,
+                    builder,
+                    state: ::core::marker::PhantomData,
+                }
             }
         }
     };
@@ -233,50 +285,6 @@ macro_rules! drizzle_pg_builder_join_using_impl {
             {
                 let builder = self.builder.[<$type _join_using>](table, columns);
                 DrizzleBuilder {
-                    runner: self.runner,
-                    builder,
-                    state: ::core::marker::PhantomData,
-                }
-            }
-        }
-    };
-}
-
-#[doc(hidden)]
-macro_rules! transaction_builder_join_impl {
-    ($query_lt:lifetime; $($lifetimes:lifetime),*) => {
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural, drizzle_core::AfterJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_left, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, left, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, left_outer, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_left_outer, drizzle_core::AfterLeftJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_right, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, right, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, right_outer, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_right_outer, drizzle_core::AfterRightJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_full, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, full, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, full_outer, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, natural_full_outer, drizzle_core::AfterFullJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, inner, drizzle_core::AfterJoin);
-        transaction_builder_join_impl!($query_lt; $($lifetimes),*, cross, drizzle_core::AfterJoin);
-    };
-    ($query_lt:lifetime; $($lifetimes:lifetime),*, $type:ident, $join_trait:path) => {
-        paste::paste! {
-            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<$query_lt, T>>(
-                self,
-                arg: J,
-            ) -> TransactionBuilder<
-                $($lifetimes,)*
-                Schema,
-                SelectBuilder<$query_lt, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
-                SelectJoinSet,
-            >
-            where
-                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
-            {
-                let builder = self.builder.[<$type _join>](arg);
-                TransactionBuilder {
                     runner: self.runner,
                     builder,
                     state: ::core::marker::PhantomData,
@@ -480,6 +488,33 @@ macro_rules! postgres_transaction_constructors {
             use drizzle_postgres::builder::QueryBuilder;
 
             let builder = QueryBuilder::new::<Schema>().select_distinct(query);
+
+            TransactionBuilder {
+                runner: self,
+                builder,
+                state: ::core::marker::PhantomData,
+            }
+        }
+
+        /// Creates a SELECT DISTINCT ON query builder within the transaction
+        pub fn select_distinct_on<'tx, 'q, On, Columns>(
+            &'tx self,
+            on: On,
+            columns: Columns,
+        ) -> TransactionBuilder<
+            'tx,
+            $($conn_lt,)*
+            Schema,
+            SelectBuilder<'q, Schema, SelectInitial, (), Columns::Marker>,
+            SelectInitial,
+        >
+        where
+            On: ToSQL<'q, PostgresValue<'q>>,
+            Columns: ToSQL<'q, PostgresValue<'q>> + drizzle_core::IntoSelectTarget,
+        {
+            use drizzle_postgres::builder::QueryBuilder;
+
+            let builder = QueryBuilder::new::<Schema>().select_distinct_on(on, columns);
 
             TransactionBuilder {
                 runner: self,

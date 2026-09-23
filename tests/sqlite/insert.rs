@@ -148,6 +148,48 @@ fn insert_selected_columns_from_checked_select(db: &mut TestDb<SimpleSchema>) {
 }
 
 #[drizzle::test]
+fn insert_select_followed_by_upsert_parses(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple)
+        .value(InsertSimple::new("original").with_id(7))
+        .execute();
+
+    // Re-inserting every row conflicts on the primary key. SQLite reads an
+    // `ON` right after the source's FROM clause as a join constraint, so the
+    // source needs a `WHERE true` before the upsert clause.
+    let source = db.select((simple.id, simple.name)).from(simple);
+    let stmt = db.insert(simple).select(source).on_conflict_do_nothing();
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" ("id", "name") SELECT "simple"."id", "simple"."name" FROM "simple" WHERE true ON CONFLICT DO NOTHING"#
+    );
+    stmt.execute();
+
+    let source = db.select((simple.id, simple.name)).from(simple);
+    db.insert(simple)
+        .select(source)
+        .on_conflict(simple.id)
+        .do_update(UpdateSimple::default().with_name("updated"))
+        .execute();
+
+    // A source that already ends in WHERE is left alone.
+    let filtered = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .r#where(eq(simple.id, 7));
+    let stmt = db.insert(simple).select(filtered).on_conflict_do_nothing();
+    assert_eq!(
+        stmt.to_sql().sql(),
+        r#"INSERT INTO "simple" ("id", "name") SELECT "simple"."id", "simple"."name" FROM "simple" WHERE "simple"."id" = ? ON CONFLICT DO NOTHING"#
+    );
+    stmt.execute();
+
+    let rows: Vec<SelectSimple> = db.select((simple.id, simple.name)).from(simple).all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "updated");
+}
+
+#[drizzle::test]
 fn checked_full_insert_select_names_every_target_column(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
     let source = db
@@ -201,8 +243,8 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
         .busy_timeout(std::time::Duration::from_millis(50))
         .expect("set writer busy timeout");
     let (mut first, SimpleSchema { simple }) =
-        drizzle::sqlite::turso::Drizzle::new(first_connection, SimpleSchema::new());
-    let (second, _) = drizzle::sqlite::turso::Drizzle::new(second_connection, SimpleSchema::new());
+        drizzle::sqlite::turso::Drizzle::<SimpleSchema>::new(first_connection);
+    let (second, _) = drizzle::sqlite::turso::Drizzle::<SimpleSchema>::new(second_connection);
     first.create().await.expect("create schema");
 
     let missing: drizzle::Result<SelectSimple> = first
@@ -318,7 +360,7 @@ async fn turso_strict_insert_returning_generates_integer_primary_key() {
         .expect("build Turso database");
     let connection = database.connect().expect("connect Turso database");
     let (mut db, StrictAutoSchema { rows }) =
-        drizzle::sqlite::turso::Drizzle::new(connection, StrictAutoSchema::new());
+        drizzle::sqlite::turso::Drizzle::<StrictAutoSchema>::new(connection);
     db.create().await.expect("create strict schema");
 
     let returned: SelectStrictAutoRow = db
@@ -696,4 +738,114 @@ fn on_conflict_do_update_excluded_e2e(db: &mut TestDb<SimpleSchema>) {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "from_excluded");
+}
+
+#[SQLiteTable(NAME = "insert_default_rows")]
+struct DefaultRows {
+    #[column(PRIMARY, AUTOINCREMENT)]
+    id: i32,
+    #[column(DEFAULT = "x")]
+    label: String,
+}
+
+#[derive(SQLiteSchema)]
+struct DefaultRowsSchema {
+    default_rows: DefaultRows,
+}
+
+#[drizzle::test]
+fn multi_row_insert_of_default_rows_inserts_every_row(db: &mut TestDb<DefaultRowsSchema>) {
+    let DefaultRowsSchema { default_rows } = schema;
+
+    // A single all-default row keeps `DEFAULT VALUES`.
+    let single = db
+        .insert(default_rows)
+        .values([InsertDefaultRows::new()])
+        .to_sql()
+        .sql();
+    assert!(single.ends_with("DEFAULT VALUES"), "{single}");
+
+    // `DEFAULT VALUES` inserts one row, so several all-default rows used to
+    // insert only one of them.
+    let ids: Vec<i32> = db
+        .insert(default_rows)
+        .values([
+            InsertDefaultRows::new(),
+            InsertDefaultRows::new(),
+            InsertDefaultRows::new(),
+        ])
+        .returning(default_rows.id)
+        .all();
+    assert_eq!(ids.len(), 3);
+
+    let labels: Vec<String> = db.select(default_rows.label).from(default_rows).all();
+    assert_eq!(labels, ["x", "x", "x"]);
+}
+
+#[test]
+#[should_panic(expected = "does not fit a `i64` column")]
+fn out_of_range_setter_argument_panics_instead_of_storing_null() {
+    // `u64::MAX` has no `i64` value. This used to insert NULL.
+    let _: SQLiteInsertValue<'_, SQLiteValue<'_>, i64> = u64::MAX.into();
+}
+
+#[drizzle::test]
+fn execute_on_a_returning_statement_reports_the_changed_rows(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    // `.execute()` on a RETURNING builder applies the change and reports it.
+    // It used to insert the row and then fail with "Execute returned
+    // results", which invited a retry that inserted it twice.
+    let inserted = result!(
+        db.insert(simple)
+            .values([
+                InsertSimple::new("a").with_id(1),
+                InsertSimple::new("b").with_id(2)
+            ])
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(inserted, 2);
+
+    let updated = result!(
+        db.update(simple)
+            .set(UpdateSimple::default().with_name("c"))
+            .r#where(eq(simple.id, 1))
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(updated, 1);
+
+    let deleted = result!(
+        db.delete(simple)
+            .r#where(eq(simple.id, 2))
+            .returning(simple.id)
+            .execute()
+    )?;
+    assert_eq!(deleted, 1);
+
+    let names: Vec<String> = db.select(simple.name).from(simple).all();
+    assert_eq!(names, ["c"]);
+}
+
+#[drizzle::test]
+fn get_does_not_leave_its_statement_running(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple)
+        .values([
+            InsertSimple::new("a").with_id(1),
+            InsertSimple::new("b").with_id(2),
+        ])
+        .execute();
+
+    // `get()` reads the first of two rows. A statement left mid-step (libsql
+    // cached it that way) keeps its table in use, so dropping the table
+    // failed with "database table is locked".
+    let first: SelectSimple = db
+        .select((simple.id, simple.name))
+        .from(simple)
+        .order_by([asc(simple.id)])
+        .get();
+    assert_eq!(first.id, 1);
+    result!(db.execute(SQL::raw(r#"DROP TABLE "simple""#)))?;
 }

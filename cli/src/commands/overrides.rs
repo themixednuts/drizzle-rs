@@ -483,38 +483,7 @@ pub fn resolve_schema_files(
         return Err(CliError::NoSchemaFiles("(empty schema override)".into()));
     }
 
-    let mut files = Vec::new();
-
-    for pattern in schema_patterns {
-        let pat = pattern.trim();
-        let is_glob = pat.contains('*') || pat.contains('?') || pat.contains('[');
-
-        if !is_glob {
-            let p = PathBuf::from(pat);
-            if p.exists() {
-                files.push(p);
-                continue;
-            }
-        }
-
-        let pat_norm = pat.replace('\\', "/");
-        let paths = glob::glob(&pat_norm)
-            .map_err(|e| CliError::Other(format!("invalid glob '{pat}': {e}")))?;
-        let matched: Vec<_> = paths.filter_map(Result::ok).collect();
-
-        if matched.is_empty() && !is_glob {
-            let p = PathBuf::from(&pat_norm);
-            if p.exists() {
-                files.push(p);
-            }
-        } else {
-            files.extend(matched);
-        }
-    }
-
-    files.retain(|p| p.is_file());
-    files.sort();
-    files.dedup();
+    let files = crate::config::resolve_schema_patterns(schema_patterns.iter().map(String::as_str))?;
 
     if files.is_empty() {
         return Err(CliError::NoSchemaFiles(

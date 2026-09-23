@@ -23,7 +23,7 @@
 //! async fn main() -> drizzle::Result<()> {
 //!     let db_builder = Builder::new_local(":memory:").build().await?;
 //!     let conn = db_builder.connect()?;
-//!     let (db, AppSchema { user }) = Drizzle::new(conn, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(conn);
 //!     db.create().await?;
 //!
 //!     // Insert
@@ -138,6 +138,45 @@ pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
+/// Runs a prepared statement and returns the number of rows it changed.
+///
+/// A statement with a `RETURNING` clause returns rows, which libsql's
+/// `execute` rejects after SQLite has already applied the change. It is
+/// stepped to completion instead; the rows it returned are the rows it
+/// changed.
+pub(crate) async fn run_statement(
+    statement: &libsql::Statement,
+    params: Vec<libsql::Value>,
+) -> libsql::Result<u64> {
+    if statement.column_count() == 0 {
+        return statement
+            .execute(params)
+            .await
+            .map(|changed| changed as u64);
+    }
+    let mut rows = statement.query(params).await?;
+    let mut changed = 0;
+    while rows.next().await?.is_some() {
+        changed += 1;
+    }
+    Ok(changed)
+}
+
+/// Runs `sql` on a connection or transaction and returns the number of rows
+/// it changed; see [`run_statement`].
+pub(crate) async fn execute_sql(
+    conn: &Connection,
+    sql: &str,
+    params: Vec<libsql::Value>,
+    returns_rows: bool,
+) -> libsql::Result<u64> {
+    if returns_rows {
+        run_statement(&conn.prepare(sql).await?, params).await
+    } else {
+        conn.execute(sql, params).await
+    }
+}
+
 impl common::LibsqlStatementCache {
     async fn statement(
         &self,
@@ -163,13 +202,9 @@ impl common::LibsqlStatementCache {
         params: Vec<libsql::Value>,
     ) -> libsql::Result<u64> {
         let cached = self.statement(conn, sql).await?;
-        match cached.statement.execute(params).await {
-            Ok(rows) => {
-                self.store(cached);
-                Ok(rows as u64)
-            }
-            Err(err) => Err(err),
-        }
+        let changed = run_statement(&cached.statement, params).await?;
+        self.store(cached);
+        Ok(changed)
     }
 
     async fn query(
@@ -359,8 +394,16 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             }
             Err(e) => {
                 drizzle_core::drizzle_trace_tx!("rollback", "sqlite.libsql");
-                let _ = transaction.rollback().await;
-                Err(e)
+                // Report the callback's error, with a failed rollback attached.
+                match transaction.rollback().await {
+                    Ok(()) => Err(e),
+                    Err(rollback) => Err(crate::transaction::savepoint::cleanup_error(
+                        "transaction",
+                        e,
+                        "rollback",
+                        rollback,
+                    )),
+                }
             }
         }
     }

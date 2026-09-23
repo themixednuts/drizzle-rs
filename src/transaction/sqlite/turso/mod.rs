@@ -30,7 +30,7 @@ async fn turso_transaction_execute_cached(
     params: Vec<turso::Value>,
 ) -> turso::Result<u64> {
     let mut statement = tx.prepare_cached(sql).await?;
-    statement.execute(params).await
+    crate::builder::sqlite::turso::run_statement(&mut statement, params).await
 }
 
 async fn turso_transaction_query_cached(
@@ -127,7 +127,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let db_builder = Builder::new_local(":memory:").build().await?;
     /// # let conn = db_builder.connect()?;
-    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn);
     /// db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///

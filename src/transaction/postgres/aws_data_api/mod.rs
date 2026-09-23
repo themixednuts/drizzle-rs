@@ -144,7 +144,7 @@ impl<Schema> Transaction<Schema> {
     ///
     /// This cannot distinguish server-default isolation from explicit
     /// `READ COMMITTED`. Use [`Self::config`] when that distinction matters.
-    #[deprecated(since = "0.1.17", note = "use config()")]
+    #[deprecated(since = "0.2.0", note = "use config()")]
     #[inline]
     pub const fn tx_type(&self) -> PostgresTransactionType {
         match self.config.isolation() {
@@ -303,6 +303,10 @@ impl<Schema> Transaction<Schema> {
             self.rollback().await?;
             return Err(error);
         }
+        if self.savepoints.aborted().is_aborted() {
+            self.rollback().await?;
+            return Err(crate::transaction::savepoint::aborted_transaction_error());
+        }
         let tx_id = self
             .tx_id
             .lock()
@@ -361,7 +365,7 @@ impl<Schema> Transaction<Schema> {
             .map_err(|_| tx_consumed_error())?
             .clone()
             .ok_or_else(tx_consumed_error)?;
-        execute_statement_raw(
+        let result = execute_statement_raw(
             &self.client,
             &self.resource_arn,
             &self.secret_arn,
@@ -370,7 +374,13 @@ impl<Schema> Transaction<Schema> {
             params,
             Some(&tx_id),
         )
-        .await
+        .await;
+        // A failed statement aborts the PostgreSQL transaction behind the
+        // Data API: every later statement fails and COMMIT rolls back.
+        if result.is_err() {
+            self.savepoints.aborted().mark();
+        }
+        result
     }
 }
 

@@ -15,6 +15,12 @@ use time::{
     Date as TimeDate, Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime, Time as TimeTime,
 };
 
+#[cfg(feature = "jiff")]
+use jiff::{
+    Timestamp as JiffTimestamp,
+    civil::{Date as JiffDate, DateTime as JiffDateTime, Time as JiffTime},
+};
+
 #[cfg(feature = "cidr")]
 use cidr::{IpCidr, IpInet};
 
@@ -651,6 +657,62 @@ impl<'a> From<&'a TimeDuration> for PostgresValue<'a> {
     }
 }
 
+#[cfg(feature = "jiff")]
+impl From<JiffDate> for PostgresValue<'_> {
+    fn from(value: JiffDate) -> Self {
+        PostgresValue::JiffDate(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> From<&'a JiffDate> for PostgresValue<'a> {
+    fn from(value: &'a JiffDate) -> Self {
+        PostgresValue::JiffDate(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<JiffTime> for PostgresValue<'_> {
+    fn from(value: JiffTime) -> Self {
+        PostgresValue::JiffTime(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> From<&'a JiffTime> for PostgresValue<'a> {
+    fn from(value: &'a JiffTime) -> Self {
+        PostgresValue::JiffTime(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<JiffDateTime> for PostgresValue<'_> {
+    fn from(value: JiffDateTime) -> Self {
+        PostgresValue::JiffDateTime(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> From<&'a JiffDateTime> for PostgresValue<'a> {
+    fn from(value: &'a JiffDateTime) -> Self {
+        PostgresValue::JiffDateTime(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<JiffTimestamp> for PostgresValue<'_> {
+    fn from(value: JiffTimestamp) -> Self {
+        PostgresValue::JiffTimestamp(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> From<&'a JiffTimestamp> for PostgresValue<'a> {
+    fn from(value: &'a JiffTimestamp) -> Self {
+        PostgresValue::JiffTimestamp(*value)
+    }
+}
+
 // --- Network Address Types ---
 
 #[cfg(feature = "cidr")]
@@ -876,13 +938,25 @@ impl From<Vec<Decimal>> for PostgresValue<'_> {
 }
 
 // --- Option Types ---
+/// `None` is NULL.
+///
+/// # Panics
+///
+/// Panics when `T`'s conversion fails (for example a JSON payload whose
+/// `Serialize` implementation errors), rather than storing NULL in place of
+/// the value.
 impl<T> From<Option<T>> for PostgresValue<'_>
 where
     T: TryInto<Self>,
 {
     fn from(value: Option<T>) -> Self {
         value.map_or(PostgresValue::Null, |v| {
-            v.try_into().unwrap_or(PostgresValue::Null)
+            v.try_into().unwrap_or_else(|_| {
+                panic!(
+                    "could not convert a `{}` to a PostgreSQL value",
+                    core::any::type_name::<T>()
+                )
+            })
         })
     }
 }
@@ -1420,6 +1494,66 @@ impl<'a> TryFrom<PostgresValue<'a>> for TimeDuration {
             PostgresValue::TimeInterval(dur) => Ok(dur),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {value:?} to time::Duration").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> TryFrom<PostgresValue<'a>> for JiffDate {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::JiffDate(date) => Ok(date),
+            PostgresValue::JiffDateTime(ts) => Ok(ts.date()),
+            PostgresValue::JiffTimestamp(ts) => Ok(jiff::tz::Offset::UTC.to_datetime(ts).date()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::civil::Date").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> TryFrom<PostgresValue<'a>> for JiffTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::JiffTime(time) => Ok(time),
+            PostgresValue::JiffDateTime(ts) => Ok(ts.time()),
+            PostgresValue::JiffTimestamp(ts) => Ok(jiff::tz::Offset::UTC.to_datetime(ts).time()),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::civil::Time").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> TryFrom<PostgresValue<'a>> for JiffDateTime {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::JiffDateTime(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::civil::DateTime").into(),
+            )),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<'a> TryFrom<PostgresValue<'a>> for JiffTimestamp {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::JiffTimestamp(ts) => Ok(ts),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to jiff::Timestamp").into(),
             )),
         }
     }

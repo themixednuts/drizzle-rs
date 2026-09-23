@@ -262,8 +262,12 @@ pub(super) fn inspect_migrations(
             set.pending(&applied_before_table_write),
             "D1 HTTP",
         )?;
-        ensure_tracking_table(&c, set).await?;
-        let applied = query_applied_records(&c, set).await?;
+        // Read-only: a missing tracking table means nothing has run.
+        let applied = if tracking_table_exists(&c, set).await? {
+            query_applied_records(&c, set).await?
+        } else {
+            Vec::new()
+        };
         super::build_migration_plan(set, &applied)
     })
 }
@@ -412,6 +416,18 @@ pub(super) fn init_metadata(
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
+
+/// Whether the tracking table exists.
+async fn tracking_table_exists(c: &D1HttpClient, set: &Migrations) -> Result<bool, CliError> {
+    let table_name = set.table_name().replace('\'', "''");
+    let rows = c
+        .query(
+            &format!("SELECT name FROM pragma_table_info('{table_name}')"),
+            &[],
+        )
+        .await?;
+    Ok(!rows.is_empty())
+}
 
 async fn ensure_tracking_table(c: &D1HttpClient, set: &Migrations) -> Result<(), CliError> {
     c.run(&set.create_table_sql()).await

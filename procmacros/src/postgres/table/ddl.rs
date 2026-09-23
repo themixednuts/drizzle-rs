@@ -443,7 +443,7 @@ fn referential_action_token(action: &str, referential_action: &TokenStream) -> T
 }
 
 /// Generate const DDL entities for a `PostgreSQL` table
-pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[Ident]) -> TokenStream {
+pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]) -> TokenStream {
     let struct_ident = ctx.struct_ident;
     let table_name = &ctx.table_name;
     let schema_name = ctx.attrs.schema.as_deref().unwrap_or("public");

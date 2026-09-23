@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut connection = mysql::Conn::new(options)?;
     connection.query_drop("DROP TABLE IF EXISTS `drizzle_example_users`")?;
 
-    let (mut db, Schema { users, .. }) = Drizzle::new(connection, Schema::new());
+    let (mut db, Schema { users, .. }) = Drizzle::new(connection);
     db.create()?;
 
     db.insert(users)

@@ -322,9 +322,10 @@ pub fn build_query_sql<'a, V: SQLParam>(
         sql.push_str(" LIMIT ");
         sql.push_fragment(limit_sql, table_name, alias);
     } else if dialect == Dialect::MySQL && offset.is_some() {
-        // MySQL does not accept a bare OFFSET. Its documented unbounded-limit
-        // sentinel preserves the caller's offset-only intent.
-        sql.push_str(" LIMIT 18446744073709551615");
+        // MySQL does not accept a bare OFFSET; an unbounded limit keeps the
+        // caller's offset-only intent.
+        sql.push_str(" LIMIT ");
+        sql.push_str(crate::helpers::MYSQL_UNBOUNDED_LIMIT);
     }
 
     if let Some(offset_sql) = offset {
@@ -365,14 +366,15 @@ impl<'a, V: SQLParam> QuerySql<'a, V> {
     }
 
     fn push_fragment(&mut self, fragment: SQL<'a, V>, target_table: &str, alias: &str) {
-        for chunk in fragment.chunks {
+        let aliased = references_to_alias(&fragment.chunks, target_table);
+        for (chunk, aliased) in fragment.chunks.into_iter().zip(aliased) {
             match chunk {
-                SQLChunk::Column(column) if column.table == target_table => {
+                SQLChunk::Column(column) if aliased && column.table == target_table => {
                     write_dialect_quoted_ident(V::DIALECT, &mut self.buf, alias);
                     self.buf.push('.');
                     write_dialect_quoted_ident(V::DIALECT, &mut self.buf, column.name);
                 }
-                SQLChunk::Table(table) if table.name == target_table => {
+                SQLChunk::Table(table) if aliased && table.name == target_table => {
                     write_dialect_quoted_ident(V::DIALECT, &mut self.buf, alias);
                 }
                 other => {
@@ -402,6 +404,55 @@ impl<'a, V: SQLParam> QuerySql<'a, V> {
         self.flush();
         self.sql
     }
+}
+
+/// For each chunk of a user fragment, whether a reference to `table` there
+/// means the relational query's aliased table.
+///
+/// A nested subquery that names `table` in its own `FROM` brings its own copy
+/// into scope, and SQL resolves references inside it to that copy, so they
+/// keep the table name. References inside a subquery that does not name the
+/// table (a correlated reference to the outer row) still mean the aliased
+/// table.
+fn references_to_alias<V: SQLParam>(chunks: &[SQLChunk<'_, V>], table: &str) -> Vec<bool> {
+    let mut aliased = Vec::with_capacity(chunks.len());
+    // One entry per open parenthesis: whether the aliased table is still the
+    // one `table` means inside it.
+    let mut scopes = vec![true];
+    for (index, chunk) in chunks.iter().enumerate() {
+        let in_scope = scopes.last().copied().unwrap_or(true);
+        match chunk {
+            SQLChunk::Token(Token::LPAREN) => {
+                let shadows = matches!(
+                    chunks.get(index + 1),
+                    Some(SQLChunk::Token(Token::SELECT | Token::WITH))
+                ) && subquery_names_table(&chunks[index + 1..], table);
+                scopes.push(in_scope && !shadows);
+            }
+            SQLChunk::Token(Token::RPAREN) if scopes.len() > 1 => {
+                scopes.pop();
+            }
+            _ => {}
+        }
+        aliased.push(in_scope);
+    }
+    aliased
+}
+
+/// Whether the subquery starting at `chunks[0]` names `table` in its own
+/// `FROM` clause (outside any nested parentheses).
+fn subquery_names_table<V: SQLParam>(chunks: &[SQLChunk<'_, V>], table: &str) -> bool {
+    let mut depth = 0usize;
+    for chunk in chunks {
+        match chunk {
+            SQLChunk::Token(Token::LPAREN) => depth += 1,
+            SQLChunk::Token(Token::RPAREN) if depth == 0 => return false,
+            SQLChunk::Token(Token::RPAREN) => depth -= 1,
+            SQLChunk::Table(found) if depth == 0 && found.name == table => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Writes the inner-subquery select list (`[LATERAL ](SELECT cols`) used when
@@ -583,7 +634,8 @@ fn write_where_order_limit_offset<'a, V: SQLParam>(
                 ctx.sql.push_str(" LIMIT ");
                 ctx.sql.push_fragment(limit_sql, target_table, alias);
             } else if V::DIALECT == Dialect::MySQL && offset.is_some() {
-                ctx.sql.push_str(" LIMIT 18446744073709551615");
+                ctx.sql.push_str(" LIMIT ");
+                ctx.sql.push_str(crate::helpers::MYSQL_UNBOUNDED_LIMIT);
             }
         }
     }
@@ -1104,7 +1156,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT `t0`.`id` FROM `account` AS `t0` LIMIT 18446744073709551615 OFFSET ?"
+            "SELECT `t0`.`id` FROM `account` AS `t0` LIMIT 9223372036854775807 OFFSET ?"
         );
     }
 
@@ -1142,7 +1194,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT `t0`.`id`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'6964' USING utf8mb4), `t1`.`id`)), JSON_ARRAY()) FROM LATERAL (SELECT `t1`.`id` FROM `post` AS `t1` WHERE `t1`.`author_id` = `t0`.`id` LIMIT 18446744073709551615 OFFSET ?) AS `t1`) AS `__rel_posts` FROM `user` AS `t0`"
+            "SELECT `t0`.`id`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'6964' USING utf8mb4), `t1`.`id`)), JSON_ARRAY()) FROM LATERAL (SELECT `t1`.`id` FROM `post` AS `t1` WHERE `t1`.`author_id` = `t0`.`id` LIMIT 9223372036854775807 OFFSET ?) AS `t1`) AS `__rel_posts` FROM `user` AS `t0`"
         );
     }
 

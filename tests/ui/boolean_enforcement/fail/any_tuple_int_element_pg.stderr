@@ -19,7 +19,7 @@ help: the following other types implement trait `BooleanLike`
 ...
    | impl BooleanLike for crate::mysql::types::Boolean {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::mysql::types::Boolean`
-   = note: required for `(UserActive, UserAge)` to implement `ConditionList<'_, drizzle::postgres::prelude::PostgresValue<'_>>`
+   = note: required for `(Active, Age)` to implement `ConditionList<'_, drizzle::postgres::prelude::PostgresValue<'_>>`
 note: required by a bound in `drizzle::core::expr::any`
   --> core/src/expr/cond.rs
    |
@@ -50,4 +50,4 @@ help: the following other types implement trait `BooleanLike`
 ...
    | impl BooleanLike for crate::mysql::types::Boolean {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::mysql::types::Boolean`
-   = note: required for `(UserActive, UserAge)` to implement `ConditionList<'_, drizzle::postgres::prelude::PostgresValue<'_>>`
+   = note: required for `(Active, Age)` to implement `ConditionList<'_, drizzle::postgres::prelude::PostgresValue<'_>>`

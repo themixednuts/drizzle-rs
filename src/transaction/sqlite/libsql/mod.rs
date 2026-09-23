@@ -164,7 +164,13 @@ impl<Schema> Transaction<Schema> {
         drizzle_core::drizzle_trace_query!(&sql, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        Ok(self.tx.execute(&sql, params).await?)
+        Ok(crate::builder::sqlite::libsql::execute_sql(
+            &self.tx,
+            &sql,
+            params,
+            query.has_returning(),
+        )
+        .await?)
     }
 
     /// Runs a query and returns all matching rows within the transaction
@@ -263,7 +269,13 @@ where
         drizzle_core::drizzle_trace_query!(&sql, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
 
-        Ok(self.runner.tx.execute(&sql, params).await?)
+        Ok(crate::builder::sqlite::libsql::execute_sql(
+            &self.runner.tx,
+            &sql,
+            params,
+            self.builder.sql.has_returning(),
+        )
+        .await?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.

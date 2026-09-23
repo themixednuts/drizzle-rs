@@ -38,6 +38,7 @@ exclude = [
   "examples/orm-comparison/diesel",
   "examples/orm-comparison/seaorm",
   "examples/orm-comparison/toasty",
+  "examples/durable_object",
   "bench/targets/spacetime-module",
   "bench/targets/spacetime-native-rs",
   "bench/targets/rust-pg-orms",
@@ -134,14 +135,13 @@ aws-sdk-rdsdata = { version = "1", default-features = false, features = ["defaul
 aws-config = { version = "1" }
 heck = { version = "0.5" }
 inquire = { version = "0.7" }
-postgres-types = { version = "0.2" }
 rust_decimal = { version = "1.40" }
-nom = { version = "8.0" }
 sha2 = { version = "0.10" }
 cidr = { version = "0.3" }
 geo-types = { version = "0.7" }
 bit-vec = { version = "0.8" }
 time = { version = "0.3", default-features = false, features = ["formatting", "macros", "parsing"] }
+jiff = { version = "0.2", default-features = false }
 const_format = { version = "0.2" }
 percent-encoding = { version = "2.3", default-features = false }
 
@@ -169,7 +169,8 @@ glob = { workspace = true }
 
 # External crates for type inference tests
 chrono = { version = "0.4", features = ["serde"] }
-time = { workspace = true }
+time = { workspace = true, features = ["serde"] }
+jiff = { workspace = true, features = ["serde"] }
 rust_decimal = { workspace = true }
 geo-types = { workspace = true, features = ["serde"] }
 cidr = { workspace = true, features = ["serde"] }
@@ -290,6 +291,7 @@ uuid = [
 # Optional Rust value-type integrations shared by dialect crates
 chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-sqlite?/chrono", "drizzle-mysql?/chrono", "drizzle-macros/chrono"]
 time = ["drizzle-core/time", "drizzle-postgres?/time", "drizzle-sqlite?/time", "drizzle-mysql?/time", "drizzle-macros/time"]
+jiff = ["drizzle-core/jiff", "drizzle-postgres?/jiff", "drizzle-sqlite?/jiff", "drizzle-mysql?/jiff", "drizzle-macros/jiff"]
 rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-sqlite?/rust-decimal", "drizzle-mysql?/rust-decimal", "drizzle-macros/rust-decimal"]
 cidr = ["drizzle-core/cidr", "drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
 geo-types = ["drizzle-core/geo-types", "drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]

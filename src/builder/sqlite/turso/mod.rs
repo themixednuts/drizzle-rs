@@ -23,7 +23,7 @@
 //! async fn main() -> drizzle::Result<()> {
 //!     let db_builder = Builder::new_local(":memory:").build().await?;
 //!     let conn = db_builder.connect()?;
-//!     let (db, AppSchema { user }) = Drizzle::new(conn, AppSchema::new());
+//!     let (db, AppSchema { user }) = Drizzle::new(conn);
 //!     db.create().await?;
 //!
 //!     // Insert
@@ -49,7 +49,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
-//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn);
 //! use drizzle::sqlite::TransactionConfig;
 //!
 //! let count = db.transaction(TransactionConfig::Deferred, async |tx| {
@@ -75,7 +75,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
-//! # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (mut db, S { user, .. }) = Drizzle::new(conn);
 //! db.transaction(TransactionConfig::Deferred, async |tx| {
 //!     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
 //!
@@ -106,7 +106,7 @@
 //! # #[tokio::main] async fn main() -> drizzle::Result<()> {
 //! # let db_builder = Builder::new_local(":memory:").build().await?;
 //! # let conn = db_builder.connect()?;
-//! # let (db, S { user, .. }) = Drizzle::new(conn, S::new());
+//! # let (db, S { user, .. }) = Drizzle::new(conn);
 //! let db_clone = db.clone();
 //! tokio::spawn(async move {
 //!     db_clone
@@ -142,6 +142,26 @@ pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
+/// Runs a prepared statement and returns the number of rows it changed.
+///
+/// A statement with a `RETURNING` clause returns rows, which turso's
+/// `execute` rejects after the change is applied. It is stepped to
+/// completion instead; the rows it returned are the rows it changed.
+pub(crate) async fn run_statement(
+    statement: &mut turso::Statement,
+    params: Vec<turso::Value>,
+) -> turso::Result<u64> {
+    if statement.column_count() == 0 {
+        return statement.execute(params).await;
+    }
+    let mut rows = statement.query(params).await?;
+    let mut changed = 0;
+    while rows.next().await?.is_some() {
+        changed += 1;
+    }
+    Ok(changed)
+}
+
 async fn turso_execute_cached(
     conn: &Connection,
     sql: &str,
@@ -149,7 +169,7 @@ async fn turso_execute_cached(
 ) -> turso::Result<u64> {
     conn.execute_batch("").await?;
     let mut stmt = conn.prepare_cached(sql).await?;
-    stmt.execute(params).await
+    run_statement(&mut stmt, params).await
 }
 
 async fn turso_query_cached(
@@ -322,7 +342,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let db_builder = Builder::new_local(":memory:").build().await?;
     /// # let conn = db_builder.connect()?;
-    /// # let (mut db, S { user, .. }) = Drizzle::new(conn, S::new());
+    /// # let (mut db, S { user, .. }) = Drizzle::new(conn);
     /// let count = db.transaction(TransactionConfig::Deferred, async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///     let users: Vec<SelectUser> = tx.select(()).from(user).all().await?;
@@ -353,8 +373,16 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             }
             Ok(Err(e)) => {
                 drizzle_core::drizzle_trace_tx!("rollback", "sqlite.turso");
-                let _ = transaction.rollback().await;
-                Err(e)
+                // Report the callback's error, with a failed rollback attached.
+                match transaction.rollback().await {
+                    Ok(()) => Err(e),
+                    Err(rollback) => Err(crate::transaction::savepoint::cleanup_error(
+                        "transaction",
+                        e,
+                        "rollback",
+                        rollback,
+                    )),
+                }
             }
             Err(panic_payload) => {
                 drizzle_core::drizzle_trace_tx!("rollback", "sqlite.turso");

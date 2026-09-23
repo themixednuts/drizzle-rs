@@ -143,6 +143,81 @@ impl SQLParam for MySQLValue<'_> {
     fn pagination_param(value: usize) -> Option<Self> {
         u64::try_from(value).ok().map(Self::UInt)
     }
+
+    fn write_literal(&self, buf: &mut String) -> bool {
+        use core::fmt::Write;
+        match self {
+            Self::Null => buf.push_str("NULL"),
+            Self::Int(value) => {
+                let _ = write!(buf, "{value}");
+            }
+            Self::UInt(value) => {
+                let _ = write!(buf, "{value}");
+            }
+            // MySQL has no NaN or infinity.
+            Self::Float(value) if !value.is_finite() => return false,
+            Self::Double(value) if !value.is_finite() => return false,
+            Self::Float(value) => {
+                let _ = write!(buf, "{value:?}");
+            }
+            Self::Double(value) => {
+                let _ = write!(buf, "{value:?}");
+            }
+            Self::Bytes(bytes) => match core::str::from_utf8(bytes) {
+                // Text is quoted with the same escaping the typed `query(..)`
+                // view definitions use; binary data is written in hex.
+                Ok(text) => {
+                    buf.push('\'');
+                    for ch in text.chars() {
+                        match ch {
+                            '\\' => buf.push_str("\\\\"),
+                            '\'' => buf.push_str("''"),
+                            '\0' => buf.push_str("\\0"),
+                            _ => buf.push(ch),
+                        }
+                    }
+                    buf.push('\'');
+                }
+                Err(_) => {
+                    buf.push_str("X'");
+                    for byte in bytes.iter() {
+                        let _ = write!(buf, "{byte:02X}");
+                    }
+                    buf.push('\'');
+                }
+            },
+            Self::Date {
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                microseconds,
+            } => {
+                let _ = write!(
+                    buf,
+                    "'{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{microseconds:06}'"
+                );
+            }
+            Self::Time {
+                negative,
+                days,
+                hours,
+                minutes,
+                seconds,
+                microseconds,
+            } => {
+                let sign = if *negative { "-" } else { "" };
+                let hours = u64::from(*days) * 24 + u64::from(*hours);
+                let _ = write!(
+                    buf,
+                    "'{sign}{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}'"
+                );
+            }
+        }
+        true
+    }
 }
 
 impl<'a> ToSQL<'a, Self> for MySQLValue<'a> {

@@ -16,7 +16,7 @@
 //! in LIFO order when futures overlap, and poisons the transaction if a
 //! savepoint future is cancelled.
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::{
     collections::HashMap,
     future::poll_fn,
@@ -26,7 +26,8 @@ use std::{
 
 use drizzle_core::error::{DrizzleError, Result};
 
-fn cleanup_error(
+/// Reports a failed callback together with the cleanup that failed after it.
+pub(crate) fn cleanup_error(
     scope: &str,
     original: DrizzleError,
     action: &str,
@@ -51,6 +52,57 @@ fn trace_panic_cleanup_error(scope: &str, name: &str, action: &str, err: &Drizzl
     let _ = (scope, name, action, err);
 }
 
+/// Whether a statement failed on the server inside a transaction.
+///
+/// On PostgreSQL a server error aborts the transaction: every later statement
+/// fails, and `COMMIT` rolls back instead of committing. Drivers record such
+/// errors here so that committing reports the rollback instead of success.
+/// `ROLLBACK TO SAVEPOINT` recovers the transaction, so savepoints restore
+/// the flag to its value at `SAVEPOINT`. Drivers for databases whose
+/// transactions survive a failed statement never set it.
+#[derive(Debug, Default)]
+pub struct AbortState(AtomicBool);
+
+/// A state that is never marked, for drivers without aborting semantics.
+static NEVER_ABORTED: AbortState = AbortState::new();
+
+impl AbortState {
+    pub const fn new() -> Self {
+        Self(AtomicBool::new(false))
+    }
+
+    /// Records a server error.
+    pub fn mark(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether a server error aborted the transaction.
+    pub fn is_aborted(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    fn set(&self, aborted: bool) {
+        self.0.store(aborted, Ordering::Relaxed);
+    }
+}
+
+/// The error returned when a statement failed inside a savepoint whose body
+/// still returned `Ok`: the savepoint was rolled back to recover the
+/// transaction.
+fn failed_statement_in_savepoint() -> DrizzleError {
+    DrizzleError::TransactionError(
+        "a statement inside the savepoint failed, so the savepoint was rolled back".into(),
+    )
+}
+
+/// The error `commit` returns for a transaction a failed statement aborted:
+/// it was rolled back.
+pub fn aborted_transaction_error() -> DrizzleError {
+    DrizzleError::TransactionError(
+        "a statement in the transaction failed, so it was rolled back instead of committed".into(),
+    )
+}
+
 #[derive(Default)]
 struct AsyncSavepointInner {
     next_id: u64,
@@ -61,7 +113,7 @@ struct AsyncSavepointInner {
 
 /// Shared ordering and cancellation state for async transaction savepoints.
 #[derive(Default)]
-pub struct AsyncSavepointState(Mutex<AsyncSavepointInner>);
+pub struct AsyncSavepointState(Mutex<AsyncSavepointInner>, AbortState);
 
 impl std::fmt::Debug for AsyncSavepointState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -75,12 +127,20 @@ impl std::fmt::Debug for AsyncSavepointState {
 
 impl AsyncSavepointState {
     pub fn new() -> Self {
-        Self(Mutex::new(AsyncSavepointInner {
-            next_id: 0,
-            stack: Vec::new(),
-            poisoned: false,
-            waiters: HashMap::new(),
-        }))
+        Self(
+            Mutex::new(AsyncSavepointInner {
+                next_id: 0,
+                stack: Vec::new(),
+                poisoned: false,
+                waiters: HashMap::new(),
+            }),
+            AbortState::new(),
+        )
+    }
+
+    /// The transaction's record of server errors (see [`AbortState`]).
+    pub fn aborted(&self) -> &AbortState {
+        &self.1
     }
 
     /// Reject use after a savepoint future was cancelled or cleanup failed.
@@ -241,6 +301,23 @@ pub fn sync_transaction<Tx, R>(
 /// [`std::panic::resume_unwind`].
 pub fn sync_savepoint<R>(
     depth: &AtomicU32,
+    execute_raw: impl FnMut(&str) -> Result<()>,
+    body: impl FnOnce() -> Result<R>,
+) -> Result<R> {
+    sync_savepoint_tracking(depth, &NEVER_ABORTED, execute_raw, body)
+}
+
+/// [`sync_savepoint`] for a transaction whose server errors are recorded in
+/// `aborted`.
+///
+/// If a statement failed inside the savepoint, the body's `Ok` cannot be
+/// released (the transaction is aborted), so the savepoint is rolled back
+/// and the call fails. Rolling back to the savepoint recovers the
+/// transaction and restores `aborted`. A failed `RELEASE` is also rolled
+/// back before it is reported, so the enclosing transaction stays usable.
+pub fn sync_savepoint_tracking<R>(
+    depth: &AtomicU32,
+    aborted: &AbortState,
     mut execute_raw: impl FnMut(&str) -> Result<()>,
     body: impl FnOnce() -> Result<R>,
 ) -> Result<R> {
@@ -249,14 +326,33 @@ pub fn sync_savepoint<R>(
     depth.store(level + 1, Ordering::Relaxed);
 
     execute_raw(&format!("SAVEPOINT {sp}"))?;
+    let aborted_before = aborted.is_aborted();
 
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
 
     depth.store(level, Ordering::Relaxed);
 
+    let outcome = match outcome {
+        Ok(Ok(_)) if aborted.is_aborted() && !aborted_before => {
+            Ok(Err(failed_statement_in_savepoint()))
+        }
+        other => other,
+    };
+
     match outcome {
         Ok(Ok(value)) => {
-            execute_raw(&format!("RELEASE SAVEPOINT {sp}"))?;
+            if let Err(release_err) = execute_raw(&format!("RELEASE SAVEPOINT {sp}")) {
+                if let Err(rollback_err) = execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp}")) {
+                    return Err(cleanup_error(
+                        "savepoint release",
+                        release_err,
+                        "rollback to savepoint",
+                        rollback_err,
+                    ));
+                }
+                aborted.set(aborted_before);
+                return Err(release_err);
+            }
             Ok(value)
         }
         Ok(Err(e)) => {
@@ -268,6 +364,7 @@ pub fn sync_savepoint<R>(
                     rollback_err,
                 ));
             }
+            aborted.set(aborted_before);
             if let Err(release_err) = execute_raw(&format!("RELEASE SAVEPOINT {sp}")) {
                 return Err(cleanup_error(
                     "savepoint",
@@ -281,6 +378,8 @@ pub fn sync_savepoint<R>(
         Err(panic_payload) => {
             if let Err(err) = execute_raw(&format!("ROLLBACK TO SAVEPOINT {sp}")) {
                 trace_panic_cleanup_error("savepoint", &sp, "rollback to savepoint", &err);
+            } else {
+                aborted.set(aborted_before);
             }
             if let Err(err) = execute_raw(&format!("RELEASE SAVEPOINT {sp}")) {
                 trace_panic_cleanup_error(
@@ -314,15 +413,39 @@ where
     let id = state.begin()?;
     let sp = format!("drizzle_sp_{id}");
     let mut guard = AsyncSavepointGuard { state, armed: true };
+    let aborted = state.aborted();
 
     execute_raw(format!("SAVEPOINT {sp}")).await?;
+    let aborted_before = aborted.is_aborted();
 
     let outcome = body.await;
     state.wait_until_top(id).await?;
 
+    // A statement that failed inside the savepoint aborted the transaction
+    // even if the body returned `Ok`; only rolling back to the savepoint
+    // recovers it.
+    let outcome = match outcome {
+        Ok(_) if aborted.is_aborted() && !aborted_before => Err(failed_statement_in_savepoint()),
+        other => other,
+    };
+
     match outcome {
         Ok(value) => {
-            execute_raw(format!("RELEASE SAVEPOINT {sp}")).await?;
+            if let Err(release_err) = execute_raw(format!("RELEASE SAVEPOINT {sp}")).await {
+                if let Err(rollback_err) = execute_raw(format!("ROLLBACK TO SAVEPOINT {sp}")).await
+                {
+                    return Err(cleanup_error(
+                        "savepoint release",
+                        release_err,
+                        "rollback to savepoint",
+                        rollback_err,
+                    ));
+                }
+                aborted.set(aborted_before);
+                state.finish(id)?;
+                guard.disarm();
+                return Err(release_err);
+            }
             state.finish(id)?;
             guard.disarm();
             Ok(value)
@@ -336,6 +459,7 @@ where
                     rollback_err,
                 ));
             }
+            aborted.set(aborted_before);
             if let Err(release_err) = execute_raw(format!("RELEASE SAVEPOINT {sp}")).await {
                 return Err(cleanup_error(
                     "savepoint",

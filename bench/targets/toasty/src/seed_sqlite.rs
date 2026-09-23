@@ -147,7 +147,7 @@ pub async fn create_and_seed(path: &Path, seed: u64) -> Result<(), DynError> {
     // before anything is written. It is a persistent property of the file, so
     // toasty inherits it when it attaches to the finished database.
     enable_mvcc(&conn).await?;
-    let (db, schema) = drizzle::sqlite::turso::Drizzle::new(conn, Schema::new());
+    let (db, schema) = drizzle::sqlite::turso::Drizzle::<Schema>::new(conn);
     db.create().await?;
 
     db.conn()

@@ -271,8 +271,12 @@ where
     SQL::from_iter([Token::INSERT, Token::INTO]).append(table)
 }
 
-/// Creates a VALUES clause for INSERT statements.
-/// All rows must declare the same set of columns.
+/// Creates the rows of an INSERT statement.
+///
+/// Rows usually set the same columns. A `None` passed to a `with_*` setter
+/// leaves that column to its default without changing the row's type, so
+/// rows can differ; then every row lists the union of the columns, with
+/// `DEFAULT` where it sets none.
 pub(crate) fn values<'a, Table, T>(
     rows: impl IntoIterator<Item = Table::Insert<T>>,
 ) -> SQL<'a, PostgresValue<'a>>
@@ -285,13 +289,37 @@ where
         return SQL::from(Token::VALUES);
     }
 
-    // Since all rows have the same PATTERN, they all have the same columns
-    // Get column info from the first row (all rows will have the same columns)
     let columns_info = rows[0].columns();
     let columns_slice = columns_info.as_ref();
-    // Check if this is a DEFAULT VALUES case (no columns)
+    if rows[1..]
+        .iter()
+        .any(|row| row.columns().as_ref() != columns_slice)
+    {
+        let rows_sql = drizzle_core::helpers::insert_values_with_defaults(
+            rows.iter()
+                .map(|row| (row.columns(), row.values()))
+                .collect(),
+        );
+        if let Some(rows_sql) = rows_sql {
+            return rows_sql;
+        }
+    }
+
     if columns_slice.is_empty() {
-        return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
+        // `DEFAULT VALUES` inserts one row. A query without columns inserts
+        // one all-default row per result row.
+        // Raw text, not SELECT/FROM tokens: the renderer expands a bare
+        // `SELECT` token followed by `FROM` into a projection.
+        return if rows.len() == 1 {
+            SQL::from_iter([Token::DEFAULT, Token::VALUES])
+        } else {
+            SQL::raw("SELECT FROM").append(SQL::func(
+                "generate_series",
+                SQL::number(1)
+                    .push(Token::COMMA)
+                    .append(SQL::number(rows.len())),
+            ))
+        };
     }
 
     let columns_sql = SQL::columns(columns_slice);

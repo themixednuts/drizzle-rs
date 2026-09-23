@@ -22,7 +22,6 @@
 //!     "arn:aws:rds:us-east-1:123:cluster:my-cluster",
 //!     "arn:aws:secretsmanager:us-east-1:123:secret:my-secret",
 //!     Some("mydb"),
-//!     S::new(),
 //! );
 //!
 //! db.insert(user).values([InsertUser::new("Alice")]).execute().await?;
@@ -90,27 +89,28 @@ pub struct Drizzle<Schema = ()> {
     schema: Schema,
 }
 
-impl Drizzle {
+impl<Schema: Default> Drizzle<Schema> {
     /// Create a new AWS Data API drizzle instance.
     ///
-    /// Returns a tuple of `(Drizzle, Schema)` so callers can destructure the
-    /// schema handle on the same line (mirrors every other driver).
+    /// Returns `(Drizzle, Schema)` like every other driver, with the schema
+    /// built by `Default`. The pattern that destructures the schema usually
+    /// names its type; when nothing else does, put it on the call:
+    /// `Drizzle::<Schema>::new(...)`.
     #[inline]
-    pub fn new<S: Copy>(
+    pub fn new(
         client: Client,
         resource_arn: impl Into<Arc<str>>,
         secret_arn: impl Into<Arc<str>>,
         database: Option<impl Into<Arc<str>>>,
-        schema: S,
-    ) -> (Drizzle<S>, S) {
-        let drizzle = Drizzle {
+    ) -> (Self, Schema) {
+        let drizzle = Self {
             client,
             resource_arn: resource_arn.into(),
             secret_arn: secret_arn.into(),
             database: database.map(Into::into),
-            schema,
+            schema: Schema::default(),
         };
-        (drizzle, schema)
+        (drizzle, Schema::default())
     }
 }
 
@@ -301,8 +301,15 @@ impl<Schema> Drizzle<Schema> {
         if !options.is_empty() {
             let preamble = format!("SET TRANSACTION {}", options.join(" "));
             if let Err(error) = tx.execute(preamble.as_str()).await {
-                let _ = tx.rollback().await;
-                return Err(error);
+                return Err(match tx.rollback().await {
+                    Ok(()) => error,
+                    Err(rollback) => crate::transaction::savepoint::cleanup_error(
+                        "transaction configuration",
+                        error,
+                        "rollback",
+                        rollback,
+                    ),
+                });
             }
         }
 
@@ -314,8 +321,16 @@ impl<Schema> Drizzle<Schema> {
             }
             Err(e) => {
                 drizzle_core::drizzle_trace_tx!("rollback", "postgres.aws_data_api");
-                let _ = tx.rollback().await;
-                Err(e)
+                // Report the callback's error, with a failed rollback attached.
+                match tx.rollback().await {
+                    Ok(()) => Err(e),
+                    Err(rollback) => Err(crate::transaction::savepoint::cleanup_error(
+                        "transaction",
+                        e,
+                        "rollback",
+                        rollback,
+                    )),
+                }
             }
         }
     }

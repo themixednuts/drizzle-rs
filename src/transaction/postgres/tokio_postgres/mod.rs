@@ -2,7 +2,6 @@ use drizzle_core::error::DrizzleError;
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
-use std::cell::RefCell;
 use std::marker::PhantomData;
 use tokio_postgres::{Row, Transaction as TokioPgTransaction};
 
@@ -46,7 +45,11 @@ crate::drizzle_tx_prepare_impl!('conn);
 
 /// Transaction wrapper that provides the same query building capabilities as Drizzle
 pub struct Transaction<'conn, Schema = ()> {
-    tx: RefCell<Option<TokioPgTransaction<'conn>>>,
+    // A plain `Option`, not a `RefCell`: the transaction must be `Sync` so
+    // futures that hold `&Transaction` across an `.await` stay `Send` (usable
+    // in `tokio::spawn` or a web handler). Only `commit`/`rollback`, which
+    // own `self`, take it out.
+    tx: Option<TokioPgTransaction<'conn>>,
     config: TransactionConfig,
     savepoints: AsyncSavepointState,
     schema: Schema,
@@ -57,7 +60,7 @@ impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
             .field("config", &self.config)
-            .field("is_active", &self.tx.borrow().is_some())
+            .field("is_active", &self.tx.is_some())
             .finish()
     }
 }
@@ -71,7 +74,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         statement_cache: ClientStatementCache,
     ) -> Self {
         Self {
-            tx: RefCell::new(Some(tx)),
+            tx: Some(tx),
             config,
             savepoints: AsyncSavepointState::new(),
             schema,
@@ -89,7 +92,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// This cannot distinguish server-default isolation from explicit
     /// `READ COMMITTED`. Use [`Self::config`] when that distinction matters.
-    #[deprecated(since = "0.1.17", note = "use config()")]
+    #[deprecated(since = "0.2.0", note = "use config()")]
     #[inline]
     pub const fn tx_type(&self) -> PostgresTransactionType {
         match self.config.isolation() {
@@ -106,11 +109,27 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         self.config
     }
 
+    /// Converts a driver error from a statement run in this transaction.
+    ///
+    /// A server error aborts a PostgreSQL transaction (every later statement
+    /// fails and `COMMIT` rolls back), so it is recorded: committing then
+    /// reports the rollback instead of success.
+    fn statement_error(&self, error: tokio_postgres::Error) -> DrizzleError {
+        if error.as_db_error().is_some() {
+            self.savepoints.aborted().mark();
+        }
+        // A stale cached statement cannot be retried here (the error aborted
+        // the transaction), but later work must not reuse it.
+        if crate::builder::postgres::tokio_postgres::prepared::is_stale_statement(&error) {
+            self.statement_cache.clear();
+        }
+        DrizzleError::from(error)
+    }
+
     /// Executes a raw SQL string with no parameters.
     async fn execute_raw(&self, sql: &str) -> drizzle_core::error::Result<()> {
         self.savepoints.ensure_usable()?;
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         tx.execute(sql, &[]).await.map_err(DrizzleError::from)?;
         Ok(())
     }
@@ -133,7 +152,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
     /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
     /// # tokio::spawn(async move { conn.await.unwrap() });
-    /// # let (mut db, S { user }) = Drizzle::new(client, S::new());
+    /// # let (mut db, S { user }) = Drizzle::new(client);
     /// db.transaction(TransactionConfig::default(), async |tx| {
     ///     tx.insert(user).values([InsertUser::new("Alice")]).execute().await?;
     ///
@@ -187,17 +206,16 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
         Ok(tx
             .execute(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?)
+            .map_err(|error| self.statement_error(error))?)
     }
 
     /// Runs the query and returns all matching rows (for SELECT queries)
@@ -223,18 +241,17 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in rows {
@@ -266,17 +283,16 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         Ok(Rows::new(rows))
     }
@@ -303,18 +319,17 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         let row = tx
             .query_one(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.statement_error(error))?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -333,19 +348,26 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     }
 
     /// Commits the transaction
-    pub(crate) async fn commit(self) -> drizzle_core::error::Result<()> {
+    pub(crate) async fn commit(mut self) -> drizzle_core::error::Result<()> {
         if let Err(error) = self.savepoints.ensure_usable() {
-            let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+            let tx = self.tx.take().ok_or_else(tx_consumed_error)?;
             tx.rollback().await.map_err(DrizzleError::from)?;
             return Err(error);
         }
-        let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+        // PostgreSQL answers COMMIT in an aborted transaction by rolling back
+        // without an error; report it instead of returning `Ok`.
+        if self.savepoints.aborted().is_aborted() {
+            let tx = self.tx.take().ok_or_else(tx_consumed_error)?;
+            tx.rollback().await.map_err(DrizzleError::from)?;
+            return Err(crate::transaction::savepoint::aborted_transaction_error());
+        }
+        let tx = self.tx.take().ok_or_else(tx_consumed_error)?;
         tx.commit().await.map_err(DrizzleError::from)
     }
 
     /// Rolls back the transaction
-    pub(crate) async fn rollback(self) -> drizzle_core::error::Result<()> {
-        let tx = self.tx.borrow_mut().take().ok_or_else(tx_consumed_error)?;
+    pub(crate) async fn rollback(mut self) -> drizzle_core::error::Result<()> {
+        let tx = self.tx.take().ok_or_else(tx_consumed_error)?;
         tx.rollback().await.map_err(DrizzleError::from)
     }
 }
@@ -417,18 +439,17 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let (param_types, param_refs) = materialize_params(&bind_params);
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
             .transaction_statement(tx, &sql, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -546,18 +567,17 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
         let (param_types, param_refs) = materialize_params(&bind_params);
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
             .transaction_statement(tx, &sql, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -640,19 +660,18 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
         Ok(tx
             .execute(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?)
+            .map_err(|error| self.runner.statement_error(error))?)
     }
 
     /// Runs the query and returns all matching rows using the builder's row type.
@@ -674,18 +693,17 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -713,18 +731,17 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
         Ok(Rows::new(rows))
     }
@@ -748,18 +765,17 @@ where
         };
         let (param_types, param_refs) = materialize_params(&params);
 
-        let tx_ref = self.runner.tx.borrow();
-        let tx = tx_ref.as_ref().ok_or_else(tx_consumed_error)?;
+        let tx = self.runner.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let statement = self
             .runner
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
         let row = tx
             .query_one(&statement, &param_refs[..])
             .await
-            .map_err(DrizzleError::from)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
         <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
     }

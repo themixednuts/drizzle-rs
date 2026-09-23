@@ -12,11 +12,11 @@
 set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
 
 # Additive features shared across all SQLite drivers
-_sqlite-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,query"
+_sqlite-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,time,jiff,query"
 # Additive features shared across all PostgreSQL drivers
-_pg-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,cidr,geo-types,bit-vec,query"
+_pg-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,time,jiff,cidr,geo-types,bit-vec,query"
 # Additive features supported by the MySQL dialect and both adapters.
-_mysql-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,time,rust-decimal,query"
+_mysql-ext := "uuid,serde,arrayvec,compact-str,bytes,smallvec-types,chrono,time,jiff,rust-decimal,query"
 
 # Run all test matrixes plus bench-runner smoke tests
 default: sqlite-matrix pg-matrix mysql-matrix bench-runner

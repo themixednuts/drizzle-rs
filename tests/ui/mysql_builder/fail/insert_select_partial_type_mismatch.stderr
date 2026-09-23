@@ -15,10 +15,10 @@ error[E0277]: SQL type `drizzle::mysql::types::BigIntUnsigned` is not assignable
              Assignable<drizzle::mysql::types::TinyIntUnsigned>
              Assignable<drizzle::mysql::types::Year>
              Assignable
-   = note: required for `Cons<PostsUserId, Cons<PostsTitle, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<UsersName, Cons<UsersId, Nil>>>`
-   = note: required for `SelectCols<(UsersName, UsersId)>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+   = note: required for `Cons<UserId, Cons<posts::Title, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<Name, Cons<users::Id, Nil>>>`
+   = note: required for `SelectCols<(Name, users::Id)>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<UserId, Cons<posts::Title, Nil>>>`
    = note: 1 redundant requirement hidden
-   = note: required for `Scoped<SelectCols<(UsersName, UsersId)>, Cons<Users, Nil>>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+   = note: required for `Scoped<SelectCols<(Name, users::Id)>, Cons<Users, Nil>>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<UserId, Cons<posts::Title, Nil>>>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
@@ -47,12 +47,12 @@ error[E0277]: SQL type `drizzle::mysql::types::Text` is not assignable from `dri
              Assignable<drizzle::mysql::types::TinyText>
              Assignable<drizzle::mysql::types::Varchar>
              Assignable
-   = note: required for `Cons<PostsTitle, Nil>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<UsersId, Nil>>`
+   = note: required for `Cons<posts::Title, Nil>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<users::Id, Nil>>`
    = note: 1 redundant requirement hidden
-   = note: required for `Cons<PostsUserId, Cons<PostsTitle, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<UsersName, Cons<UsersId, Nil>>>`
-   = note: required for `SelectCols<(UsersName, UsersId)>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+   = note: required for `Cons<UserId, Cons<posts::Title, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<Name, Cons<users::Id, Nil>>>`
+   = note: required for `SelectCols<(Name, users::Id)>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<UserId, Cons<posts::Title, Nil>>>`
    = note: 1 redundant requirement hidden
-   = note: required for `Scoped<SelectCols<(UsersName, UsersId)>, Cons<Users, Nil>>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<PostsUserId, Cons<PostsTitle, Nil>>>`
+   = note: required for `Scoped<SelectCols<(Name, users::Id)>, Cons<Users, Nil>>` to implement `drizzle_core::builder::insert_select::PartialInsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Cons<UserId, Cons<posts::Title, Nil>>>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
   --> mysql/src/builder/insert.rs
    |

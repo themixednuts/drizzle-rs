@@ -4,9 +4,7 @@
 
 use super::super::context::{MacroContext, ModelType};
 use super::convenience::generate_convenience_method;
-use crate::common::model_markers::{
-    generate_empty_pattern_tuple, generate_marker_types, generate_pattern_literal,
-};
+use crate::common::model_markers::{generate_empty_pattern_tuple, generate_pattern_literal};
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::TypeCategory;
 use proc_macro2::TokenStream;
@@ -72,13 +70,8 @@ pub fn generate_insert_model(ctx: &MacroContext, required_fields_pattern: &[bool
         }
     }
 
-    // Generate marker types for each field
-    let field_marker_types = generate_marker_types(ctx.struct_ident, &field_idents);
-
+    // The Set/NotSet marker types live in the table's column module.
     quote! {
-        // Generate marker types for each field
-        #(#field_marker_types)*
-
         // Insert Model with PhantomData pattern tracking
         #[derive(Debug, Clone)]
         pub struct #insert_model<'a, T = #empty_pattern_tuple> {
