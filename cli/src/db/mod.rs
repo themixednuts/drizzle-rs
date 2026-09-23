@@ -3903,7 +3903,7 @@ struct SqliteRawData {
     index_sql: Vec<(String, String)>,
 }
 
-#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
+#[cfg(feature = "rusqlite")]
 impl SqliteRawData {
     const fn empty() -> Self {
         Self {
