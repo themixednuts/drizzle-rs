@@ -893,6 +893,62 @@ mod time_impls {
     }
 }
 
+#[cfg(feature = "jiff")]
+mod jiff_impls {
+    //! jiff reads the Data API's text directly: `YYYY-MM-DD`,
+    //! `HH:MM:SS[.fraction]` and `YYYY-MM-DD HH:MM:SS[.fraction]`.
+    use super::{
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
+    };
+
+    fn parse<T: core::str::FromStr<Err = jiff::Error>>(
+        s: &str,
+        kind: &'static str,
+    ) -> Result<T, DrizzleError> {
+        s.parse()
+            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API {kind}: {e}").into()))
+    }
+
+    /// RFC 3339, or a date and time without an offset, which is UTC.
+    fn parse_timestamp(s: &str) -> Result<jiff::Timestamp, DrizzleError> {
+        s.parse().or_else(|_| {
+            let utc: jiff::civil::DateTime = parse(s, "timestamptz")?;
+            jiff::tz::Offset::UTC.to_timestamp(utc).map_err(|e| {
+                DrizzleError::ConversionError(format!("AWS Data API timestamptz: {e}").into())
+            })
+        })
+    }
+
+    macro_rules! jiff_row_impls {
+        ($($ty:ty => $parse:expr;)+) => {$(
+            impl FromDrizzleRow<Row> for $ty {
+                const COLUMN_COUNT: usize = 1;
+                fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                    $parse(expect_string(field_at(row, offset)?)?)
+                }
+            }
+
+            impl FromDrizzleRow<Row> for Option<$ty> {
+                const COLUMN_COUNT: usize = 1;
+                fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                    let field = field_at(row, offset)?;
+                    if field_is_null(field) {
+                        return Ok(None);
+                    }
+                    $parse(expect_string(field)?).map(Some)
+                }
+            }
+        )+};
+    }
+
+    jiff_row_impls! {
+        jiff::civil::Date => |s| parse(s, "date");
+        jiff::civil::Time => |s| parse(s, "time");
+        jiff::civil::DateTime => |s| parse(s, "timestamp");
+        jiff::Timestamp => parse_timestamp;
+    }
+}
+
 #[cfg(feature = "rust-decimal")]
 mod decimal_impls {
     use super::{
@@ -1537,6 +1593,35 @@ const fn encode_time_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeH
     None
 }
 
+/// jiff values bind as text with a type hint. The Data API reads DATE,
+/// TIME and TIMESTAMP text as `YYYY-MM-DD HH:MM:SS[.fraction]`, and a
+/// TIMESTAMPTZ as its UTC date and time.
+#[cfg(feature = "jiff")]
+fn encode_jiff_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    let civil = |dt: jiff::civil::DateTime| format!("{} {}", dt.date(), dt.time());
+    match value {
+        PostgresValue::JiffDate(d) => {
+            Some((Field::StringValue(d.to_string()), Some(TypeHint::Date)))
+        }
+        PostgresValue::JiffTime(t) => {
+            Some((Field::StringValue(t.to_string()), Some(TypeHint::Time)))
+        }
+        PostgresValue::JiffDateTime(dt) => {
+            Some((Field::StringValue(civil(*dt)), Some(TypeHint::Timestamp)))
+        }
+        PostgresValue::JiffTimestamp(ts) => Some((
+            Field::StringValue(civil(jiff::tz::Offset::UTC.to_datetime(*ts))),
+            Some(TypeHint::Timestamp),
+        )),
+        _ => None,
+    }
+}
+
+#[cfg(not(feature = "jiff"))]
+const fn encode_jiff_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    None
+}
+
 #[cfg(feature = "cidr")]
 fn encode_cidr_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
     match value {
@@ -1646,6 +1731,7 @@ fn encode_field(value: &PostgresValue<'_>) -> (Field, Option<TypeHint>) {
     encode_core_field(value)
         .or_else(|| encode_chrono_field(value))
         .or_else(|| encode_time_field(value))
+        .or_else(|| encode_jiff_field(value))
         .or_else(|| encode_cidr_field(value))
         .or_else(|| encode_geo_field(value))
         .or_else(|| encode_bitvec_field(value))

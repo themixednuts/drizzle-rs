@@ -1246,6 +1246,73 @@ impl FromSQLiteValue for time::OffsetDateTime {
 }
 
 // =============================================================================
+// jiff (parse from ISO 8601 text)
+// =============================================================================
+
+/// Parses SQLite text as the jiff value named `name`.
+#[cfg(feature = "jiff")]
+fn parse_jiff<T: core::str::FromStr<Err = jiff::Error>>(
+    value: &str,
+    name: &str,
+) -> Result<T, DrizzleError> {
+    value.parse().map_err(|e: jiff::Error| {
+        DrizzleError::ConversionError(format!("cannot parse '{value}' as {name}: {e}").into())
+    })
+}
+
+/// Implements [`FromSQLiteValue`] for jiff types, which SQLite stores as text.
+#[cfg(feature = "jiff")]
+macro_rules! impl_from_sqlite_value_jiff {
+    ($($ty:ty => $name:literal, $parse:expr;)+) => {$(
+        impl FromSQLiteValue for $ty {
+            fn from_sqlite_integer(_value: i64) -> Result<Self, DrizzleError> {
+                Err(DrizzleError::ConversionError(
+                    concat!("cannot convert INTEGER to ", $name).into(),
+                ))
+            }
+
+            fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+                $parse(value)
+            }
+
+            fn from_sqlite_real(_value: f64) -> Result<Self, DrizzleError> {
+                Err(DrizzleError::ConversionError(
+                    concat!("cannot convert REAL to ", $name).into(),
+                ))
+            }
+
+            fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+                Err(DrizzleError::ConversionError(
+                    concat!("cannot convert BLOB to ", $name).into(),
+                ))
+            }
+        }
+    )+};
+}
+
+#[cfg(feature = "jiff")]
+impl_from_sqlite_value_jiff! {
+    jiff::civil::Date => "jiff::civil::Date",
+        |value| parse_jiff(value, "jiff::civil::Date");
+    jiff::civil::Time => "jiff::civil::Time",
+        |value| parse_jiff(value, "jiff::civil::Time");
+    jiff::civil::DateTime => "jiff::civil::DateTime",
+        |value| parse_jiff(value, "jiff::civil::DateTime");
+    // RFC 3339 as the conversion writes it; text without an offset (as
+    // SQLite's own `CURRENT_TIMESTAMP` writes) is UTC.
+    jiff::Timestamp => "jiff::Timestamp", |value: &str| {
+        value.parse().or_else(|_| {
+            let civil: jiff::civil::DateTime = parse_jiff(value, "jiff::Timestamp")?;
+            jiff::tz::Offset::UTC.to_timestamp(civil).map_err(|e| {
+                DrizzleError::ConversionError(
+                    format!("cannot convert '{value}' to jiff::Timestamp: {e}").into(),
+                )
+            })
+        })
+    };
+}
+
+// =============================================================================
 // Decimal (parse from text)
 // =============================================================================
 

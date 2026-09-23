@@ -798,6 +798,26 @@ impl<Row: ?Sized> RowColumnList<Row> for time::Duration {
     type Columns = crate::Cons<Self, crate::Nil>;
 }
 
+#[cfg(feature = "jiff")]
+impl<Row: ?Sized> RowColumnList<Row> for jiff::civil::Date {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
+#[cfg(feature = "jiff")]
+impl<Row: ?Sized> RowColumnList<Row> for jiff::civil::Time {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
+#[cfg(feature = "jiff")]
+impl<Row: ?Sized> RowColumnList<Row> for jiff::civil::DateTime {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
+#[cfg(feature = "jiff")]
+impl<Row: ?Sized> RowColumnList<Row> for jiff::Timestamp {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
 #[cfg(feature = "cidr")]
 impl<Row: ?Sized> RowColumnList<Row> for cidr::IpInet {
     type Columns = crate::Cons<Self, crate::Nil>;
@@ -1287,7 +1307,9 @@ impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::typ
 impl_mysql_sql_type_to_rust!(chrono::NaiveDate => drizzle_types::mysql::types::Date);
 #[cfg(all(not(feature = "chrono"), feature = "time"))]
 impl_mysql_sql_type_to_rust!(time::Date => drizzle_types::mysql::types::Date);
-#[cfg(not(any(feature = "chrono", feature = "time")))]
+#[cfg(all(not(any(feature = "chrono", feature = "time")), feature = "jiff"))]
+impl_mysql_sql_type_to_rust!(jiff::civil::Date => drizzle_types::mysql::types::Date);
+#[cfg(not(any(feature = "chrono", feature = "time", feature = "jiff")))]
 impl_mysql_sql_type_to_rust!(crate::prelude::String => drizzle_types::mysql::types::Date);
 
 // Unlike SQL TIME in SQLite/PostgreSQL, MySQL TIME is a signed duration that
@@ -1307,7 +1329,11 @@ impl_mysql_sql_type_to_rust!(chrono::DateTime<chrono::Utc> => drizzle_types::mys
 impl_mysql_sql_type_to_rust!(time::PrimitiveDateTime => drizzle_types::mysql::types::DateTime);
 #[cfg(all(not(feature = "chrono"), feature = "time"))]
 impl_mysql_sql_type_to_rust!(time::OffsetDateTime => drizzle_types::mysql::types::Timestamp);
-#[cfg(not(any(feature = "chrono", feature = "time")))]
+#[cfg(all(not(any(feature = "chrono", feature = "time")), feature = "jiff"))]
+impl_mysql_sql_type_to_rust!(jiff::civil::DateTime => drizzle_types::mysql::types::DateTime);
+#[cfg(all(not(any(feature = "chrono", feature = "time")), feature = "jiff"))]
+impl_mysql_sql_type_to_rust!(jiff::Timestamp => drizzle_types::mysql::types::Timestamp);
+#[cfg(not(any(feature = "chrono", feature = "time", feature = "jiff")))]
 impl_mysql_sql_type_to_rust!(crate::prelude::String =>
     drizzle_types::mysql::types::DateTime,
     drizzle_types::mysql::types::Timestamp,
@@ -1410,6 +1436,26 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Date {
 #[cfg(all(not(feature = "chrono"), feature = "time"))]
 impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Time {
     type RustType = time::Time;
+}
+
+#[cfg(all(not(any(feature = "chrono", feature = "time")), feature = "jiff"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timestamptz {
+    type RustType = jiff::Timestamp;
+}
+
+#[cfg(all(not(any(feature = "chrono", feature = "time")), feature = "jiff"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Timestamp {
+    type RustType = jiff::civil::DateTime;
+}
+
+#[cfg(all(not(any(feature = "chrono", feature = "time")), feature = "jiff"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Date {
+    type RustType = jiff::civil::Date;
+}
+
+#[cfg(all(not(any(feature = "chrono", feature = "time")), feature = "jiff"))]
+impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Time {
+    type RustType = jiff::civil::Time;
 }
 
 #[cfg(feature = "uuid")]

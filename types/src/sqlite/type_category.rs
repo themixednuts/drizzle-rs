@@ -115,11 +115,13 @@ impl TypeCategory {
             return Self::DateTime;
         }
 
-        // Time crate types
+        // time and jiff types
         if type_str.contains("time::Date")
             || type_str.contains("time::Time")
             || type_str.contains("PrimitiveDateTime")
             || type_str.contains("OffsetDateTime")
+            || type_str.contains("civil::")
+            || type_str.contains("jiff::Timestamp")
         {
             return Self::DateTime;
         }

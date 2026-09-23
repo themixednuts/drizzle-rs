@@ -58,6 +58,14 @@ pub const fn postgres_sync_param_type(
         PostgresValue::TimeTimestampTz(_) => Some(Type::TIMESTAMPTZ),
         #[cfg(feature = "time")]
         PostgresValue::TimeInterval(_) => Some(Type::INTERVAL),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffDate(_) => Some(Type::DATE),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffTime(_) => Some(Type::TIME),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffDateTime(_) => Some(Type::TIMESTAMP),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffTimestamp(_) => Some(Type::TIMESTAMPTZ),
         PostgresValue::Null | PostgresValue::Enum(_) | PostgresValue::Array(_) => None,
     }
 }
@@ -137,6 +145,14 @@ pub const fn tokio_postgres_param_type(
         PostgresValue::TimeTimestampTz(_) => Some(Type::TIMESTAMPTZ),
         #[cfg(feature = "time")]
         PostgresValue::TimeInterval(_) => Some(Type::INTERVAL),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffDate(_) => Some(Type::DATE),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffTime(_) => Some(Type::TIME),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffDateTime(_) => Some(Type::TIMESTAMP),
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffTimestamp(_) => Some(Type::TIMESTAMPTZ),
         PostgresValue::Null | PostgresValue::Enum(_) | PostgresValue::Array(_) => None,
     }
 }

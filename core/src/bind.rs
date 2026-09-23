@@ -142,6 +142,14 @@ impl_value_type!(SQLiteDialect, sqlite_ty::Text =>
     time::Duration,
 );
 
+#[cfg(feature = "jiff")]
+impl_value_type!(SQLiteDialect, sqlite_ty::Text =>
+    jiff::civil::Date,
+    jiff::civil::Time,
+    jiff::civil::DateTime,
+    jiff::Timestamp,
+);
+
 #[cfg(feature = "rust-decimal")]
 impl_value_type!(SQLiteDialect, sqlite_ty::Text =>
     rust_decimal::Decimal,
@@ -240,6 +248,15 @@ impl_value_type!(PostgresDialect, pg_ty::Timestamp => time::PrimitiveDateTime);
 impl_value_type!(PostgresDialect, pg_ty::Timestamptz => time::OffsetDateTime);
 #[cfg(feature = "time")]
 impl_value_type!(PostgresDialect, pg_ty::Interval => time::Duration);
+
+#[cfg(feature = "jiff")]
+impl_value_type!(PostgresDialect, pg_ty::Date => jiff::civil::Date);
+#[cfg(feature = "jiff")]
+impl_value_type!(PostgresDialect, pg_ty::Time => jiff::civil::Time);
+#[cfg(feature = "jiff")]
+impl_value_type!(PostgresDialect, pg_ty::Timestamp => jiff::civil::DateTime);
+#[cfg(feature = "jiff")]
+impl_value_type!(PostgresDialect, pg_ty::Timestamptz => jiff::Timestamp);
 
 #[cfg(feature = "cidr")]
 impl_value_type!(PostgresDialect, pg_ty::Inet => cidr::IpInet);
@@ -395,3 +412,12 @@ impl_value_type!(MySQLDialect, mysql_ty::Time => time::Time);
 impl_value_type!(MySQLDialect, mysql_ty::DateTime => time::PrimitiveDateTime);
 #[cfg(feature = "time")]
 impl_value_type!(MySQLDialect, mysql_ty::Timestamp => time::OffsetDateTime);
+
+#[cfg(feature = "jiff")]
+impl_value_type!(MySQLDialect, mysql_ty::Date => jiff::civil::Date);
+#[cfg(feature = "jiff")]
+impl_value_type!(MySQLDialect, mysql_ty::Time => jiff::civil::Time);
+#[cfg(feature = "jiff")]
+impl_value_type!(MySQLDialect, mysql_ty::DateTime => jiff::civil::DateTime);
+#[cfg(feature = "jiff")]
+impl_value_type!(MySQLDialect, mysql_ty::Timestamp => jiff::Timestamp);

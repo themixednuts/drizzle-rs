@@ -390,6 +390,53 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for time::OffsetDateTime {
     }
 }
 
+/// Parses SQLite text as a jiff value.
+#[cfg(feature = "jiff")]
+fn parse_jiff<T: core::str::FromStr<Err = jiff::Error>>(text: &str) -> Result<T, DrizzleError> {
+    text.parse()
+        .map_err(|e: jiff::Error| DrizzleError::ConversionError(e.to_string().into()))
+}
+
+#[cfg(feature = "jiff")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for jiff::civil::Date {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        parse_jiff(&String::from_row_at(row, offset)?)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for jiff::civil::Time {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        parse_jiff(&String::from_row_at(row, offset)?)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for jiff::civil::DateTime {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        parse_jiff(&String::from_row_at(row, offset)?)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl<R: SqliteValueRow> FromDrizzleRow<R> for jiff::Timestamp {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        let s = String::from_row_at(row, offset)?;
+        // RFC 3339 as the SQLite conversion writes it; text without an offset
+        // (as SQLite's own `CURRENT_TIMESTAMP` writes) is UTC.
+        s.parse().or_else(|_| {
+            let civil: jiff::civil::DateTime = parse_jiff(&s)?;
+            jiff::tz::Offset::UTC
+                .to_timestamp(civil)
+                .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))
+        })
+    }
+}
+
 /// A JSON column read on its own (`select(t.meta)`) decodes through
 /// [`Json`](crate::json::Json), so the payload type needs no impls.
 #[cfg(feature = "serde")]

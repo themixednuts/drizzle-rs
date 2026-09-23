@@ -15,6 +15,7 @@ serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 time = { workspace = true, optional = true }
+jiff = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 paste = { workspace = true }
@@ -71,6 +72,7 @@ serde = [
 uuid = ["dep:uuid", "postgres?/with-uuid-1", "tokio-postgres?/with-uuid-1"]
 chrono = ["dep:chrono", "postgres?/with-chrono-0_4", "tokio-postgres?/with-chrono-0_4"]
 time = ["dep:time", "postgres?/with-time-0_3", "tokio-postgres?/with-time-0_3"]
+jiff = ["dep:jiff", "postgres?/with-jiff-0_2", "tokio-postgres?/with-jiff-0_2"]
 arrayvec = ["dep:arrayvec"]
 bytes = ["dep:bytes"]
 rust-decimal = ["dep:rust_decimal"]

@@ -421,6 +421,14 @@ impl_tosql_param_copy!(
     time::Duration,
 );
 
+#[cfg(feature = "jiff")]
+impl_tosql_param_copy!(
+    jiff::civil::Date,
+    jiff::civil::Time,
+    jiff::civil::DateTime,
+    jiff::Timestamp,
+);
+
 #[cfg(feature = "rust-decimal")]
 impl<'a, V> ToSQL<'a, V> for rust_decimal::Decimal
 where

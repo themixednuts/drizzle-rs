@@ -169,7 +169,7 @@ let (db, Schema { users, posts, comments }) = Drizzle::new(conn, Schema::new());
 | `mysql-sync`, `mysql-async` | MySQL drivers (`mysql` / `mysql_async`) |
 | `query` | [Relational queries](#relational-queries) (`db.query(...)`) |
 | `serde` | [JSON columns](#json-columns) |
-| `uuid`, `chrono`, `time`, `rust-decimal` | Column types from those crates |
+| `uuid`, `chrono`, `time`, `jiff`, `rust-decimal` | Column types from those crates |
 | `arrayvec`, `compact-str`, `bytes`, `smallvec-types` | Inline and zero-copy string/byte column types |
 | `cidr`, `geo-types`, `bit-vec` | PostgreSQL network, geometric, and bit-string types |
 | `math` | SQLite math functions (see [Expressions](#expressions)) |

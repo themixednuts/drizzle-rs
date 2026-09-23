@@ -1044,6 +1044,134 @@ impl_row_decode!(
     time::OffsetDateTime,
 );
 
+#[cfg(feature = "jiff")]
+fn jiff_error(error: jiff::Error) -> DrizzleError {
+    DrizzleError::ConversionError(error.to_string().into())
+}
+
+#[cfg(feature = "jiff")]
+fn jiff_out_of_range() -> DrizzleError {
+    DrizzleError::ConversionError("MySQL date or time part is out of range for jiff".into())
+}
+
+#[cfg(feature = "jiff")]
+fn jiff_date(year: u16, month: u8, day: u8) -> Result<jiff::civil::Date, DrizzleError> {
+    jiff::civil::Date::new(
+        i16::try_from(year).map_err(|_| jiff_out_of_range())?,
+        i8::try_from(month).map_err(|_| jiff_out_of_range())?,
+        i8::try_from(day).map_err(|_| jiff_out_of_range())?,
+    )
+    .map_err(jiff_error)
+}
+
+#[cfg(feature = "jiff")]
+fn jiff_time(
+    hours: u8,
+    minutes: u8,
+    seconds: u8,
+    microseconds: u32,
+) -> Result<jiff::civil::Time, DrizzleError> {
+    let nanoseconds = i32::try_from(microseconds)
+        .ok()
+        .and_then(|micros| micros.checked_mul(1_000))
+        .ok_or_else(jiff_out_of_range)?;
+    jiff::civil::Time::new(
+        i8::try_from(hours).map_err(|_| jiff_out_of_range())?,
+        i8::try_from(minutes).map_err(|_| jiff_out_of_range())?,
+        i8::try_from(seconds).map_err(|_| jiff_out_of_range())?,
+        nanoseconds,
+    )
+    .map_err(jiff_error)
+}
+
+#[cfg(feature = "jiff")]
+impl DecodeMySQLValue for jiff::civil::Date {
+    const EXPECTED: &'static str = "MySQL DATE";
+
+    fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        match value {
+            MySQLValue::Date {
+                year, month, day, ..
+            } => jiff_date(year, month, day),
+            MySQLValue::Bytes(value) => utf8(value.as_ref())?.parse().map_err(jiff_error),
+            other => Err(conversion_error(Self::EXPECTED, &other)),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl DecodeMySQLValue for jiff::civil::Time {
+    const EXPECTED: &'static str = "MySQL TIME within one day";
+
+    fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        match value {
+            MySQLValue::Time {
+                negative,
+                days,
+                hours,
+                minutes,
+                seconds,
+                microseconds,
+            } => {
+                if negative || days != 0 {
+                    return Err(DrizzleError::ConversionError(
+                        "MySQL duration outside a single non-negative day cannot decode as \
+                         jiff::civil::Time"
+                            .into(),
+                    ));
+                }
+                jiff_time(hours, minutes, seconds, microseconds)
+            }
+            MySQLValue::Bytes(value) => utf8(value.as_ref())?.parse().map_err(jiff_error),
+            other => Err(conversion_error(Self::EXPECTED, &other)),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl DecodeMySQLValue for jiff::civil::DateTime {
+    const EXPECTED: &'static str = "MySQL DATETIME/TIMESTAMP";
+
+    fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        match value {
+            MySQLValue::Date {
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                microseconds,
+            } => Ok(jiff_date(year, month, day)?.to_datetime(jiff_time(
+                hour,
+                minute,
+                second,
+                microseconds,
+            )?)),
+            MySQLValue::Bytes(value) => utf8(value.as_ref())?.parse().map_err(jiff_error),
+            other => Err(conversion_error(Self::EXPECTED, &other)),
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl DecodeMySQLValue for jiff::Timestamp {
+    const EXPECTED: &'static str = "UTC MySQL TIMESTAMP";
+
+    fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+        let utc = jiff::civil::DateTime::decode(value)?;
+        jiff::tz::Offset::UTC.to_timestamp(utc).map_err(jiff_error)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl_row_decode!(
+    jiff::civil::Date,
+    jiff::civil::Time,
+    jiff::civil::DateTime,
+    jiff::Timestamp,
+);
+
 #[cfg(feature = "mysql-common")]
 impl MySQLRowAccess for mysql_common::Row {
     fn value_at(&self, offset: usize) -> Result<Option<MySQLValue<'_>>, DrizzleError> {
@@ -1339,6 +1467,32 @@ mod tests {
         );
         assert!(
             decode::<time::Time>(&[OwnedMySQLValue::Time {
+                negative: false,
+                days: 1,
+                hours: 0,
+                minutes: 0,
+                seconds: 0,
+                microseconds: 0,
+            }])
+            .is_err()
+        );
+    }
+
+    #[cfg(feature = "jiff")]
+    #[test]
+    fn jiff_round_trips_binary_dates_and_rejects_duration_as_clock_time() {
+        let expected = jiff::civil::date(2026, 8, 26).at(12, 34, 56, 789_000);
+        assert_eq!(
+            decode::<jiff::civil::DateTime>(&[OwnedMySQLValue::from(expected)]).unwrap(),
+            expected
+        );
+        let instant: jiff::Timestamp = "2026-08-26T12:34:56.000789Z".parse().unwrap();
+        assert_eq!(
+            decode::<jiff::Timestamp>(&[OwnedMySQLValue::from(instant)]).unwrap(),
+            instant
+        );
+        assert!(
+            decode::<jiff::civil::Time>(&[OwnedMySQLValue::Time {
                 negative: false,
                 days: 1,
                 hours: 0,

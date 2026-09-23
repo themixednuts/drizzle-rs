@@ -67,14 +67,14 @@ pub enum TypeCategory {
     NaiveDateTime,
     /// `chrono::DateTime<Tz>` -> TIMESTAMPTZ
     DateTimeTz,
-    // ========== Time crate types (with-time-0_3) ==========
-    /// `time::Date` -> DATE
+    // ========== time (with-time-0_3) and jiff (with-jiff-0_2) types ==========
+    /// `time::Date` or `jiff::civil::Date` -> DATE
     TimeDate,
-    /// `time::Time` -> TIME
+    /// `time::Time` or `jiff::civil::Time` -> TIME
     TimeTime,
-    /// `time::PrimitiveDateTime` -> TIMESTAMP
+    /// `time::PrimitiveDateTime` or `jiff::civil::DateTime` -> TIMESTAMP
     TimePrimitiveDateTime,
-    /// `time::OffsetDateTime` -> TIMESTAMPTZ
+    /// `time::OffsetDateTime` or `jiff::Timestamp` -> TIMESTAMPTZ
     TimeOffsetDateTime,
     // ========== Geo types (with-geo-types-0_7) ==========
     /// `geo_types::Point<f64>` -> POINT
@@ -164,17 +164,27 @@ impl TypeCategory {
         }
 
         // Time crate types
-        if type_str.contains("time::Date") || type_str == "Date" {
-            return Self::TimeDate;
-        }
-        if type_str.contains("time::Time") {
-            return Self::TimeTime;
-        }
-        if type_str.contains("PrimitiveDateTime") {
+        // A date and time without a zone before a bare date: jiff spells them
+        // `civil::DateTime` and `civil::Date`.
+        if type_str.contains("PrimitiveDateTime")
+            || type_str.contains("civil::DateTime")
+            || type_str == "DateTime"
+        {
             return Self::TimePrimitiveDateTime;
         }
-        if type_str.contains("OffsetDateTime") {
+        if type_str.contains("OffsetDateTime")
+            || type_str.contains("jiff::Timestamp")
+            || type_str == "Timestamp"
+        {
             return Self::TimeOffsetDateTime;
+        }
+        if type_str.contains("time::Date") || type_str.contains("civil::Date") || type_str == "Date"
+        {
+            return Self::TimeDate;
+        }
+        if type_str.contains("time::Time") || type_str.contains("civil::Time") || type_str == "Time"
+        {
+            return Self::TimeTime;
         }
 
         // Geo types

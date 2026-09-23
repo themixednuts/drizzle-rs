@@ -113,6 +113,14 @@ macro_rules! impl_postgres_value_row {
             Vec<time::PrimitiveDateTime>, Vec<time::OffsetDateTime>,
         );
 
+        #[cfg(feature = "jiff")]
+        postgres_leaf_impls!(
+            $row_ty;
+            jiff::civil::Date, jiff::civil::Time, jiff::civil::DateTime, jiff::Timestamp,
+            Vec<jiff::civil::Date>, Vec<jiff::civil::Time>,
+            Vec<jiff::civil::DateTime>, Vec<jiff::Timestamp>,
+        );
+
         #[cfg(feature = "serde")]
         postgres_leaf_impls!($row_ty; serde_json::Value, Vec<serde_json::Value>);
 

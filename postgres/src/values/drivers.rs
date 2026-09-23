@@ -203,6 +203,50 @@ mod postgres_tosql_impl {
                 |v: &time::OffsetDateTime| *v
             );
         }
+        #[cfg(feature = "jiff")]
+        if *ty == Type::DATE_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                JiffDate,
+                jiff::civil::Date,
+                |v: &jiff::civil::Date| *v
+            );
+        }
+        #[cfg(feature = "jiff")]
+        if *ty == Type::TIME_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                JiffTime,
+                jiff::civil::Time,
+                |v: &jiff::civil::Time| *v
+            );
+        }
+        #[cfg(feature = "jiff")]
+        if *ty == Type::TIMESTAMP_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                JiffDateTime,
+                jiff::civil::DateTime,
+                |v: &jiff::civil::DateTime| *v
+            );
+        }
+        #[cfg(feature = "jiff")]
+        if *ty == Type::TIMESTAMPTZ_ARRAY {
+            return encode_array!(
+                arr,
+                ty,
+                out,
+                JiffTimestamp,
+                jiff::Timestamp,
+                |v: &jiff::Timestamp| *v
+            );
+        }
         #[cfg(feature = "cidr")]
         if *ty == Type::INET_ARRAY {
             return encode_array!(arr, ty, out, Inet, cidr::IpInet, |v: &cidr::IpInet| *v);
@@ -279,6 +323,14 @@ mod postgres_tosql_impl {
                 PostgresValue::TimeTimestampTz(ts) => ts.to_sql(ty, out),
                 #[cfg(feature = "time")]
                 PostgresValue::TimeInterval(dur) => dur.to_string().to_sql(ty, out),
+                #[cfg(feature = "jiff")]
+                PostgresValue::JiffDate(date) => date.to_sql(ty, out),
+                #[cfg(feature = "jiff")]
+                PostgresValue::JiffTime(time) => time.to_sql(ty, out),
+                #[cfg(feature = "jiff")]
+                PostgresValue::JiffDateTime(ts) => ts.to_sql(ty, out),
+                #[cfg(feature = "jiff")]
+                PostgresValue::JiffTimestamp(ts) => ts.to_sql(ty, out),
                 #[cfg(feature = "cidr")]
                 PostgresValue::Inet(ip) => ip.to_sql(ty, out),
                 #[cfg(feature = "cidr")]

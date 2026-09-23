@@ -1,8 +1,87 @@
-//! Date and time values from the `chrono` and `time` crates on SQLite:
+//! Date and time values from the `chrono`, `time` and `jiff` crates on SQLite:
 //! stored as ISO 8601 text, decoded the same way by models and by selected
 //! columns.
 
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]
+
+#[cfg(feature = "jiff")]
+mod jiff_values {
+    use drizzle::core::expr::*;
+    use drizzle::sqlite::prelude::*;
+    use jiff::Timestamp;
+    use jiff::civil::{Date, DateTime, Time};
+
+    #[SQLiteTable(NAME = "jiff_events")]
+    struct JiffEvent {
+        #[column(PRIMARY)]
+        id: i32,
+        day: Date,
+        starts: Time,
+        local: DateTime,
+        instant: Timestamp,
+        ends: Option<Timestamp>,
+    }
+
+    #[derive(SQLiteSchema)]
+    struct JiffSchema {
+        events: JiffEvent,
+    }
+
+    #[drizzle::test]
+    fn jiff_values_round_trip(db: &mut TestDb<JiffSchema>) {
+        let JiffSchema { events } = schema;
+        let day = jiff::civil::date(2026, 9, 23);
+        let starts = jiff::civil::time(9, 30, 15, 500_000_000);
+        let local = day.at(9, 30, 15, 0);
+        let instant: Timestamp = "2026-09-23T07:30:15Z".parse().unwrap();
+
+        db.insert(events)
+            .values([InsertJiffEvent::new(day, starts, local, instant).with_id(1)])
+            .execute();
+
+        let row: SelectJiffEvent = db.select(()).from(events).get();
+        assert_eq!(
+            (row.day, row.starts, row.local, row.instant, row.ends),
+            (day, starts, local, instant, None)
+        );
+
+        // A selected column decodes on its own too.
+        let (selected_day, selected_local, selected_instant): (Date, DateTime, Timestamp) = db
+            .select((events.day, events.local, events.instant))
+            .from(events)
+            .get();
+        assert_eq!(
+            (selected_day, selected_local, selected_instant),
+            (day, local, instant)
+        );
+
+        // A bound value is written the same way, so it matches in a filter.
+        let matched: Vec<SelectJiffEvent> = db
+            .select(())
+            .from(events)
+            .r#where(and(eq(events.local, local), eq(events.instant, instant)))
+            .all();
+        assert_eq!(matched.len(), 1);
+    }
+
+    #[drizzle::test]
+    fn jiff_values_read_sqlite_datetime_text(db: &mut TestDb<JiffSchema>) {
+        let JiffSchema { events } = schema;
+        // SQLite's own date functions and CURRENT_TIMESTAMP write a space
+        // between date and time, and no offset: the time is UTC.
+        result!(db.execute(SQL::raw(
+            r#"INSERT INTO "jiff_events" ("id", "day", "starts", "local", "instant")
+               VALUES (1, '2026-09-23', '09:30:15', '2026-09-23 09:30:15', '2026-09-23 07:30:15')"#
+        )))?;
+
+        let row: SelectJiffEvent = db.select(()).from(events).get();
+        assert_eq!(row.local, jiff::civil::date(2026, 9, 23).at(9, 30, 15, 0));
+        assert_eq!(
+            row.instant,
+            "2026-09-23T07:30:15Z".parse::<Timestamp>().unwrap()
+        );
+    }
+}
 
 #[cfg(feature = "time")]
 mod time_values {

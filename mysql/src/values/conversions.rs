@@ -317,7 +317,7 @@ impl From<&rust_decimal::Decimal> for MySQLValue<'_> {
     }
 }
 
-#[cfg(any(feature = "chrono", feature = "time"))]
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
 struct DateParts {
     year: i32,
     month: u8,
@@ -328,7 +328,7 @@ struct DateParts {
     microseconds: u32,
 }
 
-#[cfg(any(feature = "chrono", feature = "time"))]
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
 fn date_value(parts: DateParts, fallback: String) -> MySQLValue<'static> {
     match u16::try_from(parts.year) {
         Ok(year) if (1000..=9999).contains(&year) => MySQLValue::Date {
@@ -531,6 +531,103 @@ impl From<time::OffsetDateTime> for MySQLValue<'_> {
     fn from(value: time::OffsetDateTime) -> Self {
         let utc = value.to_offset(time::UtcOffset::UTC);
         time_datetime(time::PrimitiveDateTime::new(utc.date(), utc.time()))
+    }
+}
+
+#[cfg(feature = "jiff")]
+fn jiff_date(value: jiff::civil::Date) -> MySQLValue<'static> {
+    date_value(
+        DateParts {
+            year: i32::from(value.year()),
+            month: value.month().unsigned_abs(),
+            day: value.day().unsigned_abs(),
+            hour: 0,
+            minute: 0,
+            second: 0,
+            microseconds: 0,
+        },
+        value.to_string(),
+    )
+}
+
+#[cfg(feature = "jiff")]
+fn jiff_datetime(value: jiff::civil::DateTime) -> MySQLValue<'static> {
+    date_value(
+        DateParts {
+            year: i32::from(value.year()),
+            month: value.month().unsigned_abs(),
+            day: value.day().unsigned_abs(),
+            hour: value.hour().unsigned_abs(),
+            minute: value.minute().unsigned_abs(),
+            second: value.second().unsigned_abs(),
+            microseconds: value.subsec_nanosecond().unsigned_abs() / 1_000,
+        },
+        value.to_string(),
+    )
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::Date> for MySQLValue<'_> {
+    fn from(value: jiff::civil::Date) -> Self {
+        jiff_date(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::Date> for MySQLValue<'_> {
+    fn from(value: &jiff::civil::Date) -> Self {
+        jiff_date(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::Time> for MySQLValue<'_> {
+    fn from(value: jiff::civil::Time) -> Self {
+        Self::Time {
+            negative: false,
+            days: 0,
+            hours: value.hour().unsigned_abs(),
+            minutes: value.minute().unsigned_abs(),
+            seconds: value.second().unsigned_abs(),
+            microseconds: value.subsec_nanosecond().unsigned_abs() / 1_000,
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::Time> for MySQLValue<'_> {
+    fn from(value: &jiff::civil::Time) -> Self {
+        Self::from(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::DateTime> for MySQLValue<'_> {
+    fn from(value: jiff::civil::DateTime) -> Self {
+        jiff_datetime(value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::DateTime> for MySQLValue<'_> {
+    fn from(value: &jiff::civil::DateTime) -> Self {
+        jiff_datetime(*value)
+    }
+}
+
+/// A timestamp binds as its UTC date and time: typed queries run in a UTC
+/// session, where MySQL reads a TIMESTAMP that way.
+#[cfg(feature = "jiff")]
+impl From<jiff::Timestamp> for MySQLValue<'_> {
+    fn from(value: jiff::Timestamp) -> Self {
+        jiff_datetime(jiff::tz::Offset::UTC.to_datetime(value))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::Timestamp> for MySQLValue<'_> {
+    fn from(value: &jiff::Timestamp) -> Self {
+        Self::from(*value)
     }
 }
 

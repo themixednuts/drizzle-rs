@@ -447,7 +447,7 @@ where
 
 /// Lets a date or time value stand where an expression goes (`eq(col, value)`,
 /// `gt(col, value)`), typed as the SQL type its dialect stores it as.
-#[cfg(any(feature = "chrono", feature = "time"))]
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
 macro_rules! impl_value_expr {
     ($($ty:ty),+ $(,)?) => {$(
         impl<'a, V> Expr<'a, V> for $ty
@@ -479,6 +479,14 @@ impl_value_expr!(
     time::PrimitiveDateTime,
     time::OffsetDateTime,
     time::Duration,
+);
+
+#[cfg(feature = "jiff")]
+impl_value_expr!(
+    jiff::civil::Date,
+    jiff::civil::Time,
+    jiff::civil::DateTime,
+    jiff::Timestamp,
 );
 
 // =============================================================================

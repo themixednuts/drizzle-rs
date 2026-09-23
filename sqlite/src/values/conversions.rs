@@ -621,6 +621,68 @@ impl From<&time::Duration> for SQLiteValue<'_> {
     }
 }
 
+// --- jiff ---
+//
+// ISO 8601 text, as SQLite's date and time functions read it. A civil
+// datetime puts a space between date and time, as `datetime()` and
+// `CURRENT_TIMESTAMP` do; a timestamp is RFC 3339 in UTC.
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::Date> for SQLiteValue<'_> {
+    fn from(value: jiff::civil::Date) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::Date> for SQLiteValue<'_> {
+    fn from(value: &jiff::civil::Date) -> Self {
+        Self::from(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::Time> for SQLiteValue<'_> {
+    fn from(value: jiff::civil::Time) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::Time> for SQLiteValue<'_> {
+    fn from(value: &jiff::civil::Time) -> Self {
+        Self::from(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::civil::DateTime> for SQLiteValue<'_> {
+    fn from(value: jiff::civil::DateTime) -> Self {
+        SQLiteValue::Text(Cow::Owned(format!("{} {}", value.date(), value.time())))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::civil::DateTime> for SQLiteValue<'_> {
+    fn from(value: &jiff::civil::DateTime) -> Self {
+        Self::from(*value)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<jiff::Timestamp> for SQLiteValue<'_> {
+    fn from(value: jiff::Timestamp) -> Self {
+        SQLiteValue::Text(Cow::Owned(value.to_string()))
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl From<&jiff::Timestamp> for SQLiteValue<'_> {
+    fn from(value: &jiff::Timestamp) -> Self {
+        Self::from(*value)
+    }
+}
+
 // --- Decimal (stored as text for lossless round-trip) ---
 
 #[cfg(feature = "rust-decimal")]

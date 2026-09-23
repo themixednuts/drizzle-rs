@@ -27,6 +27,12 @@ use time::{
     Date as TimeDate, Duration as TimeDuration, OffsetDateTime, PrimitiveDateTime, Time as TimeTime,
 };
 
+#[cfg(feature = "jiff")]
+use jiff::{
+    Timestamp as JiffTimestamp,
+    civil::{Date as JiffDate, DateTime as JiffDateTime, Time as JiffTime},
+};
+
 #[cfg(feature = "cidr")]
 use cidr::{IpCidr, IpInet};
 
@@ -134,6 +140,18 @@ pub enum PostgresValue<'a> {
     /// INTERVAL values (time crate)
     #[cfg(feature = "time")]
     TimeInterval(TimeDuration),
+    /// DATE values (`jiff::civil::Date`)
+    #[cfg(feature = "jiff")]
+    JiffDate(JiffDate),
+    /// TIME values (`jiff::civil::Time`)
+    #[cfg(feature = "jiff")]
+    JiffTime(JiffTime),
+    /// TIMESTAMP values without timezone (`jiff::civil::DateTime`)
+    #[cfg(feature = "jiff")]
+    JiffDateTime(JiffDateTime),
+    /// TIMESTAMPTZ values (`jiff::Timestamp`, an instant)
+    #[cfg(feature = "jiff")]
+    JiffTimestamp(JiffTimestamp),
 
     // Network address types
     /// INET values (host address with optional netmask)
@@ -226,6 +244,14 @@ impl core::fmt::Display for PostgresValue<'_> {
             PostgresValue::TimeTimestampTz(ts) => ts.to_string(),
             #[cfg(feature = "time")]
             PostgresValue::TimeInterval(dur) => format!("{} seconds", dur.whole_seconds()),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDate(date) => date.to_string(),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTime(time) => time.to_string(),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDateTime(ts) => ts.to_string(),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTimestamp(ts) => ts.to_string(),
 
             // Network address types
             #[cfg(feature = "cidr")]
@@ -624,6 +650,50 @@ impl PostgresValue<'_> {
         }
     }
 
+    /// Returns the date value if this is DATE (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_date(&self) -> Option<&JiffDate> {
+        match self {
+            PostgresValue::JiffDate(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the time value if this is TIME (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_time(&self) -> Option<&JiffTime> {
+        match self {
+            PostgresValue::JiffTime(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp value if this is TIMESTAMP (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_datetime(&self) -> Option<&JiffDateTime> {
+        match self {
+            PostgresValue::JiffDateTime(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Returns the timestamp with timezone value if this is TIMESTAMPTZ (jiff).
+    #[inline]
+    #[cfg(feature = "jiff")]
+    #[must_use]
+    pub const fn as_jiff_timestamp(&self) -> Option<&JiffTimestamp> {
+        match self {
+            PostgresValue::JiffTimestamp(value) => Some(value),
+            _ => None,
+        }
+    }
+
     /// Returns the array elements if this is an ARRAY.
     #[inline]
     #[must_use]
@@ -689,6 +759,14 @@ impl PostgresValue<'_> {
             PostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(value),
             #[cfg(feature = "time")]
             PostgresValue::TimeInterval(value) => T::from_postgres_time_interval(value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDate(value) => T::from_postgres_jiff_date(value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTime(value) => T::from_postgres_jiff_time(value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDateTime(value) => T::from_postgres_jiff_datetime(value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTimestamp(value) => T::from_postgres_jiff_timestamp(value),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => T::from_postgres_inet(value),
             #[cfg(feature = "cidr")]
@@ -758,6 +836,14 @@ impl PostgresValue<'_> {
             PostgresValue::TimeTimestampTz(value) => T::from_postgres_time_timestamptz(*value),
             #[cfg(feature = "time")]
             PostgresValue::TimeInterval(value) => T::from_postgres_time_interval(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDate(value) => T::from_postgres_jiff_date(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTime(value) => T::from_postgres_jiff_time(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffDateTime(value) => T::from_postgres_jiff_datetime(*value),
+            #[cfg(feature = "jiff")]
+            PostgresValue::JiffTimestamp(value) => T::from_postgres_jiff_timestamp(*value),
             #[cfg(feature = "cidr")]
             PostgresValue::Inet(value) => T::from_postgres_inet(*value),
             #[cfg(feature = "cidr")]
@@ -913,6 +999,14 @@ fn write_postgres_literal(value: &PostgresValue<'_>, buf: &mut String) -> Option
             let micros = v.whole_microseconds();
             write_cast_literal(buf, &format!("{micros} microseconds"), "interval")?;
         }
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffDate(v) => write_cast_literal(buf, &v.to_string(), "date")?,
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffTime(v) => write_cast_literal(buf, &v.to_string(), "time")?,
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffDateTime(v) => write_cast_literal(buf, &v.to_string(), "timestamp")?,
+        #[cfg(feature = "jiff")]
+        PostgresValue::JiffTimestamp(v) => write_cast_literal(buf, &v.to_string(), "timestamptz")?,
         #[cfg(feature = "cidr")]
         PostgresValue::Inet(v) => write_cast_literal(buf, &v.to_string(), "inet")?,
         #[cfg(feature = "cidr")]
