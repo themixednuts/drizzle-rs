@@ -153,28 +153,12 @@ pub fn type_is_char_array(ty: &Type) -> bool {
 }
 
 pub fn type_is_array_string(ty: &Type) -> bool {
-    let Some(path) = type_path(ty) else {
-        return false;
-    };
-
-    if path
-        .segments
-        .last()
-        .is_some_and(|seg| seg.ident == "ArrayString")
-    {
-        return true;
-    }
-
-    #[cfg(feature = "compact-str")]
-    if path
-        .segments
-        .last()
-        .is_some_and(|seg| seg.ident == "CompactString")
-    {
-        return true;
-    }
-
-    false
+    type_path(ty)
+        .and_then(|path| path.segments.last())
+        .is_some_and(|seg| {
+            seg.ident == "ArrayString"
+                || (cfg!(feature = "compact-str") && seg.ident == "CompactString")
+        })
 }
 
 #[cfg(feature = "smallvec")]
