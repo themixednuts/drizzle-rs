@@ -118,6 +118,7 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
             opts.filters.extensions_filters.as_deref(),
             db.extensions_filters.as_deref(),
         ),
+        roles: Some(db.effective_entities().roles),
     };
     crate::db::apply_snapshot_filters(&mut desired_snapshot, effective_dialect, &filters)?;
 

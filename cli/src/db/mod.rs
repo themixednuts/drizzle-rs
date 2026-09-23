@@ -74,6 +74,9 @@ pub struct SnapshotFilters {
     pub tables: Option<Vec<String>>,
     pub schemas: Option<Vec<String>>,
     pub extensions: Option<Vec<Extension>>,
+    /// Which `PostgreSQL` roles (and their privileges) to keep, from
+    /// `entities.roles`. `None` leaves roles as they are.
+    pub roles: Option<crate::config::RolesFilter>,
 }
 
 fn connection_driver_mismatch(connection: &ResolvedConnection) -> CliError {
@@ -138,6 +141,7 @@ fn exclude_tracking_table(
             )]),
             schemas: None,
             extensions: None,
+            roles: None,
         },
     )
 }
@@ -5729,6 +5733,7 @@ pub struct Users {
             tables: Some(vec!["admin.*".to_string()]),
             schemas: None,
             extensions: None,
+            roles: None,
         };
 
         apply_snapshot_filters(&mut snapshot, crate::config::Dialect::Postgresql, &filters)
@@ -5778,6 +5783,7 @@ pub struct UsersPublic {
             tables: Some(vec!["users_*".to_string()]),
             schemas: Some(vec!["!dev".to_string()]),
             extensions: None,
+            roles: None,
         };
 
         apply_snapshot_filters(&mut snapshot, crate::config::Dialect::Postgresql, &filters)
@@ -5836,6 +5842,7 @@ pub struct Users {
             tables: None,
             schemas: None,
             extensions: Some(vec![Extension::Postgis]),
+            roles: None,
         };
 
         apply_snapshot_filters(&mut snapshot, crate::config::Dialect::Postgresql, &filters)

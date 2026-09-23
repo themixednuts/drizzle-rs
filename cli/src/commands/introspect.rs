@@ -99,6 +99,7 @@ pub fn run(
             opts.filters.extensions_filters.as_deref(),
             db.extensions_filters.as_deref(),
         ),
+        roles: Some(db.effective_entities().roles),
     };
 
     println!("{}", output::heading("Introspecting database..."));
