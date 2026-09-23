@@ -980,10 +980,25 @@ pub fn sql(input: TokenStream) -> TokenStream {
 
 /// Embed migrations at compile time and return `Vec<Migration>`.
 ///
-/// ```rust,no_run
-/// # fn main() {
-/// let _: Vec<drizzle::migrations::Migration> = drizzle::include_migrations!("./drizzle");
-/// # }
+/// ```rust,ignore
+/// let migrations: Vec<drizzle::migrations::Migration> = drizzle::include_migrations!("./drizzle");
+/// ```
+///
+/// The path is relative to the crate's `Cargo.toml`. A missing or unreadable
+/// directory is a compile error, not an empty list.
+///
+/// # Rebuilding after `drizzle generate`
+///
+/// Every embedded `migration.sql` is tracked, so editing one rebuilds the
+/// crate. A *new* migration folder is not: a procedural macro cannot ask the
+/// compiler to watch a directory. Add a build script so that generating a
+/// migration rebuilds the crate that embeds them:
+///
+/// ```rust,ignore
+/// // build.rs
+/// fn main() {
+///     println!("cargo:rerun-if-changed=drizzle");
+/// }
 /// ```
 #[proc_macro]
 pub fn include_migrations(input: TokenStream) -> TokenStream {
