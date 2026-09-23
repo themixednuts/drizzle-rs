@@ -548,8 +548,16 @@ impl<Schema> Drizzle<Schema> {
             }
             Err(e) => {
                 drizzle_core::drizzle_trace_tx!("rollback", "postgres.tokio");
-                transaction.rollback().await?;
-                Err(e)
+                // Report the callback's error, with a failed rollback attached.
+                match transaction.rollback().await {
+                    Ok(()) => Err(e),
+                    Err(rollback) => Err(crate::transaction::savepoint::cleanup_error(
+                        "transaction",
+                        e,
+                        "rollback",
+                        rollback,
+                    )),
+                }
             }
         }
     }

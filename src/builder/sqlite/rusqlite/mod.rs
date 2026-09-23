@@ -353,8 +353,16 @@ impl<Schema> common::Drizzle<Connection, Schema> {
                 }
                 Err(e) => {
                     drizzle_core::drizzle_trace_tx!("rollback", "sqlite.rusqlite");
-                    transaction.rollback()?;
-                    Err(e)
+                    // Report the callback's error, with a failed rollback attached.
+                    match transaction.rollback() {
+                        Ok(()) => Err(e),
+                        Err(rollback) => Err(crate::transaction::savepoint::cleanup_error(
+                            "transaction",
+                            e,
+                            "rollback",
+                            rollback.into(),
+                        )),
+                    }
                 }
             },
             Err(panic_payload) => {

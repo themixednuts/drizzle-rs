@@ -26,7 +26,8 @@ use std::{
 
 use drizzle_core::error::{DrizzleError, Result};
 
-fn cleanup_error(
+/// Reports a failed callback together with the cleanup that failed after it.
+pub(crate) fn cleanup_error(
     scope: &str,
     original: DrizzleError,
     action: &str,

@@ -301,8 +301,15 @@ impl<Schema> Drizzle<Schema> {
         if !options.is_empty() {
             let preamble = format!("SET TRANSACTION {}", options.join(" "));
             if let Err(error) = tx.execute(preamble.as_str()).await {
-                let _ = tx.rollback().await;
-                return Err(error);
+                return Err(match tx.rollback().await {
+                    Ok(()) => error,
+                    Err(rollback) => crate::transaction::savepoint::cleanup_error(
+                        "transaction configuration",
+                        error,
+                        "rollback",
+                        rollback,
+                    ),
+                });
             }
         }
 
@@ -314,8 +321,16 @@ impl<Schema> Drizzle<Schema> {
             }
             Err(e) => {
                 drizzle_core::drizzle_trace_tx!("rollback", "postgres.aws_data_api");
-                let _ = tx.rollback().await;
-                Err(e)
+                // Report the callback's error, with a failed rollback attached.
+                match tx.rollback().await {
+                    Ok(()) => Err(e),
+                    Err(rollback) => Err(crate::transaction::savepoint::cleanup_error(
+                        "transaction",
+                        e,
+                        "rollback",
+                        rollback,
+                    )),
+                }
             }
         }
     }
