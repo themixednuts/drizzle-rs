@@ -4,6 +4,16 @@ use crate::{
 };
 
 /// Helper function to create a SELECT statement with the given columns
+/// The `LIMIT` MySQL renders before an `OFFSET` that has no limit of its own.
+///
+/// MySQL has no bare `OFFSET`. Its manual suggests `18446744073709551615`
+/// (`u64::MAX`) for "every remaining row", but for a `UNION` MySQL adds the
+/// offset to the limit, and `u64::MAX + offset` wraps: the query returns no
+/// rows (MySQL 8.0 and 8.4). `i64::MAX` is just as unbounded in practice and
+/// leaves room for any offset.
+#[doc(hidden)]
+pub const MYSQL_UNBOUNDED_LIMIT: &str = "9223372036854775807";
+
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
 where
     Value: SQLParam,

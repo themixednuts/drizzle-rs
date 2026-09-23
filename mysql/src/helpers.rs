@@ -446,7 +446,7 @@ where
     P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
 {
     SQL::from(Token::LIMIT)
-        .append(SQL::raw("18446744073709551615"))
+        .append(SQL::raw(drizzle_core::helpers::MYSQL_UNBOUNDED_LIMIT))
         .append(helpers::offset(offset))
 }
 

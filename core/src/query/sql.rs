@@ -322,9 +322,10 @@ pub fn build_query_sql<'a, V: SQLParam>(
         sql.push_str(" LIMIT ");
         sql.push_fragment(limit_sql, table_name, alias);
     } else if dialect == Dialect::MySQL && offset.is_some() {
-        // MySQL does not accept a bare OFFSET. Its documented unbounded-limit
-        // sentinel preserves the caller's offset-only intent.
-        sql.push_str(" LIMIT 18446744073709551615");
+        // MySQL does not accept a bare OFFSET; an unbounded limit keeps the
+        // caller's offset-only intent.
+        sql.push_str(" LIMIT ");
+        sql.push_str(crate::helpers::MYSQL_UNBOUNDED_LIMIT);
     }
 
     if let Some(offset_sql) = offset {
@@ -583,7 +584,8 @@ fn write_where_order_limit_offset<'a, V: SQLParam>(
                 ctx.sql.push_str(" LIMIT ");
                 ctx.sql.push_fragment(limit_sql, target_table, alias);
             } else if V::DIALECT == Dialect::MySQL && offset.is_some() {
-                ctx.sql.push_str(" LIMIT 18446744073709551615");
+                ctx.sql.push_str(" LIMIT ");
+                ctx.sql.push_str(crate::helpers::MYSQL_UNBOUNDED_LIMIT);
             }
         }
     }
@@ -1104,7 +1106,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT `t0`.`id` FROM `account` AS `t0` LIMIT 18446744073709551615 OFFSET ?"
+            "SELECT `t0`.`id` FROM `account` AS `t0` LIMIT 9223372036854775807 OFFSET ?"
         );
     }
 
@@ -1142,7 +1144,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT `t0`.`id`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'6964' USING utf8mb4), `t1`.`id`)), JSON_ARRAY()) FROM LATERAL (SELECT `t1`.`id` FROM `post` AS `t1` WHERE `t1`.`author_id` = `t0`.`id` LIMIT 18446744073709551615 OFFSET ?) AS `t1`) AS `__rel_posts` FROM `user` AS `t0`"
+            "SELECT `t0`.`id`, (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(CONVERT(X'6964' USING utf8mb4), `t1`.`id`)), JSON_ARRAY()) FROM LATERAL (SELECT `t1`.`id` FROM `post` AS `t1` WHERE `t1`.`author_id` = `t0`.`id` LIMIT 9223372036854775807 OFFSET ?) AS `t1`) AS `__rel_posts` FROM `user` AS `t0`"
         );
     }
 

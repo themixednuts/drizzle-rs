@@ -1471,8 +1471,10 @@ The type surface deliberately leaves unsupported SQL unavailable:
 
 - MySQL mutations return `MySQLMutationResult` metadata, not SQL `RETURNING` rows.
 - Full joins and partial-index predicates are rejected; MySQL does not support them.
-- `.offset(n)` without an explicit limit is rendered with MySQL's documented
-  maximum-limit sentinel, because MySQL has no standalone `OFFSET` syntax.
+- `.offset(n)` without an explicit limit renders a `LIMIT` of `i64::MAX`
+  first, because MySQL has no standalone `OFFSET` syntax. (MySQL's manual
+  suggests `18446744073709551615`, but after a `UNION` that value overflows and
+  the query returns no rows.)
 - String concatenation uses `concat(...)`; the builder never emits `||`, whose
   default MySQL meaning is logical OR.
 
