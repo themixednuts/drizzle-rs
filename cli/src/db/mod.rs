@@ -54,6 +54,15 @@ pub struct MigrationPlan {
 
 /// A tracking table as `migrate --plan`, `--dry-run` and `--verify` read it:
 /// they must not create or upgrade it.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async",
+))]
 pub(crate) enum TrackingState {
     /// No tracking table: no migration has run.
     Missing,
@@ -65,6 +74,15 @@ pub(crate) enum TrackingState {
 
 /// The applied migrations of a legacy tracking table, matched to the local
 /// ones by timestamp and hash the way `migrate` upgrades the table.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async",
+))]
 pub(crate) fn legacy_applied_records(
     set: &Migrations,
     rows: &[drizzle_migrations::AppliedMigrationMetadata],
@@ -88,6 +106,16 @@ fn sqlite_database_exists(path: &str) -> bool {
     path == ":memory:" || path.starts_with("file:") || std::path::Path::new(path).exists()
 }
 
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async",
+    feature = "d1-http",
+))]
 #[derive(Debug, Clone)]
 pub(crate) struct AppliedMigrationRecord {
     pub(crate) hash: String,
@@ -518,6 +546,16 @@ fn migration_tracking(
     tracking
 }
 
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async",
+    feature = "d1-http",
+))]
 pub(crate) fn build_migration_plan(
     set: &Migrations,
     applied: &[AppliedMigrationRecord],
@@ -558,6 +596,16 @@ pub(crate) fn build_migration_plan(
 /// warnings while `--verify`/`--safe` fail on any. A duplicate name in the
 /// LOCAL migration set is still a hard error — the local set is broken and
 /// no comparison against it is meaningful.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async",
+    feature = "d1-http",
+))]
 fn collect_integrity_findings(
     set: &Migrations,
     applied: &[AppliedMigrationRecord],
@@ -5517,6 +5565,16 @@ mod tests {
         );
     }
 
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+        feature = "mysql-sync",
+        feature = "mysql-async",
+        feature = "d1-http",
+    ))]
     #[test]
     fn integrity_findings_detect_hash_drift() {
         use drizzle_migrations::{Migration, Migrations};
@@ -5547,6 +5605,16 @@ mod tests {
         );
     }
 
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+        feature = "mysql-sync",
+        feature = "mysql-async",
+        feature = "d1-http",
+    ))]
     #[test]
     fn integrity_findings_report_dirty_and_missing_local_rows() {
         use drizzle_migrations::{Migration, Migrations};
@@ -5589,6 +5657,16 @@ mod tests {
         );
     }
 
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+        feature = "mysql-sync",
+        feature = "mysql-async",
+        feature = "d1-http",
+    ))]
     #[test]
     fn mysql_integrity_findings_do_not_recommend_automatic_repair() {
         use drizzle_migrations::{Migration, Migrations};
@@ -5616,6 +5694,16 @@ mod tests {
         assert!(!findings[0].contains("--repair"), "{findings:?}");
     }
 
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+        feature = "mysql-sync",
+        feature = "mysql-async",
+        feature = "d1-http",
+    ))]
     #[test]
     fn dirty_rows_are_not_counted_as_applied_in_plan() {
         use drizzle_migrations::{Migration, Migrations};
@@ -5685,6 +5773,16 @@ mod tests {
         assert_eq!(tracking_tables, 0, "planning created the tracking table");
     }
 
+    #[cfg(any(
+        feature = "rusqlite",
+        feature = "libsql",
+        feature = "turso",
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+        feature = "mysql-sync",
+        feature = "mysql-async",
+        feature = "d1-http",
+    ))]
     #[test]
     fn build_migration_plan_counts_pending_statements() {
         use drizzle_migrations::{Migration, Migrations};
