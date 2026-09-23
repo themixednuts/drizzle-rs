@@ -1,5 +1,6 @@
+use crate::prelude::{Cow, Vec};
 use crate::{
-    PaginationArg, SQL, SQLChunk, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr,
+    ColumnRef, PaginationArg, SQL, SQLChunk, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr,
     traits::SQLParam, types::BooleanLike,
 };
 
@@ -214,6 +215,83 @@ where
     Table: SQLTable<'a, Type, Value>,
 {
     SQL::from_iter([Token::INSERT, Token::INTO]).append(table)
+}
+
+/// Renders the `(columns) VALUES (..), (..)` of a multi-row `INSERT` whose
+/// rows set different columns.
+///
+/// The column list holds every column any row sets, in the order the rows
+/// first name them, and a row that leaves one of those columns unset gets
+/// `DEFAULT` in that cell: what omitting the column means for a single-row
+/// insert. `PostgreSQL` and `MySQL` accept `DEFAULT` there; `SQLite` does not.
+///
+/// `rows` pairs each row's `SQLModel::columns()` with its `values()`, which
+/// holds one value per column, joined by commas. Returns `None` when a row's
+/// values do not split into one value per column.
+#[doc(hidden)]
+pub fn insert_values_with_defaults<'a, V: SQLParam>(
+    rows: Vec<(Cow<'static, [ColumnRef]>, SQL<'a, V>)>,
+) -> Option<SQL<'a, V>> {
+    let mut columns: Vec<ColumnRef> = Vec::new();
+    for (row_columns, _) in &rows {
+        for column in row_columns.iter() {
+            if !columns.contains(column) {
+                columns.push(*column);
+            }
+        }
+    }
+
+    let mut values = SQL::with_capacity_chunks(rows.len().saturating_mul(columns.len() * 2 + 2));
+    for (index, (row_columns, row_values)) in rows.into_iter().enumerate() {
+        let mut cells = split_top_level_commas(row_values);
+        if cells.len() != row_columns.len() {
+            return None;
+        }
+        if index > 0 {
+            values.push_mut(Token::COMMA);
+        }
+        values.push_mut(Token::LPAREN);
+        for (position, column) in columns.iter().enumerate() {
+            if position > 0 {
+                values.push_mut(Token::COMMA);
+            }
+            match row_columns.iter().position(|set| set == column) {
+                Some(cell) => values.append_mut(core::mem::take(&mut cells[cell])),
+                None => values.push_mut(Token::DEFAULT),
+            }
+        }
+        values.push_mut(Token::RPAREN);
+    }
+
+    Some(
+        SQL::columns(&columns)
+            .parens()
+            .push(Token::VALUES)
+            .append(values),
+    )
+}
+
+/// Splits `sql` at the commas outside any parentheses.
+fn split_top_level_commas<'a, V: SQLParam>(sql: SQL<'a, V>) -> Vec<SQL<'a, V>> {
+    let mut parts = Vec::new();
+    let mut current = SQL::empty();
+    let mut depth = 0usize;
+    for chunk in sql.chunks {
+        match chunk {
+            SQLChunk::Token(Token::LPAREN) => depth += 1,
+            SQLChunk::Token(Token::RPAREN) => depth = depth.saturating_sub(1),
+            SQLChunk::Token(Token::COMMA) if depth == 0 => {
+                parts.push(core::mem::take(&mut current));
+                continue;
+            }
+            _ => {}
+        }
+        current.chunks.push(chunk);
+    }
+    if !current.chunks.is_empty() || !parts.is_empty() {
+        parts.push(current);
+    }
+    parts
 }
 
 /// Helper function to create a FROM clause

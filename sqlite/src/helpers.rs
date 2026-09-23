@@ -155,9 +155,26 @@ where
     let columns_info = rows[0].columns();
     let columns_slice = columns_info.as_ref();
 
-    // Check if this is a DEFAULT VALUES case (no columns)
+    // Every column takes its default. `DEFAULT VALUES` inserts one row, and
+    // SQLite has no `DEFAULT` keyword inside VALUES, so several such rows
+    // insert NULL into `rowid`, which assigns the next rowid and leaves every
+    // declared column to its default. (A WITHOUT ROWID table rejects this
+    // with "no column named rowid" instead of inserting a single row.)
     if columns_slice.is_empty() {
-        return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
+        if rows.len() == 1 {
+            return SQL::from_iter([Token::DEFAULT, Token::VALUES]);
+        }
+        let mut values_sql = SQL::with_capacity_chunks(rows.len().saturating_mul(4));
+        for index in 0..rows.len() {
+            if index > 0 {
+                values_sql.push_mut(Token::COMMA);
+            }
+            values_sql.append_mut(SQL::from(Token::NULL).parens());
+        }
+        return SQL::raw("rowid")
+            .parens()
+            .push(Token::VALUES)
+            .append(values_sql);
     }
 
     let columns_sql = SQL::columns(columns_slice);

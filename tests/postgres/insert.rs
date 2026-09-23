@@ -472,3 +472,85 @@ fn upsert_returning_reports_the_stored_row(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(returned[0].id, 60);
     assert_eq!(returned[0].name, "proposed");
 }
+
+#[PostgresTable(NAME = "insert_optional_rows")]
+struct OptionalRows {
+    #[column(serial, primary)]
+    id: i32,
+    name: String,
+    nickname: Option<String>,
+    #[column(default = "guest")]
+    role: Option<String>,
+}
+
+#[PostgresTable(NAME = "insert_default_rows")]
+struct DefaultRows {
+    #[column(serial, primary)]
+    id: i32,
+    #[column(default = "x")]
+    label: String,
+}
+
+#[derive(PostgresSchema)]
+struct InsertRowsSchema {
+    optional_rows: OptionalRows,
+    default_rows: DefaultRows,
+}
+
+#[drizzle::test]
+fn multi_row_insert_lines_up_rows_that_omit_different_columns(db: &mut TestDb<InsertRowsSchema>) {
+    let InsertRowsSchema { optional_rows, .. } = schema;
+
+    // Both rows set `nickname` and `role`, but `None` leaves a column to its
+    // default without changing the row's type, so the rows name different
+    // columns. Row 0's column list used to serve every row, which put row 1's
+    // role into `nickname`.
+    let insert = db.insert(optional_rows).values([
+        InsertOptionalRows::new("a")
+            .with_nickname(Some(String::from("A")))
+            .with_role(None::<String>),
+        InsertOptionalRows::new("b")
+            .with_nickname(None::<String>)
+            .with_role(Some(String::from("admin"))),
+    ]);
+    let sql = insert.to_sql().sql();
+    assert!(
+        sql.ends_with(
+            r#"("name", "nickname", "role") VALUES ($1, $2, DEFAULT), ($3, DEFAULT, $4)"#
+        ),
+        "{sql}"
+    );
+    insert.execute();
+
+    let stored: Vec<SelectOptionalRows> = db
+        .select(())
+        .from(optional_rows)
+        .order_by(asc(optional_rows.id))
+        .all();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].nickname.as_deref(), Some("A"));
+    assert_eq!(stored[0].role.as_deref(), Some("guest"));
+    assert_eq!(stored[1].nickname, None);
+    assert_eq!(stored[1].role.as_deref(), Some("admin"));
+}
+
+#[drizzle::test]
+fn multi_row_insert_of_default_rows_inserts_every_row(db: &mut TestDb<InsertRowsSchema>) {
+    let InsertRowsSchema { default_rows, .. } = schema;
+
+    // `DEFAULT VALUES` inserts one row, so several all-default rows used to
+    // insert only one of them.
+    let ids: Vec<i32> = db
+        .insert(default_rows)
+        .values([
+            InsertDefaultRows::new(),
+            InsertDefaultRows::new(),
+            InsertDefaultRows::new(),
+        ])
+        .returning(default_rows.id)
+        .all();
+    assert_eq!(ids.len(), 3);
+
+    let labels: Vec<String> = db.select(default_rows.label).from(default_rows).all();
+    assert_eq!(labels, ["x", "x", "x"]);
+}

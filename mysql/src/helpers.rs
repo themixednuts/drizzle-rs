@@ -414,6 +414,22 @@ where
     assert!(!rows.is_empty(), "insert values requires at least one row");
 
     let columns = rows[0].columns();
+    // A `None` passed to a `with_*` setter leaves that column to its default
+    // without changing the row's type, so rows can set different columns.
+    // Then every row lists the union of the columns, with `DEFAULT` where it
+    // sets none.
+    if rows[1..]
+        .iter()
+        .any(|row| row.columns().as_ref() != columns.as_ref())
+        && let Some(rows_sql) = drizzle_core::helpers::insert_values_with_defaults(
+            rows.iter()
+                .map(|row| (row.columns(), row.values()))
+                .collect(),
+        )
+    {
+        return rows_sql;
+    }
+
     if columns.is_empty() {
         let mut row_sql = SQL::with_capacity_chunks(rows.len().saturating_mul(3));
         for index in 0..rows.len() {

@@ -697,3 +697,45 @@ fn on_conflict_do_update_excluded_e2e(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "from_excluded");
 }
+
+#[SQLiteTable(NAME = "insert_default_rows")]
+struct DefaultRows {
+    #[column(PRIMARY, AUTOINCREMENT)]
+    id: i32,
+    #[column(DEFAULT = "x")]
+    label: String,
+}
+
+#[derive(SQLiteSchema)]
+struct DefaultRowsSchema {
+    default_rows: DefaultRows,
+}
+
+#[drizzle::test]
+fn multi_row_insert_of_default_rows_inserts_every_row(db: &mut TestDb<DefaultRowsSchema>) {
+    let DefaultRowsSchema { default_rows } = schema;
+
+    // A single all-default row keeps `DEFAULT VALUES`.
+    let single = db
+        .insert(default_rows)
+        .values([InsertDefaultRows::new()])
+        .to_sql()
+        .sql();
+    assert!(single.ends_with("DEFAULT VALUES"), "{single}");
+
+    // `DEFAULT VALUES` inserts one row, so several all-default rows used to
+    // insert only one of them.
+    let ids: Vec<i32> = db
+        .insert(default_rows)
+        .values([
+            InsertDefaultRows::new(),
+            InsertDefaultRows::new(),
+            InsertDefaultRows::new(),
+        ])
+        .returning(default_rows.id)
+        .all();
+    assert_eq!(ids.len(), 3);
+
+    let labels: Vec<String> = db.select(default_rows.label).from(default_rows).all();
+    assert_eq!(labels, ["x", "x", "x"]);
+}

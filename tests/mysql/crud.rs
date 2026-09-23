@@ -5,6 +5,7 @@ use drizzle::core::{
     asc,
     expr::{concat, count, eq},
 };
+use drizzle::mysql::prelude::*;
 
 #[drizzle::test]
 fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
@@ -123,4 +124,56 @@ fn mysql_executes_concat_and_standalone_offset(db: &mut TestDb<TestSchema>) {
         .all();
 
     assert_eq!(labels, ["Bob!"]);
+}
+
+#[MySQLTable(NAME = "insert_optional_rows")]
+struct OptionalRows {
+    #[column(PRIMARY, AUTO_INCREMENT)]
+    id: u64,
+    #[column(VARCHAR(32))]
+    name: String,
+    #[column(VARCHAR(32))]
+    nickname: Option<String>,
+    #[column(VARCHAR(32), DEFAULT = "guest")]
+    role: Option<String>,
+}
+
+#[derive(MySQLSchema)]
+struct InsertRowsSchema {
+    optional_rows: OptionalRows,
+}
+
+#[drizzle::test]
+fn multi_row_insert_lines_up_rows_that_omit_different_columns(db: &mut TestDb<InsertRowsSchema>) {
+    let InsertRowsSchema { optional_rows } = schema;
+
+    // Both rows set `nickname` and `role`, but `None` leaves a column to its
+    // default without changing the row's type, so the rows name different
+    // columns. Row 0's column list used to serve every row, which put row 1's
+    // role into `nickname`.
+    let insert = db.insert(optional_rows).values([
+        InsertOptionalRows::new("a")
+            .with_nickname(Some(String::from("A")))
+            .with_role(None::<String>),
+        InsertOptionalRows::new("b")
+            .with_nickname(None::<String>)
+            .with_role(Some(String::from("admin"))),
+    ]);
+    let sql = insert.to_sql().sql();
+    assert!(
+        sql.ends_with("(`name`, `nickname`, `role`) VALUES (?, ?, DEFAULT), (?, DEFAULT, ?)"),
+        "{sql}"
+    );
+    insert.execute();
+
+    let stored: Vec<SelectOptionalRows> = db
+        .select(())
+        .from(optional_rows)
+        .order_by(asc(optional_rows.id))
+        .all();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].nickname.as_deref(), Some("A"));
+    assert_eq!(stored[0].role.as_deref(), Some("guest"));
+    assert_eq!(stored[1].nickname, None);
+    assert_eq!(stored[1].role.as_deref(), Some("admin"));
 }
