@@ -67,7 +67,7 @@ cargo bench --features "rusqlite,uuid"
 
 ## Configuration
 
-- MSRV: Rust 1.95
+- MSRV: Rust 1.98
 - Edition: 2024
 - Resolver: v3
 

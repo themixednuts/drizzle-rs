@@ -24,7 +24,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: "1.95"
+  RUST_VERSION: "1.98"
   NODE_VERSION: "24"
   BENCHMARK_SIZE: ${{ inputs.benchmark_size || 'full' }}
   BENCH_COHORT_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-throughput-http
