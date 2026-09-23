@@ -331,6 +331,24 @@ macro_rules! shared_prepared_statement_suite {
             }
 
             #[drizzle::test($dialect)]
+            fn owned_insert_model_keeps_placeholders(db: &mut TestDb<SharedPreparedSchema>) {
+                use drizzle::core::SQLModel as _;
+                let SharedPreparedSchema { users } = schema;
+
+                // Detaching the model from its borrows must keep the
+                // placeholder, not replace it with a bound NULL.
+                let name = users.name.placeholder("shared_prepared_owned_name");
+                let row = || InsertSharedPreparedUser::new(name).with_id(1);
+                let borrowed = row();
+                let owned = row().into_owned();
+                assert_eq!(owned.values().sql(), borrowed.values().sql());
+                assert_eq!(
+                    owned.values().params().count(),
+                    borrowed.values().params().count()
+                );
+            }
+
+            #[drizzle::test($dialect)]
             fn update_mixes_concrete_values_and_placeholders(
                 db: &mut TestDb<SharedPreparedSchema>,
             ) {

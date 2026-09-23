@@ -39,25 +39,20 @@ pub enum SQLiteInsertValue<'a, V: SQLParam, T> {
 }
 
 impl<'a, T> SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
-    /// Converts this `InsertValue` to an owned version with 'static lifetime
+    /// Converts this `InsertValue` to an owned version with 'static lifetime.
+    ///
+    /// The whole SQL fragment is kept: placeholders stay unbound and
+    /// expressions such as `json(?)` keep their shape, with every bound value
+    /// detached from its borrow.
     #[must_use]
     pub fn into_owned(self) -> SQLiteInsertValue<'static, SQLiteValue<'static>, T> {
         match self {
             SQLiteInsertValue::Omit => SQLiteInsertValue::Omit,
             SQLiteInsertValue::Null => SQLiteInsertValue::Null,
             SQLiteInsertValue::Value(wrapper) => {
-                // Extract the parameter value, convert to owned, then back to static SQLiteValue
-                let static_sql = match wrapper.value.chunks.first() {
-                    Some(drizzle_core::SQLChunk::Param(param)) => param.value.as_ref().map_or_else(
-                        || drizzle_core::SQL::param(SQLiteValue::Null),
-                        |val| {
-                            let owned_val = OwnedSQLiteValue::from(val.as_ref().clone());
-                            let static_val: SQLiteValue<'static> = owned_val.into();
-                            drizzle_core::SQL::param(static_val)
-                        },
-                    ),
-                    _ => drizzle_core::SQL::param(SQLiteValue::Null),
-                };
+                let static_sql = wrapper
+                    .value
+                    .into_owned_with(|value| SQLiteValue::from(OwnedSQLiteValue::from(value)));
                 SQLiteInsertValue::Value(ValueWrapper::<SQLiteValue<'static>, T>::new(static_sql))
             }
         }

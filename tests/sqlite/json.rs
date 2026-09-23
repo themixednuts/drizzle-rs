@@ -84,3 +84,43 @@ fn json_storage(db: &mut TestDb<Schema>) {
     assert_eq!(result.profile, profile);
     assert_eq!(result.raw, serde_json::json!({ "enabled": true }));
 }
+
+#[drizzle::test]
+fn owned_insert_model_keeps_json_values(db: &mut TestDb<Schema>) {
+    use drizzle::core::SQLModel as _;
+
+    let profile = Profile {
+        age: 41,
+        name: "Ada".to_string(),
+        interests: vec!["Engines".to_string()],
+    };
+
+    // A JSON column inserts through `json(?)`; the owned model must keep that
+    // expression and its value rather than replace them with a bound NULL.
+    let id = Uuid::new_v4();
+    let row = || {
+        InsertJsonUser::new(
+            id,
+            "ada@test.com",
+            profile.clone(),
+            serde_json::json!({ "enabled": false }),
+        )
+    };
+    let borrowed = row();
+    let owned = row().into_owned();
+
+    let borrowed_values = borrowed.values();
+    let owned_values = owned.values();
+    assert!(
+        borrowed_values.sql().contains("json"),
+        "{}",
+        borrowed_values.sql()
+    );
+    assert_eq!(owned_values.sql(), borrowed_values.sql());
+    assert!(
+        owned_values.params().eq(borrowed_values.params()),
+        "owned {:?} != borrowed {:?}",
+        owned_values.params().collect::<Vec<_>>(),
+        borrowed_values.params().collect::<Vec<_>>()
+    );
+}

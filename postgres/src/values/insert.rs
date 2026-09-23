@@ -45,27 +45,20 @@ pub enum PostgresInsertValue<'a, V: SQLParam, T> {
 }
 
 impl<'a, T> PostgresInsertValue<'a, PostgresValue<'a>, T> {
-    /// Converts this `InsertValue` to an owned version with 'static lifetime
+    /// Converts this `InsertValue` to an owned version with 'static lifetime.
+    ///
+    /// The whole SQL fragment is kept: placeholders stay unbound and
+    /// expressions keep their shape, with every bound value detached from its
+    /// borrow.
     #[must_use]
     pub fn into_owned(self) -> PostgresInsertValue<'static, PostgresValue<'static>, T> {
         match self {
             PostgresInsertValue::Omit => PostgresInsertValue::Omit,
             PostgresInsertValue::Null => PostgresInsertValue::Null,
             PostgresInsertValue::Value(wrapper) => {
-                // Convert PostgresValue parameters to owned values
-                let static_sql = match wrapper.value.chunks.first() {
-                    Some(SQLChunk::Param(param)) => param.value.as_ref().map_or_else(
-                        || SQL::param(PostgresValue::Null),
-                        |postgres_val| {
-                            let owned_postgres_val =
-                                OwnedPostgresValue::from(postgres_val.as_ref().clone());
-                            let static_postgres_val = PostgresValue::from(owned_postgres_val);
-                            SQL::param(static_postgres_val)
-                        },
-                    ),
-                    // Non-parameter chunk, convert to NULL for simplicity
-                    _ => SQL::param(PostgresValue::Null),
-                };
+                let static_sql = wrapper
+                    .value
+                    .into_owned_with(|value| PostgresValue::from(OwnedPostgresValue::from(value)));
                 PostgresInsertValue::Value(ValueWrapper::<PostgresValue<'static>, T>::new(
                     static_sql,
                 ))
