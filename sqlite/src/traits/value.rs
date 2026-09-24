@@ -997,7 +997,7 @@ impl FromSQLiteValue for chrono::NaiveDateTime {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
+        chrono_text::naive(value).map_err(|e| {
             DrizzleError::ConversionError(
                 format!("cannot parse '{value}' as NaiveDateTime: {e}").into(),
             )
@@ -1026,7 +1026,7 @@ impl FromSQLiteValue for chrono::DateTime<chrono::FixedOffset> {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        Self::parse_from_rfc3339(value).map_err(|e| {
+        chrono_text::fixed(value).map_err(|e| {
             DrizzleError::ConversionError(
                 format!("cannot parse '{value}' as DateTime<FixedOffset>: {e}").into(),
             )
@@ -1055,7 +1055,7 @@ impl FromSQLiteValue for chrono::DateTime<chrono::Utc> {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        value.parse().map_err(|e| {
+        chrono_text::utc(value).map_err(|e| {
             DrizzleError::ConversionError(
                 format!("cannot parse '{value}' as DateTime<Utc>: {e}").into(),
             )
@@ -1078,6 +1078,40 @@ impl FromSQLiteValue for chrono::DateTime<chrono::Utc> {
 // =============================================================================
 // Time crate date/time types (parse from ISO-8601 text)
 // =============================================================================
+
+/// Parsers for the text chrono values are stored as.
+///
+/// The SQLite conversions write a `NaiveDateTime` with a space between date
+/// and time, as SQLite's own date and time functions do, and chrono's
+/// `FromStr` reads only ISO 8601's `T`. Each parser accepts both, and reads a
+/// date and time without an offset as UTC.
+#[cfg(feature = "chrono")]
+pub(crate) mod chrono_text {
+    use chrono::{DateTime, FixedOffset, NaiveDateTime, Offset, ParseResult, Utc};
+
+    /// SQLite's `YYYY-MM-DD HH:MM:SS[.fraction]`, or ISO 8601.
+    pub(crate) fn naive(text: &str) -> ParseResult<NaiveDateTime> {
+        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f").or_else(|_| text.parse())
+    }
+
+    /// RFC 3339, or a date and time without an offset, which is UTC.
+    pub(crate) fn fixed(text: &str) -> ParseResult<DateTime<FixedOffset>> {
+        DateTime::parse_from_rfc3339(text).or_else(|error| {
+            naive(text)
+                .map(|value| DateTime::from_naive_utc_and_offset(value, Utc.fix()))
+                .map_err(|_| error)
+        })
+    }
+
+    /// A date and time with an offset, or without one, which is UTC.
+    pub(crate) fn utc(text: &str) -> ParseResult<DateTime<Utc>> {
+        text.parse().or_else(|error| {
+            naive(text)
+                .map(|value| DateTime::from_naive_utc_and_offset(value, Utc))
+                .map_err(|_| error)
+        })
+    }
+}
 
 /// Parsers for the text `time` values are stored as.
 ///

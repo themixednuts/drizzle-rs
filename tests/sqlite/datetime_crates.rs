@@ -183,13 +183,19 @@ mod time_values {
 
 #[cfg(feature = "chrono")]
 mod chrono_values {
+    use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+    use drizzle::core::expr::*;
     use drizzle::sqlite::prelude::*;
 
     #[SQLiteTable(NAME = "chrono_events")]
     struct ChronoEvent {
         #[column(PRIMARY)]
         id: i32,
-        instant: chrono::DateTime<chrono::Utc>,
+        day: NaiveDate,
+        starts: NaiveTime,
+        local: NaiveDateTime,
+        zoned: DateTime<FixedOffset>,
+        instant: DateTime<Utc>,
     }
 
     #[derive(SQLiteSchema)]
@@ -197,19 +203,93 @@ mod chrono_values {
         events: ChronoEvent,
     }
 
+    fn values() -> (
+        NaiveDate,
+        NaiveTime,
+        NaiveDateTime,
+        DateTime<FixedOffset>,
+        DateTime<Utc>,
+    ) {
+        let day = NaiveDate::from_ymd_opt(2026, 9, 23).unwrap();
+        let starts = NaiveTime::from_hms_milli_opt(9, 30, 15, 500).unwrap();
+        let local = day.and_hms_milli_opt(9, 30, 15, 250).unwrap();
+        let zoned = DateTime::parse_from_rfc3339("2026-09-23T09:30:15+02:00").unwrap();
+        let instant = zoned.with_timezone(&Utc);
+        (day, starts, local, zoned, instant)
+    }
+
     #[drizzle::test]
-    fn chrono_utc_datetime_decodes_as_a_selected_column(db: &mut TestDb<ChronoSchema>) {
+    fn chrono_values_round_trip(db: &mut TestDb<ChronoSchema>) {
         let ChronoSchema { events } = schema;
-        let instant = chrono::DateTime::parse_from_rfc3339("2026-09-23T07:30:15Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
+        let (day, starts, local, zoned, instant) = values();
 
         db.insert(events)
-            .values([InsertChronoEvent::new(instant).with_id(1)])
+            .values([InsertChronoEvent::new(day, starts, local, zoned, instant).with_id(1)])
             .execute();
 
-        // The value is stored as RFC 3339, which a naive parse rejected.
-        let selected: chrono::DateTime<chrono::Utc> = db.select(events.instant).from(events).get();
-        assert_eq!(selected, instant);
+        // A NaiveDateTime is stored with a space between date and time, which
+        // chrono's own parser rejected.
+        let row: SelectChronoEvent = db.select(()).from(events).get();
+        assert_eq!(
+            (row.day, row.starts, row.local, row.zoned, row.instant),
+            (day, starts, local, zoned, instant)
+        );
+
+        let (selected_day, selected_starts, selected_local, selected_instant): (
+            NaiveDate,
+            NaiveTime,
+            NaiveDateTime,
+            DateTime<Utc>,
+        ) = db
+            .select((events.day, events.starts, events.local, events.instant))
+            .from(events)
+            .get();
+        assert_eq!(
+            (
+                selected_day,
+                selected_starts,
+                selected_local,
+                selected_instant
+            ),
+            (day, starts, local, instant)
+        );
+
+        // A bound value is written the same way, so it matches in a filter.
+        let matched: Vec<SelectChronoEvent> = db
+            .select(())
+            .from(events)
+            .r#where(and(eq(events.local, local), eq(events.instant, instant)))
+            .all();
+        assert_eq!(matched.len(), 1);
+    }
+
+    #[drizzle::test]
+    fn chrono_values_read_sqlite_datetime_text(db: &mut TestDb<ChronoSchema>) {
+        let ChronoSchema { events } = schema;
+        // SQLite's own date functions and CURRENT_TIMESTAMP write a space
+        // between date and time, and no offset: the time is UTC.
+        result!(db.execute(SQL::raw(
+            r#"INSERT INTO "chrono_events" ("id", "day", "starts", "local", "zoned", "instant")
+               VALUES (1, '2026-09-23', '09:30:15', '2026-09-23 09:30:15', '2026-09-23 07:30:15', '2026-09-23 07:30:15')"#
+        )))?;
+
+        let local = NaiveDate::from_ymd_opt(2026, 9, 23)
+            .unwrap()
+            .and_hms_opt(9, 30, 15)
+            .unwrap();
+        let instant = DateTime::parse_from_rfc3339("2026-09-23T07:30:15Z").unwrap();
+
+        let row: SelectChronoEvent = db.select(()).from(events).get();
+        assert_eq!(
+            (row.local, row.zoned, row.instant),
+            (local, instant, instant.with_timezone(&Utc))
+        );
+
+        let (selected_local, selected_instant): (NaiveDateTime, DateTime<Utc>) =
+            db.select((events.local, events.instant)).from(events).get();
+        assert_eq!(
+            (selected_local, selected_instant),
+            (local, instant.with_timezone(&Utc))
+        );
     }
 }

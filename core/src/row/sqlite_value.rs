@@ -276,8 +276,7 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for chrono::NaiveDateTime {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
         let s = String::from_row_at(row, offset)?;
-        s.parse()
-            .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))
+        chrono_text::naive(&s).map_err(chrono_parse_error)
     }
 }
 
@@ -288,14 +287,38 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for chrono::DateTime<chrono::Utc> {
         let s = String::from_row_at(row, offset)?;
         // The SQLite conversion writes RFC 3339; text without an offset (as
         // SQLite's own `CURRENT_TIMESTAMP` writes) is UTC.
-        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
-            return Ok(dt.with_timezone(&chrono::Utc));
-        }
-        let ndt: chrono::NaiveDateTime = s
-            .parse()
-            .map_err(|e: chrono::ParseError| DrizzleError::ConversionError(e.to_string().into()))?;
-        Ok(Self::from_naive_utc_and_offset(ndt, chrono::Utc))
+        chrono_text::utc(&s).map_err(chrono_parse_error)
     }
+}
+
+/// Parsers for the text chrono values are stored as.
+///
+/// The SQLite conversions write a `NaiveDateTime` with a space between date
+/// and time, as SQLite's own date and time functions do, and chrono's
+/// `FromStr` reads only ISO 8601's `T`. Each parser accepts both, and reads a
+/// date and time without an offset as UTC.
+#[cfg(feature = "chrono")]
+mod chrono_text {
+    use chrono::{DateTime, NaiveDateTime, ParseResult, Utc};
+
+    /// SQLite's `YYYY-MM-DD HH:MM:SS[.fraction]`, or ISO 8601.
+    pub(crate) fn naive(text: &str) -> ParseResult<NaiveDateTime> {
+        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f").or_else(|_| text.parse())
+    }
+
+    /// A date and time with an offset, or without one, which is UTC.
+    pub(crate) fn utc(text: &str) -> ParseResult<DateTime<Utc>> {
+        text.parse().or_else(|error| {
+            naive(text)
+                .map(|value| DateTime::from_naive_utc_and_offset(value, Utc))
+                .map_err(|_| error)
+        })
+    }
+}
+
+#[cfg(feature = "chrono")]
+fn chrono_parse_error(error: chrono::ParseError) -> DrizzleError {
+    DrizzleError::ConversionError(error.to_string().into())
 }
 
 /// Parsers for the text `time` values are stored as.
