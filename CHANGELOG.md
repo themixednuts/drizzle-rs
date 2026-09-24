@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0](https://github.com/themixednuts/drizzle-rs/compare/v0.1.16...v0.2.0) - 2026-09-23
 
+### Breaking changes
+
+Upgrading from 0.1.x: each item below is a change existing code may need. The lists after it are generated from the commits.
+
+- *(msrv)* The minimum supported Rust version is 1.98 (was 1.95).
+- *(api)* `Drizzle::new` takes only the connection and builds the schema with `Default`: `let (db, Schema { users, .. }) = Drizzle::new(conn)`. Delete the second argument. When the pattern doesn't name the schema type, put it on the call (`Drizzle::<Schema>::new(conn)`; MySQL `Drizzle::<_, Schema>::new(conn)`), and write `let (db, ()) = Drizzle::new(conn)` for no schema. `hyperdrive::connect` and `connect_raw` drop their schema argument the same way.
+- *(macros)* Generated per-column types live in a module named after the table in snake case: `users::Name` (was `UsersName`), `users::AliasedName` (was `AliasedUsersName`), and the insert markers `users::NameSet` / `users::NameNotSet` (were `UsersNameSet` / `UsersNameNotSet`). Code that names these types needs the new paths; code that uses `users.name` is unchanged. In exchange, a `User` table can have a `role: UserRole` column, which used to fail with a duplicate definition. A module of your own with the table's snake-case name, next to the table (`mod users` beside `struct Users`), now collides; rename one of them.
+- *(durable)* The Durable Objects driver is built from the object's `State`: `Drizzle::new(DurableStorage::new(&mut state))` instead of `Drizzle::new(state.storage().sql())`. Build it in `DurableObject::new` and keep it on the object. `Transaction::inner()` and the prepared-statement executors take `&DurableStorage` (`.sql()` gives the `SqlStorage`), and `Transaction::config()` is gone.
+- *(schema)* `DEFAULT_SQL` / `default_sql` is removed on SQLite, PostgreSQL and MySQL. `default` now covers both cases: a quoted string is a SQL value (`default = "guest"`), and an unquoted SQL keyword or function call is emitted as a database expression (`default = CURRENT_TIMESTAMP`, `default = now()`, `default = strftime("%s", "now")`). Replace `default_sql = "CURRENT_TIMESTAMP"` with `default = CURRENT_TIMESTAMP`.
+- *(sqlite)* The SQLite math functions (`sqrt`, `ceil`, `floor`, `trunc`, `exp`, `ln`, `log*`, `power`, `pi`) need the new `math` feature and the `MathExt` import. Stock rusqlite/libsql builds don't ship them, so they used to fail at runtime.
+- *(sqlite)* `intersect_all` / `except_all` are gone from the SQLite builders. SQLite has no `INTERSECT ALL` / `EXCEPT ALL`.
+- *(transactions)* The public `begin` APIs and explicit transaction guards are removed. Transactions are scoped to `db.transaction(config, |tx| ...)`, which owns commit and rollback.
+- *(json)* JSON columns convert through `drizzle::core::Json<T>`, and the table macros no longer implement traits on payload types. Compare a JSON column with a wrapped value (`eq(profiles.settings, Json(value))`), and expect `Json<T>` when selecting a JSON column on its own (`.0` or `.into_inner()` gives the payload). Application crates no longer need a `serde_json` dependency.
+- *(sqlite)* Select models type a nullable column that has a `default`/`default_fn` as `Option<T>` (previously `T`, which failed to decode rows holding NULL).
+- *(macros)* Generated Select/PartialSelect models implement `Debug`, `Clone`, `PartialEq` and `Default` on every dialect whenever all field types do. A hand-written impl of one of these traits for a generated model now conflicts; delete it.
+- *(joins)* The NATURAL join helpers (`natural_join`, `natural_left_join`, ...) take only the table. A NATURAL join matches columns by name and rejects an ON clause, so the old form always failed.
+- *(values)* A setter argument that does not fit its column type (an out-of-range integer, a JSON payload that fails to serialize) panics instead of being stored as NULL.
+- *(sqlite)* `Drizzle::conn_mut` is no longer `const`: it drops libsql's cached statement, which belongs to the connection the caller may replace.
+- *(macros)* Column options that used to be ignored are errors: unknown `#[column]` keys (SQLite), invalid `on_delete`/`on_update` actions and non-`Table::column` references (SQLite), a second `#[column]` attribute and value-less `check`/`references`/`relation` (PostgreSQL), and `#[derive(Clone | Copy | Debug | Default)]` in a separate derive beside a schema derive.
+- *(macros)* `include_migrations!` with a missing directory is a compile error instead of an empty list.
+- *(cli)* A listed schema path that doesn't exist, or a pattern that matches no file, is an error (it used to be skipped, which could plan `DROP TABLE`). `migrate`, `push` and `pull` exit non-zero when they can't do their job. The `uuid`, `serde`, `chrono`, `cidr`, `geo-types` and `bit-vec` CLI features do nothing now.
+- *(postgres)* `push` no longer manages roles it wasn't told about: the library's `push` leaves every role alone, and the CLI follows `entities.roles` (off by default).
+
 ### Added
 
 - *(macros)* [**breaking**] keep generated column types in a module named after the table
