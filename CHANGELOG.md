@@ -7,6 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/themixednuts/drizzle-rs/compare/v0.1.16...v0.2.0) - 2026-09-23
+
+### Breaking changes
+
+Upgrading from 0.1.x: each item below is a change existing code may need. The lists after it are generated from the commits.
+
+- *(msrv)* The minimum supported Rust version is 1.98 (was 1.95).
+- *(api)* `Drizzle::new` takes only the connection and builds the schema with `Default`: `let (db, Schema { users, .. }) = Drizzle::new(conn)`. Delete the second argument. When the pattern doesn't name the schema type, put it on the call (`Drizzle::<Schema>::new(conn)`; MySQL `Drizzle::<_, Schema>::new(conn)`), and write `let (db, ()) = Drizzle::new(conn)` for no schema. `hyperdrive::connect` and `connect_raw` drop their schema argument the same way.
+- *(macros)* Generated per-column types live in a module named after the table in snake case: `users::Name` (was `UsersName`), `users::AliasedName` (was `AliasedUsersName`), and the insert markers `users::NameSet` / `users::NameNotSet` (were `UsersNameSet` / `UsersNameNotSet`). Code that names these types needs the new paths; code that uses `users.name` is unchanged. In exchange, a `User` table can have a `role: UserRole` column, which used to fail with a duplicate definition. A module of your own with the table's snake-case name, next to the table (`mod users` beside `struct Users`), now collides; rename one of them.
+- *(durable)* The Durable Objects driver is built from the object's `State`: `Drizzle::new(DurableStorage::new(&mut state))` instead of `Drizzle::new(state.storage().sql())`. Build it in `DurableObject::new` and keep it on the object. `Transaction::inner()` and the prepared-statement executors take `&DurableStorage` (`.sql()` gives the `SqlStorage`), and `Transaction::config()` is gone.
+- *(schema)* `DEFAULT_SQL` / `default_sql` is removed on SQLite, PostgreSQL and MySQL. `default` now covers both cases: a quoted string is a SQL value (`default = "guest"`), and an unquoted SQL keyword or function call is emitted as a database expression (`default = CURRENT_TIMESTAMP`, `default = now()`, `default = strftime("%s", "now")`). Replace `default_sql = "CURRENT_TIMESTAMP"` with `default = CURRENT_TIMESTAMP`.
+- *(sqlite)* The SQLite math functions (`sqrt`, `ceil`, `floor`, `trunc`, `exp`, `ln`, `log*`, `power`, `pi`) need the new `math` feature and the `MathExt` import. Stock rusqlite/libsql builds don't ship them, so they used to fail at runtime.
+- *(sqlite)* `intersect_all` / `except_all` are gone from the SQLite builders. SQLite has no `INTERSECT ALL` / `EXCEPT ALL`.
+- *(transactions)* The public `begin` APIs and explicit transaction guards are removed. Transactions are scoped to `db.transaction(config, |tx| ...)`, which owns commit and rollback.
+- *(json)* JSON columns convert through `drizzle::core::Json<T>`, and the table macros no longer implement traits on payload types. Compare a JSON column with a wrapped value (`eq(profiles.settings, Json(value))`), and expect `Json<T>` when selecting a JSON column on its own (`.0` or `.into_inner()` gives the payload). Application crates no longer need a `serde_json` dependency.
+- *(sqlite)* Select models type a nullable column that has a `default`/`default_fn` as `Option<T>` (previously `T`, which failed to decode rows holding NULL).
+- *(macros)* Generated Select/PartialSelect models implement `Debug`, `Clone`, `PartialEq` and `Default` on every dialect whenever all field types do. A hand-written impl of one of these traits for a generated model now conflicts; delete it.
+- *(joins)* The NATURAL join helpers (`natural_join`, `natural_left_join`, ...) take only the table. A NATURAL join matches columns by name and rejects an ON clause, so the old form always failed.
+- *(values)* A setter argument that does not fit its column type (an out-of-range integer, a JSON payload that fails to serialize) panics instead of being stored as NULL.
+- *(sqlite)* `Drizzle::conn_mut` is no longer `const`: it drops libsql's cached statement, which belongs to the connection the caller may replace.
+- *(macros)* Column options that used to be ignored are errors: unknown `#[column]` keys (SQLite), invalid `on_delete`/`on_update` actions and non-`Table::column` references (SQLite), a second `#[column]` attribute and value-less `check`/`references`/`relation` (PostgreSQL), and `#[derive(Clone | Copy | Debug | Default)]` in a separate derive beside a schema derive.
+- *(macros)* `include_migrations!` with a missing directory is a compile error instead of an empty list.
+- *(cli)* A listed schema path that doesn't exist, or a pattern that matches no file, is an error (it used to be skipped, which could plan `DROP TABLE`). `migrate`, `push` and `pull` exit non-zero when they can't do their job. The `uuid`, `serde`, `chrono`, `cidr`, `geo-types` and `bit-vec` CLI features do nothing now.
+- *(postgres)* `push` no longer manages roles it wasn't told about: the library's `push` leaves every role alone, and the CLI follows `entities.roles` (off by default).
+
+### Added
+
+- *(macros)* [**breaking**] keep generated column types in a module named after the table
+- *(api)* infer the schema in Drizzle::new
+- support jiff date and time types
+- compare date and time values in filters
+- *(postgres)* add select_distinct_on to transactions
+- *(core)* add Json<T> for JSON column values
+- *(sqlite)* gate the optional math functions behind MathExt and a `math` feature
+- *(query)* add checked insert-select parity
+- add typed derived table sources
+- add shared decoded row cursors
+- *(mysql)* add custom column codecs
+- *(mysql)* support advanced index key parts
+- support typed update expressions
+- *(mysql)* support serial column shorthand
+- *(mysql)* add safe schema introspection and push
+- *(mysql)* support multiple index hints
+- unify transaction configuration and lifecycle
+- *(mysql)* add runtime migrations and simplify internals
+- *(mysql)* document release-ready adapter contract
+- *(postgres)* support relational queries in transactions
+- *(seed)* add MySQL seeding and reset plans
+- *(mysql)* add live CLI schema workflows
+- *(mysql)* add migration generation
+- *(mysql)* add relational query support
+- *(mysql)* add mysql_async adapter
+- *(mysql)* add blocking mysql adapter
+- *(mysql)* add shared driver contracts
+- *(mysql)* add native query capabilities
+- *(mysql)* add typed query builders
+- *(mysql)* generate schema macros
+- *(mysql)* establish dialect foundation
+- *(json)* align dialect codecs and storage
+- *(schema)* simplify database defaults
+
+### Changed
+
+- scope transactions to callbacks
+
+### Documentation
+
+- prepare for 0.2.0
+- rework the README and fix stale doc comments
+- drop stale MySQL WIP note
+- test README as crate documentation
+- *(sqlite)* correct row codec support
+- *(mysql)* remove stale WIP packaging label
+
+### Fixed
+
+- *(macros)* break the drizzle-macros -> drizzle release cycle
+- *(durable)* [**breaking**] run transactions through transactionSync
+- *(macros)* reject column options they used to ignore
+- read time-crate values back on SQLite and as selected columns
+- mark query builders #[must_use]
+- report a failed rollback together with the error that caused it
+- *(postgres)* fail the commit after a swallowed statement error
+- *(postgres)* re-prepare cached statements the server rejects as stale
+- *(postgres)* make tokio-postgres transaction futures Send
+- *(libsql)* reset the cached statement after use
+- *(sqlite)* run RETURNING statements to completion in execute()
+- panic on a value that fails to convert instead of storing NULL
+- *(macros)* write bound values into view definitions as literals
+- *(core)* keep subquery scopes in relational query filters
+- *(sqlite)* let INSERT ... SELECT take an upsert clause
+- natural joins take no join condition
+- fill omitted columns with DEFAULT in multi-row inserts
+- keep the whole value in InsertValue::into_owned
+- *(mysql)* use i64::MAX as the unbounded LIMIT before OFFSET
+- *(sqlite)* render OFFSET without LIMIT as LIMIT -1 OFFSET
+- *(core)* expand the projection of SELECT DISTINCT without columns
+- *(sqlite)* bind a repeated named placeholder once
+- *(core)* group set-operation operands that need it
+- *(core)* parenthesize operands by operator precedence
+- *(ci)* run the downstream fixtures only in their own job
+- *(macros)* stop linking database drivers into the proc-macro
+- *(sqlite)* keep Option<T> for nullable columns with defaults
+- *(macros)* convert JSON columns through Json<T>, never the payload type
+- *(deps)* admit turso 0.8.0-pre.12
+- *(sqlite)* drop INTERSECT ALL / EXCEPT ALL from the SQLite builders
+- *(query)* make math, statistical and JSON expressions execute on PostgreSQL
+- *(query)* order compound selects by output columns
+- make builder macros hygienic
+- enforce API documentation tests
+- *(query)* keep empty sets and derived projections portable
+- *(query)* expand joined derived projections
+- *(seed)* omit generated columns from inserts
+- *(schema)* align defaults and MySQL numeric metadata
+- *(macros)* qualify generated update values
+- *(mysql)* correct aliased selects and migration tests
+- *(mysql)* allow hinted select set operations
+- *(mysql)* support relational queries on views
+- *(sqlite)* flatten Turso transaction future
+- *(postgres)* preserve bounded character types
+- *(mysql)* validate generated column constraints
+- *(query)* preserve postgres view search paths
+- *(mysql)* correct join and savepoint execution
+- *(core)* preserve no_std projection checks
+- *(macros)* make include_migrations! fail on a missing directory
+- *(macros)* decode date and time fields on turso and libsql
+- *(macros)* bound generated model traits on their field types
+- *(postgres)* keep explicit json/jsonb Vec fields as JSON documents
+- *(macros)* decode SQLite UUID columns through the declared field type
+- *(macros)* make PostgresEnum and PostgresFromRow work outside this repo
+- *(macros)* generate view FK markers for MySQL and free the SQL capture in drizzle::test
+- *(macros)* qualify generated update SQL paths
+- *(migrations)* preserve introspected schema identities
+- *(sqlite)* enable chrono's alloc feature with the chrono feature
+- *(postgres)* honor search_path in REFRESH MATERIALIZED VIEW and view introspection
+- *(transactions)* preserve compatible options
+- *(postgres)* support runtime deferrable transactions
+- leave PostgreSQL roles alone unless told to manage them
+- *(cli)* describe `drizzle status` accurately
+- *(migrations)* keep generated defaults compilable
+- *(postgres)* normalize live schema metadata
+- *(cli)* gate SqliteRawData::empty on rusqlite
+- *(cli)* gate migration-plan helpers on the drivers that use them
+- *(cli)* keep migrate --plan, --dry-run and --verify read-only
+- *(cli)* mask secret query parameters in printed URLs
+- *(cli)* print the plan warnings of generate and pull
+- *(cli)* fail when a listed schema path or pattern finds nothing
+- *(cli)* exit non-zero when migrate, push or pull cannot do their job
+
 ## [0.1.16](https://github.com/themixednuts/drizzle-rs/compare/v0.1.15...v0.1.16) - 2026-08-25
 
 ### Added
