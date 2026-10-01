@@ -256,39 +256,39 @@
 		>
 			{#if showCapacity}
 				<div class="lg:hidden">
-					<dt class="text-micro text-muted-foreground font-mono uppercase">peak throughput</dt>
+					<dt class="text-micro text-muted-foreground font-mono">peak throughput</dt>
 					<dd class="mt-1.5"><CapacityFigure capacity={row.capacity} /></dd>
 				</div>
 			{/if}
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">
+				<dt class="text-micro text-muted-foreground font-mono">
 					<Hint hint="Median of each trial's mean latency.">typical latency</Hint>
 				</dt>
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtLatency(p.latency.avg)}</dd>
 				<dd class="text-meta text-muted-foreground mt-1">p99 {fmtLatency(p.latency.p99)}</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">cpu</dt>
+				<dt class="text-micro text-muted-foreground font-mono">cpu</dt>
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtCpu(p.cpu.avg)}</dd>
 				<dd class="text-meta text-muted-foreground mt-1">peak core {fmtCpu(p.cpu.peak)}</dd>
 			</div>
 			{#if p.mem}
 				<div>
-					<dt class="text-micro text-muted-foreground font-mono uppercase">memory</dt>
+					<dt class="text-micro text-muted-foreground font-mono">memory</dt>
 					<dd class="text-body mt-1.5 font-mono tabular-nums">{p.mem.avg.toFixed(1)}MB</dd>
 					<dd class="text-meta text-muted-foreground mt-1">peak {p.mem.peak.toFixed(1)}MB</dd>
 				</div>
 			{/if}
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">errors</dt>
+				<dt class="text-micro text-muted-foreground font-mono">errors</dt>
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtPct(p.err)}</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">busiest second</dt>
+				<dt class="text-micro text-muted-foreground font-mono">busiest second</dt>
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtRps(p.rps.peak)}</dd>
 			</div>
 			<div>
-				<dt class="text-micro text-muted-foreground font-mono uppercase">
+				<dt class="text-micro text-muted-foreground font-mono">
 					{#if harness}
 						<Hint hint={harness.detail}>ran under</Hint>
 					{:else}
@@ -321,7 +321,7 @@
 			quartiles, and is drawn only where the run recorded them.
 		-->
 		<div class="border-border-soft mt-5 border-t pt-4">
-			<div class="text-micro text-muted-foreground font-mono uppercase">
+			<div class="text-micro text-muted-foreground font-mono">
 				<Hint hint={spreadDetail}>rate across trials</Hint>
 			</div>
 			<div class="mt-2 grid items-center gap-x-5 gap-y-2 lg:grid-cols-[minmax(0,1fr)_auto]">

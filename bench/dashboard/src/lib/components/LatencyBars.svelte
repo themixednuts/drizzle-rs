@@ -26,7 +26,7 @@
 	{#if datum}
 		<ChartTip class="max-w-64">
 			<div class="flex items-center gap-3">
-				<span class="text-foreground-secondary font-mono uppercase">{datum.label}</span>
+				<span class="text-foreground-secondary font-mono">{datum.label}</span>
 				<span class="text-foreground ml-auto font-mono tabular-nums">
 					{fmtLatency(datum.value)}
 				</span>

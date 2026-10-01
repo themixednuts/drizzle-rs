@@ -130,7 +130,7 @@
 					y2={PAD.top + plotH}
 				/>
 				<text
-					class="fill-muted-foreground text-micro type-narrow font-mono"
+					class="fill-muted-foreground text-micro font-mono"
 					x={PAD.left + tick.at * plotW}
 					y={H - 24}
 					text-anchor="middle"
@@ -148,7 +148,7 @@
 					y2={ty(tick.at)}
 				/>
 				<text
-					class="fill-muted-foreground text-micro type-narrow font-mono"
+					class="fill-muted-foreground text-micro font-mono"
 					x={PAD.left - 10}
 					y={ty(tick.at) + 4}
 					text-anchor="end"
@@ -158,7 +158,7 @@
 			{/each}
 
 			<text
-				class="fill-foreground-faint text-micro type-narrow font-mono uppercase"
+				class="fill-foreground-faint text-micro font-mono"
 				x={PAD.left + plotW / 2}
 				y={H - 6}
 				text-anchor="middle"
@@ -167,7 +167,7 @@
 			</text>
 			<!-- Rotated, this arrow points up the page, which is now the direction latency grows. -->
 			<text
-				class="fill-foreground-faint text-micro type-narrow font-mono uppercase"
+				class="fill-foreground-faint text-micro font-mono"
 				transform="rotate(-90)"
 				x={-(PAD.top + plotH / 2)}
 				y={14}

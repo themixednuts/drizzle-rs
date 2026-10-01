@@ -4,7 +4,7 @@
 	import type { DeltaDirection } from '#lib/leaderboard';
 
 	/**
-	 * One KPI. A mono uppercase label, a big mono number, and a sub-line carrying either what the
+	 * One KPI. A mono label, a big mono number, and a sub-line carrying either what the
 	 * number is derived from or how it moved.
 	 *
 	 * No card around it. These already sit inside a bordered section, so the tile border was a box
@@ -28,7 +28,7 @@
 </script>
 
 <div>
-	<div class="text-micro text-muted-foreground font-mono uppercase">
+	<div class="text-micro text-muted-foreground font-mono">
 		{#if hint}
 			<Hint {hint}>{label}</Hint>
 		{:else}

@@ -49,7 +49,6 @@
 
 	let head = $state(0);
 	let playing = $state(true);
-	let speed = $state(1);
 	let metric = $state<MetricKey>('rps');
 	/** Level under the pointer, or null when the pointer is away. Never moves the playhead. */
 	let probe = $state<number | null>(null);
@@ -120,7 +119,7 @@
 		const tick = (now: number) => {
 			const elapsed = now - previous;
 			previous = now;
-			head = head + (elapsed / 1000) * 60 * speed;
+			head = head + (elapsed / 1000) * 60;
 			if (head >= last) {
 				head = last;
 				playing = false;
@@ -245,24 +244,6 @@
 			{head >= last ? 'Replay' : playing ? 'Pause' : 'Play'}
 		</button>
 
-		<div class="flex items-center gap-1" role="group" aria-label="Playback speed">
-			{#each [0.5, 1, 2, 4] as rate (rate)}
-				<button
-					type="button"
-					class={cn(
-						'text-meta rounded-sm px-2 py-1 font-mono tabular-nums transition-colors',
-						speed === rate
-							? 'bg-signal text-primary-foreground'
-							: 'text-muted-foreground hover:text-foreground',
-					)}
-					aria-pressed={speed === rate}
-					onclick={() => (speed = rate)}
-				>
-					{rate}×
-				</button>
-			{/each}
-		</div>
-
 		<!-- The y axis is a control, not a caption: the same ramp has four stories in it. -->
 		<div class="ml-auto flex flex-wrap items-center gap-3" role="group" aria-label="Y axis metric">
 			{#each METRICS as entry (entry.key)}
@@ -313,7 +294,7 @@
 							y2={PAD.top + plotH * fraction}
 						/>
 						<text
-							class="fill-muted-foreground text-micro type-narrow font-mono"
+							class="fill-muted-foreground text-micro font-mono"
 							x={PAD.left - 10}
 							y={PAD.top + plotH * fraction + 4}
 							text-anchor="end"
@@ -324,7 +305,7 @@
 
 					{#each [0, 0.5, 1] as fraction (fraction)}
 						<text
-							class="fill-muted-foreground text-micro type-narrow font-mono"
+							class="fill-muted-foreground text-micro font-mono"
 							x={PAD.left + plotW * fraction}
 							y={H - 18}
 							text-anchor="middle"
@@ -333,7 +314,7 @@
 						</text>
 					{/each}
 					<text
-						class="fill-foreground-faint text-micro type-narrow font-mono uppercase"
+						class="fill-foreground-faint text-micro font-mono"
 						x={PAD.left + plotW / 2}
 						y={H - 4}
 						text-anchor="middle"
@@ -341,7 +322,7 @@
 						virtual users
 					</text>
 					<text
-						class="fill-foreground-faint text-micro type-narrow font-mono uppercase"
+						class="fill-foreground-faint text-micro font-mono"
 						transform="rotate(-90)"
 						x={-(PAD.top + plotH / 2)}
 						y={12}
@@ -433,9 +414,6 @@
 				<div class="text-lead font-mono tabular-nums">
 					{vusAt(readAt).toLocaleString()}
 					<span class="text-meta text-muted-foreground font-sans">virtual users</span>
-				</div>
-				<div class="text-micro text-muted-foreground type-narrow font-mono uppercase">
-					{probe === null ? 'at the playhead' : 'at the pointer'}
 				</div>
 			</div>
 

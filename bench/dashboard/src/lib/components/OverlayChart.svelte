@@ -68,7 +68,7 @@
 		{@const index = datum.index}
 		{@const trial = trialAt(index)}
 		<ChartTip>
-			<div class="text-micro text-muted-foreground font-mono uppercase">
+			<div class="text-micro text-muted-foreground font-mono">
 				{trial}{trial ? ' · ' : ''}second {index + 1}
 			</div>
 			{#each visible as series (series.targetId)}

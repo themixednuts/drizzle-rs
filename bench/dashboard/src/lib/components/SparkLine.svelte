@@ -22,7 +22,7 @@
 	{@const datum = ctx.tooltip.data as SeriesPoint | null}
 	{#if datum}
 		<ChartTip>
-			<div class="text-micro text-muted-foreground font-mono uppercase">
+			<div class="text-micro text-muted-foreground font-mono">
 				second {datum.index + 1}
 			</div>
 			<div class="flex items-center gap-3">
@@ -37,7 +37,7 @@
 
 <div class="mt-1">
 	<div
-		class="text-micro text-muted-foreground flex justify-between gap-3 font-mono tracking-wide uppercase"
+		class="text-micro text-muted-foreground flex justify-between gap-3 font-mono"
 	>
 		<span>{chart.label}</span>
 		<span>latest {chart.valueText} / {chart.sampleText}</span>

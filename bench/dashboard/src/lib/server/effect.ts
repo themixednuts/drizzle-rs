@@ -14,7 +14,7 @@ import { BenchStore, layer as benchStoreLayer, type BenchStoreError } from './be
 const HttpStatus = Schema.Literals([400, 404, 500, 503]);
 export type HttpStatus = typeof HttpStatus.Type;
 
-export class HttpFailure extends Schema.TaggedErrorClass<HttpFailure>()('Http.Failure', {
+export class HttpFailure extends Schema.TaggedError<HttpFailure>()('Http.Failure', {
 	status: HttpStatus,
 	message: Schema.String,
 }) {}

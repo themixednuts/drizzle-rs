@@ -14,14 +14,30 @@
 	 * Filter state lives in the URL, so these are links and not buttons: they are shareable,
 	 * back-navigable, and work before hydration.
 	 *
-	 * The mono uppercase group label ("SUITE", "STATUS") is gone — the options are self-describing
+	 * The mono group label ("SUITE", "STATUS") is gone — the options are self-describing
 	 * words and the label was one more piece of chrome per filter row. It survives as the group's
 	 * accessible name, which is where it was actually doing work.
 	 */
-	let { label, options }: { label: string; options: FilterOption[] } = $props();
+	let {
+		label,
+		options,
+		segmented = false,
+	}: {
+		label: string;
+		options: FilterOption[];
+		/** One joined control, for groups that sit side by side. */
+		segmented?: boolean;
+	} = $props();
 </script>
 
-<div class="flex flex-wrap items-center gap-2" role="group" aria-label={label}>
+<div
+	class={cn(
+		'flex flex-wrap items-center',
+		segmented ? 'bg-muted gap-0.5 rounded-md p-0.5' : 'gap-2',
+	)}
+	role="group"
+	aria-label={label}
+>
 	{#each options as option (option.href + option.label)}
 		<a
 			href={option.href}
@@ -36,7 +52,9 @@
 				// would be a rule doing a surface's job, on a row of six or more.
 				option.active
 					? 'bg-signal text-primary-foreground hover:bg-signal hover:text-primary-foreground'
-					: 'bg-muted text-muted-foreground hover:text-foreground',
+					: segmented
+						? 'text-muted-foreground hover:text-foreground bg-transparent'
+						: 'bg-muted text-muted-foreground hover:text-foreground',
 			)}
 		>
 			{option.label}

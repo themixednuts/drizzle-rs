@@ -438,7 +438,11 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
 	const name = targetName(input);
 	const dialect = targetDialect(meta, input.target_id);
 	const os = targetOs(input.runner_os);
-	const mode = targetMode(meta, input.target_id);
+	// Prepared/unprepared describes SQL the client sends; targets that send none have no mode.
+	const mode =
+		meta?.data_access === 'in-database' || meta?.data_access === 'in-process-cache'
+			? null
+			: targetMode(meta, input.target_id);
 	const driver = targetDriver(meta, input);
 	const access = dataAccess(meta);
 	const api = targetApi({

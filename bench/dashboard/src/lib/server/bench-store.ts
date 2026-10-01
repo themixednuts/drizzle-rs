@@ -11,22 +11,22 @@ import type { Manifest, RunIndex, Summary, Timeseries } from '#lib/types';
 
 // -- Errors ------------------------------------------------------------------------------------
 
-export class BenchStoreUnavailable extends Schema.TaggedErrorClass<BenchStoreUnavailable>()(
+export class BenchStoreUnavailable extends Schema.TaggedError<BenchStoreUnavailable>()(
 	'BenchStore.Unavailable',
 	{ message: Schema.String },
 ) {}
 
-export class BenchStoreReadError extends Schema.TaggedErrorClass<BenchStoreReadError>()(
+export class BenchStoreReadError extends Schema.TaggedError<BenchStoreReadError>()(
 	'BenchStore.ReadError',
 	{ key: Schema.String, message: Schema.String, cause: Schema.Defect() },
 ) {}
 
-export class BenchStoreJsonError extends Schema.TaggedErrorClass<BenchStoreJsonError>()(
+export class BenchStoreJsonError extends Schema.TaggedError<BenchStoreJsonError>()(
 	'BenchStore.JsonError',
 	{ key: Schema.String, message: Schema.String, cause: Schema.Defect() },
 ) {}
 
-export class BenchStoreNotFound extends Schema.TaggedErrorClass<BenchStoreNotFound>()(
+export class BenchStoreNotFound extends Schema.TaggedError<BenchStoreNotFound>()(
 	'BenchStore.NotFound',
 	{ key: Schema.String, message: Schema.String },
 ) {}
@@ -91,7 +91,7 @@ class LocalBenchBucket implements BenchBucket {
 }
 
 /** Dev-only on-disk export, used when no R2 binding is present. */
-const localRoot = Config.string('BENCH_DATA_DIR').pipe(
+const localRoot = Config.String('BENCH_DATA_DIR').pipe(
 	Config.withDefault('../../bench-out/dashboard-data'),
 );
 
@@ -105,7 +105,7 @@ const localRoot = Config.string('BENCH_DATA_DIR').pipe(
 const resolveBucket = Effect.fn('BenchStore.resolveBucket')(function* (
 	platform: App.Platform | undefined,
 ) {
-	const explicitLocal = yield* Config.string('BENCH_DATA_DIR').pipe(
+	const explicitLocal = yield* Config.String('BENCH_DATA_DIR').pipe(
 		Config.withDefault(''),
 		Effect.mapError(
 			(cause) =>

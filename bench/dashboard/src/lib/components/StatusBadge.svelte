@@ -33,7 +33,7 @@
 	);
 </script>
 
-<Badge variant="outline" class={cn('text-micro font-mono uppercase', tone)}>
+<Badge variant="outline" class={cn('text-micro font-mono', tone)}>
 	{@const Icon = icon}
 	<Icon aria-hidden="true" />
 	{status}

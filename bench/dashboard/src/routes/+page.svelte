@@ -51,9 +51,13 @@
 		</div>
 	{:else}
 		<!-- The two groupings: the machine, then the SQL dialect. Everything below follows them. -->
-		<div class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
-			<FilterPills label="os" options={view.osFilters} />
-			<FilterPills label="dialect" options={view.dialectFilters} />
+		<div class="mt-6 flex flex-wrap items-center gap-x-4 gap-y-3">
+			{#if view.osFilters.length > 1}
+				<FilterPills label="os" options={view.osFilters} segmented />
+			{/if}
+			{#if view.dialectFilters.length > 2}
+				<FilterPills label="dialect" options={view.dialectFilters} segmented />
+			{/if}
 			<SortLinks options={view.sortOptions} />
 		</div>
 
@@ -73,7 +77,7 @@
 			<div class="bg-card mt-4 rounded-md">
 				<div
 					class={cn(
-						'bg-muted text-micro text-muted-foreground type-narrow sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-4 rounded-t-md px-5 pt-3 pb-2.5 font-mono uppercase sm:top-14 lg:gap-x-5 lg:px-6',
+						'bg-muted text-micro text-muted-foreground sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-4 rounded-t-md px-5 pt-3 pb-2.5 font-mono sm:top-14 lg:gap-x-5 lg:px-6',
 						COLUMNS,
 					)}
 				>

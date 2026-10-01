@@ -151,13 +151,13 @@
 			{#if view.hasCapacity}
 				<div class="border-border-soft mt-5 grid gap-6 border-b pb-5 sm:grid-cols-2">
 					<div>
-						<div class="text-micro text-muted-foreground font-mono uppercase">peak throughput</div>
+						<div class="text-micro text-muted-foreground font-mono">peak throughput</div>
 						<div class="mt-2">
 							<CapacityFigure capacity={view.capacity(summary)} size="lead" />
 						</div>
 					</div>
 					<div>
-						<div class="text-micro text-muted-foreground font-mono uppercase">
+						<div class="text-micro text-muted-foreground font-mono">
 							<Hint
 								hint="The paced suite's request rate: the generator offers a fixed load with per-request think time, so this measures latency at a known rate and cannot exceed VUs / think time. It is not a capacity figure."
 							>
@@ -258,7 +258,7 @@
 			-->
 			{@const figure = view.spreadFigure(summary)}
 			<div class="border-border-soft mt-6 border-t pt-4">
-				<div class="text-micro text-muted-foreground font-mono uppercase">
+				<div class="text-micro text-muted-foreground font-mono">
 					<Hint
 						hint="Whiskers reach the slowest and fastest trial. The box spans the middle two quartiles, and is drawn only where the run recorded them."
 					>
@@ -280,7 +280,7 @@
 
 			<div class="mt-6 grid gap-7 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
 				<div>
-					<div class="text-micro text-muted-foreground mb-2 font-mono uppercase">
+					<div class="text-micro text-muted-foreground mb-2 font-mono">
 						latency distribution
 					</div>
 					<LatencyBars latency={p.latency} />

@@ -250,7 +250,7 @@
 		<div class="border-border-soft space-y-6 border-t px-4 py-4">
 			{#each REFERENCE as group (group.title)}
 				<section>
-					<h2 class="text-micro text-muted-foreground type-narrow mb-2 font-mono uppercase">
+					<h2 class="text-micro text-muted-foreground mb-2 font-mono">
 						{group.title}
 					</h2>
 					<DataTable>

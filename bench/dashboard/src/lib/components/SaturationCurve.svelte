@@ -95,7 +95,7 @@
 	{@const datum = ctx.tooltip.data as CurvePoint | null}
 	{#if datum}
 		<ChartTip>
-			<div class="text-micro text-muted-foreground font-mono uppercase">
+			<div class="text-micro text-muted-foreground font-mono">
 				{datum.concurrency} concurrent requests
 			</div>
 			{#if showThroughput}
@@ -218,7 +218,7 @@
 			</div>
 		</div>
 
-		<div class="text-micro text-muted-foreground mt-2 text-center font-mono uppercase">
+		<div class="text-micro text-muted-foreground mt-2 text-center font-mono">
 			concurrent requests
 		</div>
 
