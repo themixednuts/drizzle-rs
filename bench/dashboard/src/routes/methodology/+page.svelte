@@ -10,18 +10,22 @@
 	import { ARCHITECTURE_ORDER, ARCHITECTURES } from '#lib/target-display';
 
 	/** The legend, without counts: on this page it describes the vocabulary, not one run. */
-	const ARCH_ENTRIES = ARCHITECTURE_ORDER.map((arch) => ({ arch, ...ARCHITECTURES[arch], count: 0 }));
+	const ARCH_ENTRIES = ARCHITECTURE_ORDER.map((arch) => ({
+		arch,
+		...ARCHITECTURES[arch],
+		count: 0,
+	}));
 
 	/** In-page links, in page order. */
 	const CONTENTS = [
-			['what-is-measured', 'What is measured'],
-			['four-ways-to-reach-the-data', 'Four ways to reach the data'],
-			['what-these-numbers-are-not', 'What these numbers are not'],
-			['two-suites-two-headlines', 'Two suites, two headlines'],
-			['when-there-is-no-peak', 'When there is no peak'],
-			['fair-means-two-different-things', 'Fair means two different things'],
-			['how-trials-become-one-number', 'How trials become one number'],
-			['running-it-yourself', 'Running it yourself'],
+		['what-is-measured', 'What is measured'],
+		['four-ways-to-reach-the-data', 'Four ways to reach the data'],
+		['what-these-numbers-are-not', 'What these numbers are not'],
+		['two-suites-two-headlines', 'Two suites, two headlines'],
+		['when-there-is-no-peak', 'When there is no peak'],
+		['fair-means-two-different-things', 'Fair means two different things'],
+		['how-trials-become-one-number', 'How trials become one number'],
+		['running-it-yourself', 'Running it yourself'],
 	];
 
 	/** The HTTP contract, as a reader would recognise it. Paths match `bench/runner/src/parity.rs`. */
@@ -194,7 +198,10 @@
 		<ul class="text-meta flex flex-wrap gap-x-4 gap-y-1.5">
 			{#each CONTENTS as [href, label] (href)}
 				<li>
-					<a class="text-muted-foreground hover:text-foreground underline-offset-4 hover:underline" href="#{href}">{label}</a>
+					<a
+						class="text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
+						href="#{href}">{label}</a
+					>
 				</li>
 			{/each}
 		</ul>
@@ -205,10 +212,10 @@
 			<p>
 				Each target is a small HTTP server that answers the same routes over the same seeded
 				Northwind dataset — 10,000 customers, 50,000 orders, 300,000 order lines. The runner checks
-				every target's responses against the others before timing anything, then drives load
-				against it and records rate, latency, CPU and memory. Because the contract is HTTP, any
-				library, language or database can enter: drizzle-rs, raw drivers, other Rust and TypeScript
-				ORMs, and engines with very different designs.
+				every target's responses against the others before timing anything, then drives load against
+				it and records rate, latency, CPU and memory. Because the contract is HTTP, any library,
+				language or database can enter: drizzle-rs, raw drivers, other Rust and TypeScript ORMs, and
+				engines with very different designs.
 			</p>
 		</div>
 		<DataTable class="mt-5">
@@ -232,13 +239,13 @@
 		<div class="measure text-prose text-foreground-secondary mt-6 space-y-4">
 			<p>
 				<strong class="text-foreground font-semibold">SpacetimeDB is measured three ways.</strong>
-				Its design point is that application logic lives inside the database as a module, so the
-				target that represents it is the one marked <em>logic in database</em>: each route is a single
-				call into module code that runs the query next to the data. It is also driven as an ordinary
-				SQL server over its PostgreSQL wire protocol, which is how a SQL-first application would use
-				it, and through its SDK's synced client replica, which shows what a subscriber pays to read
-				data it already holds. Showing all three keeps SpacetimeDB in the same comparison as
-				everything else without pretending any one of them is the whole story.
+				Its design point is that application logic lives inside the database as a module, so the target
+				that represents it is the one marked <em>logic in database</em>: each route is a single call
+				into module code that runs the query next to the data. It is also driven as an ordinary SQL
+				server over its PostgreSQL wire protocol, which is how a SQL-first application would use it,
+				and through its SDK's synced client replica, which shows what a subscriber pays to read data
+				it already holds. Showing all three keeps SpacetimeDB in the same comparison as everything
+				else without pretending any one of them is the whole story.
 			</p>
 			<p>
 				A gap between two rows on the same architecture is mostly the library. A gap between rows on
@@ -490,9 +497,9 @@
 
 	<Section title="Running it yourself" id="running-it-yourself">
 		<p class="measure text-prose text-foreground-secondary">
-			The runner is the <code class="text-meta font-mono">bench-runner</code> crate. Build it in
-			release mode — targets are spawned from the same binary, and a debug build measures the debug
-			build — then point it at a family's target spec.
+			The runner is the <code class="text-meta font-mono">bench-runner</code> crate. Build it in release
+			mode — targets are spawned from the same binary, and a debug build measures the debug build — then
+			point it at a family's target spec.
 		</p>
 		<pre
 			class="bg-surface-inset text-meta mt-4 overflow-x-auto rounded-sm px-4 py-3 font-mono leading-relaxed"><span

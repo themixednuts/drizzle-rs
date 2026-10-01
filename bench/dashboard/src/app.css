@@ -1,6 +1,6 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn-svelte/tailwind.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn-svelte/tailwind.css';
 
 /*
  * ============================================================================
@@ -43,29 +43,27 @@
  * number. The split is strict: a figure read down a column is always mono.
  */
 @font-face {
-  font-family: "Inter Variable";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: optional;
-  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
-    format("woff2-variations");
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
-    U+2215, U+FEFF, U+FFFD;
+	font-family: 'Inter Variable';
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: optional;
+	src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: "JetBrains Mono Variable";
-  font-style: normal;
-  font-weight: 100 800;
-  font-display: optional;
-  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2")
-    format("woff2-variations");
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
-    U+2215, U+FEFF, U+FFFD;
+	font-family: 'JetBrains Mono Variable';
+	font-style: normal;
+	font-weight: 100 800;
+	font-display: optional;
+	src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2')
+		format('woff2-variations');
+	unicode-range:
+		U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+		U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /*
@@ -85,21 +83,21 @@
  * been scaled.
  */
 @font-face {
-  font-family: "Inter Fallback";
-  src: local("Arial");
-  ascent-override: 92.56%;
-  descent-override: 23.05%;
-  line-gap-override: 0%;
-  size-adjust: 104.67%;
+	font-family: 'Inter Fallback';
+	src: local('Arial');
+	ascent-override: 92.56%;
+	descent-override: 23.05%;
+	line-gap-override: 0%;
+	size-adjust: 104.67%;
 }
 
 @font-face {
-  font-family: "JetBrains Mono Fallback";
-  src: local("Courier New");
-  ascent-override: 102.02%;
-  descent-override: 30%;
-  line-gap-override: 0%;
-  size-adjust: 99.98%;
+	font-family: 'JetBrains Mono Fallback';
+	src: local('Courier New');
+	ascent-override: 102.02%;
+	descent-override: 30%;
+	line-gap-override: 0%;
+	size-adjust: 99.98%;
 }
 
 /* Dark mode has two triggers and one source of truth. `light-dark()` below resolves against the
@@ -111,18 +109,15 @@
 @custom-variant js (&:where(:root.js, :root.js *));
 
 @custom-variant dark {
-  &:where([data-theme="dark"], [data-theme="dark"] *) {
-    @slot;
-  }
+	&:where([data-theme='dark'], [data-theme='dark'] *) {
+		@slot;
+	}
 
-  @media (prefers-color-scheme: dark) {
-    &:where(
-      :root:not([data-theme="light"]),
-      :root:not([data-theme="light"]) *
-    ) {
-      @slot;
-    }
-  }
+	@media (prefers-color-scheme: dark) {
+		&:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *) {
+			@slot;
+		}
+	}
 }
 
 /*
@@ -139,41 +134,38 @@
  * keeps the lime from going muddy against it. Lime is hue 122.
  */
 :root {
-  color-scheme: light dark;
+	color-scheme: light dark;
 
-  /* Surfaces ------------------------------------------------------------- */
-  --background: light-dark(oklch(0.968 0.002 285), oklch(0.145 0.004 285));
-  --foreground: light-dark(oklch(0.205 0.006 285), oklch(0.935 0.003 285));
-  --card: light-dark(oklch(0.995 0.001 285), oklch(0.188 0.005 285));
-  --card-foreground: var(--foreground);
-  --popover: var(--card);
-  --popover-foreground: var(--foreground);
-  --muted: light-dark(oklch(0.935 0.003 285), oklch(0.238 0.006 285));
-  --muted-foreground: light-dark(oklch(0.5 0.008 285), oklch(0.68 0.008 285));
-  --secondary: var(--muted);
-  --secondary-foreground: var(--foreground);
-  --accent: var(--muted);
-  --accent-foreground: var(--foreground);
+	/* Surfaces ------------------------------------------------------------- */
+	--background: light-dark(oklch(0.968 0.002 285), oklch(0.145 0.004 285));
+	--foreground: light-dark(oklch(0.205 0.006 285), oklch(0.935 0.003 285));
+	--card: light-dark(oklch(0.995 0.001 285), oklch(0.188 0.005 285));
+	--card-foreground: var(--foreground);
+	--popover: var(--card);
+	--popover-foreground: var(--foreground);
+	--muted: light-dark(oklch(0.935 0.003 285), oklch(0.238 0.006 285));
+	--muted-foreground: light-dark(oklch(0.5 0.008 285), oklch(0.68 0.008 285));
+	--secondary: var(--muted);
+	--secondary-foreground: var(--foreground);
+	--accent: var(--muted);
+	--accent-foreground: var(--foreground);
 
-  /* The recessed well a chart is drawn into, and the chrome around the page. */
-  --surface-inset: light-dark(oklch(0.945 0.003 285), oklch(0.118 0.004 285));
-  --surface-chrome: light-dark(oklch(0.99 0.001 285), oklch(0.128 0.004 285));
+	/* The recessed well a chart is drawn into, and the chrome around the page. */
+	--surface-inset: light-dark(oklch(0.945 0.003 285), oklch(0.118 0.004 285));
+	--surface-chrome: light-dark(oklch(0.99 0.001 285), oklch(0.128 0.004 285));
 
-  /* Ink steps. `faint` is decorative only — it does not clear 4.5:1 for text. */
-  --foreground-secondary: light-dark(
-    oklch(0.375 0.007 285),
-    oklch(0.81 0.006 285)
-  );
-  --foreground-faint: light-dark(oklch(0.66 0.008 285), oklch(0.5 0.008 285));
+	/* Ink steps. `faint` is decorative only — it does not clear 4.5:1 for text. */
+	--foreground-secondary: light-dark(oklch(0.375 0.007 285), oklch(0.81 0.006 285));
+	--foreground-faint: light-dark(oklch(0.66 0.008 285), oklch(0.5 0.008 285));
 
-  /* Rules ----------------------------------------------------------------- */
-  --border: light-dark(oklch(0.87 0.004 285), oklch(0.278 0.006 285));
-  --border-soft: light-dark(oklch(0.922 0.003 285), oklch(0.222 0.006 285));
-  --input: light-dark(oklch(0.85 0.005 285), oklch(0.33 0.007 285));
-  --ring: light-dark(oklch(0.58 0.16 122), oklch(0.92 0.19 122));
+	/* Rules ----------------------------------------------------------------- */
+	--border: light-dark(oklch(0.87 0.004 285), oklch(0.278 0.006 285));
+	--border-soft: light-dark(oklch(0.922 0.003 285), oklch(0.222 0.006 285));
+	--input: light-dark(oklch(0.85 0.005 285), oklch(0.33 0.007 285));
+	--ring: light-dark(oklch(0.58 0.16 122), oklch(0.92 0.19 122));
 
-  /* Signal ---------------------------------------------------------------- */
-  /*
+	/* Signal ---------------------------------------------------------------- */
+	/*
 	 * Lime, marking the current position and nothing else: the page you are on,
 	 * the filter you applied, the playhead.
 	 *
@@ -183,134 +175,125 @@
 	 * an olive at L 0.55, which clears 3:1 as a mark on every surface here and
 	 * still carries near-white text when it is used as a fill.
 	 */
-  --primary: light-dark(oklch(0.55 0.15 128), oklch(0.92 0.19 122));
-  --primary-foreground: light-dark(oklch(0.99 0.005 122), oklch(0.19 0.05 122));
-  --signal: var(--primary);
-  --signal-ink: light-dark(oklch(0.5 0.14 128), oklch(0.9 0.19 122));
+	--primary: light-dark(oklch(0.55 0.15 128), oklch(0.92 0.19 122));
+	--primary-foreground: light-dark(oklch(0.99 0.005 122), oklch(0.19 0.05 122));
+	--signal: var(--primary);
+	--signal-ink: light-dark(oklch(0.5 0.14 128), oklch(0.9 0.19 122));
 
-  /* Two steps of the same wash: the row that *is* current, and the row under
+	/* Two steps of the same wash: the row that *is* current, and the row under
 	   the pointer. Attention out-ranks identity, so the second is the louder. */
-  --signal-wash: light-dark(oklch(0.965 0.03 122), oklch(0.21 0.03 122));
-  --signal-wash-strong: light-dark(
-    oklch(0.93 0.07 122),
-    oklch(0.265 0.055 122)
-  );
+	--signal-wash: light-dark(oklch(0.965 0.03 122), oklch(0.21 0.03 122));
+	--signal-wash-strong: light-dark(oklch(0.93 0.07 122), oklch(0.265 0.055 122));
 
-  /* Status ---------------------------------------------------------------- */
-  /* Well away from the lime: teal at 190, rose at 15. Never colour alone —
+	/* Status ---------------------------------------------------------------- */
+	/* Well away from the lime: teal at 190, rose at 15. Never colour alone —
 	   every use pairs with a sign, an arrow or a word. */
-  --positive: light-dark(oklch(0.5 0.1 190), oklch(0.82 0.11 190));
-  --negative: light-dark(oklch(0.52 0.19 15), oklch(0.74 0.17 15));
-  --destructive: var(--negative);
+	--positive: light-dark(oklch(0.5 0.1 190), oklch(0.82 0.11 190));
+	--negative: light-dark(oklch(0.52 0.19 15), oklch(0.74 0.17 15));
+	--destructive: var(--negative);
 
-  /* The one interrupting surface. A tinted panel plus a hatched edge and the
+	/* The one interrupting surface. A tinted panel plus a hatched edge and the
 	   word, carrying no hue: an amber warning beside a lime signal is a coin
 	   flip at a glance. */
-  --caution: light-dark(oklch(0.9 0.006 285), oklch(0.26 0.006 285));
-  --caution-border: light-dark(oklch(0.58 0.008 285), oklch(0.58 0.008 285));
-  --caution-foreground: light-dark(
-    oklch(0.28 0.008 285),
-    oklch(0.92 0.004 285)
-  );
+	--caution: light-dark(oklch(0.9 0.006 285), oklch(0.26 0.006 285));
+	--caution-border: light-dark(oklch(0.58 0.008 285), oklch(0.58 0.008 285));
+	--caution-foreground: light-dark(oklch(0.28 0.008 285), oklch(0.92 0.004 285));
 
-  /* Plotted series --------------------------------------------------------- */
-  /*
+	/* Plotted series --------------------------------------------------------- */
+	/*
 	 * Five traces that stay apart at a glance and never collide with the signal.
 	 * Lime leads because it is the accent; the rest step around the wheel to
 	 * teal, azure, rose and amber.
 	 */
-  --series-1: light-dark(oklch(0.52 0.14 128), oklch(0.92 0.19 122));
-  --series-2: light-dark(oklch(0.5 0.1 195), oklch(0.82 0.12 195));
-  --series-3: light-dark(oklch(0.48 0.13 255), oklch(0.78 0.12 255));
-  --series-4: light-dark(oklch(0.53 0.16 15), oklch(0.75 0.15 15));
-  --series-5: light-dark(oklch(0.55 0.12 75), oklch(0.82 0.13 75));
+	--series-1: light-dark(oklch(0.52 0.14 128), oklch(0.92 0.19 122));
+	--series-2: light-dark(oklch(0.5 0.1 195), oklch(0.82 0.12 195));
+	--series-3: light-dark(oklch(0.48 0.13 255), oklch(0.78 0.12 255));
+	--series-4: light-dark(oklch(0.53 0.16 15), oklch(0.75 0.15 15));
+	--series-5: light-dark(oklch(0.55 0.12 75), oklch(0.82 0.13 75));
 
-  /* One metric, one hue, everywhere it is drawn. */
-  --chart-1: var(--series-1);
-  --chart-2: var(--series-3);
-  --chart-3: var(--series-2);
-  --chart-4: var(--series-5);
-  --chart-5: var(--series-4);
-  --metric-rps: var(--chart-1);
-  --metric-latency: var(--chart-2);
-  --metric-mem: var(--chart-3);
-  --metric-cpu: var(--chart-4);
-  --metric-err: var(--chart-5);
+	/* One metric, one hue, everywhere it is drawn. */
+	--chart-1: var(--series-1);
+	--chart-2: var(--series-3);
+	--chart-3: var(--series-2);
+	--chart-4: var(--series-5);
+	--chart-5: var(--series-4);
+	--metric-rps: var(--chart-1);
+	--metric-latency: var(--chart-2);
+	--metric-mem: var(--chart-3);
+	--metric-cpu: var(--chart-4);
+	--metric-err: var(--chart-5);
 
-  /* Geometry -------------------------------------------------------------- */
-  /* Softer than the old zero. An instrument panel has moulded corners; a
+	/* Geometry -------------------------------------------------------------- */
+	/* Softer than the old zero. An instrument panel has moulded corners; a
 	   hairline grid of hard boxes is the newsprint look this replaced. */
-  --radius: 0.375rem;
+	--radius: 0.375rem;
 }
 
 /* An explicit choice wins over the OS preference, in both directions. */
-:root[data-theme="light"] {
-  color-scheme: light;
+:root[data-theme='light'] {
+	color-scheme: light;
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
+:root[data-theme='dark'] {
+	color-scheme: dark;
 }
 
 @theme inline {
-  --font-sans:
-    "Inter Variable", "Inter Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono:
-    "JetBrains Mono Variable", "JetBrains Mono Fallback", ui-monospace,
-    monospace;
+	--font-sans: 'Inter Variable', 'Inter Fallback', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, monospace;
 
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-foreground-secondary: var(--foreground-secondary);
-  --color-foreground-faint: var(--foreground-faint);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-border-soft: var(--border-soft);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-link: var(--link);
-  --color-positive: var(--positive);
-  --color-negative: var(--negative);
-  --color-surface-inset: var(--surface-inset);
-  --color-surface-chrome: var(--surface-chrome);
-  --color-signal: var(--signal);
-  --color-signal-ink: var(--signal-ink);
-  --color-signal-wash: var(--signal-wash);
-  --color-signal-wash-strong: var(--signal-wash-strong);
-  --color-caution: var(--caution);
-  --color-caution-border: var(--caution-border);
-  --color-caution-foreground: var(--caution-foreground);
-  --color-series-signal: var(--series-signal);
-  --color-series-1: var(--series-1);
-  --color-series-2: var(--series-2);
-  --color-series-3: var(--series-3);
-  --color-series-4: var(--series-4);
-  --color-series-5: var(--series-5);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-foreground-secondary: var(--foreground-secondary);
+	--color-foreground-faint: var(--foreground-faint);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-border-soft: var(--border-soft);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-link: var(--link);
+	--color-positive: var(--positive);
+	--color-negative: var(--negative);
+	--color-surface-inset: var(--surface-inset);
+	--color-surface-chrome: var(--surface-chrome);
+	--color-signal: var(--signal);
+	--color-signal-ink: var(--signal-ink);
+	--color-signal-wash: var(--signal-wash);
+	--color-signal-wash-strong: var(--signal-wash-strong);
+	--color-caution: var(--caution);
+	--color-caution-border: var(--caution-border);
+	--color-caution-foreground: var(--caution-foreground);
+	--color-series-signal: var(--series-signal);
+	--color-series-1: var(--series-1);
+	--color-series-2: var(--series-2);
+	--color-series-3: var(--series-3);
+	--color-series-4: var(--series-4);
+	--color-series-5: var(--series-5);
 
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-metric-rps: var(--metric-rps);
-  --color-metric-latency: var(--metric-latency);
-  --color-metric-mem: var(--metric-mem);
-  --color-metric-cpu: var(--metric-cpu);
-  --color-metric-err: var(--metric-err);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--color-metric-rps: var(--metric-rps);
+	--color-metric-latency: var(--metric-latency);
+	--color-metric-mem: var(--metric-mem);
+	--color-metric-cpu: var(--metric-cpu);
+	--color-metric-err: var(--metric-err);
 
-  /*
+	/*
 	 * Type. Each step has one job, so a size is picked by role and never by
 	 * nudging a pixel value. Tailwind's own text-xs/text-sm scale is left
 	 * untouched — the vendored shadcn components are calibrated against it.
@@ -332,94 +315,94 @@
 	 * during the font settle. Whole-pixel line boxes make a paragraph the same
 	 * height in the fallback and in the real face.
 	 */
-  --text-micro: 0.65625rem;
-  --text-micro--line-height: 0.875rem;
-  --text-micro--letter-spacing: 0.07em;
-  --text-label: 0.71875rem;
-  --text-label--line-height: 1rem;
-  --text-label--letter-spacing: 0.01em;
-  --text-meta: 0.78125rem;
-  --text-meta--line-height: 1.125rem;
-  --text-body: 0.875rem;
-  --text-body--line-height: 1.375rem;
-  --text-lead: 0.9375rem;
-  --text-lead--line-height: 1.25rem;
-  --text-lead--letter-spacing: -0.006em;
-  --text-heading: 1.125rem;
-  --text-heading--line-height: 1.5rem;
-  --text-heading--letter-spacing: -0.014em;
-  --text-prose: 1rem;
-  --text-prose--line-height: 1.625rem;
-  --text-figure: 1.5rem;
-  --text-figure--line-height: 1.75rem;
-  --text-figure--letter-spacing: -0.018em;
-  --text-display: 2.125rem;
-  --text-display--line-height: 2.25rem;
-  --text-display--letter-spacing: -0.026em;
+	--text-micro: 0.65625rem;
+	--text-micro--line-height: 0.875rem;
+	--text-micro--letter-spacing: 0.07em;
+	--text-label: 0.71875rem;
+	--text-label--line-height: 1rem;
+	--text-label--letter-spacing: 0.01em;
+	--text-meta: 0.78125rem;
+	--text-meta--line-height: 1.125rem;
+	--text-body: 0.875rem;
+	--text-body--line-height: 1.375rem;
+	--text-lead: 0.9375rem;
+	--text-lead--line-height: 1.25rem;
+	--text-lead--letter-spacing: -0.006em;
+	--text-heading: 1.125rem;
+	--text-heading--line-height: 1.5rem;
+	--text-heading--letter-spacing: -0.014em;
+	--text-prose: 1rem;
+	--text-prose--line-height: 1.625rem;
+	--text-figure: 1.5rem;
+	--text-figure--line-height: 1.75rem;
+	--text-figure--letter-spacing: -0.018em;
+	--text-display: 2.125rem;
+	--text-display--line-height: 2.25rem;
+	--text-display--letter-spacing: -0.026em;
 
-  --radius-sm: calc(var(--radius) * 0.5);
-  --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) * 1.5);
-  --radius-xl: calc(var(--radius) * 2);
-  --radius-2xl: calc(var(--radius) * 3);
-  --radius-3xl: calc(var(--radius) * 4);
-  --radius-4xl: calc(var(--radius) * 5);
+	--radius-sm: calc(var(--radius) * 0.5);
+	--radius-md: var(--radius);
+	--radius-lg: calc(var(--radius) * 1.5);
+	--radius-xl: calc(var(--radius) * 2);
+	--radius-2xl: calc(var(--radius) * 3);
+	--radius-3xl: calc(var(--radius) * 4);
+	--radius-4xl: calc(var(--radius) * 5);
 }
 
 @layer base {
-  *,
-  ::after,
-  ::before {
-    border-color: var(--border);
-  }
+	*,
+	::after,
+	::before {
+		border-color: var(--border);
+	}
 
-  html {
-    font-family: var(--font-sans);
-  }
+	html {
+		font-family: var(--font-sans);
+	}
 
-  body {
-    min-height: 100vh;
-    background: var(--background);
-    color: var(--foreground);
-    font-size: 0.875rem;
-    /* 22px, matching --text-body: whole pixels, so a paragraph is the same
+	body {
+		min-height: 100vh;
+		background: var(--background);
+		color: var(--foreground);
+		font-size: 0.875rem;
+		/* 22px, matching --text-body: whole pixels, so a paragraph is the same
 		   height in the fallback face and the real one. */
-    line-height: 1.375rem;
-    /* Every number here is read in a column against the number above it. */
-    font-variant-numeric: tabular-nums;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
+		line-height: 1.375rem;
+		/* Every number here is read in a column against the number above it. */
+		font-variant-numeric: tabular-nums;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
 
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
+	a {
+		color: inherit;
+		text-decoration: none;
+	}
 
-  /* Keyboard focus stays visible everywhere. Components that suppress the
+	/* Keyboard focus stays visible everywhere. Components that suppress the
 	   default outline on :focus fall through to this. */
-  :focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-  }
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
 
-  ::selection {
-    background: light-dark(oklch(0.86 0.09 55 / 0.5), oklch(0.45 0.1 50));
-    color: var(--foreground);
-  }
+	::selection {
+		background: light-dark(oklch(0.86 0.09 55 / 0.5), oklch(0.45 0.1 50));
+		color: var(--foreground);
+	}
 
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
+	::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
 
-  ::-webkit-scrollbar-thumb {
-    background: var(--foreground-faint);
-  }
+	::-webkit-scrollbar-thumb {
+		background: var(--foreground-faint);
+	}
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--muted-foreground);
-  }
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--muted-foreground);
+	}
 }
 
 /*
@@ -434,8 +417,8 @@
  * property of the library, not of any one chart.
  */
 .lc-root-container {
-  height: 100%;
-  /*
+	height: 100%;
+	/*
 	 * Full width for the same reason, and it fixes a second, subtler shift. The
 	 * server renders the chart at the nominal width `#lib/chart-ssr` supplies
 	 * (800px), and the library's own wrapper centres it; on a 1016px-wide column
@@ -443,7 +426,7 @@
 	 * back to the edge. Filling the box means the chart's left edge is in the
 	 * same place before and after, so growing to the real width moves nothing.
 	 */
-  width: 100%;
+	width: 100%;
 }
 
 /* --------------------------------------------------------------------------
@@ -451,16 +434,16 @@
    -------------------------------------------------------------------------- */
 
 @utility page-gutter {
-  margin-inline: auto;
-  width: 100%;
-  /* 1200px content column. The ratio rail needs the width: a decade of scale
+	margin-inline: auto;
+	width: 100%;
+	/* 1200px content column. The ratio rail needs the width: a decade of scale
 	   below about 240px stops being readable as distance. */
-  max-width: 75rem;
-  padding-inline: --spacing(5);
+	max-width: 75rem;
+	padding-inline: --spacing(5);
 
-  @media (width >= 40rem) {
-    padding-inline: 2.25rem;
-  }
+	@media (width >= 40rem) {
+		padding-inline: 2.25rem;
+	}
 }
 
 /*
@@ -472,7 +455,7 @@
  * of the 16px prose size stops needing a ruler, and it does not move.
  */
 @utility measure {
-  max-width: 36rem;
+	max-width: 36rem;
 }
 
 /*
@@ -485,11 +468,11 @@
  * open, and an uppercase label set tight enough to sit over a column.
  */
 @utility type-wide {
-  letter-spacing: -0.03em;
+	letter-spacing: -0.03em;
 }
 
 @utility type-narrow {
-  letter-spacing: 0.08em;
+	letter-spacing: 0.08em;
 }
 
 /*
@@ -498,13 +481,13 @@
  * colour-blindness and a bad projector, none of which a hue does.
  */
 @utility hatch {
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 5px,
-    var(--caution-border) 5px,
-    var(--caution-border) 6px
-  );
+	background-image: repeating-linear-gradient(
+		45deg,
+		transparent,
+		transparent 5px,
+		var(--caution-border) 5px,
+		var(--caution-border) 6px
+	);
 }
 
 /*
@@ -513,20 +496,20 @@
  * database work per request.
  */
 @utility arch-dot {
-  display: inline-block;
-  flex: none;
-  border-radius: 999px;
+	display: inline-block;
+	flex: none;
+	border-radius: 999px;
 
-  &[data-arch="embedded"] {
-    background: var(--series-2);
-  }
-  &[data-arch="client-server"] {
-    background: var(--series-3);
-  }
-  &[data-arch="in-database"] {
-    background: var(--series-5);
-  }
-  &[data-arch="client-cache"] {
-    box-shadow: inset 0 0 0 1.5px var(--muted-foreground);
-  }
+	&[data-arch='embedded'] {
+		background: var(--series-2);
+	}
+	&[data-arch='client-server'] {
+		background: var(--series-3);
+	}
+	&[data-arch='in-database'] {
+		background: var(--series-5);
+	}
+	&[data-arch='client-cache'] {
+		box-shadow: inset 0 0 0 1.5px var(--muted-foreground);
+	}
 }

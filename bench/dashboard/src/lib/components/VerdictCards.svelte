@@ -17,7 +17,10 @@
 	}: { verdicts: DbVerdict[]; metric: string; active: string | null } = $props();
 </script>
 
-<ul class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-label="drizzle-rs by database">
+<ul
+	class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+	aria-label="drizzle-rs by database"
+>
 	{#each verdicts as verdict (verdict.db)}
 		<li>
 			<a

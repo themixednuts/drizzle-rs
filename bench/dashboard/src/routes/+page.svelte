@@ -56,9 +56,9 @@
 		drivers it sits on. Two sentences carry all three.
 	-->
 	<p class="measure text-prose text-foreground-secondary mt-4">
-		Every library below serves the same HTTP routes over the same Northwind dataset, on the same
-		CI machine, under the same load. drizzle-rs is a query builder, so the number that matters most
-		is its distance from the raw driver underneath it.
+		Every library below serves the same HTTP routes over the same Northwind dataset, on the same CI
+		machine, under the same load. drizzle-rs is a query builder, so the number that matters most is
+		its distance from the raw driver underneath it.
 	</p>
 
 	{#if view.warnings.length > 0}
@@ -121,10 +121,7 @@
 			</div>
 		</section>
 
-		<section
-			class="bg-card mt-4 rounded-md px-5 pt-5 pb-4 lg:px-6"
-			aria-labelledby="scope-heading"
-		>
+		<section class="bg-card mt-4 rounded-md px-5 pt-5 pb-4 lg:px-6" aria-labelledby="scope-heading">
 			<h2 id="scope-heading" class="text-heading font-semibold">Rate against tail latency</h2>
 			<p class="text-meta text-muted-foreground measure mt-1 mb-4">
 				Further right serves more requests per second; lower answers faster at p95. Bottom-right is
@@ -297,7 +294,10 @@
 			follows the same filters.
 		-->
 		{#if view.replay}
-			<section class="bg-card mt-8 rounded-md px-5 pt-5 pb-5 lg:px-6" aria-labelledby="replay-heading">
+			<section
+				class="bg-card mt-8 rounded-md px-5 pt-5 pb-5 lg:px-6"
+				aria-labelledby="replay-heading"
+			>
 				<h2 id="replay-heading" class="text-heading font-semibold">Watch the load ramp</h2>
 				<p class="text-meta text-muted-foreground measure mt-1">
 					Load climbs along the bottom; each line is a target's served rate. Where a line flattens,

@@ -50,4 +50,3 @@
 		<Hint hint={info.summary}>{@render tag()}</Hint>
 	{/if}
 {/if}
-
