@@ -11,7 +11,7 @@
 {#if warnings.length > 0}
 	<div class="mt-4" role="status">
 		<Note variant="warn" title="Partial data">
-			<ul class="mt-1 list-disc space-y-1 pl-4">
+			<ul class="mt-1 list-disc space-y-1 pl-4 wrap-anywhere">
 				{#each warnings as warning (warning)}
 					<li>{warning}</li>
 				{/each}
