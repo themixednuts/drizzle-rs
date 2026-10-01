@@ -68,6 +68,16 @@ where
     }
 }
 
+/// A CTE is referred to by the name of the aliased table it exposes.
+impl<V: SQLParam, Table: crate::scope::ScopeEntry, Query> crate::scope::ScopeEntry
+    for CTEView<'_, V, Table, Query>
+{
+    type Key = Table::Key;
+    type Nullable = Table::Nullable;
+    // The CTE query is checked where it is defined.
+    type Sources = ();
+}
+
 impl<V: SQLParam, Table, Query> Deref for CTEView<'_, V, Table, Query> {
     type Target = Table;
 

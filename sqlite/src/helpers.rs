@@ -72,6 +72,8 @@ where
 #[doc(hidden)]
 pub trait CrossJoinArg<'a, FromTable>: cross_join_arg_private::Sealed {
     type JoinedTable;
+    /// Sources read by the legacy `ON` predicate (see [`drizzle_core::scope`]).
+    type OnSources;
 
     fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>>;
 }
@@ -94,6 +96,7 @@ where
     Source: JoinSource<'a>,
 {
     type JoinedTable = Source::JoinedTable;
+    type OnSources = ();
 
     fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>> {
         Join::new()
@@ -106,9 +109,10 @@ where
 impl<'a, Source, Condition, FromTable> CrossJoinArg<'a, FromTable> for (Source, Condition)
 where
     Source: JoinSource<'a>,
-    Condition: ToSQL<'a, SQLiteValue<'a>>,
+    Condition: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::expr::ExprSources,
 {
     type JoinedTable = Source::JoinedTable;
+    type OnSources = Condition::Sources;
 
     fn into_cross_join_sql(self) -> SQL<'a, SQLiteValue<'a>> {
         let (source, condition) = self;

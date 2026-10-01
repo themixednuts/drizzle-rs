@@ -54,7 +54,9 @@ pub(super) fn generate_column_comparison_operand_impls(
     quote! {
         impl<'a> drizzle::core::expr::ComparisonOperand<'a, #sqlite_value<'a>, #zst_ident> for #value_type {
             type SQLType = <#value_type as #drizzle_sqlite_column>::SQLType;
+            type Nullable = drizzle::core::expr::NonNull;
             type Aggregate = drizzle::core::expr::Scalar;
+            type Sources = ();
 
             fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #sqlite_value<'a>> {
                 let value: #sqlite_value<'a> =
@@ -65,7 +67,9 @@ pub(super) fn generate_column_comparison_operand_impls(
 
         impl<'a, 'value> drizzle::core::expr::ComparisonOperand<'a, #sqlite_value<'a>, #zst_ident> for &'value #value_type {
             type SQLType = <#value_type as #drizzle_sqlite_column>::SQLType;
+            type Nullable = drizzle::core::expr::NonNull;
             type Aggregate = drizzle::core::expr::Scalar;
+            type Sources = ();
 
             fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #sqlite_value<'a>> {
                 let value: #sqlite_value<'a> =

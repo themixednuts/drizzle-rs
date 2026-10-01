@@ -247,7 +247,7 @@ where
 // Addition
 // =============================================================================
 
-impl<'a, V, T, N, A, Rhs> Add<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> Add<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, AddOp>,
@@ -265,6 +265,7 @@ where
         <T as ArithmeticOutput<Rhs::SQLType, AddOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, AddOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
+        (S, Rhs::Sources),
     >;
 
     fn add(self, rhs: Rhs) -> Self::Output {
@@ -276,7 +277,7 @@ where
 // Subtraction
 // =============================================================================
 
-impl<'a, V, T, N, A, Rhs> Sub<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> Sub<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, SubOp>,
@@ -294,6 +295,7 @@ where
         <T as ArithmeticOutput<Rhs::SQLType, SubOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, SubOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
+        (S, Rhs::Sources),
     >;
 
     fn sub(self, rhs: Rhs) -> Self::Output {
@@ -305,7 +307,7 @@ where
 // Multiplication
 // =============================================================================
 
-impl<'a, V, T, N, A, Rhs> Mul<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> Mul<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, MulOp>,
@@ -323,6 +325,7 @@ where
         <T as ArithmeticOutput<Rhs::SQLType, MulOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, MulOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
+        (S, Rhs::Sources),
     >;
 
     fn mul(self, rhs: Rhs) -> Self::Output {
@@ -334,7 +337,7 @@ where
 // Division
 // =============================================================================
 
-impl<'a, V, T, N, A, Rhs> Div<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> Div<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, DivOp>,
@@ -352,6 +355,7 @@ where
         <T as ArithmeticOutput<Rhs::SQLType, DivOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, DivOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
+        (S, Rhs::Sources),
     >;
 
     fn div(self, rhs: Rhs) -> Self::Output {
@@ -363,7 +367,7 @@ where
 // Remainder (Modulo)
 // =============================================================================
 
-impl<'a, V, T, N, A, Rhs> Rem<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> Rem<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, RemOp>,
@@ -381,6 +385,7 @@ where
         <T as ArithmeticOutput<Rhs::SQLType, RemOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, RemOp>,
         <A as AggOr<Rhs::Aggregate>>::Output,
+        (S, Rhs::Sources),
     >;
 
     fn rem(self, rhs: Rhs) -> Self::Output {
@@ -392,14 +397,14 @@ where
 // Negation
 // =============================================================================
 
-impl<'a, V, T, N, A> Neg for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S> Neg for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: Numeric + NegOutput,
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, T::Output, N, A>;
+    type Output = SQLExpr<'a, V, T::Output, N, A, S>;
 
     fn neg(self) -> Self::Output {
         SQLExpr::new(SQL::from(Token::MINUS).append(self.into_expr_sql().parens()))

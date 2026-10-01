@@ -878,6 +878,14 @@ where
     type Aggregate = T::Aggregate;
 }
 
+impl<Runner, S, T, State> drizzle_core::expr::ExprSources
+    for DrizzleBuilder<'_, Runner, S, T, State>
+where
+    T: drizzle_core::expr::ExprSources,
+{
+    type Sources = T::Sources;
+}
+
 impl<'d, 'a, Runner, Schema>
     DrizzleBuilder<'d, Runner, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
@@ -961,13 +969,13 @@ impl<'d, 'a, Runner, Schema, M>
             Schema,
             SelectFromSet,
             T,
-            drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+            drizzle_core::FromMarker<M, T>,
             <M as drizzle_core::ResolveRow<T>>::Row,
         >,
         SelectFromSet,
     >
     where
-        T: ToSQL<'a, SQLiteValue<'a>>,
+        T: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::ScopeEntry,
         M: drizzle_core::ResolveRow<T>,
     {
         let builder = self.builder.from(table);
@@ -1000,8 +1008,9 @@ macro_rules! impl_select_methods {
         pub fn r#where<E>(
             self,
             condition: E,
-        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, M, R, G>, SelectWhereSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectWhereSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>, SelectWhereSet>
         where
+            M: drizzle_core::HasScope,
             E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
             E::SQLType: drizzle_core::types::BooleanLike,
         {
@@ -1014,8 +1023,9 @@ macro_rules! impl_select_methods {
         pub fn group_by<Gr>(
             self,
             columns: Gr,
-        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, Gr::Columns>, SelectGroupSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, <M as drizzle_core::HasScope>::With<Gr::Sources>, R, Gr::Columns>, SelectGroupSet>
         where
+            M: drizzle_core::HasScope,
             Gr: drizzle_core::IntoGroupBy<'a, SQLiteValue<'a>>,
         {
             let builder = self.builder.group_by(columns);
@@ -1027,8 +1037,9 @@ macro_rules! impl_select_methods {
         pub fn having<E>(
             self,
             condition: E,
-        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, M, R, G>, SelectGroupSet>
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectGroupSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>, SelectGroupSet>
         where
+            M: drizzle_core::HasScope,
             E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
             E::SQLType: drizzle_core::types::BooleanLike,
         {
@@ -1038,6 +1049,21 @@ macro_rules! impl_select_methods {
     };
 
     (@method order_by) => {
+        pub fn order_by<TOrderBy>(
+            self,
+            expressions: TOrderBy,
+        ) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectOrderSet, T, <M as drizzle_core::HasScope>::With<TOrderBy::Sources>, R, G>, SelectOrderSet>
+        where
+            M: drizzle_core::HasScope,
+            TOrderBy: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>> + drizzle_core::expr::ExprSources,
+        {
+            let builder = self.builder.order_by(expressions);
+            DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
+        }
+    };
+
+    (@method set_order_by) => {
+        /// Orders a compound query by its output columns.
         pub fn order_by<TOrderBy>(
             self,
             expressions: TOrderBy,
@@ -1090,14 +1116,14 @@ macro_rules! impl_select_methods {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
-            M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>,
         {
             let builder = self.builder.join(arg);
             DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
@@ -1119,15 +1145,14 @@ macro_rules! impl_select_methods {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
-            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
-                + drizzle_core::ScopePush<Arg::JoinedTable>,
+            M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>,
         {
             let builder = self.builder.cross_join(arg);
             DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
@@ -1143,7 +1168,7 @@ impl_select_methods! {
     SelectGroupSet => [having, order_by, limit],
     SelectOrderSet => [limit],
     SelectLimitSet => [offset],
-    SelectSetOpSet => [order_by, limit, offset],
+    SelectSetOpSet => [set_order_by, limit, offset],
 }
 
 //------------------------------------------------------------------------------
@@ -1188,16 +1213,20 @@ impl<'d, 'a, Runner, Schema, State, T, M, R>
 where
     State: drizzle_sqlite::builder::ExecutableState,
 {
-    pub fn union(
+    #[allow(clippy::type_complexity)]
+    pub fn union<M2>(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'a, Schema, M2, R>,
     ) -> DrizzleBuilder<
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
         SelectSetOpSet,
-    > {
+    >
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         DrizzleBuilder {
             runner: self.runner,
             builder: self.builder.union(other),
@@ -1205,16 +1234,20 @@ where
         }
     }
 
-    pub fn union_all(
+    #[allow(clippy::type_complexity)]
+    pub fn union_all<M2>(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'a, Schema, M2, R>,
     ) -> DrizzleBuilder<
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
         SelectSetOpSet,
-    > {
+    >
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         DrizzleBuilder {
             runner: self.runner,
             builder: self.builder.union_all(other),
@@ -1222,16 +1255,20 @@ where
         }
     }
 
-    pub fn intersect(
+    #[allow(clippy::type_complexity)]
+    pub fn intersect<M2>(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'a, Schema, M2, R>,
     ) -> DrizzleBuilder<
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
         SelectSetOpSet,
-    > {
+    >
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         DrizzleBuilder {
             runner: self.runner,
             builder: self.builder.intersect(other),
@@ -1239,16 +1276,20 @@ where
         }
     }
 
-    pub fn except(
+    #[allow(clippy::type_complexity)]
+    pub fn except<M2>(
         self,
-        other: impl IntoSelect<'a, Schema, M, R>,
+        other: impl IntoSelect<'a, Schema, M2, R>,
     ) -> DrizzleBuilder<
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, M, R>,
+        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
         SelectSetOpSet,
-    > {
+    >
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         DrizzleBuilder {
             runner: self.runner,
             builder: self.builder.except(other),
@@ -1313,7 +1354,7 @@ where
     /// make each output unique.
     #[inline]
     #[must_use]
-    pub fn alias<Name, ScopeProof, AggProof>(
+    pub fn alias<Name, AggProof>(
         self,
         name: Name,
     ) -> drizzle_core::Derived<
@@ -1327,8 +1368,7 @@ where
         Name: drizzle_core::Tag,
         <M as drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>>::Projection:
             drizzle_core::DerivedProjection<Name>,
-        M: drizzle_core::row::MarkerScopeValidFor<ScopeProof>
-            + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
+        M: drizzle_core::row::MarkerAggValidFor<G, AggProof>,
     {
         self.builder.alias(name)
     }
@@ -1441,7 +1481,7 @@ impl<'a, 'b, Runner, Schema, Table>
         Table: SQLiteTable<'b> + drizzle_core::InsertSelectTable,
         Q: IntoSelectQuery<'b, Schema, R>,
         Q::Marker: drizzle_core::InsertSelectCompatible<'b, SQLiteValue<'b>, Table, R>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         let builder = self.builder.select(query);
@@ -1502,7 +1542,7 @@ where
         Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
         Q: IntoSelectQuery<'b, Schema, R>,
         Q::Marker: drizzle_core::PartialInsertSelectCompatible<'b, SQLiteValue<'b>, Targets>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         let builder = self.builder.select(query);

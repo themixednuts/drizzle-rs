@@ -277,12 +277,67 @@ impl<T: HasAggStatus + ?Sized> HasAggStatus for &T {
 /// check_expr::<_, i32>(); // SQLType=Int, Nullable=NonNull, Aggregate=Scalar
 /// # "####;
 /// ```
+/// The sources an expression reads, as a type-level tree.
+///
+/// Columns record their table, operators combine their operands' trees, and
+/// literals, placeholders and raw SQL read nothing (`()`). Query builders
+/// check the tree against the FROM/JOIN scope, so a column of a table that
+/// was never joined is a compile error in any clause. See [`crate::scope`]
+/// for the node types.
+pub trait ExprSources {
+    /// Type-level tree of [`Src`](crate::scope::Src) leaves.
+    type Sources;
+}
+
+impl<T: ExprSources + ?Sized> ExprSources for &T {
+    type Sources = T::Sources;
+}
+
+/// Expression lists (`Cons<E, ...>`) read every element's sources.
+impl ExprSources for crate::Nil {
+    type Sources = ();
+}
+
+impl<Head: ExprSources, Tail: ExprSources> ExprSources for crate::Cons<Head, Tail> {
+    type Sources = (Head::Sources, Tail::Sources);
+}
+
+/// `()` reads nothing (`COUNT(*)`).
+impl ExprSources for () {
+    type Sources = ();
+}
+
+// Tuples (condition lists, GROUP BY keys, ORDER BY terms) read the sources of
+// every element, nested as NULL-propagating pairs.
+macro_rules! impl_tuple_expr_sources {
+    ($($T:ident),+; $($i:tt),+) => {
+        impl<$($T: ExprSources),+> ExprSources for ($($T,)+) {
+            type Sources = impl_tuple_expr_sources!(@nest $($T),+);
+        }
+    };
+    (@nest $T:ident) => { <$T as ExprSources>::Sources };
+    (@nest $T:ident, $($rest:ident),+) => {
+        (<$T as ExprSources>::Sources, impl_tuple_expr_sources!(@nest $($rest),+))
+    };
+}
+
+with_col_sizes_8!(impl_tuple_expr_sources);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_tuple_expr_sources);
+
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid SQL expression",
     label = "expected a column, literal, or expression — does this type implement Expr?",
     note = "SQL expressions must have an associated SQLType, Nullable, and Aggregate kind"
 )]
-pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> {
+pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> + ExprSources {
     /// The SQL data type this expression evaluates to.
     type SQLType: DataType;
 

@@ -9,7 +9,7 @@ use crate::prelude::*;
 use crate::sql::SQL;
 use crate::traits::{SQLBytes, SQLParam};
 
-use super::{Expr, NonNull, Null, Nullability, Scalar};
+use super::{Expr, ExprSources, NonNull, Null, Nullability, Scalar};
 
 // =============================================================================
 // Integer Types
@@ -364,6 +364,10 @@ where
 // Option<T> - Makes Any Expression Nullable
 // =============================================================================
 
+impl<T: ExprSources> ExprSources for Option<T> {
+    type Sources = T::Sources;
+}
+
 impl<'a, V, T> Expr<'a, V> for Option<T>
 where
     V: SQLParam + 'a,
@@ -459,6 +463,10 @@ macro_rules! impl_value_expr {
             type Nullable = NonNull;
             type Aggregate = Scalar;
         }
+
+        impl ExprSources for $ty {
+            type Sources = ();
+        }
     )+};
 }
 
@@ -502,3 +510,133 @@ where
     type Nullable = Null;
     type Aggregate = Scalar;
 }
+
+// Literals and raw SQL read no source.
+impl ExprSources for i8 {
+    type Sources = ();
+}
+
+impl ExprSources for i16 {
+    type Sources = ();
+}
+
+impl ExprSources for i32 {
+    type Sources = ();
+}
+
+impl ExprSources for i64 {
+    type Sources = ();
+}
+
+impl ExprSources for isize {
+    type Sources = ();
+}
+
+impl ExprSources for u8 {
+    type Sources = ();
+}
+
+impl ExprSources for u16 {
+    type Sources = ();
+}
+
+impl ExprSources for u32 {
+    type Sources = ();
+}
+
+impl ExprSources for u64 {
+    type Sources = ();
+}
+
+impl ExprSources for usize {
+    type Sources = ();
+}
+
+impl ExprSources for f32 {
+    type Sources = ();
+}
+
+impl ExprSources for f64 {
+    type Sources = ();
+}
+
+impl ExprSources for bool {
+    type Sources = ();
+}
+
+impl ExprSources for &str {
+    type Sources = ();
+}
+
+impl ExprSources for String {
+    type Sources = ();
+}
+
+#[cfg(feature = "compact-str")]
+impl ExprSources for compact_str::CompactString {
+    type Sources = ();
+}
+
+#[cfg(feature = "bytes")]
+impl ExprSources for bytes::Bytes {
+    type Sources = ();
+}
+
+#[cfg(feature = "bytes")]
+impl ExprSources for bytes::BytesMut {
+    type Sources = ();
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> ExprSources for arrayvec::ArrayString<N> {
+    type Sources = ();
+}
+
+#[cfg(feature = "arrayvec")]
+impl<const N: usize> ExprSources for arrayvec::ArrayVec<u8, N> {
+    type Sources = ();
+}
+
+#[cfg(feature = "smallvec-types")]
+impl<const N: usize> ExprSources for smallvec::SmallVec<[u8; N]> {
+    type Sources = ();
+}
+
+impl<const N: usize> ExprSources for [char; N] {
+    type Sources = ();
+}
+
+impl ExprSources for &[u8] {
+    type Sources = ();
+}
+
+impl<const N: usize> ExprSources for [u8; N] {
+    type Sources = ();
+}
+
+impl ExprSources for Vec<u8> {
+    type Sources = ();
+}
+
+impl ExprSources for Cow<'_, [u8]> {
+    type Sources = ();
+}
+
+impl ExprSources for SQLBytes<'_> {
+    type Sources = ();
+}
+
+#[cfg(feature = "uuid")]
+impl ExprSources for uuid::Uuid {
+    type Sources = ();
+}
+
+#[cfg(feature = "rust-decimal")]
+impl ExprSources for rust_decimal::Decimal {
+    type Sources = ();
+}
+
+impl<V: SQLParam> ExprSources for crate::sql::SQL<'_, V> {
+    type Sources = ();
+}
+

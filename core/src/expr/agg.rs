@@ -30,6 +30,8 @@ use drizzle_types::sqlite::types::{
 
 use super::math::pg_double;
 use super::{Agg, Expr, NonNull, Null, SQLExpr, Scalar};
+use super::ExprSources;
+use crate::scope::ScopeOnly;
 
 // =============================================================================
 // Dialect Aggregate Policy
@@ -113,7 +115,7 @@ mod count_arg_private {
 /// and `count(expr)` for `COUNT(expr)` without making `()` a general SQL
 /// expression.
 #[doc(hidden)]
-pub trait CountArg<'a, V: SQLParam>: count_arg_private::Sealed<'a, V> {
+pub trait CountArg<'a, V: SQLParam>: count_arg_private::Sealed<'a, V> + ExprSources {
     fn count_sql(self) -> SQL<'a, V>;
 }
 
@@ -126,7 +128,7 @@ impl<'a, V: SQLParam + 'a> CountArg<'a, V> for () {
 impl<'a, V, E> CountArg<'a, V> for E
 where
     V: SQLParam + 'a,
-    E: crate::traits::ToSQL<'a, V> + crate::row::ExprValueType,
+    E: crate::traits::ToSQL<'a, V> + crate::row::ExprValueType + ExprSources,
 {
     fn count_sql(self) -> SQL<'a, V> {
         SQL::func("COUNT", self.into_sql().parens_if_subquery())
@@ -336,7 +338,14 @@ impl AggregatePolicy<PostgresDialect> for PgNumeric {
 /// ```
 pub fn count<'a, V, A>(
     arg: A,
-) -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as CountPolicy>::Count,
+    NonNull,
+    Agg,
+    ScopeOnly<A::Sources>,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: CountPolicy,
@@ -351,7 +360,14 @@ where
 /// Works with any expression type.
 pub fn count_distinct<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as CountPolicy>::Count,
+    NonNull,
+    Agg,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: CountPolicy,
@@ -388,7 +404,14 @@ where
 /// ```
 pub fn sum<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -403,7 +426,14 @@ where
 /// Result type is dialect-aware.
 pub fn sum_distinct<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -437,7 +467,14 @@ where
 /// ```
 pub fn avg<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -451,7 +488,14 @@ where
 /// Requires the expression to be `Numeric`.
 pub fn avg_distinct<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -484,7 +528,7 @@ where
 /// // Returns the same SQL type as products.price
 /// # "####;
 /// ```
-pub fn min<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
+pub fn min<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -509,7 +553,7 @@ where
 /// // Returns the same SQL type as products.price
 /// # "####;
 /// ```
-pub fn max<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg>
+pub fn max<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -547,6 +591,7 @@ pub fn stddev_pop<'a, V, E>(
     <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::StddevPop,
     Null,
     Agg,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -582,6 +627,7 @@ pub fn stddev_samp<'a, V, E>(
     <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::StddevSamp,
     Null,
     Agg,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -611,7 +657,14 @@ where
 /// ```
 pub fn var_pop<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarPop, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarPop,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -640,7 +693,14 @@ where
 /// ```
 pub fn var_samp<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarSamp, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarSamp,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -652,7 +712,14 @@ where
 /// Sample variance. Emits `VARIANCE` on PostgreSQL and `VAR_SAMP` on MySQL.
 pub fn variance<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarSamp, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as StatisticalAggregatePolicy<V::DialectMarker>>::VarSamp,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -670,7 +737,7 @@ where
 /// `BOOL_AND` - true if all non-null inputs are true (`PostgreSQL`).
 pub fn bool_and<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -683,7 +750,7 @@ where
 /// `BOOL_OR` - true if any non-null input is true (`PostgreSQL`).
 pub fn bool_or<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -696,7 +763,7 @@ where
 /// `JSON_AGG` - aggregates values into a JSON array (`PostgreSQL`).
 pub fn json_agg<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -708,7 +775,14 @@ where
 /// `JSONB_AGG` - aggregates values into a JSONB array (`PostgreSQL`).
 pub fn jsonb_agg<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Jsonb,
+    Null,
+    Agg,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -718,7 +792,7 @@ where
 }
 
 /// `ARRAY_AGG` - aggregates values into a SQL array (`PostgreSQL`).
-pub fn array_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Array<E::SQLType>, Null, Agg>
+pub fn array_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Array<E::SQLType>, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -748,7 +822,14 @@ where
 /// ```
 pub fn total<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    NonNull,
+    Agg,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteAggregateSupport,
@@ -767,7 +848,7 @@ where
 /// Returns Text type, nullable.
 pub fn group_concat<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: GroupConcatSupport,
@@ -781,7 +862,14 @@ where
 pub fn string_agg<'a, V, E, D>(
     expr: E,
     delimiter: D,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    Null,
+    Agg,
+    (E::Sources, D::Sources),
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -818,7 +906,7 @@ where
 /// ```
 pub fn every<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -843,7 +931,14 @@ where
 pub fn json_object_agg<'a, V, K, Val>(
     key: K,
     value: Val,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Json,
+    Null,
+    Agg,
+    (K::Sources, Val::Sources),
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -873,7 +968,14 @@ where
 pub fn jsonb_object_agg<'a, V, K, Val>(
     key: K,
     value: Val,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Jsonb,
+    Null,
+    Agg,
+    (K::Sources, Val::Sources),
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresAggregateSupport,
@@ -895,7 +997,7 @@ where
 /// DISTINCT - marks an expression as DISTINCT.
 ///
 /// Typically used inside aggregate functions.
-pub fn distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, Scalar>
+pub fn distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, Scalar, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,

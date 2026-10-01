@@ -67,7 +67,14 @@ where
 /// Negates a boolean expression.
 pub fn not<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -115,6 +122,7 @@ pub fn and<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     <L::Nullable as NullOr<R::Nullable>>::Output,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -152,6 +160,7 @@ pub fn or<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     <L::Nullable as NullOr<R::Nullable>>::Output,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -180,14 +189,14 @@ where
 /// let negated = !condition;  // NOT "users"."active" = TRUE
 /// # "####;
 /// ```
-impl<'a, V, T, N, A> Not for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S> Not for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, N, A>;
+    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, N, A, S>;
 
     fn not(self) -> Self::Output {
         not(self)
@@ -204,7 +213,7 @@ where
 /// // ("users"."active" = TRUE AND "users"."age" > 18)
 /// # "####;
 /// ```
-impl<'a, V, T, N, A, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
@@ -220,6 +229,7 @@ where
         <V::DialectMarker as DialectTypes>::Bool,
         <N as NullOr<Rhs::Nullable>>::Output,
         <A as AggOr<Rhs::Aggregate>>::Output,
+        (S, Rhs::Sources),
     >;
 
     fn bitand(self, rhs: Rhs) -> Self::Output {
@@ -237,7 +247,7 @@ where
 /// // ("users"."role" = 'admin' OR "users"."role" = 'moderator')
 /// # "####;
 /// ```
-impl<'a, V, T, N, A, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
@@ -253,6 +263,7 @@ where
         <V::DialectMarker as DialectTypes>::Bool,
         <N as NullOr<Rhs::Nullable>>::Output,
         <A as AggOr<Rhs::Aggregate>>::Output,
+        (S, Rhs::Sources),
     >;
 
     fn bitor(self, rhs: Rhs) -> Self::Output {

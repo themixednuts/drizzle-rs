@@ -31,6 +31,7 @@ use crate::types::{BooleanLike, Compatible, DataType};
 
 use super::null::NullOr;
 use super::{AggOr, AggregateKind, Expr, Null, Nullability, SQLExpr};
+use crate::scope::ScopeOnly;
 
 // =============================================================================
 // Entry Point
@@ -74,7 +75,14 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
         self,
         condition: C,
         result: R,
-    ) -> CaseBuilder<'a, V, R::SQLType, R::Nullable, <C::Aggregate as AggOr<R::Aggregate>>::Output>
+    ) -> CaseBuilder<
+        'a,
+        V,
+        R::SQLType,
+        R::Nullable,
+        <C::Aggregate as AggOr<R::Aggregate>>::Output,
+        (ScopeOnly<C::Sources>, R::Sources),
+    >
     where
         C: Expr<'a, V>,
         R: Expr<'a, V>,
@@ -102,12 +110,14 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
 /// Builder state after at least one WHEN branch has been added.
 ///
 /// The result type `T` and accumulated nullability `N` are tracked.
-pub struct CaseBuilder<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> {
+/// `S` collects the sources read so far: WHEN conditions are scope-checked
+/// only (a NULL condition falls through), THEN results propagate NULL.
+pub struct CaseBuilder<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S = ()> {
     sql: SQL<'a, V>,
-    _marker: PhantomData<(V, T, N, A)>,
+    _marker: PhantomData<fn() -> (V, T, N, A, S)>,
 }
 
-impl<'a, V, T, N, A> CaseBuilder<'a, V, T, N, A>
+impl<'a, V, T, N, A, S> CaseBuilder<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -129,6 +139,7 @@ where
         T,
         <N as NullOr<R::Nullable>>::Output,
         <<A as AggOr<C::Aggregate>>::Output as AggOr<R::Aggregate>>::Output,
+        (S, (ScopeOnly<C::Sources>, R::Sources)),
     >
     where
         C: Expr<'a, V>,
@@ -159,7 +170,7 @@ where
     ///
     /// Without ELSE, unmatched rows produce NULL, so the result is always
     /// `Null` regardless of branch nullability.
-    pub fn end(self) -> SQLExpr<'a, V, T, Null, A> {
+    pub fn end(self) -> SQLExpr<'a, V, T, Null, A, S> {
         let sql = self.sql.push(Token::END);
         SQLExpr::new(sql)
     }
@@ -172,7 +183,14 @@ where
     pub fn r#else<D>(
         self,
         default: D,
-    ) -> SQLExpr<'a, V, T, <N as NullOr<D::Nullable>>::Output, <A as AggOr<D::Aggregate>>::Output>
+    ) -> SQLExpr<
+        'a,
+        V,
+        T,
+        <N as NullOr<D::Nullable>>::Output,
+        <A as AggOr<D::Aggregate>>::Output,
+        (S, D::Sources),
+    >
     where
         D: Expr<'a, V>,
         T: Compatible<D::SQLType>,

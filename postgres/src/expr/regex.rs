@@ -7,6 +7,7 @@
 //! - `!~*` (does not match regex, case-insensitive)
 
 use crate::values::PostgresValue;
+use drizzle_core::scope::Arg;
 use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
 use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_types::postgres::types::Boolean;
@@ -26,7 +27,14 @@ use drizzle_types::postgres::types::Boolean;
 pub fn regex_match<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<E::Nullable, E::Sources>,
+>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -52,7 +60,14 @@ where
 pub fn regex_match_ci<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<E::Nullable, E::Sources>,
+>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -78,7 +93,14 @@ where
 pub fn regex_not_match<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<E::Nullable, E::Sources>,
+>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -104,7 +126,14 @@ where
 pub fn regex_not_match_ci<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<E::Nullable, E::Sources>,
+>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -121,7 +150,14 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_match(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Scalar,
+        Arg<Self::Nullable, Self::Sources>,
+    > {
         regex_match(self, pattern)
     }
 
@@ -129,7 +165,14 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_match_ci(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Scalar,
+        Arg<Self::Nullable, Self::Sources>,
+    > {
         regex_match_ci(self, pattern)
     }
 
@@ -137,7 +180,14 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_not_match(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Scalar,
+        Arg<Self::Nullable, Self::Sources>,
+    > {
         regex_not_match(self, pattern)
     }
 
@@ -145,7 +195,14 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_not_match_ci(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Scalar,
+        Arg<Self::Nullable, Self::Sources>,
+    > {
         regex_not_match_ci(self, pattern)
     }
 }

@@ -10,7 +10,7 @@
 //! # let _ = r####"
 //! .select(cols)    → Marker  (SelectStar | SelectCols<C> | SelectExpr)
 //! .from(table)     → R       (Marker + Table → row type via ResolveRow)
-//! .join(t2)        → R'      (Marker + R + JoinedTable → new R via AfterJoin)
+//! .join(t2)        → R'      (Marker + R + JoinedTable → new R via JoinStep)
 //! .all()           → Vec<R>  (R: FromDrizzleRow)
 //! # "####;
 //! ```
@@ -33,7 +33,6 @@ mod turso;
 use core::marker::PhantomData;
 
 use crate::error::DrizzleError;
-use crate::prelude::{String, Vec};
 use crate::{Cons, Nil};
 
 // =============================================================================
@@ -56,382 +55,167 @@ pub struct SelectExpr;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectAs<R>(PhantomData<R>);
 
-/// Marker wrapper that carries in-scope tables.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Scoped<Marker, Scope>(PhantomData<(Marker, Scope)>);
+pub use crate::scope::{
+    HasScope, OuterJoined, ScopeContains, ScopeEntry, ScopeHere, ScopeThere, Scoped,
+};
 
-/// Declares the set of tables a custom row model requires.
-pub trait SelectRequiredTables {
-    type RequiredTables;
-}
-
-/// Type-level witness that a table exists at the head of a scope list.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ScopeHere;
-
-/// Type-level witness that a table exists deeper in a scope list.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ScopeThere<Prev>(PhantomData<Prev>);
-
-/// Type-level table membership in a scope list.
-pub trait ScopeContains<Table, Witness> {}
-
-impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
-
-impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
-    Tail: ScopeContains<Table, Witness>
-{
-}
-
-/// Scope entry for a source on the nullable side of an outer join.
+/// Scope validation of a SELECT marker, checked by strict terminal methods.
 ///
-/// `LEFT JOIN` wraps the joined source, `RIGHT JOIN` wraps every source
-/// already in scope, and `FULL JOIN` wraps both. Membership checks see
-/// through the wrapper, so the source stays in scope; decode checks read it
-/// to require `Option` for columns that can come back NULL.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct OuterJoined<Table>(PhantomData<Table>);
-
-/// Type-level witness that a table is the head of a scope list on the
-/// nullable side of an outer join.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ScopeOuter<Witness>(PhantomData<Witness>);
-
-// Only the head entry is unwrapped (`Cons<Inner, Nil>`), so every table keeps
-// exactly one witness and inference never sees two paths to the same entry.
-impl<Table, Inner, Tail, Witness> ScopeContains<Table, ScopeOuter<Witness>>
-    for Cons<OuterJoined<Inner>, Tail>
-where
-    Cons<Inner, Nil>: ScopeContains<Table, Witness>,
-{
-}
-
-/// Reads whether a scope witness passed through an outer-join entry.
-#[doc(hidden)]
-pub trait ScopeWitnessNullability {
-    /// [`Null`](crate::expr::Null) when the found source can be absent from a
-    /// result row, [`NonNull`](crate::expr::NonNull) otherwise.
-    type Nullable: crate::expr::Nullability;
-}
-
-impl ScopeWitnessNullability for ScopeHere {
-    type Nullable = crate::expr::NonNull;
-}
-
-impl<Witness: ScopeWitnessNullability> ScopeWitnessNullability for ScopeThere<Witness> {
-    type Nullable = Witness::Nullable;
-}
-
-impl<Witness> ScopeWitnessNullability for ScopeOuter<Witness> {
-    type Nullable = crate::expr::Null;
-}
-
-/// Wraps every entry of a scope list in [`OuterJoined`].
-#[doc(hidden)]
-pub trait OuterJoinScope {
-    type Out;
-}
-
-impl OuterJoinScope for Nil {
-    type Out = Self;
-}
-
-impl<Head, Tail: OuterJoinScope> OuterJoinScope for Cons<Head, Tail> {
-    type Out = Cons<OuterJoined<Head>, Tail::Out>;
-}
-
-/// Required-table list satisfaction.
-pub trait ScopeSatisfies<Required, Proof> {}
-
-impl<Scope> ScopeSatisfies<Nil, ()> for Scope {}
-
-impl<Scope, Head, Tail, HeadProof, TailProof>
-    ScopeSatisfies<Cons<Head, Tail>, (HeadProof, TailProof)> for Scope
-where
-    Scope: ScopeContains<Head, HeadProof> + ScopeSatisfies<Tail, TailProof>,
-{
-}
-
-/// Marker-level required-table extraction.
-pub trait MarkerRequiredTables {
-    type RequiredTables;
-}
-
-impl MarkerRequiredTables for SelectStar {
-    type RequiredTables = Nil;
-}
-
-impl<Cols> MarkerRequiredTables for SelectCols<Cols> {
-    type RequiredTables = Nil;
-}
-
-impl MarkerRequiredTables for SelectExpr {
-    type RequiredTables = Nil;
-}
-
-impl<R> MarkerRequiredTables for SelectAs<R>
-where
-    R: SelectRequiredTables,
-{
-    type RequiredTables = R::RequiredTables;
-}
-
-/// Marker validation for a specific scope-satisfaction proof.
-#[diagnostic::on_unimplemented(
-    message = "selected row requires tables not present in the current query scope",
-    label = "add .join(...) entries for every table referenced by this selector",
-    note = "for aliased selectors, use the same alias type in #[from(...)] and .from(...)"
-)]
+/// - every clause source recorded on the marker resolves in the query scope;
+/// - explicit columns come from a source in scope;
+/// - a `FromRow` selector's tables are in scope, and every field read from the
+///   nullable side of an outer join is an `Option`.
 ///
 /// ```
-/// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectRequiredTables};
-/// use drizzle_core::row::{MarkerScopeValidFor, ScopeHere};
+/// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectTableFields, TableFields};
+/// use drizzle_core::scope::{ScopeEntry, ScopeHere};
+/// use drizzle_core::expr::NonNull;
+/// use drizzle_core::row::MarkerScopeValidFor;
 ///
 /// struct Users;
+/// impl ScopeEntry for Users {
+///     type Key = Users;
+///     type Nullable = NonNull;
+/// }
 /// struct Model;
-///
-/// impl SelectRequiredTables for Model {
-///     type RequiredTables = Cons<Users, Nil>;
+/// impl SelectTableFields for Model {
+///     type TableFields = Cons<TableFields<Users, Cons<i32, Nil>>, Nil>;
 /// }
 ///
-/// type Good = Scoped<SelectAs<Model>, Cons<Users, Nil>>;
-///
-/// fn needs_valid<M: MarkerScopeValidFor<(ScopeHere, ())>>() {}
+/// fn needs_valid<M: MarkerScopeValidFor<((), (ScopeHere, ()))>>() {}
 ///
 /// fn main() {
-///     needs_valid::<Good>();
+///     needs_valid::<Scoped<SelectAs<Model>, Cons<Users, Nil>>>();
 /// }
 /// ```
 ///
 /// ```compile_fail
-/// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectRequiredTables};
-/// use drizzle_core::row::{MarkerScopeValidFor, ScopeHere};
+/// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectTableFields, TableFields};
+/// use drizzle_core::scope::{ScopeEntry, ScopeHere};
+/// use drizzle_core::expr::NonNull;
+/// use drizzle_core::row::MarkerScopeValidFor;
 ///
 /// struct Users;
 /// struct Posts;
+/// impl ScopeEntry for Users {
+///     type Key = Users;
+///     type Nullable = NonNull;
+/// }
+/// impl ScopeEntry for Posts {
+///     type Key = Posts;
+///     type Nullable = NonNull;
+/// }
 /// struct Model;
-///
-/// impl SelectRequiredTables for Model {
-///     type RequiredTables = Cons<Users, Nil>;
+/// impl SelectTableFields for Model {
+///     type TableFields = Cons<TableFields<Users, Cons<i32, Nil>>, Nil>;
 /// }
 ///
-/// type Bad = Scoped<SelectAs<Model>, Cons<Posts, Nil>>;
-///
-/// fn needs_valid<M: MarkerScopeValidFor<(ScopeHere, ())>>() {}
+/// fn needs_valid<M: MarkerScopeValidFor<((), (ScopeHere, ()))>>() {}
 ///
 /// fn main() {
-///     needs_valid::<Bad>();
+///     needs_valid::<Scoped<SelectAs<Model>, Cons<Posts, Nil>>>();
 /// }
 /// ```
 pub trait MarkerScopeValidFor<Proof> {}
 
-impl<Scope> MarkerScopeValidFor<()> for Scoped<SelectStar, Scope> {}
-
-impl<Scope> MarkerScopeValidFor<()> for Scoped<SelectExpr, Scope> {}
-
-impl<R, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectAs<R>, Scope>
-where
-    R: SelectRequiredTables,
-    Scope: ScopeSatisfies<R::RequiredTables, Proof>,
+impl<Scope, Used, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectStar, Scope, Used> where
+    Used: SourcesIn<Nil, Proof>
 {
 }
 
-/// Explicit columns must come from a source in the FROM/JOIN scope.
-impl<Cols, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectCols<Cols>, Scope>
+impl<Scope, Used, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectExpr, Scope, Used> where
+    Used: SourcesIn<Nil, Proof>
+{
+}
+
+impl<R, Scope, Used, UsedProof, FieldsProof> MarkerScopeValidFor<(UsedProof, FieldsProof)>
+    for Scoped<SelectAs<R>, Scope, Used>
 where
+    Used: SourcesIn<Nil, UsedProof>,
+    R: SelectTableFields,
+    R::TableFields: TableFieldsIn<Scope, FieldsProof>,
+{
+}
+
+impl<Cols, Scope, Used, UsedProof, ColsProof> MarkerScopeValidFor<(UsedProof, ColsProof)>
+    for Scoped<SelectCols<Cols>, Scope, Used>
+where
+    Used: SourcesIn<Nil, UsedProof>,
     Cols: SelectedExpressionList,
-    Cols::Expressions: SelectProjectionsInScope<Scope, Proof>,
+    Cols::Expressions: ProjectionIn<Scope, ColsProof>,
 {
 }
 
-/// Validates one expression of a SELECT list against the query scope and
-/// yields the column type the decode check compares against.
-///
-/// Columns must belong to a source in scope. A column read from the nullable
-/// side of an outer join yields [`JoinNullable`] so the decode target has to
-/// use `Option`. Other typed expressions are opaque: their sources are not
-/// tracked, so they pass and keep their declared value type.
-#[doc(hidden)]
-#[diagnostic::on_unimplemented(
-    message = "`{Self}` is selected from a table that is not in the query's FROM/JOIN scope",
-    label = "this column's table is missing from .from(...) / .join(...)",
-    note = "add the table with .from(...) or a .join(...) before selecting its columns"
-)]
-pub trait SelectProjectionInScope<Scope, Proof> {
-    /// Column-list entry used by the strict decode check.
-    type Value;
-}
+use crate::scope::SourcesIn;
 
-/// Marks a decoded column that an outer join can turn NULL.
+/// Marks a decoded column that can be NULL although its declared value type
+/// is not an `Option`: a column from the nullable side of an outer join, or a
+/// comparison whose operand can be NULL.
 ///
-/// `JoinNullable<T>` only matches `Option<T>` in a decode target (and
-/// `JoinNullable<Option<T>>` matches `Option<T>`), never a bare `T`.
+/// `MaybeNull<T>` only matches `Option<T>` in a decode target (and
+/// `MaybeNull<Option<T>>` matches `Option<T>`), never a bare `T`.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct JoinNullable<T>(PhantomData<T>);
+pub struct MaybeNull<T>(PhantomData<T>);
 
-/// Applies outer-join nullability to a decoded value type.
+/// Applies scope nullability to a decoded value type.
 #[doc(hidden)]
-pub trait WidenJoinValue<T> {
+pub trait WidenNullable<T> {
     type Out;
 }
 
-impl<T> WidenJoinValue<T> for crate::expr::NonNull {
+impl<T> WidenNullable<T> for crate::expr::NonNull {
     type Out = T;
 }
 
-impl<T> WidenJoinValue<T> for crate::expr::Null {
-    type Out = JoinNullable<T>;
+impl<T> WidenNullable<T> for crate::expr::Null {
+    type Out = MaybeNull<T>;
 }
 
-impl<E, Scope, Table, Witness> SelectProjectionInScope<Scope, ColumnScope<Table, Witness>> for E
-where
-    E: ProjectionInScope<Scope, ColumnScope<Table, Witness>> + ExprValueType,
-    Witness: ScopeWitnessNullability,
-    Witness::Nullable: WidenJoinValue<E::ValueType>,
-{
-    type Value = <Witness::Nullable as WidenJoinValue<E::ValueType>>::Out;
-}
-
-impl<V, T, N, A, Scope> SelectProjectionInScope<Scope, OpaqueScope>
-    for crate::expr::SQLExpr<'_, V, T, N, A>
-where
-    V: crate::SQLParam,
-    T: crate::types::DataType,
-    N: crate::expr::Nullability,
-    A: crate::expr::AggregateKind,
-    Self: ExprValueType,
-{
-    type Value = <Self as ExprValueType>::ValueType;
-}
-
-impl<V: crate::SQLParam, Scope> SelectProjectionInScope<Scope, OpaqueScope>
-    for crate::sql::SQL<'_, V>
-{
-    type Value = ();
-}
-
-impl<T, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>> for &T
-where
-    T: SelectProjectionInScope<Scope, Proof> + ?Sized,
-{
-    type Value = T::Value;
-}
-
-impl<E, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>>
-    for crate::expr::AliasedExpr<E>
-where
-    E: SelectProjectionInScope<Scope, Proof>,
-{
-    type Value = E::Value;
-}
-
-impl<E, Name, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>>
-    for crate::expr::NamedExpr<E, Name>
-where
-    E: SelectProjectionInScope<Scope, Proof>,
-{
-    type Value = E::Value;
-}
-
-// Arithmetic on columns: both operands must be in scope. The result keeps
-// its declared value type; outer-join nullability is not propagated through
-// operators.
-impl<Lhs, Rhs, Op, D, T, N, Scope, LeftProof, RightProof>
-    SelectProjectionInScope<Scope, BinaryScope<LeftProof, RightProof>>
-    for crate::expr::ColumnBinOp<Lhs, Rhs, Op, D, T, N>
-where
-    Lhs: SelectProjectionInScope<Scope, LeftProof>,
-    Rhs: SelectProjectionInScope<Scope, RightProof>,
-    Self: ExprValueType,
-{
-    type Value = <Self as ExprValueType>::ValueType;
-}
-
-impl<T, D, SQLType, Nullable, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>>
-    for crate::expr::ColumnNeg<T, D, SQLType, Nullable>
-where
-    T: SelectProjectionInScope<Scope, Proof>,
-    Self: ExprValueType,
-{
-    type Value = <Self as ExprValueType>::ValueType;
-}
-
-macro_rules! impl_select_projection_opaque {
-    ($($ty:ty),+ $(,)?) => {
-        // Literals only appear as operands (`users.age + 1`); they are never
-        // a decoded column, so their value entry is a placeholder.
-        $(impl<Scope> SelectProjectionInScope<Scope, OpaqueScope> for $ty {
-            type Value = ();
-        })+
-    };
-}
-
-impl_select_projection_opaque!(
-    bool,
-    i8,
-    i16,
-    i32,
-    i64,
-    i128,
-    isize,
-    u8,
-    u16,
-    u32,
-    u64,
-    u128,
-    usize,
-    f32,
-    f64,
-    String,
-    &str,
-    Vec<u8>,
-    &[u8]
-);
-
-impl<T, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>> for Option<T>
-where
-    T: SelectProjectionInScope<Scope, Proof>,
-{
-    type Value = Option<T::Value>;
-}
-
-/// Validates every expression of an explicit SELECT list against its scope.
+/// Checks an explicit SELECT list against the query scope.
+///
+/// Each expression's sources must be in `Scope`. The decode-check column
+/// list widens a column to [`MaybeNull`] when its sources can make it NULL.
 #[doc(hidden)]
-pub trait SelectProjectionsInScope<Scope, Proof> {
-    /// Decode-check column list, with outer-join nullability applied.
+pub trait ProjectionIn<Scope, Proof> {
+    /// Decode-check column list.
     type Columns: crate::TypeSet;
 }
 
-impl<Scope> SelectProjectionsInScope<Scope, ()> for Nil {
+impl<Scope> ProjectionIn<Scope, ()> for Nil {
     type Columns = Self;
 }
 
-impl<Head, Tail, Scope, HeadProof, TailProof>
-    SelectProjectionsInScope<Scope, (HeadProof, TailProof)> for Cons<Head, Tail>
+impl<Head, Tail, Scope, HeadProof, TailProof> ProjectionIn<Scope, (HeadProof, TailProof)>
+    for Cons<Head, Tail>
 where
-    Head: SelectProjectionInScope<Scope, HeadProof>,
-    Tail: SelectProjectionsInScope<Scope, TailProof>,
+    Head: crate::expr::ExprSources + ExprValueType,
+    Head::Sources: SourcesIn<Scope, HeadProof>,
+    <Head::Sources as SourcesIn<Scope, HeadProof>>::Nullable: WidenNullable<Head::ValueType>,
+    Tail: ProjectionIn<Scope, TailProof>,
 {
-    type Columns = Cons<Head::Value, Tail::Columns>;
+    type Columns = Cons<
+        <<Head::Sources as SourcesIn<Scope, HeadProof>>::Nullable as WidenNullable<
+            Head::ValueType,
+        >>::Out,
+        Tail::Columns,
+    >;
 }
 
-/// Per-table field types of a `FromRow` selector, in the same order as its
-/// [`SelectRequiredTables::RequiredTables`].
+/// Field types of a `FromRow` selector, grouped by the source each reads.
 ///
 /// Generated by `#[derive(SQLiteFromRow)]`, `#[derive(PostgresFromRow)]` and
-/// `#[derive(MySQLFromRow)]`. Strict decode uses it to require `Option` on
-/// every field read from the nullable side of an outer join.
-#[doc(hidden)]
+/// `#[derive(MySQLFromRow)]`. Strict decode requires every listed source to
+/// be in scope, and `Option` on every field read from the nullable side of an
+/// outer join.
 pub trait SelectTableFields {
-    /// `Cons<TableFields<Table, Cons<Field, ...>>, ...>`.
+    /// `Cons<TableFields<Source, Cons<Field, ...>>, ...>`.
     type TableFields;
 }
 
-/// Field types a `FromRow` selector reads from `Table`.
-#[doc(hidden)]
+/// Field types a `FromRow` selector reads from `Source`.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct TableFields<Table, Fields>(PhantomData<(Table, Fields)>);
+pub struct TableFields<Source, Fields>(PhantomData<(Source, Fields)>);
 
 /// Accepts a field list for a source with the given nullability.
 #[doc(hidden)]
@@ -452,122 +236,18 @@ impl<T, Tail> FieldsAcceptNullability<crate::expr::Null> for Cons<Option<T>, Tai
 }
 
 /// Checks a [`SelectTableFields`] list against the query scope.
-///
-/// The proof has the same shape as [`ScopeSatisfies`] over the selector's
-/// required tables, so it is shared with [`MarkerScopeValidFor`].
 #[doc(hidden)]
-pub trait TableFieldsNullabilityValid<Scope, Proof> {}
+pub trait TableFieldsIn<Scope, Proof> {}
 
-impl<Scope> TableFieldsNullabilityValid<Scope, ()> for Nil {}
+impl<Scope> TableFieldsIn<Scope, ()> for Nil {}
 
-impl<Table, Fields, Tail, Scope, HeadProof, TailProof>
-    TableFieldsNullabilityValid<Scope, (HeadProof, TailProof)>
-    for Cons<TableFields<Table, Fields>, Tail>
+impl<Source, Fields, Tail, Scope, Witness, TailProof> TableFieldsIn<Scope, (Witness, TailProof)>
+    for Cons<TableFields<Source, Fields>, Tail>
 where
-    Scope: ScopeContains<Table, HeadProof>,
-    HeadProof: ScopeWitnessNullability,
-    Fields: FieldsAcceptNullability<HeadProof::Nullable>,
-    Tail: TableFieldsNullabilityValid<Scope, TailProof>,
-{
-}
-
-/// Proof marker for a column found in a SELECT source scope.
-#[doc(hidden)]
-pub struct ColumnScope<Table, Witness>(PhantomData<(Table, Witness)>);
-
-/// Proof marker for a typed expression whose source columns are opaque.
-#[doc(hidden)]
-pub struct OpaqueScope;
-
-/// Proof marker for a binary expression's operands.
-#[doc(hidden)]
-pub struct BinaryScope<Left, Right>(PhantomData<(Left, Right)>);
-
-/// Proof marker for an expression wrapper.
-#[doc(hidden)]
-pub struct WrappedScope<Proof>(PhantomData<Proof>);
-
-/// Validates one explicit SELECT expression against its source scope.
-#[doc(hidden)]
-pub trait ProjectionInScope<Scope, Proof> {}
-
-impl<Lhs, Rhs, Op, D, T, N, Scope, LeftProof, RightProof>
-    ProjectionInScope<Scope, BinaryScope<LeftProof, RightProof>>
-    for crate::expr::ColumnBinOp<Lhs, Rhs, Op, D, T, N>
-where
-    Lhs: ProjectionInScope<Scope, LeftProof>,
-    Rhs: ProjectionInScope<Scope, RightProof>,
-{
-}
-
-impl<T, D, SQLType, Nullable, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>>
-    for crate::expr::ColumnNeg<T, D, SQLType, Nullable>
-where
-    T: ProjectionInScope<Scope, Proof>,
-{
-}
-
-impl<E, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for crate::expr::AliasedExpr<E> where
-    E: ProjectionInScope<Scope, Proof>
-{
-}
-
-impl<E, Name, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>>
-    for crate::expr::NamedExpr<E, Name>
-where
-    E: ProjectionInScope<Scope, Proof>,
-{
-}
-
-macro_rules! impl_scope_opaque {
-    ($($ty:ty),+ $(,)?) => {
-        $(impl<Scope> ProjectionInScope<Scope, OpaqueScope> for $ty {})+
-    };
-}
-
-impl_scope_opaque!(
-    bool,
-    i8,
-    i16,
-    i32,
-    i64,
-    i128,
-    isize,
-    u8,
-    u16,
-    u32,
-    u64,
-    u128,
-    usize,
-    f32,
-    f64,
-    String,
-    &str,
-    Vec<u8>,
-    &[u8]
-);
-
-impl<T, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for Option<T> where
-    T: ProjectionInScope<Scope, Proof>
-{
-}
-
-impl<T, Scope, Proof> ProjectionInScope<Scope, WrappedScope<Proof>> for &T where
-    T: ProjectionInScope<Scope, Proof>
-{
-}
-
-/// Validates every expression in an explicit SELECT projection.
-#[doc(hidden)]
-pub trait ProjectionsInScope<Scope, Proof> {}
-
-impl<Scope> ProjectionsInScope<Scope, ()> for Nil {}
-
-impl<Head, Tail, Scope, HeadProof, TailProof> ProjectionsInScope<Scope, (HeadProof, TailProof)>
-    for Cons<Head, Tail>
-where
-    Head: ProjectionInScope<Scope, HeadProof>,
-    Tail: ProjectionsInScope<Scope, TailProof>,
+    Source: ScopeEntry,
+    Scope: ScopeContains<Source::Key, Witness>,
+    Fields: FieldsAcceptNullability<<Scope as ScopeContains<Source::Key, Witness>>::Nullable>,
+    Tail: TableFieldsIn<Scope, TailProof>,
 {
 }
 
@@ -660,7 +340,9 @@ with_col_sizes_200!(impl_tuple_agg_status);
 /// Single columns and tuples of columns implement this.
 /// The `Columns` associated type is a `Cons<...>` list of column types
 /// for compile-time validation.
-pub trait IntoGroupBy<'a, V: crate::SQLParam + 'a>: crate::ToSQL<'a, V> {
+pub trait IntoGroupBy<'a, V: crate::SQLParam + 'a>:
+    crate::ToSQL<'a, V> + crate::expr::ExprSources
+{
     /// Type-level list of grouped columns (e.g., `Cons<Col1, Cons<Col2, Nil>>`).
     type Columns;
 }
@@ -692,8 +374,8 @@ macro_rules! impl_into_group_by_tuple {
     ($T0:ident, $T1:ident; $i0:tt, $i1:tt) => {
         impl<'a, V: crate::SQLParam + 'a, $T0, $T1> IntoGroupBy<'a, V> for ($T0, $T1)
         where
-            $T0: crate::ToSQL<'a, V>,
-            $T1: crate::ToSQL<'a, V>,
+            $T0: crate::ToSQL<'a, V> + crate::expr::ExprSources,
+            $T1: crate::ToSQL<'a, V> + crate::expr::ExprSources,
         {
             type Columns = Cons<$T0, Cons<$T1, Nil>>;
         }
@@ -702,9 +384,9 @@ macro_rules! impl_into_group_by_tuple {
     ($T0:ident, $T1:ident, $($rest:ident),+; $i0:tt, $i1:tt, $($ri:tt),+) => {
         impl<'a, V: crate::SQLParam + 'a, $T0, $T1, $($rest),+> IntoGroupBy<'a, V> for ($T0, $T1, $($rest),+)
         where
-            $T0: crate::ToSQL<'a, V>,
-            $T1: crate::ToSQL<'a, V>,
-            $($rest: crate::ToSQL<'a, V>,)+
+            $T0: crate::ToSQL<'a, V> + crate::expr::ExprSources,
+            $T1: crate::ToSQL<'a, V> + crate::expr::ExprSources,
+            $($rest: crate::ToSQL<'a, V> + crate::expr::ExprSources,)+
         {
             type Columns = impl_into_group_by_tuple!(@cons $T0, $T1, $($rest),+);
         }
@@ -732,7 +414,7 @@ with_col_sizes_16!(impl_into_group_by_tuple);
 /// Checks that every scalar column in a `SelectCols` tuple is present in
 /// the Grouped column list. Aggregate columns are skipped.
 ///
-/// `Proof` is a witness type inferred by the compiler (like `ScopeContains`).
+/// `Proof` is a witness type inferred by the compiler (like `ListContains`).
 #[diagnostic::on_unimplemented(
     message = "non-aggregate column in SELECT is not in GROUP BY",
     label = "this column must appear in .group_by(...) or be wrapped in an aggregate function",
@@ -776,7 +458,7 @@ impl<E: GroupByIdentity> GroupByIdentity for crate::expr::AliasedExpr<E> {
 }
 
 // SQLExpr: identity is self (for aggregate expressions, this won't be checked anyway)
-impl<V: crate::SQLParam, T, N, A> GroupByIdentity for crate::expr::SQLExpr<'_, V, T, N, A>
+impl<V: crate::SQLParam, T, N, A, S> GroupByIdentity for crate::expr::SQLExpr<'_, V, T, N, A, S>
 where
     T: crate::types::DataType,
     N: crate::expr::Nullability,
@@ -807,14 +489,14 @@ impl<E, Grouped> SingleColGroupCheck<Grouped, AggSkip> for E where
 impl<E, Grouped, W> SingleColGroupCheck<Grouped, ScalarCheck<W>> for E
 where
     E: crate::expr::HasAggStatus<Status = crate::expr::AllScalar> + GroupByIdentity,
-    Grouped: ScopeContains<E::Identity, W>,
+    Grouped: crate::scope::ListContains<E::Identity, W>,
 {
 }
 
 // Scalar expressions under a primary-key group → the whole row of that table
 // is functionally dependent on the group key, so any column of the grouped
 // table passes. No overlap with the `ScalarCheck` impl above: `PkGroup<T>`
-// never implements `ScopeContains`.
+// never implements `ListContains`.
 impl<E, T> SingleColGroupCheck<PkGroup<T>, PkDependent> for E
 where
     E: crate::expr::HasAggStatus<Status = crate::expr::AllScalar> + GroupByIdentity,
@@ -823,7 +505,7 @@ where
 }
 
 // N-tuple: check head element, recurse on tail
-// Uses (HeadProof, TailProof) witness structure, like ScopeSatisfies.
+// Uses (HeadProof, TailProof) witness structure, like ListIncludes.
 
 // 2-tuple
 impl<T0, T1, Grouped, P0, P1> ScalarColumnsIn<Grouped, (P0, P1)> for (T0, T1)
@@ -880,17 +562,17 @@ pub trait MarkerAggValidFor<Grouped, Proof = ()> {}
 impl<Mk> MarkerAggValidFor<()> for Mk {}
 
 // SelectStar with GROUP BY: can't check at compile time, always passes
-impl<Scope, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectStar, Scope> {}
+impl<Scope, Used, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectStar, Scope, Used> {}
 
 // SelectExpr with GROUP BY: can't check, always passes
-impl<Scope, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectExpr, Scope> {}
+impl<Scope, Used, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectExpr, Scope, Used> {}
 
 // SelectAs with GROUP BY: user-specified type, always passes
-impl<Scope, R, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectAs<R>, Scope> {}
+impl<Scope, Used, R, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectAs<R>, Scope, Used> {}
 
 // SelectCols with GROUP BY: check each scalar column is in the Grouped list
-impl<Scope, Cols, Head, Tail, Proof> MarkerAggValidFor<Cons<Head, Tail>, Proof>
-    for Scoped<SelectCols<Cols>, Scope>
+impl<Scope, Used, Cols, Head, Tail, Proof> MarkerAggValidFor<Cons<Head, Tail>, Proof>
+    for Scoped<SelectCols<Cols>, Scope, Used>
 where
     Cols: ScalarColumnsIn<Cons<Head, Tail>, Proof>,
 {
@@ -899,13 +581,13 @@ where
 // GROUP BY a table's primary key (`Grouped = PkGroup<T>`): same shape as the
 // Cons impls above, but scalar columns are checked for membership in the
 // grouped table instead of the grouped column list.
-impl<Scope, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectStar, Scope> {}
+impl<Scope, Used, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectStar, Scope, Used> {}
 
-impl<Scope, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectExpr, Scope> {}
+impl<Scope, Used, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectExpr, Scope, Used> {}
 
-impl<Scope, R, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectAs<R>, Scope> {}
+impl<Scope, Used, R, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectAs<R>, Scope, Used> {}
 
-impl<Scope, Cols, T, Proof> MarkerAggValidFor<PkGroup<T>, Proof> for Scoped<SelectCols<Cols>, Scope> where
+impl<Scope, Used, Cols, T, Proof> MarkerAggValidFor<PkGroup<T>, Proof> for Scoped<SelectCols<Cols>, Scope, Used> where
     Cols: ScalarColumnsIn<PkGroup<T>, Proof>
 {
 }
@@ -943,7 +625,7 @@ impl<T> SameType<T> for T {}
 #[diagnostic::on_unimplemented(
     message = "selected column decodes as `{Expected}`, but the decode target uses `{Actual}`",
     label = "the decode target does not match the selected columns",
-    note = "a selected `JoinNullable<T>` comes from the nullable side of a LEFT/RIGHT/FULL JOIN \
+    note = "a selected `MaybeNull<T>` can be NULL (an outer join or a nullable operand) \
             and must be decoded as `Option<T>`"
 )]
 trait ColumnTypeCompatible<Row: ?Sized, Expected, Actual> {}
@@ -954,19 +636,19 @@ impl<Row: ?Sized, T> ColumnTypeCompatible<Row, T, T> for () {}
 // The accepted inner types live on a separate trait so a decode error lists
 // one candidate here instead of every widened variant.
 impl<Row: ?Sized, Expected, Actual>
-    ColumnTypeCompatible<Row, JoinNullable<Expected>, Option<Actual>> for ()
+    ColumnTypeCompatible<Row, MaybeNull<Expected>, Option<Actual>> for ()
 where
-    (): JoinNullableCompatible<Row, Expected, Actual>,
+    (): MaybeNullCompatible<Row, Expected, Actual>,
 {
 }
 
-/// Inner-type rule for [`JoinNullable`] columns: `Expected` is the column's
+/// Inner-type rule for [`MaybeNull`] columns: `Expected` is the column's
 /// own decoded type, `Actual` the type inside the target's `Option`.
-trait JoinNullableCompatible<Row: ?Sized, Expected, Actual> {}
+trait MaybeNullCompatible<Row: ?Sized, Expected, Actual> {}
 
-impl<Row: ?Sized, T> JoinNullableCompatible<Row, T, T> for () {}
+impl<Row: ?Sized, T> MaybeNullCompatible<Row, T, T> for () {}
 
-impl<Row: ?Sized, T> JoinNullableCompatible<Row, Option<T>, T> for () {}
+impl<Row: ?Sized, T> MaybeNullCompatible<Row, Option<T>, T> for () {}
 
 trait TypeListCompatible<Row: ?Sized, ActualList> {}
 
@@ -1010,13 +692,13 @@ impl_sqlite_integer_decode_compat!(
 macro_rules! impl_sqlite_join_nullable_integer_decode_compat {
     ($($actual:ty),+ $(,)?) => {
         $(
-            impl<Row> JoinNullableCompatible<Row, i64, $actual> for ()
+            impl<Row> MaybeNullCompatible<Row, i64, $actual> for ()
             where
                 Row: SqliteDecodeRow,
             {
             }
 
-            impl<Row> JoinNullableCompatible<Row, Option<i64>, $actual> for ()
+            impl<Row> MaybeNullCompatible<Row, Option<i64>, $actual> for ()
             where
                 Row: SqliteDecodeRow,
             {
@@ -1323,7 +1005,7 @@ pub trait StrictDecodeMarker {}
 impl StrictDecodeMarker for SelectStar {}
 impl<Cols> StrictDecodeMarker for SelectCols<Cols> {}
 impl<R> StrictDecodeMarker for SelectAs<R> {}
-impl<M, Scope> StrictDecodeMarker for Scoped<M, Scope> where M: StrictDecodeMarker {}
+impl<M, Scope, Used> StrictDecodeMarker for Scoped<M, Scope, Used> where M: StrictDecodeMarker {}
 
 impl<Row: ?Sized, Inferred, Actual, Proof> MarkerColumnCountValid<Row, Inferred, Actual, Proof>
     for SelectStar
@@ -1353,49 +1035,44 @@ impl<Row: ?Sized, R, Inferred, Actual, Proof> MarkerColumnCountValid<Row, Inferr
 }
 
 /// Single-source `SELECT *`: the table model may be decoded into any row type.
-impl<Row: ?Sized, Table, Inferred, Actual, Proof>
-    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectStar, Cons<Table, Nil>>
-{
-}
-
-impl<Row: ?Sized, Inferred, Actual, Proof> MarkerColumnCountValid<Row, Inferred, Actual, Proof>
-    for Scoped<SelectStar, Nil>
+impl<Row: ?Sized, Table, Used, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof>
+    for Scoped<SelectStar, Cons<Table, Nil>, Used>
 {
 }
 
 /// Joined `SELECT *`: the decode target must keep the inferred row shape, with
 /// `Option` on every source that an outer join can leave NULL.
-impl<Row: ?Sized, First, Second, Rest, Inferred, Actual, Proof>
+impl<Row: ?Sized, First, Second, Rest, Used, Inferred, Actual, Proof>
     MarkerColumnCountValid<Row, Inferred, Actual, Proof>
-    for Scoped<SelectStar, Cons<First, Cons<Second, Rest>>>
+    for Scoped<SelectStar, Cons<First, Cons<Second, Rest>>, Used>
 where
     Inferred: JoinedStarRow<Actual>,
 {
 }
 
-impl<Row: ?Sized, Cols, Scope, Inferred, Actual, Proof>
-    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectCols<Cols>, Scope>
+impl<Row: ?Sized, Cols, Scope, Used, Inferred, Actual, UsedProof, ColsProof>
+    MarkerColumnCountValid<Row, Inferred, Actual, (UsedProof, ColsProof)>
+    for Scoped<SelectCols<Cols>, Scope, Used>
 where
     Cols: SelectedExpressionList,
-    Cols::Expressions: SelectProjectionsInScope<Scope, Proof>,
+    Cols::Expressions: ProjectionIn<Scope, ColsProof>,
     Actual: RowColumnList<Row>,
-    <Cols::Expressions as SelectProjectionsInScope<Scope, Proof>>::Columns:
+    <Cols::Expressions as ProjectionIn<Scope, ColsProof>>::Columns:
         TypeListCompatible<Row, <Actual as RowColumnList<Row>>::Columns>,
 {
 }
 
-impl<Row: ?Sized, Scope, Inferred, Actual, Proof>
-    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectExpr, Scope>
+impl<Row: ?Sized, Scope, Used, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectExpr, Scope, Used>
 where
     Inferred: SameType<Actual>,
 {
 }
 
-impl<Row: ?Sized, R, Scope, Inferred, Actual, Proof>
-    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectAs<R>, Scope>
-where
-    R: SelectTableFields,
-    R::TableFields: TableFieldsNullabilityValid<Scope, Proof>,
+/// `FromRow` selectors are checked by [`MarkerScopeValidFor`].
+impl<Row: ?Sized, R, Scope, Used, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectAs<R>, Scope, Used>
 {
 }
 
@@ -1432,46 +1109,6 @@ impl<T> JoinedStarPart<T> for T {}
 
 impl<T> JoinedStarPart<Option<T>> for T {}
 
-/// Pushes an outer-joined table into the marker scope.
-///
-/// Implemented once per join kind: [`ScopePushLeft`] marks the joined source
-/// nullable, [`ScopePushRight`] marks every source already in scope nullable,
-/// and [`ScopePushFull`] does both.
-pub trait ScopePushLeft<Joined> {
-    type Out;
-}
-
-impl<M, Scope, Joined> ScopePushLeft<Joined> for Scoped<M, Scope> {
-    type Out = Scoped<M, Cons<OuterJoined<Joined>, Scope>>;
-}
-
-/// See [`ScopePushLeft`].
-pub trait ScopePushRight<Joined> {
-    type Out;
-}
-
-impl<M, Scope: OuterJoinScope, Joined> ScopePushRight<Joined> for Scoped<M, Scope> {
-    type Out = Scoped<M, Cons<Joined, Scope::Out>>;
-}
-
-/// See [`ScopePushLeft`].
-pub trait ScopePushFull<Joined> {
-    type Out;
-}
-
-impl<M, Scope: OuterJoinScope, Joined> ScopePushFull<Joined> for Scoped<M, Scope> {
-    type Out = Scoped<M, Cons<OuterJoined<Joined>, Scope::Out>>;
-}
-
-/// Pushes a joined table into the marker scope.
-pub trait ScopePush<Joined> {
-    type Out;
-}
-
-impl<M, Scope, Joined> ScopePush<Joined> for Scoped<M, Scope> {
-    type Out = Scoped<M, Cons<Joined, Scope>>;
-}
-
 /// Marker-directed row decoding for `.all()`/`.get()`.
 pub trait DecodeSelectedRef<RowRef, R> {
     /// Decode the row into `R` according to the marker.
@@ -1493,7 +1130,7 @@ where
     }
 }
 
-impl<RowRef, R, M, Scope> DecodeSelectedRef<RowRef, R> for Scoped<M, Scope>
+impl<RowRef, R, M, Scope, Used> DecodeSelectedRef<RowRef, R> for Scoped<M, Scope, Used>
 where
     M: DecodeSelectedRef<RowRef, R>,
 {
@@ -2070,7 +1707,7 @@ impl<T: ExprValueType + ?Sized> ExprValueType for &T {
     type ValueType = T::ValueType;
 }
 
-impl<V: crate::SQLParam, T, N, A> ExprValueType for crate::expr::SQLExpr<'_, V, T, N, A>
+impl<V: crate::SQLParam, T, N, A, S> ExprValueType for crate::expr::SQLExpr<'_, V, T, N, A, S>
 where
     T: crate::types::DataType + SQLTypeToRust<V::DialectMarker>,
     N: crate::expr::Nullability + WrapNullable<<T as SQLTypeToRust<V::DialectMarker>>::RustType>,
@@ -2136,7 +1773,7 @@ where
     type Row = R;
 }
 
-impl<M, Scope, T> ResolveRow<T> for Scoped<M, Scope>
+impl<M, Scope, Used, T> ResolveRow<T> for Scoped<M, Scope, Used>
 where
     M: ResolveRow<T>,
 {
@@ -2277,17 +1914,17 @@ with_col_sizes_200!(impl_selected_column_list_tuple);
 with_col_sizes_200!(impl_selected_expression_list_tuple);
 
 // =============================================================================
-// AfterJoin — how joins transform the row type
+// JoinRow — how joins transform the row type
 // =============================================================================
 
-/// Determines the new row type after a JOIN.
-pub trait AfterJoin<CurrentRow, JoinedTable> {
-    type NewRow;
-}
+use crate::scope::{FullJoin, InnerJoin, JoinRow, LeftJoin, RightJoin};
 
-/// Determines the new row type after a LEFT JOIN.
-pub trait AfterLeftJoin<CurrentRow, JoinedTable> {
-    type NewRow;
+// LATERAL joins grow `SELECT *` rows like their plain kind.
+impl<R, T, Kind> JoinRow<R, T, crate::scope::Lateral<Kind>> for SelectStar
+where
+    SelectStar: JoinRow<R, T, Kind>,
+{
+    type Row = <SelectStar as JoinRow<R, T, Kind>>::Row;
 }
 
 /// Select projections whose row type can represent an unmatched lateral row.
@@ -2299,160 +1936,66 @@ pub trait AfterLeftJoin<CurrentRow, JoinedTable> {
 #[doc(hidden)]
 pub trait LeftLateralSelection<Proof = ()>: left_lateral_private::Sealed {}
 
-#[doc(hidden)]
-pub trait ColumnInScope<Scope, Proof> {}
-
-impl<Column, Scope, Table, Witness> ColumnInScope<Scope, (Table, Witness)> for Column
-where
-    Column: crate::traits::ColumnOf<Table>,
-    Scope: ScopeContains<Table, Witness>,
-{
-}
-
-#[doc(hidden)]
-pub trait ColumnsInScope<Scope, Proof> {}
-
-impl<Scope> ColumnsInScope<Scope, ()> for Nil {}
-
-impl<Head, Tail, Scope, HeadProof, TailProof> ColumnsInScope<Scope, (HeadProof, TailProof)>
-    for Cons<Head, Tail>
-where
-    Head: ColumnInScope<Scope, HeadProof>,
-    Tail: ColumnsInScope<Scope, TailProof>,
-{
-}
-
 mod left_lateral_private {
     pub trait Sealed {}
 
     impl Sealed for super::SelectStar {}
-    impl<Scope> Sealed for super::Scoped<super::SelectStar, Scope> {}
-    impl<Columns, Scope> Sealed for super::Scoped<super::SelectCols<Columns>, Scope> {}
-    impl<Row, Scope> Sealed for super::Scoped<super::SelectAs<Row>, Scope> {}
+    impl<Scope, Used> Sealed for super::Scoped<super::SelectStar, Scope, Used> {}
+    impl<Columns, Scope, Used> Sealed for super::Scoped<super::SelectCols<Columns>, Scope, Used> {}
+    impl<Row, Scope, Used> Sealed for super::Scoped<super::SelectAs<Row>, Scope, Used> {}
 }
 
 impl LeftLateralSelection for SelectStar {}
-impl<Scope> LeftLateralSelection for Scoped<SelectStar, Scope> {}
+impl<Scope, Used> LeftLateralSelection for Scoped<SelectStar, Scope, Used> {}
 
-impl<Columns, Scope, Proof> LeftLateralSelection<Proof> for Scoped<SelectCols<Columns>, Scope>
+impl<Columns, Scope, Used, Proof> LeftLateralSelection<Proof>
+    for Scoped<SelectCols<Columns>, Scope, Used>
 where
     Columns: SelectedExpressionList,
-    Columns::Expressions: ColumnsInScope<Scope, Proof>,
+    Columns::Expressions: ProjectionIn<Scope, Proof>,
 {
 }
 
-impl<Row, Scope, Proof> LeftLateralSelection<Proof> for Scoped<SelectAs<Row>, Scope> where
-    Self: MarkerScopeValidFor<Proof>
+impl<Row, Scope, Used, Proof> LeftLateralSelection<Proof> for Scoped<SelectAs<Row>, Scope, Used>
+where
+    Row: SelectTableFields,
+    Row::TableFields: TableFieldsIn<Scope, Proof>,
 {
-}
-
-/// Determines the new row type after a RIGHT JOIN.
-pub trait AfterRightJoin<CurrentRow, JoinedTable> {
-    type NewRow;
-}
-
-/// Determines the new row type after a FULL JOIN.
-pub trait AfterFullJoin<CurrentRow, JoinedTable> {
-    type NewRow;
 }
 
 /// `SELECT *` + JOIN → `(CurrentRow, JoinedTable::SelectModel)`.
-impl<R, T: HasSelectModel> AfterJoin<R, T> for SelectStar {
-    type NewRow = (R, T::SelectModel);
+impl<R, T: HasSelectModel> JoinRow<R, T, InnerJoin> for SelectStar {
+    type Row = (R, T::SelectModel);
 }
 
 /// `SELECT *` + LEFT JOIN → `(CurrentRow, Option<JoinedTable::SelectModel>)`.
-impl<R, T: HasSelectModel> AfterLeftJoin<R, T> for SelectStar {
-    type NewRow = (R, Option<T::SelectModel>);
+impl<R, T: HasSelectModel> JoinRow<R, T, LeftJoin> for SelectStar {
+    type Row = (R, Option<T::SelectModel>);
 }
 
 /// `SELECT *` + RIGHT JOIN → `(Option<CurrentRow>, JoinedTable::SelectModel)`.
-impl<R, T: HasSelectModel> AfterRightJoin<R, T> for SelectStar {
-    type NewRow = (Option<R>, T::SelectModel);
+impl<R, T: HasSelectModel> JoinRow<R, T, RightJoin> for SelectStar {
+    type Row = (Option<R>, T::SelectModel);
 }
 
 /// `SELECT *` + FULL JOIN → `(Option<CurrentRow>, Option<JoinedTable::SelectModel>)`.
-impl<R, T: HasSelectModel> AfterFullJoin<R, T> for SelectStar {
-    type NewRow = (Option<R>, Option<T::SelectModel>);
+impl<R, T: HasSelectModel> JoinRow<R, T, FullJoin> for SelectStar {
+    type Row = (Option<R>, Option<T::SelectModel>);
 }
 
 /// Explicit columns + JOIN → R unchanged.
-impl<Cols, R, T> AfterJoin<R, T> for SelectCols<Cols> {
-    type NewRow = R;
-}
-
-impl<Cols, R, T> AfterLeftJoin<R, T> for SelectCols<Cols> {
-    type NewRow = R;
-}
-
-impl<Cols, R, T> AfterRightJoin<R, T> for SelectCols<Cols> {
-    type NewRow = R;
-}
-
-impl<Cols, R, T> AfterFullJoin<R, T> for SelectCols<Cols> {
-    type NewRow = R;
+impl<Cols, R, T, Kind> JoinRow<R, T, Kind> for SelectCols<Cols> {
+    type Row = R;
 }
 
 /// Raw/untyped + JOIN → R unchanged.
-impl<R, T> AfterJoin<R, T> for SelectExpr {
-    type NewRow = R;
-}
-
-impl<R, T> AfterLeftJoin<R, T> for SelectExpr {
-    type NewRow = R;
-}
-
-impl<R, T> AfterRightJoin<R, T> for SelectExpr {
-    type NewRow = R;
-}
-
-impl<R, T> AfterFullJoin<R, T> for SelectExpr {
-    type NewRow = R;
+impl<R, T, Kind> JoinRow<R, T, Kind> for SelectExpr {
+    type Row = R;
 }
 
 /// Explicit model + JOIN → R unchanged.
-impl<Row, R, T> AfterJoin<R, T> for SelectAs<Row> {
-    type NewRow = R;
-}
-
-impl<Row, R, T> AfterLeftJoin<R, T> for SelectAs<Row> {
-    type NewRow = R;
-}
-
-impl<Row, R, T> AfterRightJoin<R, T> for SelectAs<Row> {
-    type NewRow = R;
-}
-
-impl<Row, R, T> AfterFullJoin<R, T> for SelectAs<Row> {
-    type NewRow = R;
-}
-
-impl<M, Scope, R, T> AfterJoin<R, T> for Scoped<M, Scope>
-where
-    M: AfterJoin<R, T>,
-{
-    type NewRow = M::NewRow;
-}
-
-impl<M, Scope, R, T> AfterLeftJoin<R, T> for Scoped<M, Scope>
-where
-    M: AfterLeftJoin<R, T>,
-{
-    type NewRow = M::NewRow;
-}
-
-impl<M, Scope, R, T> AfterRightJoin<R, T> for Scoped<M, Scope>
-where
-    M: AfterRightJoin<R, T>,
-{
-    type NewRow = M::NewRow;
-}
-
-impl<M, Scope, R, T> AfterFullJoin<R, T> for Scoped<M, Scope>
-where
-    M: AfterFullJoin<R, T>,
-{
-    type NewRow = M::NewRow;
+impl<Row, R, T, Kind> JoinRow<R, T, Kind> for SelectAs<Row> {
+    type Row = R;
 }
 
 // =============================================================================
@@ -2497,7 +2040,7 @@ impl<V: crate::SQLParam> IntoSelectTarget for crate::sql::SQL<'_, V> {
 }
 
 /// `select(typed_expr)` → `SelectCols<(Expr,)>` — single typed expression.
-impl<V: crate::SQLParam, T, N, A> IntoSelectTarget for crate::expr::SQLExpr<'_, V, T, N, A>
+impl<V: crate::SQLParam, T, N, A, S> IntoSelectTarget for crate::expr::SQLExpr<'_, V, T, N, A, S>
 where
     T: crate::types::DataType,
     N: crate::expr::Nullability,

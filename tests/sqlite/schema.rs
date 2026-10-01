@@ -1258,7 +1258,7 @@ mod view_query {
         let results: Vec<SelectVqUserPostsView> = db
             .select(())
             .from(vq_user_posts)
-            .order_by([asc(vq_user_posts.name), asc(vq_user_posts.title)])
+            .order_by((asc(vq_user_posts.name), asc(vq_user_posts.title)))
             .all();
 
         // Alice has 2 posts, Bob has 0 (LEFT JOIN -> Bob row with NULL title)

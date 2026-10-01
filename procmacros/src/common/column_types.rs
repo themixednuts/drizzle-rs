@@ -135,11 +135,32 @@ fn visibility_one_level_down(vis: &syn::Visibility) -> TokenStream {
 /// inside are as visible as the table (see [`visibility_one_level_down`]).
 /// The insert markers are `pub`: the insert model is always `pub` and names
 /// them in its default type parameter, and they name nothing private.
+/// Type-level SQL name used to compare scope entries (see `drizzle_core::scope`).
+fn sql_name_key(sql_identity: &str) -> TokenStream {
+    const NIBBLES: [&str; 16] = [
+        "H0", "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "HA", "HB", "HC", "HD", "HE",
+        "HF",
+    ];
+    sql_identity
+        .bytes()
+        .flat_map(|byte| [byte >> 4, byte & 0x0f])
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .fold(quote!(drizzle::core::Nil), |tail, nibble| {
+            let nibble = quote::format_ident!("{}", NIBBLES[usize::from(nibble)]);
+            quote!(drizzle::core::Cons<drizzle::core::scope::name::#nibble, #tail>)
+        })
+}
+
+/// `sql_identity` is the table's SQL name, schema-qualified when it has one.
 pub fn generate_columns_module(
     table: &Ident,
     vis: &syn::Visibility,
     fields: &[&Ident],
+    sql_identity: &str,
 ) -> TokenStream {
+    let name_key = sql_name_key(sql_identity);
     let module = columns_module(table);
     let doc = format!(" Column types of `{table}`.");
     let item_vis = visibility_one_level_down(vis);
@@ -166,6 +187,13 @@ pub fn generate_columns_module(
         #[allow(non_camel_case_types, dead_code)]
         #vis mod #module {
             #(#items)*
+        }
+
+        // Scope entries for tables and views compare by SQL name.
+        impl drizzle::core::ScopeEntry for #table {
+            type Key = drizzle::core::scope::TableKey<#name_key, Self>;
+            type Nullable = drizzle::core::expr::NonNull;
+            type Sources = ();
         }
     }
 }

@@ -20,6 +20,8 @@ use drizzle_types::postgres::types::{
 use drizzle_types::sqlite::types::{Integer as SqliteInteger, Text as SqliteText};
 
 use super::{AggOr, AggregateKind, Expr, NonNull, NullOr, Nullability, SQLExpr};
+use super::ExprSources;
+use crate::scope::Arg;
 
 #[diagnostic::on_unimplemented(
     message = "no length policy for `{Self}` on this dialect",
@@ -144,7 +146,14 @@ impl RepeatSupport for MySQLDialect {}
 /// ```
 pub fn upper<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -169,7 +178,14 @@ where
 /// ```
 pub fn lower<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -198,7 +214,14 @@ where
 /// ```
 pub fn trim<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -212,7 +235,14 @@ where
 /// Preserves the nullability of the input expression.
 pub fn ltrim<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -226,7 +256,14 @@ where
 /// Preserves the nullability of the input expression.
 pub fn rtrim<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -269,7 +306,7 @@ where
 pub fn collate<'a, V, E>(
     expr: E,
     name: &'static str,
-) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -308,7 +345,14 @@ where
 #[allow(clippy::type_complexity)]
 pub fn length<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as LengthPolicy<V::DialectMarker>>::Output, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as LengthPolicy<V::DialectMarker>>::Output,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -347,6 +391,7 @@ pub fn substr<'a, V, E, S, L>(
     <V::DialectMarker as DialectTypes>::Text,
     <<E::Nullable as NullOr<S::Nullable>>::Output as NullOr<L::Nullable>>::Output,
     <<E::Aggregate as AggOr<S::Aggregate>>::Output as AggOr<L::Aggregate>>::Output,
+    (E::Sources, (S::Sources, L::Sources)),
 >
 where
     V: SQLParam + 'a,
@@ -405,6 +450,7 @@ pub fn replace<'a, V, E, F, T>(
     <V::DialectMarker as DialectTypes>::Text,
     <<E::Nullable as NullOr<F::Nullable>>::Output as NullOr<T::Nullable>>::Output,
     <<E::Aggregate as AggOr<F::Aggregate>>::Output as AggOr<T::Aggregate>>::Output,
+    (E::Sources, (F::Sources, T::Sources)),
 >
 where
     V: SQLParam + 'a,
@@ -463,6 +509,7 @@ pub fn instr<'a, V, E, S>(
     <V::DialectMarker as InstrPolicy>::Output,
     <E::Nullable as NullOr<S::Nullable>>::Output,
     <E::Aggregate as AggOr<S::Aggregate>>::Output,
+    (E::Sources, S::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -493,6 +540,7 @@ pub fn strpos<'a, V, E, S>(
     drizzle_types::postgres::types::Int4,
     <E::Nullable as NullOr<S::Nullable>>::Output,
     <E::Aggregate as AggOr<S::Aggregate>>::Output,
+    (E::Sources, S::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -558,6 +606,7 @@ pub fn concat<'a, V, E1, E2>(
     <V::DialectMarker as DialectTypes>::Text,
     <E1::Nullable as NullOr<E2::Nullable>>::Output,
     <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -612,6 +661,7 @@ pub fn concat_ws<'a, V, S, I>(
     <V::DialectMarker as DialectTypes>::Text,
     S::Nullable,
     <S::Aggregate as AggOr<<I::Item as Expr<'a, V>>::Aggregate>>::Output,
+    (S::Sources, <I::Item as ExprSources>::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -658,6 +708,7 @@ pub fn left<'a, V, E, N>(
     <V::DialectMarker as DialectTypes>::Text,
     <E::Nullable as NullOr<N::Nullable>>::Output,
     <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    (E::Sources, N::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -701,6 +752,7 @@ pub fn right<'a, V, E, N>(
     <V::DialectMarker as DialectTypes>::Text,
     <E::Nullable as NullOr<N::Nullable>>::Output,
     <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    (E::Sources, N::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -745,6 +797,7 @@ pub fn split_part<'a, V, E, D, N>(
     <V::DialectMarker as DialectTypes>::Text,
     <<E::Nullable as NullOr<D::Nullable>>::Output as NullOr<N::Nullable>>::Output,
     <<E::Aggregate as AggOr<D::Aggregate>>::Output as AggOr<N::Aggregate>>::Output,
+    (E::Sources, (D::Sources, N::Sources)),
 >
 where
     V: SQLParam + 'a,
@@ -797,6 +850,7 @@ pub fn lpad<'a, V, E, L, F>(
     <V::DialectMarker as DialectTypes>::Text,
     <<E::Nullable as NullOr<L::Nullable>>::Output as NullOr<F::Nullable>>::Output,
     <<E::Aggregate as AggOr<L::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
+    (E::Sources, (L::Sources, F::Sources)),
 >
 where
     V: SQLParam + 'a,
@@ -849,6 +903,7 @@ pub fn rpad<'a, V, E, L, F>(
     <V::DialectMarker as DialectTypes>::Text,
     <<E::Nullable as NullOr<L::Nullable>>::Output as NullOr<F::Nullable>>::Output,
     <<E::Aggregate as AggOr<L::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
+    (E::Sources, (L::Sources, F::Sources)),
 >
 where
     V: SQLParam + 'a,
@@ -883,7 +938,14 @@ where
 /// Preserves the nullability of the input expression.
 pub fn initcap<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresStringSupport,
@@ -898,7 +960,14 @@ where
 /// Preserves the nullability of the input expression.
 pub fn reverse<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Text,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: ReverseSupport,
@@ -930,6 +999,7 @@ pub fn repeat<'a, V, E, N>(
     <V::DialectMarker as DialectTypes>::Text,
     <E::Nullable as NullOr<N::Nullable>>::Output,
     <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    (E::Sources, N::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -974,6 +1044,7 @@ pub fn starts_with<'a, V, E, P>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <E::Aggregate as AggOr<P::Aggregate>>::Output,
+    (Arg<E::Nullable, E::Sources>, Arg<P::Nullable, P::Sources>),
 >
 where
     V: SQLParam + 'a,
@@ -1033,7 +1104,14 @@ impl CharLengthPolicy for crate::MySQLDialect {
 #[allow(clippy::type_complexity)]
 pub fn char_length<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as LengthPolicy<V::DialectMarker>>::Output, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as LengthPolicy<V::DialectMarker>>::Output,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: CharLengthPolicy,
@@ -1063,7 +1141,14 @@ where
 #[allow(clippy::type_complexity)]
 pub fn octet_length<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <E::SQLType as LengthPolicy<V::DialectMarker>>::Output, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <E::SQLType as LengthPolicy<V::DialectMarker>>::Output,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -1102,6 +1187,7 @@ pub fn translate<'a, V, E, F, T>(
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
     <<E::Aggregate as AggOr<F::Aggregate>>::Output as AggOr<T::Aggregate>>::Output,
+    (E::Sources, (F::Sources, T::Sources)),
 >
 where
     V: SQLParam + 'a,
@@ -1157,6 +1243,7 @@ pub fn regexp_replace<'a, V, E, P, R>(
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
     <<E::Aggregate as AggOr<P::Aggregate>>::Output as AggOr<R::Aggregate>>::Output,
+    (E::Sources, (P::Sources, R::Sources)),
 >
 where
     V: SQLParam + 'a,
@@ -1210,6 +1297,7 @@ pub fn regexp_replace_flags<'a, V, E, P, R, F>(
     <<<E::Aggregate as AggOr<P::Aggregate>>::Output as AggOr<R::Aggregate>>::Output as AggOr<
         F::Aggregate,
     >>::Output,
+    (E::Sources, (P::Sources, (R::Sources, F::Sources))),
 >
 where
     V: SQLParam + 'a,
@@ -1267,6 +1355,7 @@ pub fn regexp_match<'a, V, E, P>(
     crate::types::Array<<V::DialectMarker as DialectTypes>::Text>,
     super::Null,
     <E::Aggregate as AggOr<P::Aggregate>>::Output,
+    (E::Sources, P::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -1311,6 +1400,7 @@ pub fn regexp_match_flags<'a, V, E, P, F>(
     crate::types::Array<<V::DialectMarker as DialectTypes>::Text>,
     super::Null,
     <<E::Aggregate as AggOr<P::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
+    (E::Sources, (P::Sources, F::Sources)),
 >
 where
     V: SQLParam + 'a,

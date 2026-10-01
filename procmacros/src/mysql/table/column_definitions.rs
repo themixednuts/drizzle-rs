@@ -60,7 +60,9 @@ pub(super) fn generate_custom_comparison_operand_impls(
             for #value_type
         {
             type SQLType = <#value_type as #drizzle_mysql_column>::SQLType;
+            type Nullable = drizzle::core::expr::NonNull;
             type Aggregate = drizzle::core::expr::Scalar;
+            type Sources = ();
 
             fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #mysql_value<'a>> {
                 let value: #mysql_value<'a> =
@@ -74,7 +76,9 @@ pub(super) fn generate_custom_comparison_operand_impls(
             for &'value #value_type
         {
             type SQLType = <#value_type as #drizzle_mysql_column>::SQLType;
+            type Nullable = drizzle::core::expr::NonNull;
             type Aggregate = drizzle::core::expr::Scalar;
+            type Sources = ();
 
             fn into_comparison_sql(self) -> drizzle::core::SQL<'a, #mysql_value<'a>> {
                 let value: #mysql_value<'a> =

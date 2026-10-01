@@ -96,8 +96,8 @@ where
     }
 }
 
-impl<'a, T, Target, TargetNull, Actual, ActualNull>
-    From<SQLExpr<'a, MySQLValue<'a>, Actual, ActualNull, Scalar>>
+impl<'a, T, Target, TargetNull, Actual, ActualNull, Sources>
+    From<SQLExpr<'a, MySQLValue<'a>, Actual, ActualNull, Scalar, Sources>>
     for MySQLUpdateValue<'a, MySQLValue<'a>, T, Target, TargetNull>
 where
     Target: DataType + Assignable<Actual>,
@@ -105,7 +105,7 @@ where
     Actual: DataType,
     ActualNull: Nullability,
 {
-    fn from(value: SQLExpr<'a, MySQLValue<'a>, Actual, ActualNull, Scalar>) -> Self {
+    fn from(value: SQLExpr<'a, MySQLValue<'a>, Actual, ActualNull, Scalar, Sources>) -> Self {
         Self::Value(ValueWrapper::<MySQLValue<'a>, T>::new(
             value.into_expr_sql(),
         ))

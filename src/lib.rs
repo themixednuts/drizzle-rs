@@ -135,9 +135,17 @@ pub mod core {
 
     #[doc(hidden)]
     pub use drizzle_core::{
-        ColumnScope, InsertColumn, InsertSelectAllColumns, InsertSelectTable, JoinNullable,
-        OpaqueScope, ProjectionInScope, ScopeContains, SelectProjectionInScope, SelectTableFields,
-        TableFields,
+        InsertColumn, InsertSelectAllColumns, InsertSelectTable, MaybeNull, ProjectionIn,
+    };
+
+    /// Type-level query scope: which sources a query reads, and how outer
+    /// joins make them nullable.
+    #[doc(inline)]
+    pub use drizzle_core::scope;
+
+    #[doc(inline)]
+    pub use drizzle_core::{
+        AliasKey, ScopeContains, ScopeEntry, SelectTableFields, Src, TableFields,
     };
 
     /// Bind parameter type mapping trait.
@@ -184,12 +192,15 @@ pub mod core {
     /// Row inference types and traits.
     #[doc(inline)]
     pub use drizzle_core::row::{
-        AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
-        FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-        JoinedStarRow, LeftLateralSelection, MarkerColumnCountValid, MarkerScopeValidFor,
-        NullProbeRow, OuterJoined, PkGroup, ResolveRow, RowColumnList, SQLTypeToRust, ScopePush,
-        ScopePushFull, ScopePushLeft, ScopePushRight, Scoped, SelectAs, SelectAsFrom, SelectCols,
-        SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+        DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel,
+        IntoGroupBy, IntoSelectTarget, JoinedStarRow, LeftLateralSelection,
+        MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, OuterJoined, PkGroup,
+        ResolveRow, RowColumnList, SQLTypeToRust, Scoped, SelectAs, SelectAsFrom, SelectCols,
+        SelectExpr, SelectStar, WrapNullable,
+    };
+    #[doc(inline)]
+    pub use drizzle_core::scope::{
+        FullJoin, HasScope, InnerJoin, JoinKind, JoinStep, Lateral, LeftJoin, RightJoin,
     };
 }
 

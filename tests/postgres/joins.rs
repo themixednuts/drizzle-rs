@@ -65,7 +65,7 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>) {
         .select(AuthorPostResult::default())
         .from(complex)
         .join(post)
-        .order_by([asc(complex.name), asc(post.title)])
+        .order_by((asc(complex.name), asc(post.title)))
         .all();
 
     assert_eq!(join_results.len(), 3);
@@ -146,7 +146,7 @@ fn chained_fk_join(db: &mut TestDb<FullBlogSchema>) {
         .from(post)
         .join(post_category)
         .join(category)
-        .order_by([asc(post.title), asc(category.name)])
+        .order_by((asc(post.title), asc(category.name)))
         .all();
 
     // Go Guide -> Programming = 1 row
@@ -232,7 +232,7 @@ fn join_using_matches_same_named_columns(db: &mut TestDb<JoinUsingSchema>) {
         .select(())
         .from(accounts)
         .left_join_using(orders, SQL::ident("account_id"))
-        .order_by([asc(accounts.account_id), asc(orders.id)])
+        .order_by((asc(accounts.account_id), asc(orders.id)))
         .all();
     assert_eq!(rows.len(), 4);
     assert_eq!(rows[0].0.owner, "alice");

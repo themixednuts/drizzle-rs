@@ -186,7 +186,7 @@ where
         Table: InsertSelectTable,
         Q: IntoSelectQuery<'a, Schema, R>,
         Q::Marker: InsertSelectCompatible<'a, SQLiteValue<'a>, Table, R>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         let select = query.into_select_query().into_select_sql();
@@ -239,7 +239,7 @@ where
         Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
         Q: IntoSelectQuery<'a, Schema, R>,
         Q::Marker: PartialInsertSelectCompatible<'a, SQLiteValue<'a>, Targets>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         let select = query.into_select_query().into_select_sql();

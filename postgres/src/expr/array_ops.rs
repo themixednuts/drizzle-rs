@@ -18,6 +18,7 @@
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
+use drizzle_core::scope::Arg;
 use crate::values::PostgresValue;
 use drizzle_core::ToSQL;
 use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
@@ -71,7 +72,14 @@ where
 pub fn array_contains<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<L::Nullable, L::Sources>,
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
     R: ToSQL<'a, PostgresValue<'a>>,
@@ -102,7 +110,14 @@ where
 pub fn array_contained<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<L::Nullable, L::Sources>,
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
     R: ToSQL<'a, PostgresValue<'a>>,
@@ -132,7 +147,14 @@ where
 pub fn array_overlaps<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<L::Nullable, L::Sources>,
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
     R: ToSQL<'a, PostgresValue<'a>>,
@@ -163,7 +185,14 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `@>` operator - array contains.
     ///
     /// Returns true if self contains all elements of the other array.
-    fn array_contains<R>(self, other: R) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    fn array_contains<R>(self, other: R) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Scalar,
+        Arg<Self::Nullable, Self::Sources>,
+    >
     where
         R: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -176,7 +205,14 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn array_contained<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Scalar,
+        Arg<Self::Nullable, Self::Sources>,
+    >
     where
         R: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -186,7 +222,14 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `&&` operator - arrays overlap.
     ///
     /// Returns true if self and the other array have any elements in common.
-    fn array_overlaps<R>(self, other: R) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    fn array_overlaps<R>(self, other: R) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Scalar,
+        Arg<Self::Nullable, Self::Sources>,
+    >
     where
         R: ToSQL<'a, PostgresValue<'a>>,
     {

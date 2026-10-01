@@ -174,12 +174,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             impl #expr_value_type for #aliased_field_type {
                 type ValueType = <#original_field_type as #expr_value_type>::ValueType;
             }
-            // Aliased columns carry no source table, so scope checks treat them
-            // as opaque expressions.
-            impl<Scope> drizzle::core::SelectProjectionInScope<Scope, drizzle::core::OpaqueScope>
-                for #aliased_field_type
-            {
-                type Value = <#original_field_type as drizzle::core::ExprValueType>::ValueType;
+            // TODO(alias-scope): aliased columns are opaque to scope checks.
+            impl drizzle::core::expr::ExprSources for #aliased_field_type {
+                type Sources = ();
             }
             impl #into_select_target for #aliased_field_type {
                 type Marker = #select_cols<(#aliased_field_type,)>;
@@ -325,6 +322,13 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> syn::Result<TokenStream> {
             fn default() -> Self {
                 Self::new()
             }
+        }
+
+        // Columns of an aliased source are keyed by the alias tag.
+        impl<Tag: #alias_tag> drizzle::core::ScopeEntry for #alias_type_name<Tag> {
+            type Key = drizzle::core::AliasKey<Tag>;
+            type Nullable = drizzle::core::expr::NonNull;
+            type Sources = ();
         }
 
         impl<Tag: #alias_tag> ::core::ops::Deref for #alias_type_name<Tag> {

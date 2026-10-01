@@ -22,6 +22,7 @@ use super::{Agg, AggToStatus, AggregateKind, Expr, NonNull, Null, Nullability, S
 /// - `T`: The SQL data type marker (Int, Text, etc.)
 /// - `N`: The nullability marker (`NonNull` or Null)
 /// - `A`: The aggregation marker (Scalar or Agg)
+/// - `S`: The sources the expression reads (see [`crate::scope`])
 ///
 /// # Example
 ///
@@ -40,12 +41,13 @@ pub struct SQLExpr<
     T: DataType,
     N: Nullability = NonNull,
     A: AggregateKind = Scalar,
+    S = (),
 > {
     sql: SQL<'a, V>,
-    _ty: PhantomData<(T, N, A)>,
+    _ty: PhantomData<fn() -> (T, N, A, S)>,
 }
 
-impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a, V, T, N, A> {
+impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<'a, V, T, N, A, S> {
     /// Create a new typed expression from raw SQL.
     #[inline]
     pub const fn new(sql: SQL<'a, V>) -> Self {
@@ -64,7 +66,7 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a,
     /// Change the nullability marker (internal use only).
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn with_nullability<N2: Nullability>(self) -> SQLExpr<'a, V, T, N2, A> {
+    pub(crate) fn with_nullability<N2: Nullability>(self) -> SQLExpr<'a, V, T, N2, A, S> {
         SQLExpr {
             sql: self.sql,
             _ty: PhantomData,
@@ -74,14 +76,14 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a,
     /// Mark this expression as nullable while preserving its SQL type and aggregate kind.
     #[inline]
     #[must_use]
-    pub fn nullable(self) -> SQLExpr<'a, V, T, Null, A> {
+    pub fn nullable(self) -> SQLExpr<'a, V, T, Null, A, S> {
         self.with_nullability::<Null>()
     }
 
     /// Change the aggregation marker (internal use only).
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn with_aggregation<A2: AggregateKind>(self) -> SQLExpr<'a, V, T, N, A2> {
+    pub(crate) fn with_aggregation<A2: AggregateKind>(self) -> SQLExpr<'a, V, T, N, A2, S> {
         SQLExpr {
             sql: self.sql,
             _ty: PhantomData,
@@ -91,11 +93,31 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a,
     /// Change the data type marker (internal use only).
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn with_type<T2: DataType>(self) -> SQLExpr<'a, V, T2, N, A> {
+    pub(crate) fn with_type<T2: DataType>(self) -> SQLExpr<'a, V, T2, N, A, S> {
         SQLExpr {
             sql: self.sql,
             _ty: PhantomData,
         }
+    }
+
+    /// Replace the recorded sources (internal use only).
+    #[inline]
+    pub(crate) fn with_sources<S2>(self) -> SQLExpr<'a, V, T, N, A, S2> {
+        SQLExpr {
+            sql: self.sql,
+            _ty: PhantomData,
+        }
+    }
+
+    /// Forget which sources this expression reads.
+    ///
+    /// The result passes every scope check. Use it only for SQL that is valid
+    /// in a scope the type system cannot see, such as a correlated subquery
+    /// built separately from its outer query.
+    #[inline]
+    #[must_use]
+    pub fn unscoped(self) -> SQLExpr<'a, V, T, N, A> {
+        self.with_sources()
     }
 }
 
@@ -103,8 +125,8 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> SQLExpr<'a,
 // ToSQL Implementation
 // =============================================================================
 
-impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> ToSQL<'a, V>
-    for SQLExpr<'a, V, T, N, A>
+impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> ToSQL<'a, V>
+    for SQLExpr<'a, V, T, N, A, S>
 {
     fn to_sql(&self) -> SQL<'a, V> {
         self.sql.clone()
@@ -119,10 +141,10 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> ToSQL<'a, V
 // Into<SQL> Implementation - For builder compatibility
 // =============================================================================
 
-impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> From<SQLExpr<'a, V, T, N, A>>
+impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> From<SQLExpr<'a, V, T, N, A, S>>
     for SQL<'a, V>
 {
-    fn from(expr: SQLExpr<'a, V, T, N, A>) -> Self {
+    fn from(expr: SQLExpr<'a, V, T, N, A, S>) -> Self {
         expr.sql
     }
 }
@@ -131,12 +153,18 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> From<SQLExp
 // Expr Implementation
 // =============================================================================
 
-impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind> Expr<'a, V>
-    for SQLExpr<'a, V, T, N, A>
+impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> Expr<'a, V>
+    for SQLExpr<'a, V, T, N, A, S>
 {
     type SQLType = T;
     type Nullable = N;
     type Aggregate = A;
+}
+
+impl<V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> super::ExprSources
+    for SQLExpr<'_, V, T, N, A, S>
+{
+    type Sources = S;
 }
 
 // =============================================================================
@@ -171,7 +199,7 @@ pub type NullableAggExpr<'a, V, T> = SQLExpr<'a, V, T, Null, Agg>;
 /// println!("{}", expr);  // "users"."id" = 42
 /// # "####;
 /// ```
-impl<V, T, N, A> Display for SQLExpr<'_, V, T, N, A>
+impl<V, T, N, A, S> Display for SQLExpr<'_, V, T, N, A, S>
 where
     V: SQLParam + Display,
     T: DataType,
@@ -183,7 +211,7 @@ where
     }
 }
 
-impl<V, T, N, A> super::HasAggStatus for SQLExpr<'_, V, T, N, A>
+impl<V, T, N, A, S> super::HasAggStatus for SQLExpr<'_, V, T, N, A, S>
 where
     V: SQLParam,
     T: DataType,
@@ -208,7 +236,7 @@ where
 /// let sql_str = expr.to_string();
 /// # "####;
 /// ```
-impl<'a, V, T, N, A> Deref for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S> Deref for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam,
     T: DataType,
@@ -237,7 +265,7 @@ where
 /// takes_sql_ref(expr.as_ref());
 /// # "####;
 /// ```
-impl<'a, V, T, N, A> AsRef<SQL<'a, V>> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S> AsRef<SQL<'a, V>> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam,
     T: DataType,

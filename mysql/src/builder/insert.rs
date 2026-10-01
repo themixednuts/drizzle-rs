@@ -127,7 +127,7 @@ where
         Table: InsertSelectTable,
         Q: IntoSelectQuery<'a, Schema, R>,
         Q::Marker: InsertSelectCompatible<'a, MySQLValue<'a>, Table, R>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         InsertBuilder::from_sql(
@@ -163,7 +163,7 @@ where
         Table: InsertSelectTable,
         Q: IntoSelectQuery<'a, Schema, R>,
         Q::Marker: PartialInsertSelectCompatible<'a, MySQLValue<'a>, Targets>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         InsertBuilder::from_sql(self.sql.append(query.into_select_query().into_select_sql()))

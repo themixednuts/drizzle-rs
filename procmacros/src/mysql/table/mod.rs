@@ -150,6 +150,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         ctx.struct_ident,
         ctx.struct_vis,
         &column_field_idents,
+        &ctx.table_name,
     );
     let (column_definitions, column_zst_idents) = generate_column_definitions(&ctx)?;
     let column_fields = generate_column_fields(&ctx, &column_zst_idents);

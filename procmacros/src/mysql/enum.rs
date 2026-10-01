@@ -190,6 +190,10 @@ pub fn generate_enum_impl(
             type Aggregate = drizzle::core::expr::Scalar;
         }
 
+        impl drizzle::core::expr::ExprSources for #name {
+            type Sources = ();
+        }
+
         impl drizzle::core::ValueTypeForDialect<drizzle::mysql::MySQLDialect> for #name {
             type SQLType = drizzle::mysql::types::Enum;
         }

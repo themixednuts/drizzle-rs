@@ -179,11 +179,11 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
         S,
         SelectFromSet,
         T,
-        drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+        drizzle_core::FromMarker<M, T>,
         <M as drizzle_core::ResolveRow<T>>::Row,
     >
     where
-        T: ToSQL<'a, MySQLValue<'a>>,
+        T: ToSQL<'a, MySQLValue<'a>> + drizzle_core::ScopeEntry,
         M: drizzle_core::ResolveRow<T>,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::from(table)))
@@ -242,7 +242,7 @@ where
 }
 
 macro_rules! join_on_method {
-    ($name:ident, $join:expr, $row_trait:ident, $scope_trait:ident) => {
+    ($name:ident, $join:expr, $kind:ident) => {
         #[doc = concat!("Adds a typed `", stringify!($name), "` join.")]
         #[allow(clippy::type_complexity)]
         pub fn $name<J: helpers::JoinArg<'a, T>>(
@@ -253,13 +253,12 @@ macro_rules! join_on_method {
             S,
             SelectJoinSet,
             J::JoinedTable,
-            <M as drizzle_core::$scope_trait<J::JoinedTable>>::Out,
-            <M as drizzle_core::$row_trait<R, J::JoinedTable>>::NewRow,
+            <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::$kind, J::OnSources>>::Marker,
+            <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::$kind, J::OnSources>>::Row,
             G,
         >
         where
-            M: drizzle_core::$row_trait<R, J::JoinedTable>
-                + drizzle_core::$scope_trait<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::$kind, J::OnSources>,
         {
             SelectBuilder::from_sql(self.sql.append(arg.into_join_sql($join)))
         }
@@ -270,37 +269,22 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::JoinAllowed,
 {
-    join_on_method!(join, drizzle_core::Join::new(), AfterJoin, ScopePush);
+    join_on_method!(join, drizzle_core::Join::new(), InnerJoin);
     join_on_method!(
         inner_join,
-        drizzle_core::Join::new().inner(),
-        AfterJoin,
-        ScopePush
-    );
+        drizzle_core::Join::new().inner(), InnerJoin);
     join_on_method!(
         left_join,
-        drizzle_core::Join::new().left(),
-        AfterLeftJoin,
-        ScopePushLeft
-    );
+        drizzle_core::Join::new().left(), LeftJoin);
     join_on_method!(
         left_outer_join,
-        drizzle_core::Join::new().left().outer(),
-        AfterLeftJoin,
-        ScopePushLeft
-    );
+        drizzle_core::Join::new().left().outer(), LeftJoin);
     join_on_method!(
         right_join,
-        drizzle_core::Join::new().right(),
-        AfterRightJoin,
-        ScopePushRight
-    );
+        drizzle_core::Join::new().right(), RightJoin);
     join_on_method!(
         right_outer_join,
-        drizzle_core::Join::new().right().outer(),
-        AfterRightJoin,
-        ScopePushRight
-    );
+        drizzle_core::Join::new().right().outer(), RightJoin);
 
     /// Adds a cross join.
     ///
@@ -315,12 +299,12 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Marker,
+        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Row,
         G,
     >
     where
-        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+        M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>,
     {
         SelectBuilder::from_sql(self.sql.append(arg.into_cross_join_sql()))
     }
@@ -335,13 +319,13 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>>::Marker,
+        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>>::Row,
         G,
     >
     where
         Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
-        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+        M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>,
     {
         SelectBuilder::from_sql(
             self.sql
@@ -359,14 +343,13 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePushLeft<Arg::JoinedTable>>::Out,
-        <M as drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>>::Marker,
+        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>>::Row,
         G,
     >
     where
         Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
-        M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
-            + drizzle_core::ScopePushLeft<Arg::JoinedTable>
+        M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>
             + drizzle_core::LeftLateralSelection<SelectionProof>,
     {
         SelectBuilder::from_sql(
@@ -385,14 +368,13 @@ where
         S,
         SelectJoinSet,
         Source::JoinedTable,
-        <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Marker,
+        <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Row,
         G,
     >
     where
         Source: drizzle_core::LateralSource<'a, MySQLValue<'a>>,
-        M: drizzle_core::AfterJoin<R, Source::JoinedTable>
-            + drizzle_core::ScopePush<Source::JoinedTable>,
+        M: drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>,
     {
         SelectBuilder::from_sql(self.sql.append(source.into_cross_lateral_sql()))
     }
@@ -403,8 +385,13 @@ where
     State: SelectWhereAllowed,
 {
     /// Filters rows before grouping and projection.
-    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn r#where<E>(
+        self,
+        condition: E,
+    ) -> SelectBuilder<'a, S, SelectWhereSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>
     where
+        M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -420,8 +407,17 @@ where
     pub fn group_by<Gr>(
         self,
         columns: Gr,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R, Gr::Columns>
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectGroupSet,
+        T,
+        <M as drizzle_core::HasScope>::With<Gr::Sources>,
+        R,
+        Gr::Columns,
+    >
     where
+        M: drizzle_core::HasScope,
         Gr: drizzle_core::IntoGroupBy<'a, MySQLValue<'a>>,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::group_by_expr(columns)))
@@ -433,8 +429,13 @@ where
     State: drizzle_core::HavingAllowed,
 {
     /// Filters grouped rows.
-    pub fn having<E>(self, condition: E) -> SelectBuilder<'a, S, SelectHavingSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn having<E>(
+        self,
+        condition: E,
+    ) -> SelectBuilder<'a, S, SelectHavingSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>
     where
+        M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -447,9 +448,14 @@ where
     State: SelectOrderAllowed,
 {
     /// Orders the selected rows.
-    pub fn order_by<O>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn order_by<O>(
+        self,
+        order: O,
+    ) -> SelectBuilder<'a, S, SelectOrderSet, T, <M as drizzle_core::HasScope>::With<O::Sources>, R, G>
     where
-        O: ToSQL<'a, MySQLValue<'a>>,
+        M: drizzle_core::HasScope,
+        O: ToSQL<'a, MySQLValue<'a>> + drizzle_core::expr::ExprSources,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::order_by(order)))
     }
@@ -601,7 +607,7 @@ where
     /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
     /// make each output unique.
     #[must_use]
-    pub fn alias<Tag, ScopeProof, AggProof>(
+    pub fn alias<Tag, AggProof>(
         self,
         _tag: Tag,
     ) -> drizzle_core::Derived<
@@ -614,13 +620,13 @@ where
     where
         Tag: drizzle_core::Tag,
         M: drizzle_core::DerivedSelection<'a, MySQLValue<'a>, MySQLSchemaType, T>
-            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
         <M as drizzle_core::DerivedSelection<'a, MySQLValue<'a>, MySQLSchemaType, T>>::Projection:
             drizzle_core::DerivedProjection<Tag>,
     {
-        // SAFETY: The executable-state, scope, aggregate, and projection
-        // bounds above prove that this query matches the derived projection.
+        // SAFETY: The executable-state, aggregate, and projection bounds
+        // above prove that this query matches the derived projection; its
+        // scope travels in `Self`'s sources and is checked where it is used.
         unsafe { drizzle_core::Derived::new_unchecked(self) }
     }
 }
@@ -628,10 +634,15 @@ where
 macro_rules! set_operation {
     ($name:ident, $token:expr, $all:expr) => {
         #[doc = concat!("Combines this query with another using `", stringify!($name), "`.")]
-        pub fn $name(
+        #[allow(clippy::type_complexity)]
+        pub fn $name<O>(
             self,
-            other: impl IntoSelectQuery<'a, S, R>,
-        ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+            other: O,
+        ) -> SelectBuilder<'a, S, SelectSetOpSet, T, <M as drizzle_core::SetOperand<O::Marker>>::Combined, R, G>
+        where
+            O: IntoSelectQuery<'a, S, R>,
+            M: drizzle_core::SetOperand<O::Marker>,
+        {
             SelectBuilder::from_sql(helpers::set_op(
                 self.sql,
                 $token,
@@ -713,9 +724,16 @@ impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, MySQLValue<'a>>
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: private::Completed,
-    M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>,
+    M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>> + drizzle_core::SelectSources,
 {
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType;
     type Nullable = drizzle_core::expr::Null;
     type Aggregate = drizzle_core::expr::Scalar;
+}
+
+impl<S, State, T, M, R, G> drizzle_core::expr::ExprSources for SelectBuilder<'_, S, State, T, M, R, G>
+where
+    M: drizzle_core::SelectSources,
+{
+    type Sources = M::Sources;
 }

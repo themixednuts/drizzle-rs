@@ -33,22 +33,80 @@ pub enum OrderBy {
     Desc,
 }
 
-/// Creates an ascending ORDER BY expression: "column ASC"
-pub fn asc<'a, V, T>(column: T) -> SQL<'a, V>
-where
-    V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
-{
-    column.to_sql().append(&OrderBy::Asc)
+/// One `ORDER BY` term (`column ASC`), carrying the sources it reads.
+///
+/// Mix terms of different columns in a tuple: `order_by((asc(a), desc(b)))`.
+/// An array or `Vec` works when every term has the same type.
+#[derive(Debug, Clone)]
+pub struct Ordered<'a, V: SQLParam, S> {
+    sql: SQL<'a, V>,
+    sources: core::marker::PhantomData<fn() -> S>,
 }
 
-/// Creates a descending ORDER BY expression: "column DESC"
-pub fn desc<'a, V, T>(column: T) -> SQL<'a, V>
+impl<'a, V: SQLParam, S> Ordered<'a, V, S> {
+    /// Forget which sources this term reads (see
+    /// [`SQLExpr::unscoped`](crate::expr::SQLExpr::unscoped)).
+    #[must_use]
+    pub fn unscoped(self) -> Ordered<'a, V, ()> {
+        Ordered {
+            sql: self.sql,
+            sources: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, V: SQLParam, S> ToSQL<'a, V> for Ordered<'a, V, S> {
+    fn to_sql(&self) -> SQL<'a, V> {
+        self.sql.clone()
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        self.sql
+    }
+}
+
+impl<V: SQLParam, S> crate::expr::ExprSources for Ordered<'_, V, S> {
+    type Sources = S;
+}
+
+impl<V: SQLParam, S, const N: usize> crate::expr::ExprSources for [Ordered<'_, V, S>; N] {
+    type Sources = S;
+}
+
+impl<V: SQLParam, S> crate::expr::ExprSources for Vec<Ordered<'_, V, S>> {
+    type Sources = S;
+}
+
+impl<V: SQLParam, const N: usize> crate::expr::ExprSources for [SQL<'_, V>; N] {
+    type Sources = ();
+}
+
+impl<V: SQLParam> crate::expr::ExprSources for Vec<SQL<'_, V>> {
+    type Sources = ();
+}
+
+/// Creates an ascending ORDER BY term: "column ASC"
+pub fn asc<'a, V, T>(column: T) -> Ordered<'a, V, T::Sources>
 where
     V: SQLParam + 'a,
-    T: ToSQL<'a, V>,
+    T: ToSQL<'a, V> + crate::expr::ExprSources,
 {
-    column.to_sql().append(&OrderBy::Desc)
+    Ordered {
+        sql: column.to_sql().append(&OrderBy::Asc),
+        sources: core::marker::PhantomData,
+    }
+}
+
+/// Creates a descending ORDER BY term: "column DESC"
+pub fn desc<'a, V, T>(column: T) -> Ordered<'a, V, T::Sources>
+where
+    V: SQLParam + 'a,
+    T: ToSQL<'a, V> + crate::expr::ExprSources,
+{
+    Ordered {
+        sql: column.to_sql().append(&OrderBy::Desc),
+        sources: core::marker::PhantomData,
+    }
 }
 
 /// Topological sort of `(name, dependency_names)` pairs using Kahn's algorithm.

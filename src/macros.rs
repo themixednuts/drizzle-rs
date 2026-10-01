@@ -1,22 +1,22 @@
 #[doc(hidden)]
 macro_rules! drizzle_builder_join_impl {
     () => {
-        drizzle_builder_join_impl!(@natural natural, drizzle_core::AfterJoin, drizzle_core::ScopePush);
-        drizzle_builder_join_impl!(@natural natural_left, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_builder_join_impl!(left, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_builder_join_impl!(left_outer, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_builder_join_impl!(@natural natural_left_outer, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_builder_join_impl!(@natural natural_right, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_builder_join_impl!(right, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_builder_join_impl!(right_outer, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_builder_join_impl!(@natural natural_right_outer, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_builder_join_impl!(@natural natural_full, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_builder_join_impl!(full, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_builder_join_impl!(full_outer, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_builder_join_impl!(@natural natural_full_outer, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_builder_join_impl!(inner, drizzle_core::AfterJoin, drizzle_core::ScopePush);
+        drizzle_builder_join_impl!(@natural natural, drizzle_core::InnerJoin);
+        drizzle_builder_join_impl!(@natural natural_left, drizzle_core::LeftJoin);
+        drizzle_builder_join_impl!(left, drizzle_core::LeftJoin);
+        drizzle_builder_join_impl!(left_outer, drizzle_core::LeftJoin);
+        drizzle_builder_join_impl!(@natural natural_left_outer, drizzle_core::LeftJoin);
+        drizzle_builder_join_impl!(@natural natural_right, drizzle_core::RightJoin);
+        drizzle_builder_join_impl!(right, drizzle_core::RightJoin);
+        drizzle_builder_join_impl!(right_outer, drizzle_core::RightJoin);
+        drizzle_builder_join_impl!(@natural natural_right_outer, drizzle_core::RightJoin);
+        drizzle_builder_join_impl!(@natural natural_full, drizzle_core::FullJoin);
+        drizzle_builder_join_impl!(full, drizzle_core::FullJoin);
+        drizzle_builder_join_impl!(full_outer, drizzle_core::FullJoin);
+        drizzle_builder_join_impl!(@natural natural_full_outer, drizzle_core::FullJoin);
+        drizzle_builder_join_impl!(inner, drizzle_core::InnerJoin);
     };
-    (@natural $type:ident, $join_trait:path, $scope_trait:path) => {
+    (@natural $type:ident, $kind:ty) => {
         paste::paste! {
             /// Adds a NATURAL join: the database matches the columns both
             /// sides share by name, so it takes a source and no ON condition.
@@ -27,11 +27,11 @@ macro_rules! drizzle_builder_join_impl {
                 'd,
                 Runner,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as $scope_trait<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind>>::Row, G>,
                 SelectJoinSet,
             >
             where
-                M: $join_trait<R, J::JoinedTable> + $scope_trait<J::JoinedTable>,
+                M: drizzle_core::JoinStep<R, J::JoinedTable, $kind>,
             {
                 let builder = self.builder.[<$type _join>](source);
                 DrizzleBuilder {
@@ -42,7 +42,7 @@ macro_rules! drizzle_builder_join_impl {
             }
         }
     };
-    ($type:ident, $join_trait:path, $scope_trait:path) => {
+    ($type:ident, $kind:ty) => {
         paste::paste! {
             pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
                 self,
@@ -51,11 +51,11 @@ macro_rules! drizzle_builder_join_impl {
                 'd,
                 Runner,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as $scope_trait<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Row, G>,
                 SelectJoinSet,
             >
             where
-                M: $join_trait<R, J::JoinedTable> + $scope_trait<J::JoinedTable>,
+                M: drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>,
             {
                 let builder = self.builder.[<$type _join>](arg);
                 DrizzleBuilder {
@@ -71,31 +71,30 @@ macro_rules! drizzle_builder_join_impl {
 #[doc(hidden)]
 macro_rules! drizzle_pg_builder_join_impl {
     () => {
-        drizzle_pg_builder_join_impl!(@natural natural, drizzle_core::AfterJoin, drizzle_core::ScopePush);
-        drizzle_pg_builder_join_impl!(@natural natural_left, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_pg_builder_join_impl!(left, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_pg_builder_join_impl!(left_outer, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_pg_builder_join_impl!(@natural natural_left_outer, drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
-        drizzle_pg_builder_join_impl!(@natural natural_right, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_pg_builder_join_impl!(right, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_pg_builder_join_impl!(right_outer, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_pg_builder_join_impl!(@natural natural_right_outer, drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
-        drizzle_pg_builder_join_impl!(@natural natural_full, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_pg_builder_join_impl!(full, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_pg_builder_join_impl!(full_outer, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_pg_builder_join_impl!(@natural natural_full_outer, drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
-        drizzle_pg_builder_join_impl!(inner, drizzle_core::AfterJoin, drizzle_core::ScopePush);
-        drizzle_pg_builder_join_impl!(@lateral inner_join_lateral, AfterJoin, ScopePush);
+        drizzle_pg_builder_join_impl!(@natural natural, drizzle_core::InnerJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_left, drizzle_core::LeftJoin);
+        drizzle_pg_builder_join_impl!(left, drizzle_core::LeftJoin);
+        drizzle_pg_builder_join_impl!(left_outer, drizzle_core::LeftJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_left_outer, drizzle_core::LeftJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_right, drizzle_core::RightJoin);
+        drizzle_pg_builder_join_impl!(right, drizzle_core::RightJoin);
+        drizzle_pg_builder_join_impl!(right_outer, drizzle_core::RightJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_right_outer, drizzle_core::RightJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_full, drizzle_core::FullJoin);
+        drizzle_pg_builder_join_impl!(full, drizzle_core::FullJoin);
+        drizzle_pg_builder_join_impl!(full_outer, drizzle_core::FullJoin);
+        drizzle_pg_builder_join_impl!(@natural natural_full_outer, drizzle_core::FullJoin);
+        drizzle_pg_builder_join_impl!(inner, drizzle_core::InnerJoin);
+        drizzle_pg_builder_join_impl!(@lateral inner_join_lateral, drizzle_core::InnerJoin);
         drizzle_pg_builder_join_impl!(
             @lateral
             left_join_lateral,
-            AfterLeftJoin,
-            ScopePushLeft,
+            drizzle_core::LeftJoin,
             SelectionProof
         );
         drizzle_pg_builder_join_impl!(@cross_lateral);
     };
-    (@lateral $method:ident, $join_trait:ident, $scope_trait:ident $(, $proof:ident)?) => {
+    (@lateral $method:ident, $kind:ty $(, $proof:ident)?) => {
         /// Adds a JOIN LATERAL clause with an ON condition.
         #[inline]
         #[allow(clippy::type_complexity)]
@@ -108,16 +107,15 @@ macro_rules! drizzle_pg_builder_join_impl {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::$scope_trait<J::JoinedTable>>::Out,
-                <M as drizzle_core::$join_trait<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::Lateral<$kind>, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::Lateral<$kind>, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             J: drizzle_core::LateralArg<'a, drizzle_postgres::values::PostgresValue<'a>>,
-            M: drizzle_core::$join_trait<R, J::JoinedTable>
-                + drizzle_core::$scope_trait<J::JoinedTable>
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::Lateral<$kind>, J::OnSources>
                 $(+ drizzle_core::LeftLateralSelection<$proof>)?,
         {
             let builder = self.builder.$method(arg);
@@ -144,8 +142,8 @@ macro_rules! drizzle_pg_builder_join_impl {
                 Schema,
                 SelectJoinSet,
                 Source::JoinedTable,
-                <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Marker,
+                <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -155,8 +153,7 @@ macro_rules! drizzle_pg_builder_join_impl {
                 'a,
                 drizzle_postgres::values::PostgresValue<'a>,
             >,
-            M: drizzle_core::AfterJoin<R, Source::JoinedTable>
-                + drizzle_core::ScopePush<Source::JoinedTable>,
+            M: drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>,
         {
             let builder = self.builder.cross_join_lateral(source);
             DrizzleBuilder {
@@ -166,7 +163,7 @@ macro_rules! drizzle_pg_builder_join_impl {
             }
         }
     };
-    (@natural $type:ident, $join_trait:path, $scope_trait:path) => {
+    (@natural $type:ident, $kind:ty) => {
         paste::paste! {
             /// Adds a NATURAL join: the database matches the columns both
             /// sides share by name, so it takes a source and no ON condition.
@@ -177,11 +174,11 @@ macro_rules! drizzle_pg_builder_join_impl {
                 'd,
                 Runner,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as $scope_trait<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind>>::Row, G>,
                 SelectJoinSet,
             >
             where
-                M: $join_trait<R, J::JoinedTable> + $scope_trait<J::JoinedTable>,
+                M: drizzle_core::JoinStep<R, J::JoinedTable, $kind>,
             {
                 let builder = self.builder.[<$type _join>](source);
                 DrizzleBuilder {
@@ -192,7 +189,7 @@ macro_rules! drizzle_pg_builder_join_impl {
             }
         }
     };
-    ($type:ident, $join_trait:path, $scope_trait:path) => {
+    ($type:ident, $kind:ty) => {
         paste::paste! {
             pub fn [<$type _join>]<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
                 self,
@@ -201,11 +198,11 @@ macro_rules! drizzle_pg_builder_join_impl {
                 'd,
                 Runner,
                 Schema,
-                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as $scope_trait<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>,
+                SelectBuilder<'a, Schema, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Row, G>,
                 SelectJoinSet,
             >
             where
-                M: $join_trait<R, J::JoinedTable> + $scope_trait<J::JoinedTable>,
+                M: drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>,
             {
                 let builder = self.builder.[<$type _join>](arg);
                 DrizzleBuilder {
@@ -223,38 +220,31 @@ macro_rules! drizzle_pg_builder_join_using_impl {
     () => {
         drizzle_pg_builder_join_using_impl!(
             left,
-            drizzle_core::AfterLeftJoin,
-            drizzle_core::ScopePushLeft
+            drizzle_core::LeftJoin
         );
         drizzle_pg_builder_join_using_impl!(
             left_outer,
-            drizzle_core::AfterLeftJoin,
-            drizzle_core::ScopePushLeft
+            drizzle_core::LeftJoin
         );
         drizzle_pg_builder_join_using_impl!(
             right,
-            drizzle_core::AfterRightJoin,
-            drizzle_core::ScopePushRight
+            drizzle_core::RightJoin
         );
         drizzle_pg_builder_join_using_impl!(
             right_outer,
-            drizzle_core::AfterRightJoin,
-            drizzle_core::ScopePushRight
+            drizzle_core::RightJoin
         );
         drizzle_pg_builder_join_using_impl!(
             full,
-            drizzle_core::AfterFullJoin,
-            drizzle_core::ScopePushFull
+            drizzle_core::FullJoin
         );
         drizzle_pg_builder_join_using_impl!(
             full_outer,
-            drizzle_core::AfterFullJoin,
-            drizzle_core::ScopePushFull
+            drizzle_core::FullJoin
         );
         drizzle_pg_builder_join_using_impl!(
             inner,
-            drizzle_core::AfterJoin,
-            drizzle_core::ScopePush
+            drizzle_core::InnerJoin
         );
 
         /// JOIN USING clause (plain JOIN).
@@ -271,14 +261,14 @@ macro_rules! drizzle_pg_builder_join_using_impl {
                 Schema,
                 SelectJoinSet,
                 U,
-                <M as drizzle_core::ScopePush<U>>::Out,
-                <M as drizzle_core::AfterJoin<R, U>>::NewRow,
+                <M as drizzle_core::JoinStep<R, U, drizzle_core::InnerJoin>>::Marker,
+                <M as drizzle_core::JoinStep<R, U, drizzle_core::InnerJoin>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
-            M: drizzle_core::AfterJoin<R, U> + drizzle_core::ScopePush<U>,
+            M: drizzle_core::JoinStep<R, U, drizzle_core::InnerJoin>,
         {
             let builder = self.builder.join_using(table, columns);
             DrizzleBuilder {
@@ -288,7 +278,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
             }
         }
     };
-    ($type:ident, $join_trait:path, $scope_trait:path) => {
+    ($type:ident, $kind:ty) => {
         paste::paste! {
             pub fn [<$type _join_using>]<U: drizzle_postgres::traits::PostgresTable<'a>>(
                 self,
@@ -303,14 +293,14 @@ macro_rules! drizzle_pg_builder_join_using_impl {
                     Schema,
                     SelectJoinSet,
                     U,
-                    <M as $scope_trait<U>>::Out,
-                    <M as $join_trait<R, U>>::NewRow,
+                    <M as drizzle_core::JoinStep<R, U, $kind>>::Marker,
+                    <M as drizzle_core::JoinStep<R, U, $kind>>::Row,
                     G,
                 >,
                 SelectJoinSet,
             >
             where
-                M: $join_trait<R, U> + $scope_trait<U>,
+                M: drizzle_core::JoinStep<R, U, $kind>,
             {
                 let builder = self.builder.[<$type _join_using>](table, columns);
                 DrizzleBuilder {

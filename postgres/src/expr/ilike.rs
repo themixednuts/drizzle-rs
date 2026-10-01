@@ -1,6 +1,7 @@
 //! `PostgreSQL` ILIKE operators.
 
 use crate::values::PostgresValue;
+use drizzle_core::scope::Arg;
 use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
 use drizzle_core::sql::{SQL, SQLChunk, Token};
 use drizzle_types::postgres::types::Boolean;
@@ -23,7 +24,14 @@ use drizzle_types::postgres::types::Boolean;
 pub fn ilike<'a, E, P>(
     expr: E,
     pattern: P,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<E::Nullable, E::Sources>,
+>
 where
     E: Expr<'a, PostgresValue<'a>>,
     P: Into<PostgresValue<'a>>,
@@ -50,7 +58,14 @@ where
 pub fn not_ilike<'a, E, P>(
     expr: E,
     pattern: P,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    Scalar,
+    Arg<E::Nullable, E::Sources>,
+>
 where
     E: Expr<'a, PostgresValue<'a>>,
     P: Into<PostgresValue<'a>>,

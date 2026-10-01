@@ -36,8 +36,9 @@ where
     /// # Safety
     ///
     /// `query` must select exactly the columns described by `Projection`, in
-    /// the same order, and must already satisfy the dialect builder's scope
-    /// and aggregate rules.
+    /// the same order, and must already satisfy the dialect builder's
+    /// aggregate rules. Its scope is checked where the derived source is
+    /// used, through `Query`'s [`ExprSources`](crate::expr::ExprSources).
     #[doc(hidden)]
     #[track_caller]
     pub unsafe fn new_unchecked(query: Query) -> Self {
@@ -102,6 +103,15 @@ where
     }
 }
 
+/// A derived source is referred to by its alias name.
+impl<V: SQLParam, Name, Projection, Query: crate::expr::ExprSources> crate::scope::ScopeEntry
+    for Derived<'_, V, Name, Projection, Query>
+{
+    type Key = crate::scope::AliasKey<Name>;
+    type Nullable = crate::expr::NonNull;
+    type Sources = Query::Sources;
+}
+
 impl<'a, V, Name, Projection, Query> HasSelectModel for Derived<'a, V, Name, Projection, Query>
 where
     V: SQLParam,
@@ -138,8 +148,8 @@ pub trait DerivedSelection<'a, V: SQLParam, Schema, Table>:
     type Projection;
 }
 
-impl<'a, V, Schema, Table> DerivedSelection<'a, V, Schema, Table>
-    for Scoped<SelectStar, Cons<Table, Nil>>
+impl<'a, V, Schema, Table, Used> DerivedSelection<'a, V, Schema, Table>
+    for Scoped<SelectStar, Cons<Table, Nil>, Used>
 where
     V: SQLParam + 'a,
     Schema: SQLSchemaType,
@@ -148,8 +158,8 @@ where
     type Projection = TableProjection<'a, V, Schema, Table>;
 }
 
-impl<'a, V, Schema, Table> private::Selection<'a, V, Schema, Table>
-    for Scoped<SelectStar, Cons<Table, Nil>>
+impl<'a, V, Schema, Table, Used> private::Selection<'a, V, Schema, Table>
+    for Scoped<SelectStar, Cons<Table, Nil>, Used>
 where
     V: SQLParam + 'a,
     Schema: SQLSchemaType,
@@ -157,9 +167,9 @@ where
 {
 }
 
-impl<'a, V, Schema, Name, Projection, Query>
+impl<'a, V, Schema, Name, Projection, Query, Used>
     DerivedSelection<'a, V, Schema, Derived<'a, V, Name, Projection, Query>>
-    for Scoped<SelectStar, Cons<Derived<'a, V, Name, Projection, Query>, Nil>>
+    for Scoped<SelectStar, Cons<Derived<'a, V, Name, Projection, Query>, Nil>, Used>
 where
     V: SQLParam,
     Name: Tag,
@@ -168,9 +178,9 @@ where
     type Projection = Projection;
 }
 
-impl<'a, V, Schema, Name, Projection, Query>
+impl<'a, V, Schema, Name, Projection, Query, Used>
     private::Selection<'a, V, Schema, Derived<'a, V, Name, Projection, Query>>
-    for Scoped<SelectStar, Cons<Derived<'a, V, Name, Projection, Query>, Nil>>
+    for Scoped<SelectStar, Cons<Derived<'a, V, Name, Projection, Query>, Nil>, Used>
 where
     V: SQLParam,
     Name: Tag,
@@ -178,22 +188,22 @@ where
 {
 }
 
-impl<'a, V, Schema, Table, Columns, Scope> DerivedSelection<'a, V, Schema, Table>
-    for Scoped<SelectCols<Columns>, Scope>
+impl<'a, V, Schema, Table, Columns, Scope, Used> DerivedSelection<'a, V, Schema, Table>
+    for Scoped<SelectCols<Columns>, Scope, Used>
 where
     V: SQLParam,
 {
     type Projection = Self;
 }
 
-impl<'a, V, Schema, Table, Columns, Scope> private::Selection<'a, V, Schema, Table>
-    for Scoped<SelectCols<Columns>, Scope>
+impl<'a, V, Schema, Table, Columns, Scope, Used> private::Selection<'a, V, Schema, Table>
+    for Scoped<SelectCols<Columns>, Scope, Used>
 where
     V: SQLParam,
 {
 }
 
-impl<Name, Marker, Scope> DerivedProjection<Name> for Scoped<Marker, Scope>
+impl<Name, Marker, Scope, Used> DerivedProjection<Name> for Scoped<Marker, Scope, Used>
 where
     Name: Tag,
     Marker: DerivedProjection<Name>,
@@ -212,7 +222,7 @@ where
     }
 }
 
-impl<Marker, Scope> private::Projection for Scoped<Marker, Scope> where Marker: private::Projection {}
+impl<Marker, Scope, Used> private::Projection for Scoped<Marker, Scope, Used> where Marker: private::Projection {}
 
 /// Projection marker used when a dialect has proven that `SELECT *` comes from
 /// one base table.
@@ -319,15 +329,9 @@ where
 {
 }
 
-impl<'a, V, Name, Output, Projection, Query, Scope, Witness>
-    crate::row::ProjectionInScope<
-        Scope,
-        crate::row::ColumnScope<Derived<'a, V, Name, Projection, Query>, Witness>,
-    > for DerivedField<Name, Output>
-where
-    V: SQLParam,
-    Scope: crate::row::ScopeContains<Derived<'a, V, Name, Projection, Query>, Witness>,
-{
+/// A derived field reads the derived source named `Name`.
+impl<Name, Output> crate::expr::ExprSources for DerivedField<Name, Output> {
+    type Sources = crate::scope::Src<crate::scope::AliasKey<Name>>;
 }
 
 impl<'a, V, Name, Output> IntoGroupBy<'a, V> for DerivedField<Name, Output>

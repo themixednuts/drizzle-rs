@@ -109,18 +109,9 @@ fn should_decode_named_fields_by_name(
         .any(|field| parse_column_reference(field).is_some())
 }
 
-fn build_scope_list_type(table_paths: &[syn::Path]) -> TokenStream {
-    let type_set_nil = core_paths::type_set_nil();
-    let type_set_cons = core_paths::type_set_cons();
-    table_paths.iter().rev().fold(
-        type_set_nil,
-        |acc, table_path| quote!(#type_set_cons<#table_path, #acc>),
-    )
-}
-
-/// Builds `Cons<TableFields<Table, Cons<Field, ...>>, ...>` in the same table
-/// order as [`collect_required_tables`], so strict decode can share the scope
-/// proof between the required-table check and the outer-join field check.
+/// Builds `Cons<TableFields<Table, Cons<Field, ...>>, ...>`: every table the
+/// selector reads, with the field types read from it, so strict decode can
+/// check that each table is in scope and outer-joined ones decode to `Option`.
 fn build_table_fields_type(
     fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
     default_from: Option<&ExprPath>,
@@ -577,16 +568,8 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         },
     );
 
-    let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
-    let required_tables = collect_required_tables(fields, default_from.as_ref());
-    let required_scope = build_scope_list_type(&required_tables);
-    let table_fields_impl = generate_table_fields_impl(struct_name, fields, default_from.as_ref());
-    let required_tables_impl = quote! {
-        impl #select_required_tables for #struct_name {
-            type RequiredTables = #required_scope;
-        }
-        #table_fields_impl
-    };
+    let required_tables_impl =
+        generate_table_fields_impl(struct_name, fields, default_from.as_ref());
 
     Ok(quote! {
         #(#impl_blocks)*
@@ -735,16 +718,8 @@ pub fn generate_postgres_from_row_impl(input: &DeriveInput) -> Result<TokenStrea
         },
     );
 
-    let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
-    let required_tables = collect_required_tables(fields, default_from.as_ref());
-    let required_scope = build_scope_list_type(&required_tables);
-    let table_fields_impl = generate_table_fields_impl(struct_name, fields, default_from.as_ref());
-    let required_tables_impl = quote! {
-        impl #select_required_tables for #struct_name {
-            type RequiredTables = #required_scope;
-        }
-        #table_fields_impl
-    };
+    let required_tables_impl =
+        generate_table_fields_impl(struct_name, fields, default_from.as_ref());
 
     Ok(quote! {
         #driver_row_impls
@@ -780,9 +755,6 @@ pub fn generate_mysql_from_row_impl(input: &DeriveInput) -> Result<TokenStream> 
         || quote!(impl<__Table> #select_as_from<__Table> for #struct_name {}),
         |default_table| quote!(impl #select_as_from<#default_table> for #struct_name {}),
     );
-    let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
-    let required_scope =
-        build_scope_list_type(&collect_required_tables(fields, default_from.as_ref()));
     let table_fields_impl = generate_table_fields_impl(struct_name, fields, default_from.as_ref());
     let into_select_target = core_paths::into_select_target();
     let select_as = quote!(drizzle::core::SelectAs);
@@ -850,9 +822,6 @@ pub fn generate_mysql_from_row_impl(input: &DeriveInput) -> Result<TokenStream> 
 
         #tosql_impl
         #select_as_from_impl
-        impl #select_required_tables for #struct_name {
-            type RequiredTables = #required_scope;
-        }
         #table_fields_impl
         impl #into_select_target for #struct_name {
             type Marker = #select_as<#struct_name>;

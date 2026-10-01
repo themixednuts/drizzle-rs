@@ -533,6 +533,14 @@ where
     type Aggregate = Builder::Aggregate;
 }
 
+impl<Runner, Schema, Builder, State> drizzle_core::expr::ExprSources
+    for DrizzleBuilder<'_, Runner, Schema, Builder, State>
+where
+    Builder: drizzle_core::expr::ExprSources,
+{
+    type Sources = Builder::Sources;
+}
+
 impl<'db, 'q, Runner, Schema>
     DrizzleBuilder<
         'db,
@@ -635,13 +643,13 @@ impl<'db, 'q, Runner, Schema, M>
             Schema,
             SelectFromSet,
             T,
-            drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+            drizzle_core::FromMarker<M, T>,
             <M as drizzle_core::ResolveRow<T>>::Row,
         >,
         SelectFromSet,
     >
     where
-        T: ToSQL<'q, MySQLValue<'q>>,
+        T: ToSQL<'q, MySQLValue<'q>> + drizzle_core::ScopeEntry,
         M: drizzle_core::ResolveRow<T>,
     {
         self.map(|builder| builder.from(table))
@@ -657,10 +665,11 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectWhereSet, T, M, R, G>,
+            SelectBuilder<'q, Schema, SelectWhereSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>,
             SelectWhereSet,
         >
         where
+            M: drizzle_core::HasScope,
             E: drizzle_core::expr::Expr<'q, MySQLValue<'q>>,
             E::SQLType: drizzle_core::types::BooleanLike,
         {
@@ -675,10 +684,11 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectGroupSet, T, M, R, Gr::Columns>,
+            SelectBuilder<'q, Schema, SelectGroupSet, T, <M as drizzle_core::HasScope>::With<Gr::Sources>, R, Gr::Columns>,
             SelectGroupSet,
         >
         where
+            M: drizzle_core::HasScope,
             Gr: drizzle_core::IntoGroupBy<'q, MySQLValue<'q>>,
         {
             self.map(|builder| builder.group_by(columns))
@@ -692,10 +702,11 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectHavingSet, T, M, R, G>,
+            SelectBuilder<'q, Schema, SelectHavingSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>,
             SelectHavingSet,
         >
         where
+            M: drizzle_core::HasScope,
             E: drizzle_core::expr::Expr<'q, MySQLValue<'q>>,
             E::SQLType: drizzle_core::types::BooleanLike,
         {
@@ -710,11 +721,12 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectOrderSet, T, M, R, G>,
+            SelectBuilder<'q, Schema, SelectOrderSet, T, <M as drizzle_core::HasScope>::With<O::Sources>, R, G>,
             SelectOrderSet,
         >
         where
-            O: ToSQL<'q, MySQLValue<'q>>,
+            M: drizzle_core::HasScope,
+            O: ToSQL<'q, MySQLValue<'q>> + drizzle_core::expr::ExprSources,
         {
             self.map(|builder| builder.order_by(order))
         }
@@ -766,15 +778,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
-            M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>,
         {
             self.map(|builder| builder.join(arg))
         }
@@ -791,15 +803,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
-            M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>,
         {
             self.map(|builder| builder.inner_join(arg))
         }
@@ -816,16 +828,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             Arg: drizzle_mysql::helpers::CrossJoinArg<'q, T>,
-            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
-                + drizzle_core::ScopePush<Arg::JoinedTable>,
+            M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>,
         {
             self.map(|builder| builder.cross_join(arg))
         }
@@ -842,16 +853,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
-            M: drizzle_core::AfterJoin<R, Arg::JoinedTable>
-                + drizzle_core::ScopePush<Arg::JoinedTable>,
+            M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>,
         {
             self.map(|builder| builder.inner_join_lateral(arg))
         }
@@ -868,16 +878,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::ScopePushLeft<Arg::JoinedTable>>::Out,
-                <M as drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
-            M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
-                + drizzle_core::ScopePushLeft<Arg::JoinedTable>
+            M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>
                 + drizzle_core::LeftLateralSelection<SelectionProof>,
         {
             self.map(|builder| builder.left_join_lateral(arg))
@@ -895,16 +904,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Source::JoinedTable,
-                <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
-                <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Marker,
+                <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             Source: drizzle_core::LateralSource<'q, MySQLValue<'q>>,
-            M: drizzle_core::AfterJoin<R, Source::JoinedTable>
-                + drizzle_core::ScopePush<Source::JoinedTable>,
+            M: drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>,
         {
             self.map(|builder| builder.cross_join_lateral(source))
         }
@@ -921,16 +929,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePushLeft<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterLeftJoin<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
-            M: drizzle_core::AfterLeftJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePushLeft<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>,
         {
             self.map(|builder| builder.left_join(arg))
         }
@@ -947,16 +954,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePushLeft<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterLeftJoin<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
-            M: drizzle_core::AfterLeftJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePushLeft<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>,
         {
             self.map(|builder| builder.left_outer_join(arg))
         }
@@ -973,16 +979,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePushRight<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterRightJoin<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
-            M: drizzle_core::AfterRightJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePushRight<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>,
         {
             self.map(|builder| builder.right_join(arg))
         }
@@ -999,16 +1004,15 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePushRight<J::JoinedTable>>::Out,
-                <M as drizzle_core::AfterRightJoin<R, J::JoinedTable>>::NewRow,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Marker,
+                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
-            M: drizzle_core::AfterRightJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePushRight<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>,
         {
             self.map(|builder| builder.right_outer_join(arg))
         }
@@ -1160,81 +1164,159 @@ impl<'db, 'q, Runner, Schema, State, T, M, R, G>
 where
     State: builder::select::SetOperationAllowed,
 {
-    pub fn union(
+    #[allow(clippy::type_complexity)]
+    pub fn union<O>(
         self,
-        other: impl IntoSelectQuery<'q, Schema, R>,
+        other: O,
     ) -> DrizzleBuilder<
         'db,
         Runner,
         Schema,
-        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<
+            'q,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<O::Marker>>::Combined,
+            R,
+            G,
+        >,
         SelectSetOpSet,
-    > {
+    >
+    where
+        O: IntoSelectQuery<'q, Schema, R>,
+        M: drizzle_core::SetOperand<O::Marker>,
+    {
         self.map(|builder| builder.union(other))
     }
 
-    pub fn union_all(
+    #[allow(clippy::type_complexity)]
+    pub fn union_all<O>(
         self,
-        other: impl IntoSelectQuery<'q, Schema, R>,
+        other: O,
     ) -> DrizzleBuilder<
         'db,
         Runner,
         Schema,
-        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<
+            'q,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<O::Marker>>::Combined,
+            R,
+            G,
+        >,
         SelectSetOpSet,
-    > {
+    >
+    where
+        O: IntoSelectQuery<'q, Schema, R>,
+        M: drizzle_core::SetOperand<O::Marker>,
+    {
         self.map(|builder| builder.union_all(other))
     }
 
-    pub fn intersect(
+    #[allow(clippy::type_complexity)]
+    pub fn intersect<O>(
         self,
-        other: impl IntoSelectQuery<'q, Schema, R>,
+        other: O,
     ) -> DrizzleBuilder<
         'db,
         Runner,
         Schema,
-        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<
+            'q,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<O::Marker>>::Combined,
+            R,
+            G,
+        >,
         SelectSetOpSet,
-    > {
+    >
+    where
+        O: IntoSelectQuery<'q, Schema, R>,
+        M: drizzle_core::SetOperand<O::Marker>,
+    {
         self.map(|builder| builder.intersect(other))
     }
 
-    pub fn intersect_all(
+    #[allow(clippy::type_complexity)]
+    pub fn intersect_all<O>(
         self,
-        other: impl IntoSelectQuery<'q, Schema, R>,
+        other: O,
     ) -> DrizzleBuilder<
         'db,
         Runner,
         Schema,
-        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<
+            'q,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<O::Marker>>::Combined,
+            R,
+            G,
+        >,
         SelectSetOpSet,
-    > {
+    >
+    where
+        O: IntoSelectQuery<'q, Schema, R>,
+        M: drizzle_core::SetOperand<O::Marker>,
+    {
         self.map(|builder| builder.intersect_all(other))
     }
 
-    pub fn except(
+    #[allow(clippy::type_complexity)]
+    pub fn except<O>(
         self,
-        other: impl IntoSelectQuery<'q, Schema, R>,
+        other: O,
     ) -> DrizzleBuilder<
         'db,
         Runner,
         Schema,
-        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<
+            'q,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<O::Marker>>::Combined,
+            R,
+            G,
+        >,
         SelectSetOpSet,
-    > {
+    >
+    where
+        O: IntoSelectQuery<'q, Schema, R>,
+        M: drizzle_core::SetOperand<O::Marker>,
+    {
         self.map(|builder| builder.except(other))
     }
 
-    pub fn except_all(
+    #[allow(clippy::type_complexity)]
+    pub fn except_all<O>(
         self,
-        other: impl IntoSelectQuery<'q, Schema, R>,
+        other: O,
     ) -> DrizzleBuilder<
         'db,
         Runner,
         Schema,
-        SelectBuilder<'q, Schema, SelectSetOpSet, T, M, R, G>,
+        SelectBuilder<
+            'q,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<O::Marker>>::Combined,
+            R,
+            G,
+        >,
         SelectSetOpSet,
-    > {
+    >
+    where
+        O: IntoSelectQuery<'q, Schema, R>,
+        M: drizzle_core::SetOperand<O::Marker>,
+    {
         self.map(|builder| builder.except_all(other))
     }
 }
@@ -1303,7 +1385,7 @@ where
     /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
     /// make each output unique.
     #[must_use]
-    pub fn alias<Tag, ScopeProof, AggProof>(
+    pub fn alias<Tag, AggProof>(
         self,
         tag: Tag,
     ) -> drizzle_core::Derived<
@@ -1316,7 +1398,6 @@ where
     where
         Tag: drizzle_core::Tag,
         M: drizzle_core::DerivedSelection<'q, MySQLValue<'q>, MySQLSchemaType, T>
-            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
         <M as drizzle_core::DerivedSelection<'q, MySQLValue<'q>, MySQLSchemaType, T>>::Projection:
             drizzle_core::DerivedProjection<Tag>,
@@ -1375,7 +1456,7 @@ macro_rules! insert_sources {
                 Table: drizzle_core::InsertSelectTable,
                 Q: IntoSelectQuery<'q, Schema, R>,
                 Q::Marker: drizzle_core::InsertSelectCompatible<'q, MySQLValue<'q>, Table, R>
-                    + drizzle_core::InsertSourceInScope<ScopeProof>
+                    + drizzle_core::MarkerScopeValidFor<ScopeProof>
                     + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
             {
                 self.map(|builder| builder.select(query))
@@ -1450,7 +1531,7 @@ where
         Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
         Q: IntoSelectQuery<'q, Schema, R>,
         Q::Marker: drizzle_core::PartialInsertSelectCompatible<'q, MySQLValue<'q>, Targets>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         self.map(|builder| builder.select(query))

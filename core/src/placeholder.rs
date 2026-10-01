@@ -127,6 +127,14 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Placeholder {
     }
 }
 
+impl crate::expr::ExprSources for Placeholder {
+    type Sources = ();
+}
+
+impl<T: DataType, N: Nullability> crate::expr::ExprSources for TypedPlaceholder<T, N> {
+    type Sources = ();
+}
+
 impl<'a, V: SQLParam + 'a> Expr<'a, V> for Placeholder {
     type SQLType = crate::types::Placeholder;
     type Nullable = NonNull;

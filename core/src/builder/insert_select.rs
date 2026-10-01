@@ -2,10 +2,9 @@ use core::marker::PhantomData;
 
 use crate::{
     Cons, HasSelectModel, IntoSelectTarget, Nil, SQL, SQLChunk, SQLColumnInfo, SQLParam, Scoped,
-    SelectAs, SelectCols, SelectRequiredTables, SelectStar, SelectedExpressionList, Token, TypeEq,
-    TypeSet,
+    SelectAs, SelectCols, SelectStar, SelectedExpressionList, Token, TypeEq, TypeSet,
     expr::{Expr, NullAnd},
-    row::{ProjectionsInScope, ScopeSatisfies},
+    scope::ListIncludes,
     types::Assignable,
 };
 
@@ -173,7 +172,7 @@ where
 pub trait IncludesRequired<Required, Proof> {}
 
 impl<Targets, Required, Proof> IncludesRequired<Required, Proof> for Targets where
-    Targets: ScopeSatisfies<Required, Proof>
+    Targets: ListIncludes<Required, Proof>
 {
 }
 
@@ -181,7 +180,8 @@ impl<Targets, Required, Proof> IncludesRequired<Required, Proof> for Targets whe
 #[doc(hidden)]
 pub trait PartialInsertSelectCompatible<'a, V: SQLParam, Targets> {}
 
-impl<'a, V, M, Scope, Targets> PartialInsertSelectCompatible<'a, V, Targets> for Scoped<M, Scope>
+impl<'a, V, M, Scope, Used, Targets> PartialInsertSelectCompatible<'a, V, Targets>
+    for Scoped<M, Scope, Used>
 where
     V: SQLParam,
     M: PartialInsertSelectCompatible<'a, V, Targets>,
@@ -197,31 +197,12 @@ where
 {
 }
 
-/// A checked INSERT SELECT source whose projection belongs to its FROM scope.
-#[doc(hidden)]
-pub trait InsertSourceInScope<Proof> {}
-
-impl<Scope> InsertSourceInScope<()> for Scoped<SelectStar, Scope> {}
-
-impl<Row, Scope, Proof> InsertSourceInScope<Proof> for Scoped<SelectAs<Row>, Scope>
-where
-    Row: SelectRequiredTables,
-    Scope: ScopeSatisfies<Row::RequiredTables, Proof>,
-{
-}
-
-impl<Selected, Scope, Proof> InsertSourceInScope<Proof> for Scoped<SelectCols<Selected>, Scope>
-where
-    Selected: SelectedExpressionList,
-    Selected::Expressions: ProjectionsInScope<Scope, Proof>,
-{
-}
-
 /// A checked SELECT projection for every insertable target column.
 #[doc(hidden)]
 pub trait InsertSelectCompatible<'a, V: SQLParam, Target, Row> {}
 
-impl<'a, V, M, Scope, Target, Row> InsertSelectCompatible<'a, V, Target, Row> for Scoped<M, Scope>
+impl<'a, V, M, Scope, Used, Target, Row> InsertSelectCompatible<'a, V, Target, Row>
+    for Scoped<M, Scope, Used>
 where
     V: SQLParam,
     M: InsertSelectCompatible<'a, V, Target, Row>,

@@ -8,6 +8,7 @@ use crate::traits::SQLParam;
 use crate::types::Textual;
 
 use super::{AggOr, AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
+use crate::scope::ScopeOnly;
 
 use crate::PostgresDialect;
 
@@ -35,7 +36,14 @@ impl SequenceSupport for PostgresDialect {}
 /// ```
 pub fn nextval<'a, V, E>(
     sequence: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::BigInt,
+    NonNull,
+    Scalar,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SequenceSupport,
@@ -61,7 +69,14 @@ where
 /// ```
 pub fn currval<'a, V, E>(
     sequence: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::BigInt,
+    NonNull,
+    Scalar,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SequenceSupport,
@@ -93,6 +108,7 @@ pub fn setval<'a, V, E, N>(
     <V::DialectMarker as DialectTypes>::BigInt,
     <E::Nullable as super::NullOr<N::Nullable>>::Output,
     <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    (E::Sources, N::Sources),
 >
 where
     V: SQLParam + 'a,

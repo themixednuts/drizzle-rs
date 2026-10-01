@@ -255,7 +255,7 @@ impl RoundingPolicy<MySQLDialect> for MyDecimal {
 /// abs(users.name);
 /// # "####;
 /// ```
-pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
+pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -291,6 +291,7 @@ pub fn round<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -329,6 +330,7 @@ pub fn round_to<'a, V, E, P>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     <E::Nullable as NullOr<P::Nullable>>::Output,
     <E::Aggregate as AggOr<P::Aggregate>>::Output,
+    (E::Sources, P::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -373,6 +375,7 @@ pub fn ceil<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -411,6 +414,7 @@ pub fn floor<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -449,6 +453,7 @@ pub fn trunc<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -492,6 +497,7 @@ pub fn sqrt<'a, V, E>(
     <V::DialectMarker as DialectTypes>::Double,
     <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -527,6 +533,7 @@ pub fn power<'a, V, E1, E2>(
     <V::DialectMarker as DialectTypes>::Double,
     <E1::Nullable as NullOr<E2::Nullable>>::Output,
     <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -567,7 +574,14 @@ where
 /// ```
 pub fn exp<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
@@ -601,6 +615,7 @@ pub fn ln<'a, V, E>(
     <V::DialectMarker as DialectTypes>::Double,
     <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -636,6 +651,7 @@ pub fn log10<'a, V, E>(
     <V::DialectMarker as DialectTypes>::Double,
     <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -673,6 +689,7 @@ pub fn log<'a, V, E1, E2>(
         <E1::Nullable as NullOr<E2::Nullable>>::Output,
     >>::Nullable,
     <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -742,7 +759,14 @@ impl SignPolicy for MySQLDialect {
 /// ```
 pub fn sign<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as SignPolicy>::Sign, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as SignPolicy>::Sign,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SignPolicy,
@@ -779,6 +803,7 @@ pub fn mod_<'a, V, E1, E2>(
     E1::SQLType,
     <E1::Nullable as NullOr<E2::Nullable>>::Output,
     <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -815,7 +840,14 @@ where
 /// ```
 #[must_use]
 pub fn pi<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
+-> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Double,
+    super::NonNull,
+    Scalar,
+    (),
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
@@ -842,7 +874,14 @@ where
 /// ```
 #[must_use]
 pub fn random<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as RandomPolicy>::Random, super::NonNull, Scalar>
+-> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as RandomPolicy>::Random,
+    super::NonNull,
+    Scalar,
+    (),
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: RandomPolicy,
@@ -883,6 +922,7 @@ pub fn log2<'a, V, E>(
     <V::DialectMarker as DialectTypes>::Double,
     <V::DialectMarker as Log2Policy>::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,

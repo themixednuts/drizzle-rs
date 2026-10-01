@@ -6,6 +6,7 @@ use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{Compatible, DataType, Textual};
 
 use super::{AggOr, AggregateKind, Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
+use crate::scope::ScopeOnly;
 
 // =============================================================================
 // ALIAS
@@ -52,6 +53,10 @@ where
     fn into_expr_sql(self) -> SQL<'a, V> {
         self.expr.into_expr_sql().alias(self.name)
     }
+}
+
+impl<E: super::ExprSources> super::ExprSources for AliasedExpr<E> {
+    type Sources = E::Sources;
 }
 
 impl<E: super::HasAggStatus> super::HasAggStatus for AliasedExpr<E> {
@@ -136,6 +141,10 @@ where
     fn into_sql(self) -> SQL<'a, V> {
         self.expr.into_sql().alias(Name::NAME)
     }
+}
+
+impl<E: super::ExprSources, Name> super::ExprSources for NamedExpr<E, Name> {
+    type Sources = E::Sources;
 }
 
 impl<'a, V, E, Name> Expr<'a, V> for NamedExpr<E, Name>
@@ -226,7 +235,14 @@ impl TypeofSupport for SQLiteDialect {}
 /// ```
 pub fn typeof_<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as crate::dialect::DialectTypes>::Text,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: TypeofSupport,
@@ -238,7 +254,14 @@ where
 /// Alias for typeof_ (uses Rust raw identifier syntax).
 pub fn r#typeof<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as crate::dialect::DialectTypes>::Text,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     V::DialectMarker: TypeofSupport,
@@ -550,6 +573,7 @@ pub fn cast<'a, V, E, Target>(
     Target,
     <Target as CastNullabilityPolicy<V::DialectMarker, E::Nullable>>::Output,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -612,6 +636,7 @@ pub fn string_concat<'a, V, L, R>(
     <V::DialectMarker as crate::dialect::DialectTypes>::Text,
     <L::Nullable as NullOr<R::Nullable>>::Output,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -651,7 +676,7 @@ where
 /// # "####;
 /// ```
 #[must_use]
-pub fn raw<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar>
+pub fn raw<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar, ()>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -661,7 +686,7 @@ where
 
 /// Create a raw SQL expression with explicit nullable nullability.
 #[must_use]
-pub fn raw_nullable<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar>
+pub fn raw_nullable<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar, ()>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -671,7 +696,7 @@ where
 
 /// Create a raw SQL expression with explicit non-null nullability.
 #[must_use]
-pub fn raw_non_null<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, NonNull, Scalar>
+pub fn raw_non_null<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -713,6 +738,11 @@ impl ExcludedSupport for PostgresDialect {}
 /// ```
 pub const fn excluded<C>(column: C) -> Excluded<C> {
     Excluded { column }
+}
+
+/// `EXCLUDED` is the proposed insert row, not a FROM source.
+impl<C> super::ExprSources for Excluded<C> {
+    type Sources = ();
 }
 
 impl<'a, V, C> Expr<'a, V> for Excluded<C>

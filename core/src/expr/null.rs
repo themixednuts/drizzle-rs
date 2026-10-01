@@ -13,7 +13,14 @@ use crate::traits::SQLParam;
 use crate::types::Compatible;
 use crate::{MySQLDialect, PostgresDialect};
 
-use super::{AggOr, AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr};
+use super::{AggOr, AggregateKind, Expr, ExprSources, NonNull, Null, Nullability, SQLExpr};
+use crate::scope::{Arg, Coalesce};
+
+/// Sources of a NULL-absorbing pair (`COALESCE(a, b)`): NULL only when both are.
+type FallbackSources<'a, V, A, B> = Coalesce<
+    Arg<<A as Expr<'a, V>>::Nullable, <A as ExprSources>::Sources>,
+    Arg<<B as Expr<'a, V>>::Nullable, <B as ExprSources>::Sources>,
+>;
 
 // =============================================================================
 // Nullability Combination
@@ -97,7 +104,14 @@ impl NullAnd<Self> for Null {
 pub fn coalesce<'a, V, E, D, N>(
     expr: E,
     default: D,
-) -> SQLExpr<'a, V, E::SQLType, N, <E::Aggregate as AggOr<D::Aggregate>>::Output>
+) -> SQLExpr<
+    'a,
+    V,
+    E::SQLType,
+    N,
+    <E::Aggregate as AggOr<D::Aggregate>>::Output,
+    FallbackSources<'a, V, E, D>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -142,6 +156,7 @@ pub fn coalesce_many<'a, V, E, I, N>(
     E::SQLType,
     N,
     <E::Aggregate as AggOr<<I::Item as Expr<'a, V>>::Aggregate>>::Output,
+    FallbackSources<'a, V, E, I::Item>,
 >
 where
     V: SQLParam + 'a,
@@ -185,7 +200,14 @@ where
 pub fn nullif<'a, V, E1, E2>(
     expr1: E1,
     expr2: E2,
-) -> SQLExpr<'a, V, E1::SQLType, Null, <E1::Aggregate as AggOr<E2::Aggregate>>::Output>
+) -> SQLExpr<
+    'a,
+    V,
+    E1::SQLType,
+    Null,
+    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    (E1::Sources, E2::Sources),
+>
 where
     V: SQLParam + 'a,
     E1: Expr<'a, V>,
@@ -215,7 +237,14 @@ where
 pub fn ifnull<'a, V, E, D, N>(
     expr: E,
     default: D,
-) -> SQLExpr<'a, V, E::SQLType, N, <E::Aggregate as AggOr<D::Aggregate>>::Output>
+) -> SQLExpr<
+    'a,
+    V,
+    E::SQLType,
+    N,
+    <E::Aggregate as AggOr<D::Aggregate>>::Output,
+    FallbackSources<'a, V, E, D>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -249,6 +278,8 @@ where
 )]
 pub trait GreatestLeastPolicy<L: Nullability, R: Nullability> {
     type Nullable: Nullability;
+    /// How the operands' sources (each an [`Arg`]) combine.
+    type Sources<A, B>;
 }
 
 impl<L, R> GreatestLeastPolicy<L, R> for PostgresDialect
@@ -257,6 +288,7 @@ where
     R: Nullability,
 {
     type Nullable = <L as NullAnd<R>>::Output;
+    type Sources<A, B> = Coalesce<A, B>;
 }
 
 impl<L, R> GreatestLeastPolicy<L, R> for MySQLDialect
@@ -265,6 +297,7 @@ where
     R: Nullability,
 {
     type Nullable = <L as NullOr<R>>::Output;
+    type Sources<A, B> = (A, B);
 }
 
 /// GREATEST - returns the largest of the given values (`PostgreSQL` and `MySQL`).
@@ -293,6 +326,10 @@ pub fn greatest<'a, V, L, R>(
     L::SQLType,
     <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Nullable,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Sources<
+        Arg<L::Nullable, L::Sources>,
+        Arg<R::Nullable, R::Sources>,
+    >,
 >
 where
     V: SQLParam + 'a,
@@ -338,6 +375,10 @@ pub fn least<'a, V, L, R>(
     L::SQLType,
     <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Nullable,
     <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Sources<
+        Arg<L::Nullable, L::Sources>,
+        Arg<R::Nullable, R::Sources>,
+    >,
 >
 where
     V: SQLParam + 'a,

@@ -26,7 +26,38 @@ use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{Compatible, DataType, Textual};
 
-use super::{AggOr, AggregateKind, Expr, NonNull, SQLExpr};
+use super::{AggOr, AggregateKind, Expr, ExprSources, NonNull, Nullability, SQLExpr};
+use crate::scope::{Arg, ScopeOnly};
+
+/// Sources of a NULL-propagating comparison: NULL when either operand is.
+type CmpSources<'a, V, L, R> = (
+    Arg<<L as Expr<'a, V>>::Nullable, <L as ExprSources>::Sources>,
+    Arg<
+        <R as ComparisonOperand<'a, V, L>>::Nullable,
+        <R as ComparisonOperand<'a, V, L>>::Sources,
+    >,
+);
+
+/// Sources of `BETWEEN`: NULL when any operand is.
+type BetweenSources<'a, V, E, L, H> = (
+    Arg<<E as Expr<'a, V>>::Nullable, <E as ExprSources>::Sources>,
+    (
+        Arg<
+            <L as ComparisonOperand<'a, V, E>>::Nullable,
+            <L as ComparisonOperand<'a, V, E>>::Sources,
+        >,
+        Arg<
+            <H as ComparisonOperand<'a, V, E>>::Nullable,
+            <H as ComparisonOperand<'a, V, E>>::Sources,
+        >,
+    ),
+);
+
+/// Sources of a NULL-safe comparison: never NULL.
+type NullSafeCmpSources<'a, V, L, R> = ScopeOnly<(
+    <L as ExprSources>::Sources,
+    <R as ComparisonOperand<'a, V, L>>::Sources,
+)>;
 
 // =============================================================================
 // Internal Helper
@@ -71,7 +102,10 @@ where
     L: Expr<'a, V>,
 {
     type SQLType: DataType;
+    type Nullable: Nullability;
     type Aggregate: AggregateKind;
+    /// See [`ExprSources::Sources`].
+    type Sources;
 
     fn into_comparison_sql(self) -> SQL<'a, V>;
 }
@@ -84,7 +118,9 @@ where
     L::SQLType: Compatible<R::SQLType>,
 {
     type SQLType = R::SQLType;
+    type Nullable = R::Nullable;
     type Aggregate = R::Aggregate;
+    type Sources = R::Sources;
 
     fn into_comparison_sql(self) -> SQL<'a, V> {
         self.into_expr_sql()
@@ -123,6 +159,7 @@ pub fn eq<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -147,6 +184,7 @@ pub fn ne<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -171,6 +209,7 @@ pub fn neq<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -199,6 +238,7 @@ pub fn gt<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -223,6 +263,7 @@ pub fn gte<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -247,6 +288,7 @@ pub fn lt<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -271,6 +313,7 @@ pub fn lte<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -311,6 +354,7 @@ pub fn like<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -341,6 +385,7 @@ pub fn not_like<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    CmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -380,6 +425,7 @@ pub fn between<'a, V, E, L, H>(
     <<E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>>::Output as AggOr<
         <H as ComparisonOperand<'a, V, E>>::Aggregate,
     >>::Output,
+    BetweenSources<'a, V, E, L, H>,
 >
 where
     V: SQLParam + 'a,
@@ -419,6 +465,7 @@ pub fn not_between<'a, V, E, L, H>(
     <<E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>>::Output as AggOr<
         <H as ComparisonOperand<'a, V, E>>::Aggregate,
     >>::Output,
+    BetweenSources<'a, V, E, L, H>,
 >
 where
     V: SQLParam + 'a,
@@ -453,7 +500,14 @@ where
 /// Any expression type can be null-checked.
 pub fn is_null<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -467,7 +521,14 @@ where
 /// Any expression type can be null-checked.
 pub fn is_not_null<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -503,6 +564,7 @@ pub fn is_distinct_from<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    NullSafeCmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -547,6 +609,7 @@ pub fn is_not_distinct_from<'a, V, L, R>(
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
     <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    NullSafeCmpSources<'a, V, L, R>,
 >
 where
     V: SQLParam + 'a,
@@ -581,7 +644,14 @@ where
 /// - `NULL IS TRUE` → false (not NULL!)
 pub fn is_true<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -597,7 +667,14 @@ where
 /// - `NULL IS FALSE` → false (not NULL!)
 pub fn is_false<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -642,6 +719,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -668,6 +746,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -694,6 +773,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -720,6 +800,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -746,6 +827,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -772,6 +854,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -798,6 +881,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -826,6 +910,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -847,7 +932,14 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     #[allow(clippy::wrong_self_convention)]
     fn is_null(
         self,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        ScopeOnly<Self::Sources>,
+    > {
         is_null(self)
     }
 
@@ -861,7 +953,14 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     #[allow(clippy::wrong_self_convention)]
     fn is_not_null(
         self,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        ScopeOnly<Self::Sources>,
+    > {
         is_not_null(self)
     }
 
@@ -889,6 +988,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         >>::Output as AggOr<
             <H as ComparisonOperand<'a, V, Self>>::Aggregate,
         >>::Output,
+        BetweenSources<'a, V, Self, L, H>,
     >
     where
         L: ComparisonOperand<'a, V, Self>,
@@ -929,6 +1029,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         >>::Output as AggOr<
             <H as ComparisonOperand<'a, V, Self>>::Aggregate,
         >>::Output,
+        BetweenSources<'a, V, Self, L, H>,
     >
     where
         L: ComparisonOperand<'a, V, Self>,
@@ -955,10 +1056,18 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// // "users"."role" IN ('admin', 'moderator')
     /// # "####;
     /// ```
+    #[allow(clippy::type_complexity)]
     fn in_array<I, R>(
         self,
         values: I,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        (Arg<Self::Nullable, Self::Sources>, Arg<R::Nullable, R::Sources>),
+    >
     where
         I: IntoIterator<Item = R>,
         R: Expr<'a, V>,
@@ -977,10 +1086,18 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// // "users"."role" NOT IN ('banned', 'suspended')
     /// # "####;
     /// ```
+    #[allow(clippy::type_complexity)]
     fn not_in_array<I, R>(
         self,
         values: I,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        (Arg<Self::Nullable, Self::Sources>, Arg<R::Nullable, R::Sources>),
+    >
     where
         I: IntoIterator<Item = R>,
         R: Expr<'a, V>,
@@ -990,10 +1107,18 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     }
 
     /// IN subquery check.
+    #[allow(clippy::type_complexity)]
     fn in_subquery<S>(
         self,
         subquery: S,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        (Arg<Self::Nullable, Self::Sources>, Arg<S::Nullable, S::Sources>),
+    >
     where
         S: Expr<'a, V>,
         Self::SQLType: Compatible<S::SQLType> + Compatible<Self::SQLType>,
@@ -1002,10 +1127,18 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     }
 
     /// NOT IN subquery check.
+    #[allow(clippy::type_complexity)]
     fn not_in_subquery<S>(
         self,
         subquery: S,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate>
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        (Arg<Self::Nullable, Self::Sources>, Arg<S::Nullable, S::Sources>),
+    >
     where
         S: Expr<'a, V>,
         Self::SQLType: Compatible<S::SQLType> + Compatible<Self::SQLType>,
@@ -1031,6 +1164,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        NullSafeCmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -1058,6 +1192,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        NullSafeCmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
@@ -1078,7 +1213,14 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     #[allow(clippy::wrong_self_convention)]
     fn is_true(
         self,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        ScopeOnly<Self::Sources>,
+    > {
         is_true(self)
     }
 
@@ -1093,7 +1235,14 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     #[allow(clippy::wrong_self_convention)]
     fn is_false(
         self,
-    ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Self::Aggregate> {
+    ) -> SQLExpr<
+        'a,
+        V,
+        <V::DialectMarker as DialectTypes>::Bool,
+        NonNull,
+        Self::Aggregate,
+        ScopeOnly<Self::Sources>,
+    > {
         is_false(self)
     }
 }

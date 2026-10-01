@@ -139,7 +139,7 @@ where
     type Nullable = T::Nullable;
 }
 
-impl<D, V, T, N, A> ArithmeticRhs<D> for super::SQLExpr<'_, V, T, N, A>
+impl<D, V, T, N, A, S> ArithmeticRhs<D> for super::SQLExpr<'_, V, T, N, A, S>
 where
     V: SQLParam<DialectMarker = D>,
     T: Numeric,
@@ -219,6 +219,15 @@ where
     type SQLType = SQLType;
     type Nullable = Nullable;
     type Aggregate = <Lhs::Aggregate as AggOr<Rhs::Aggregate>>::Output;
+}
+
+impl<Lhs, Rhs, Op, D, SQLType, Nullable> super::ExprSources
+    for ColumnBinOp<Lhs, Rhs, Op, D, SQLType, Nullable>
+where
+    Lhs: super::ExprSources,
+    Rhs: super::ExprSources,
+{
+    type Sources = (Lhs::Sources, Rhs::Sources);
 }
 
 impl<Lhs, Rhs, Op, D, SQLType, Nullable> super::HasAggStatus
@@ -301,6 +310,12 @@ where
     type SQLType = SQLType;
     type Nullable = Nullable;
     type Aggregate = T::Aggregate;
+}
+
+impl<T: super::ExprSources, D, SQLType, Nullable> super::ExprSources
+    for ColumnNeg<T, D, SQLType, Nullable>
+{
+    type Sources = T::Sources;
 }
 
 impl<T: super::HasAggStatus, D, SQLType, Nullable> super::HasAggStatus

@@ -276,6 +276,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         ctx.struct_ident,
         ctx.struct_vis,
         &column_field_idents,
+        &format!("{view_schema}.{}", ctx.table_name),
     );
     let (column_definitions, column_zst_idents) =
         column_definitions::generate_column_definitions(&ctx)?;

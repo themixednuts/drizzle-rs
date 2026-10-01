@@ -84,7 +84,7 @@ fn simple_inner_join(db: &mut TestDb<ComplexPostSchema>) {
         .select(AuthorPostResult::default())
         .from(complex)
         .inner_join((post, eq(complex.id, post.author_id)))
-        .order_by([asc(complex.name), asc(post.title)])
+        .order_by((asc(complex.name), asc(post.title)))
         .all();
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded because no posts
@@ -167,7 +167,7 @@ fn auto_fk_join(db: &mut TestDb<ComplexPostSchema>) {
         .select(AuthorPostResult::default())
         .from(complex)
         .join(post)
-        .order_by([asc(complex.name), asc(post.title)])
+        .order_by((asc(complex.name), asc(post.title)))
         .all();
 
     // Should have 3 results (Alice: 2 posts, Bob: 1 post) - Charlie excluded
@@ -260,7 +260,7 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>) {
         .from(post)
         .join((post_category, eq(post.id, post_category.post_id)))
         .join((category, eq(post_category.category_id, category.id)))
-        .order_by([asc(post.title), asc(category.name)]);
+        .order_by((asc(post.title), asc(category.name)));
 
     let join_results: Vec<PostCategoryResult> = join_smt.all();
 
@@ -298,7 +298,7 @@ fn many_to_many_join(db: &mut TestDb<FullBlogSchema>) {
         .join((post_category, eq(post.id, post_category.post_id)))
         .join((category, eq(post_category.category_id, category.id)))
         .r#where(eq(post.published, true))
-        .order_by([asc(post.title), asc(category.name)])
+        .order_by((asc(post.title), asc(category.name)))
         .all();
 
     // Should exclude Draft Post (published = false)
@@ -362,7 +362,7 @@ fn chained_fk_join(db: &mut TestDb<FullBlogSchema>) {
         .from(post)
         .join(post_category)
         .join(category)
-        .order_by([asc(post.title), asc(category.name)])
+        .order_by((asc(post.title), asc(category.name)))
         .all();
 
     // Go Guide -> Programming = 1 row

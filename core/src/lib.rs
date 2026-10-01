@@ -82,6 +82,7 @@ pub use serde;
 #[doc(hidden)]
 pub use serde_json;
 pub mod row;
+pub mod scope;
 pub mod schema;
 pub mod sql;
 pub mod tracing;
@@ -92,7 +93,7 @@ pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
 pub use builder::{
     BuilderInit, ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, IncludesRequired,
     InsertColumn, InsertColumnsSet, InsertSelectAllColumns, InsertSelectColumns,
-    InsertSelectCompatible, InsertSelectTable, InsertSourceInScope, InsertTargetColumnList,
+    InsertSelectCompatible, InsertSelectTable, InsertTargetColumnList,
     InsertTargetColumns, InsertTargetMarker, JoinAllowed, LimitAllowed, OffsetAllowed,
     OrderByAllowed, PartialInsertSelectCompatible, WhereAllowed,
 };
@@ -110,19 +111,19 @@ pub use placeholder::*;
 pub use relation::{AssembleRel, CardWrap, Many, One, OptionalOne, RelationDef};
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
-    AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
-    FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget, JoinedStarRow,
-    LeftLateralSelection, MarkerAggValidFor, MarkerColumnCountValid, MarkerScopeValidFor,
-    NullProbeRow, OuterJoined, PkGroup, ResolveRow, RowColumnList, SQLTypeToRust, ScopePush,
-    ScopePushFull, ScopePushLeft, ScopePushRight, Scoped, SelectAs, SelectAsFrom, SelectCols,
-    SelectExpr, SelectRequiredTables, SelectStar, SelectedExpressionList, WrapNullable,
+    DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel,
+    IntoGroupBy, IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerAggValidFor,
+    MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup, ResolveRow,
+    RowColumnList, SQLTypeToRust, SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectStar,
+    SelectTableFields, SelectedExpressionList, TableFields, WrapNullable,
 };
 #[doc(hidden)]
-pub use row::{
-    ColumnScope, JoinNullable, OpaqueScope, ProjectionInScope, ScopeContains,
-    SelectProjectionInScope, SelectTableFields, TableFields,
+pub use row::{MaybeNull, ProjectionIn};
+pub use scope::{
+    AliasKey, FromMarker, FullJoin, HasScope, InnerJoin, JoinKind, JoinStep, Lateral, LeftJoin,
+    OuterJoined, RightJoin, ScopeContains, ScopeEntry, Scoped, SelectSources, SetOperand, Src,
 };
-pub use schema::{OrderBy, asc, desc};
+pub use schema::{OrderBy, Ordered, asc, desc};
 pub use sql::{
     ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,
     OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, TableSqlRef, Token,
