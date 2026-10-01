@@ -1,0 +1,71 @@
+error[E0277]: `Id` is not a SELECT query
+  --> tests/ui/query_scope_sqlite/fail/exists_requires_select.rs:19:60
+   |
+19 |     let _ = qb.select(users.id).from(users).r#where(exists(users.id));
+   |                                                     ------ ^^^^^^^^ EXISTS takes a subquery built with `select(...).from(...)`
+   |                                                     |
+   |                                                     required by a bound introduced by this call
+   |
+help: the trait `SelectQuery` is not implemented for `Id`
+  --> tests/ui/query_scope_sqlite/fail/exists_requires_select.rs:4:1
+   |
+ 4 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^
+help: the following other types implement trait `SelectQuery`
+  --> core/src/expr/set.rs
+   |
+   |   impl<V: SQLParam> SelectQuery for SQL<'_, V> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::core::SQL<'_, V>`
+   |   impl<T: SelectQuery + ?Sized> SelectQuery for &T {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `&T`
+   |
+  ::: sqlite/src/builder/select.rs
+   |
+   | / impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G> drizzle_core::expr::SelectQuery
+   | |     for SelectBuilder<'_, S, State, T, M, R, G>
+   | |_______________________________________________^ `QueryBuilder<'_, S, State, T, M, R, G>`
+   |
+  ::: src/builder/sqlite/common.rs
+   |
+   | / impl<Runner, S, T: drizzle_core::expr::SelectQuery, State> drizzle_core::expr::SelectQuery
+   | |     for DrizzleBuilder<'_, Runner, S, T, State>
+   | |_______________________________________________^ `drizzle::builder::sqlite::common::DrizzleBuilder<'_, Runner, S, T, State>`
+note: required by a bound in `drizzle::core::expr::exists`
+  --> core/src/expr/set.rs
+   |
+   | pub fn exists<'a, V, S>(
+   |        ------ required by a bound in this function
+...
+   |     S: ToSQL<'a, V> + ExprSources + SelectQuery,
+   |                                     ^^^^^^^^^^^ required by this bound in `exists`
+   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: builder state `DeleteReturningSet` does not allow `drizzle_core::builder::clause::Source`
+  --> tests/ui/query_scope_sqlite/fail/exists_requires_select.rs:24:25
+   |
+24 |         .r#where(exists(qb.delete(users).returning(users.id)));
+   |                  ------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not available at this point of the query
+   |                  |
+   |                  required by a bound introduced by this call
+   |
+   = help: the trait `drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Source>` is not implemented for `DeleteReturningSet`
+   = note: SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+   = note: only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source
+   = help: the following other types implement trait `drizzle_core::builder::ClauseAllowed<Clause>`:
+             SelectFromSet
+             SelectGroupSet
+             SelectJoinSet
+             SelectLimitSet
+             SelectOffsetSet
+             SelectOrderSet
+             SelectSetOpSet
+             SelectWhereSet
+   = note: required for `QueryBuilder<'_, Schema, DeleteReturningSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>` to implement `SelectQuery`
+note: required by a bound in `drizzle::core::expr::exists`
+  --> core/src/expr/set.rs
+   |
+   | pub fn exists<'a, V, S>(
+   |        ------ required by a bound in this function
+...
+   |     S: ToSQL<'a, V> + ExprSources + SelectQuery,
+   |                                     ^^^^^^^^^^^ required by this bound in `exists`

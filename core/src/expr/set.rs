@@ -291,6 +291,20 @@ where
 // EXISTS
 // =============================================================================
 
+/// A complete SELECT statement, usable as an `EXISTS` subquery.
+///
+/// Dialect select builders implement it once they are a finished SELECT;
+/// INSERT/UPDATE/DELETE builders never do, even with `RETURNING`. Raw
+/// [`SQL`] is accepted as an escape hatch.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SELECT query",
+    label = "EXISTS takes a subquery built with `select(...).from(...)`"
+)]
+pub trait SelectQuery {}
+
+impl<V: SQLParam> SelectQuery for SQL<'_, V> {}
+impl<T: SelectQuery + ?Sized> SelectQuery for &T {}
+
 /// EXISTS subquery check.
 ///
 /// Returns true if the subquery returns any rows.
@@ -299,7 +313,7 @@ pub fn exists<'a, V, S>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar, ScopeOnly<S::Sources>>
 where
     V: SQLParam + 'a,
-    S: ToSQL<'a, V> + ExprSources,
+    S: ToSQL<'a, V> + ExprSources + SelectQuery,
 {
     SQLExpr::new(
         SQL::from_iter([Token::EXISTS, Token::LPAREN])
@@ -316,7 +330,7 @@ pub fn not_exists<'a, V, S>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar, ScopeOnly<S::Sources>>
 where
     V: SQLParam + 'a,
-    S: ToSQL<'a, V> + ExprSources,
+    S: ToSQL<'a, V> + ExprSources + SelectQuery,
 {
     SQLExpr::new(
         SQL::from_iter([Token::NOT, Token::EXISTS, Token::LPAREN])

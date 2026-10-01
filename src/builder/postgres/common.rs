@@ -493,6 +493,11 @@ where
     type Aggregate = T::Aggregate;
 }
 
+impl<Runner, S, T: drizzle_core::expr::SelectQuery, State> drizzle_core::expr::SelectQuery
+    for DrizzleBuilder<'_, Runner, S, T, State>
+{
+}
+
 impl<Runner, S, T, State> drizzle_core::expr::ExprSources
     for DrizzleBuilder<'_, Runner, S, T, State>
 where

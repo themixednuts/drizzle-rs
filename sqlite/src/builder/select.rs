@@ -978,6 +978,11 @@ where
     type Aggregate = drizzle_core::expr::Scalar;
 }
 
+impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>
+    drizzle_core::expr::SelectQuery for SelectBuilder<'_, S, State, T, M, R, G>
+{
+}
+
 impl<S, State, T, M, R, G> drizzle_core::expr::ExprSources
     for SelectBuilder<'_, S, State, T, M, R, G>
 where

@@ -537,6 +537,11 @@ where
     type Aggregate = Builder::Aggregate;
 }
 
+impl<Runner, Schema, Builder: drizzle_core::expr::SelectQuery, State>
+    drizzle_core::expr::SelectQuery for DrizzleBuilder<'_, Runner, Schema, Builder, State>
+{
+}
+
 impl<Runner, Schema, Builder, State> drizzle_core::expr::ExprSources
     for DrizzleBuilder<'_, Runner, Schema, Builder, State>
 where
