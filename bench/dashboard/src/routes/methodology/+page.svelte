@@ -16,16 +16,25 @@
 		count: 0,
 	}));
 
-	/** In-page links, in page order. */
-	const CONTENTS = [
-		['what-is-measured', 'What is measured'],
-		['four-ways-to-reach-the-data', 'Four ways to reach the data'],
-		['what-these-numbers-are-not', 'What these numbers are not'],
-		['two-suites-two-headlines', 'Two suites, two headlines'],
-		['when-there-is-no-peak', 'When there is no peak'],
-		['fair-means-two-different-things', 'Fair means two different things'],
-		['how-trials-become-one-number', 'How trials become one number'],
-		['running-it-yourself', 'Running it yourself'],
+	const METRICS = [
+		[
+			'peak',
+			'Fastest step of the unpaced ramp that met the latency objective. "at least N" means the ramp ended before throughput turned over.',
+		],
+		[
+			'paced',
+			'Requests per second under the paced load (drizzle-benchmarks ramp, with think time).',
+		],
+		['p95', 'Read at the same offered load for every target, before any target saturates.'],
+		['vs #1', 'Distance to the leader on the sorted column; below it, to the row above.'],
+		['trials', 'Every figure is the median across trials; the row detail shows the spread.'],
+	];
+
+	const LIMITS = [
+		'One CI VM per ranking; compare rows, not against your own hardware.',
+		'Linux pins load and target to separate cores; macOS and Windows cannot.',
+		'Errored rows (> 0.5% failures) sort last.',
+		'Synthetic workload: a ceiling for this shape, not a prediction for your app.',
 	];
 
 	/** The HTTP contract, as a reader would recognise it. Paths match `bench/runner/src/parity.rs`. */
@@ -188,37 +197,14 @@
 </svelte:head>
 
 <Page>
-	<PageHeader title="Method">
-		{#snippet subtitle()}
-			what is measured, how, and what the numbers cannot tell you
-		{/snippet}
-	</PageHeader>
+	<PageHeader title="Method" />
 
-	<nav aria-label="On this page" class="mt-5">
-		<ul class="text-meta flex flex-wrap gap-x-4 gap-y-1.5">
-			{#each CONTENTS as [href, label] (href)}
-				<li>
-					<a
-						class="text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
-						href="#{href}">{label}</a
-					>
-				</li>
-			{/each}
-		</ul>
-	</nav>
-
-	<Section title="What is measured" id="what-is-measured">
-		<div class="measure text-prose text-foreground-secondary space-y-4">
-			<p>
-				Each target is a small HTTP server that answers the same routes over the same seeded
-				Northwind dataset — 10,000 customers, 50,000 orders, 300,000 order lines. The runner checks
-				every target's responses against the others before timing anything, then drives load against
-				it and records rate, latency, CPU and memory. Because the contract is HTTP, any library,
-				language or database can enter: drizzle-rs, raw drivers, other Rust and TypeScript ORMs, and
-				engines with very different designs.
-			</p>
-		</div>
-		<DataTable class="mt-5">
+	<Section title="What is measured">
+		<p class="measure text-body text-foreground-secondary">
+			Every target is an HTTP server answering the same routes over the same seeded Northwind data.
+			Responses are checked for parity before anything is timed.
+		</p>
+		<DataTable class="mt-4">
 			<Table.Body>
 				{#each ROUTES as [paths, shape] (paths)}
 					<Tr>
@@ -230,245 +216,32 @@
 		</DataTable>
 	</Section>
 
-	<Section title="Four ways to reach the data" id="four-ways-to-reach-the-data">
-		<p class="measure text-prose text-foreground-secondary">
-			Every target is ranked in one table, because every target answers the same requests. They do
-			not all do the same work to answer them, so every row carries one of these marks:
+	<Section title="How targets reach data">
+		<ArchitectureLegend entries={ARCH_ENTRIES} counts={false} />
+		<p class="measure text-meta text-muted-foreground mt-4">
+			SpacetimeDB runs three ways: module procedures (its intended design), SQL over PGWire, and the
+			SDK's client replica.
 		</p>
-		<div class="mt-5"><ArchitectureLegend entries={ARCH_ENTRIES} counts={false} /></div>
-		<div class="measure text-prose text-foreground-secondary mt-6 space-y-4">
-			<p>
-				<strong class="text-foreground font-semibold">SpacetimeDB is measured three ways.</strong>
-				Its design point is that application logic lives inside the database as a module, so the target
-				that represents it is the one marked <em>logic in database</em>: each route is a single call
-				into module code that runs the query next to the data. It is also driven as an ordinary SQL
-				server over its PostgreSQL wire protocol, which is how a SQL-first application would use it,
-				and through its SDK's synced client replica, which shows what a subscriber pays to read data
-				it already holds. Showing all three keeps SpacetimeDB in the same comparison as everything
-				else without pretending any one of them is the whole story.
-			</p>
-			<p>
-				A gap between two rows on the same architecture is mostly the library. A gap between rows on
-				different architectures is mostly the architecture — which is still worth knowing, and is
-				why they share a table.
-			</p>
-		</div>
 	</Section>
 
-	<!--
-		Four claims, one sentence of consequence each. This section used to run four headings
-		deep with two dense paragraphs under every one, which is the shape of notes written by
-		someone who already knows the answer. A reader arriving here wants to know what they
-		may not conclude from the numbers; the reasoning behind each limit is in the repo.
-	-->
-	<Section title="What these numbers are not" id="what-these-numbers-are-not">
-		<dl class="measure text-prose text-foreground-secondary space-y-5">
-			<div>
-				<dt class="text-foreground font-semibold">Not absolute capacity.</dt>
-				<dd>
-					The load generator, the target and any embedded engine share one CI runner, so the CPU
-					figure covers the whole host. Compare these rows against each other, not against a number
-					you measured on your own hardware.
-				</dd>
-			</div>
-
-			<div>
-				<dt class="text-foreground font-semibold">Pinned on Linux, unpinned elsewhere.</dt>
-				<dd>
-					Linux jobs give the lower half of the cores to the generator and the upper half to the
-					system under test, with an out-of-process database taking a slice of that upper half.
-					Cache, memory bandwidth and the network stack stay shared, so the two halves still
-					interfere. macOS and Windows expose no usable affinity API and run unpinned.
-				</dd>
-			</div>
-
-			<div>
-				<dt class="text-foreground font-semibold">One machine per ranking, not per row.</dt>
-				<dd>
-					Published rankings run every family an operating system can host back to back on one VM,
-					so the rows in one are comparable. Other runs keep families on separate VMs; the
-					<code class="text-meta font-mono">LNX</code>/<code class="text-meta font-mono">MAC</code
-					>/<code class="text-meta font-mono">WIN</code> badge and its shard tell the two apart.
-				</dd>
-			</div>
-
-			<div>
-				<dt class="text-foreground font-semibold">Paced throughput is the generator's ceiling.</dt>
-				<dd>
-					With think time, offered load caps at roughly
-					<code class="text-meta font-mono">VUs / think time</code>, and every healthy target lands
-					within a few percent of it. That ceiling is why capacity gets its own suite.
-				</dd>
-			</div>
-
-			<div>
-				<dt class="text-foreground font-semibold">Caches are not doing database work.</dt>
-				<dd>
-					Targets marked <code class="text-meta font-mono">in-process-cache</code> answer from a local
-					replica with no round trip, so they carry a dash instead of a comparison against drizzle-rs.
-				</dd>
-			</div>
+	<Section title="Metrics">
+		<dl class="text-body grid grid-cols-[8rem_1fr] gap-x-6 gap-y-2.5">
+			{#each METRICS as [term, definition] (term)}
+				<dt class="text-foreground font-mono">{term}</dt>
+				<dd class="text-foreground-secondary">{definition}</dd>
+			{/each}
 		</dl>
 	</Section>
 
-	<Section title="Two suites, two headlines" id="two-suites-two-headlines">
-		<dl class="measure text-prose text-foreground-secondary space-y-5">
-			<div>
-				<dt class="text-foreground font-semibold">Throughput at fixed load, paced.</dt>
-				<dd>
-					Virtual users send a request, wait a think time, send the next. The ramp is a port of the
-					profile drizzle-benchmarks publishes under — the same thirty stages to 3000 concurrent,
-					the same 0–375&nbsp;ms think-time staircase averaging 187.5&nbsp;ms. It is not a capacity
-					figure.
-				</dd>
-			</div>
-			<div>
-				<dt class="text-foreground font-semibold">Latency, read where the target kept up.</dt>
-				<dd>
-					A closed ramp cannot offer more than a target can serve, so past its ceiling every extra
-					virtual user becomes queue depth and the reported latency measures the ramp rather than
-					the library. So latency is read at the highest rung the target still served in full —
-					where its throughput still rose in step with the load offered to it. Every rung publishes
-					what it was offered, what it served, and the ratio between them, so the reading can be
-					checked against its own working. The cut between keeping up and falling behind is drawn
-					from the recorded runs rather than chosen, and it is narrow: a target within about a
-					percent of it can read at a different rung between runs.
-				</dd>
-			</div>
-			<div>
-				<dt class="text-foreground font-semibold">Peak throughput, from saturation.</dt>
-				<dd>
-					The same workload with think time removed, stepped over concurrency: hold, measure steady
-					state, step up. The headline is the fastest step that held the latency objective and
-					stayed inside the error limit. A step that broke the error limit is disqualified, and the
-					curve strikes it through. Every step publishes its own throughput, percentiles, errors and
-					CPU, not only the winning one.
-				</dd>
-			</div>
-		</dl>
+	<Section title="Limits">
+		<ul class="text-body text-foreground-secondary list-disc space-y-1.5 pl-5">
+			{#each LIMITS as limit (limit)}
+				<li>{limit}</li>
+			{/each}
+		</ul>
 	</Section>
 
-	<!--
-		These four outcomes are the contract, so this list has to track `saturation.rs` exactly.
-		It previously described the outcome as turning on whether the last step breached the
-		objective, which stopped being true when the rule moved to throughput turning over.
-	-->
-	<Section title="When there is no peak" id="when-there-is-no-peak">
-		<div class="measure text-prose text-foreground-secondary space-y-4">
-			<p>
-				A capacity measurement can fail to produce a number. When it does, nothing stands in for it.
-				Not a zero, not the top of the ramp, not the paced number wearing the other one's name.
-			</p>
-			<dl class="space-y-4">
-				<div>
-					<dt class="text-foreground font-medium">A peak, at a stated objective</dt>
-					<dd class="mt-1">
-						Throughput climbed to a maximum and then fell away from it, so the ramp found the
-						ceiling from both sides. It prints with its objective and the concurrency that reached
-						it. This is the only outcome that earns a rank.
-					</dd>
-				</div>
-				<div>
-					<dt class="text-foreground font-medium">"at least N req/s · knee not reached"</dt>
-					<dd class="mt-1">
-						Throughput was still flat or climbing when the ramp ended, so the best step is a floor
-						rather than a ceiling. Shown faint, with "at least", ranked below every measured peak. A
-						maximum sitting on the ramp's first step counts here too, because nothing below it was
-						tried.
-					</dd>
-				</div>
-				<div>
-					<dt class="text-foreground font-medium">"never met the p99 target"</dt>
-					<dd class="mt-1">
-						Even the smallest step breached the objective. The curve is still drawn, because how far
-						over it landed is the useful part.
-					</dd>
-				</div>
-				<div>
-					<dt class="text-foreground font-medium">"not measured"</dt>
-					<dd class="mt-1">
-						The run predates the saturation suite or skipped it. Older runs carry a differently
-						defined field of the same name; this dashboard does not read it.
-					</dd>
-				</div>
-			</dl>
-		</div>
-	</Section>
-
-	<Section title="Fair means two different things" id="fair-means-two-different-things">
-		<dl class="measure text-prose text-foreground-secondary space-y-5">
-			<div>
-				<dt class="text-foreground font-semibold">
-					Inside a comparison group, identical and enforced.
-				</dt>
-				<dd>
-					Every target in a group runs the same workers, pool and tuning, so the gap between two of
-					its rows is the library. The runner fails a run whose group disagrees rather than
-					publishing a quietly unequal comparison, and each row's "vs" figure is scoped to its own
-					group.
-				</dd>
-			</div>
-			<div>
-				<dt class="text-foreground font-semibold">A group is not always a database.</dt>
-				<dd>
-					It splits wherever one harness cannot fit both sides.
-					<code class="text-meta font-mono">bun:sqlite</code> is synchronous on a single-threaded runtime,
-					so handing it the Rust stack's pool of eight would be fiction. It gets its own SQLite group
-					with drizzle-orm. Both still appear in the one table under SQLite. The split changes what a
-					row is measured against, never whether it is shown.
-				</dd>
-			</div>
-			<div>
-				<dt class="text-foreground font-semibold">Across groups, different and declared.</dt>
-				<dd>
-					Forcing an embedded engine and a client/server engine into one configuration does not make
-					them comparable. It makes them equally hobbled. Each stack runs in the shape it is
-					deployed in, and every run records what that was, under <em>Run configuration</em> below the
-					ranking and inside each row's own detail. A group that declared nothing says so instead of borrowing
-					a neighbour's.
-				</dd>
-			</div>
-		</dl>
-	</Section>
-
-	<Section title="How trials become one number" id="how-trials-become-one-number">
-		<dl class="measure text-prose text-foreground-secondary space-y-5">
-			<div>
-				<dt class="text-foreground font-semibold">Median across trials.</dt>
-				<dd>
-					The artifact spells the key <code class="text-meta font-mono">avg</code>, but stores the
-					median, so these columns read <code class="text-meta font-mono">median</code>. Where a
-					label says <code class="text-meta font-mono">lat mean</code>, the mean is inside each
-					trial and the median is across them.
-				</dd>
-			</div>
-			<div>
-				<dt class="text-foreground font-semibold">Percentiles from merged raw samples.</dt>
-				<dd>
-					Runs predating real percentiles carry no <code class="text-meta font-mono">p50</code>, and
-					their <code class="text-meta font-mono">p90</code> column is hidden rather than shown, because
-					the value was interpolated.
-				</dd>
-			</div>
-			<div>
-				<dt class="text-foreground font-semibold">CPU is load, not headroom.</dt>
-				<dd>
-					<code class="text-meta font-mono">peak core</code> is the busiest single core; a high
-					value means the run was CPU-bound on one.
-					<code class="text-meta font-mono">mean-core peak</code>, where present, is the figure the
-					publish gate is written against.
-				</dd>
-			</div>
-		</dl>
-	</Section>
-
-	<!--
-		The field glossary is 850 words — half this page — and it is lookup material: nobody reads
-		a glossary top to bottom, they arrive at it holding one term. Closed by default it costs a
-		reader nothing and stays one click from anyone who needs it, which is the same reason the
-		ranking's run configuration is a disclosure rather than a banner.
-	-->
-	<details class="bg-card mt-8 rounded-md">
+	<details class="bg-card mt-4 rounded-md">
 		<summary
 			class="text-meta text-foreground-secondary hover:text-foreground cursor-pointer px-4 py-2.5 transition-colors"
 		>
@@ -495,27 +268,15 @@
 		</div>
 	</details>
 
-	<Section title="Running it yourself" id="running-it-yourself">
-		<p class="measure text-prose text-foreground-secondary">
-			The runner is the <code class="text-meta font-mono">bench-runner</code> crate. Build it in release
-			mode — targets are spawned from the same binary, and a debug build measures the debug build — then
-			point it at a family's target spec.
-		</p>
+	<Section title="Run it">
 		<pre
-			class="bg-surface-inset text-meta mt-4 overflow-x-auto rounded-sm px-4 py-3 font-mono leading-relaxed"><span
-				class="text-muted-foreground"># build once; targets launch through $BENCH_RUNNER_BIN</span
-			>
-cargo build --release -p bench-runner
+			class="bg-surface-inset text-meta overflow-x-auto rounded-sm px-4 py-3 font-mono leading-relaxed">cargo build --release -p bench-runner
 export BENCH_RUNNER_BIN=$PWD/target/release/bench-runner
-
-<span class="text-muted-foreground"># a short local run of the SQLite family</span>
 $BENCH_RUNNER_BIN run --suite throughput-http \
   --workload bench/spec/workload.preview.v1.json \
   --targets bench/spec/targets.sqlite.v1.json \
   --requests bench/spec/requests.empty.v1.json \
   --out bench-out/sqlite --cohort-id local --class small --publish
-
-<span class="text-muted-foreground"># browse it</span>
 cd bench/dashboard && BENCH_DATA_DIR=../../bench-out/sqlite bun run dev</pre>
 	</Section>
 </Page>

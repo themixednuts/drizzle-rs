@@ -246,8 +246,7 @@
 				<SaturationCurve curve={view.curve(summary)!} targetName={display.name} />
 			{:else if view.hasCapacity}
 				<p class="measure text-meta text-muted-foreground mt-6">
-					Other targets in this run were measured for peak throughput; this one was not, so there is
-					no ramp to draw for it.
+					Not measured for peak throughput.
 				</p>
 			{/if}
 
@@ -429,10 +428,7 @@
 			{#snippet aside()}{view.totalQueryMix.toLocaleString()} materialized requests{/snippet}
 
 			<div class="px-6 pt-4 pb-5">
-				<Note>
-					Workload composition only: the generated HTTP routes and how often each appears in the
-					request list. Measured per-route throughput and latency are in each target's chart above.
-				</Note>
+				<Note>Share of each route in the request list.</Note>
 
 				<ul class="text-meta mt-4 grid gap-2">
 					{#each view.queries as query (query.id)}
@@ -522,14 +518,7 @@
 			</DataTable>
 
 			<div class="px-6 py-5">
-				<Note>
-					The load generator, the target server and its database all run on this one machine and
-					share its cores, so target CPU and load-generator CPU come out of the same budget. Numbers
-					here are comparable to other targets in this same run, and not to other runs — see <a
-						class="underline underline-offset-2"
-						href="/methodology">the method</a
-					>.
-				</Note>
+				<Note>Load generator and target share this machine; compare within this run only.</Note>
 			</div>
 		</div>
 	</Section>

@@ -225,6 +225,32 @@ export function dbProfile(input: TargetDisplayInput): DbProfile {
 	return 'other';
 }
 
+/** The SQL dialect a target speaks: the only grouping the ranking filters by, besides the OS. */
+export type Dialect = 'sqlite' | 'postgres' | 'spacetimedb' | 'other';
+
+export const DIALECT_ORDER: Dialect[] = ['sqlite', 'postgres', 'spacetimedb', 'other'];
+
+const DIALECT_LABELS: Record<Dialect, string> = {
+	sqlite: 'SQLite',
+	postgres: 'PostgreSQL',
+	spacetimedb: 'SpacetimeDB',
+	other: 'other',
+};
+
+/** libSQL and Turso are SQLite engines, so they share its dialect. */
+export function profileDialect(profile: DbProfile): Dialect {
+	if (profile === 'libsql' || profile === 'turso') return 'sqlite';
+	return profile;
+}
+
+export function dialectOf(input: TargetDisplayInput): Dialect {
+	return profileDialect(dbProfile(input));
+}
+
+export function dialectLabel(dialect: Dialect): string {
+	return DIALECT_LABELS[dialect];
+}
+
 export function dbProfileLabel(profile: DbProfile): string {
 	return DB_PROFILE_LABELS[profile];
 }

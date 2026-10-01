@@ -95,11 +95,7 @@
 		</div>
 	{:else}
 		<div class="mt-7">
-			<Note>
-				Every point is one benchmark set for this one target on this one runner OS. An up arrow
-				means the set improved on the one before it — for latency, CPU and errors that means the
-				number fell.
-			</Note>
+			<Note>One point per set, this target, this OS. ↑ means better.</Note>
 		</div>
 
 		<MetricGrid>

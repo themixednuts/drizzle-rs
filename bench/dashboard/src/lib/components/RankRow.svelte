@@ -262,11 +262,7 @@
 			{/if}
 			<div>
 				<dt class="text-micro text-muted-foreground font-mono uppercase">
-					<Hint
-						hint="Median across trials of the mean latency inside each trial. The p95 on the row is the one to compare; this says where the bulk of requests sat."
-					>
-						typical latency
-					</Hint>
+					<Hint hint="Median of each trial's mean latency.">typical latency</Hint>
 				</dt>
 				<dd class="text-body mt-1.5 font-mono tabular-nums">{fmtLatency(p.latency.avg)}</dd>
 				<dd class="text-meta text-muted-foreground mt-1">p99 {fmtLatency(p.latency.p99)}</dd>

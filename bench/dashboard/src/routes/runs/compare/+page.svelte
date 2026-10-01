@@ -81,8 +81,7 @@
 			-->
 			<div class="mt-6">
 				<Note variant="warn">
-					Rows that share a shard were measured on one machine; rows that do not were not, and
-					across those most of any gap is
+					Rows on different shards ran on different machines; gaps there are mostly
 					<a class="underline" href="/runs/machines">hardware</a>.
 				</Note>
 			</div>

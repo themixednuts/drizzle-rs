@@ -84,10 +84,8 @@
 		{#if view.filteredCohorts.length > 0}
 			<div class="mt-4">
 				<Note>
-					A job listed more than once is the same work
-					<a class="underline underline-offset-2" href="/runs/machines"
-						>run again on another machine</a
-					>.
+					A job listed twice ran on
+					<a class="underline underline-offset-2" href="/runs/machines">another machine</a>.
 				</Note>
 			</div>
 		{/if}

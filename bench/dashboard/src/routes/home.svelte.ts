@@ -7,7 +7,6 @@ import {
 } from '#lib/boxplot';
 import { fmtDate, fmtLatency, fmtPct, fmtRps, shortHash, suiteLabel } from '#lib/format';
 import {
-	DB_PROFILE_ORDER,
 	dbProfile,
 	dbProfileDetail,
 	dbShortLabel,
@@ -17,8 +16,10 @@ import {
 	targetArchitecture,
 	targetDisplay,
 	targetFamily,
-	ARCHITECTURE_ORDER,
-	ARCHITECTURES,
+	dialectLabel,
+	dialectOf,
+	profileDialect,
+	DIALECT_ORDER,
 	type Architecture,
 	type DbProfile,
 } from '#lib/target-display';
@@ -95,28 +96,6 @@ function rowId(summary: SummaryResult): string {
 	return `${summary.run_id}:${summary.target_key}`;
 }
 
-/**
- * How drizzle-rs placed on one database: the headline a visitor to a drizzle-rs benchmark site came
- * for, answered once per engine because a single global order cannot answer it.
- */
-export interface DbVerdict {
-	db: DbProfile;
-	label: string;
-	href: string;
-	/** Rows on this database in the current OS scope. */
-	field: number;
-	/** drizzle-rs's best row on this database, on the table's sort column; null when none ran. */
-	ours: { name: string; value: string; position: number } | null;
-	/** The fastest raw-driver row on this database, the floor an ORM is measured against. */
-	raw: { name: string; value: string } | null;
-	/** drizzle-rs against that raw driver, e.g. "−4%" / "+2%"; null when either side is missing. */
-	vsRaw: string | null;
-	/** Whether drizzle-rs's figure is at least as good as the raw driver's. */
-	ahead: boolean | null;
-	/** Every architecture present on this database, so SpacetimeDB's three access paths show up. */
-	architectures: Architecture[];
-}
-
 /** One measured distance between two rows: what to print, and what it means. */
 interface Distance {
 	text: string;
@@ -159,7 +138,7 @@ export class RunsPageState {
 	suite = $derived(page.url.searchParams.get('suite'));
 	status = $derived(page.url.searchParams.get('status'));
 	/** Ranking view state, all in the URL so a scoped ranking is a shareable address. */
-	db = $derived(page.url.searchParams.get('db'));
+	dialect = $derived(page.url.searchParams.get('dialect'));
 	/**
 	 * Which operating system the ranking is showing.
 	 *
@@ -438,88 +417,6 @@ export class RunsPageState {
 		};
 	}
 
-	/**
-	 * The per-database verdict cards above the table: where drizzle-rs placed within each engine's
-	 * own field, and how far it sits from the fastest raw driver on that engine.
-	 *
-	 * Computed over the OS scope rather than the `?db=` slice, so the cards stay put as a reader
-	 * filters, and on the table's sort column so a card and the table never disagree about order.
-	 */
-	get verdicts(): DbVerdict[] {
-		const byDb = new Map<DbProfile, SummaryResult[]>();
-		for (const summary of this.#scopedResults) {
-			const db = dbProfile(summary);
-			byDb.set(db, [...(byDb.get(db) ?? []), summary]);
-		}
-		const better =
-			this.sort === 'latency' ? (a: number, b: number) => a < b : (a: number, b: number) => a > b;
-		const fmt = this.sort === 'latency' ? fmtLatency : fmtRps;
-
-		return DB_PROFILE_ORDER.filter((db) => byDb.has(db)).map((db) => {
-			const rows = [...(byDb.get(db) ?? [])].sort(this.#comparator);
-			const value = (summary: SummaryResult) => {
-				const comparable = this.#comparable(summary);
-				return comparable.kind === 'measured' ? comparable.value : null;
-			};
-			const oursIndex = rows.findIndex(
-				(summary) => isDrizzleRsTarget(summary) && value(summary) !== null,
-			);
-			const oursRow = oursIndex === -1 ? null : rows[oursIndex];
-			const rawRow =
-				rows.find(
-					(summary) =>
-						targetDisplay(summary).badges.includes('raw driver') &&
-						targetArchitecture(summary) !== 'client-cache' &&
-						value(summary) !== null,
-				) ?? null;
-			const oursValue = oursRow ? value(oursRow) : null;
-			const rawValue = rawRow ? value(rawRow) : null;
-			const vsRaw =
-				oursValue !== null && rawValue !== null ? gapPercent(oursValue, rawValue) : null;
-
-			return {
-				db,
-				label: dbLabel(db),
-				href: this.rankingUrl(db, this.sort),
-				field: rows.length,
-				ours:
-					oursRow && oursValue !== null
-						? {
-								name: targetDisplay(oursRow).name,
-								value: fmt(oursValue),
-								position: oursIndex + 1,
-							}
-						: null,
-				raw:
-					rawRow && rawValue !== null
-						? { name: targetDisplay(rawRow).name, value: fmt(rawValue) }
-						: null,
-				vsRaw,
-				ahead:
-					oursValue !== null && rawValue !== null
-						? oursValue === rawValue || better(oursValue, rawValue)
-						: null,
-				architectures: ARCHITECTURE_ORDER.filter((arch) =>
-					rows.some((summary) => targetArchitecture(summary) === arch),
-				),
-			};
-		});
-	}
-
-	/** Which architectures appear in the current scope, in legend order, with how many rows each. */
-	get architectureLegend(): {
-		arch: Architecture;
-		label: string;
-		summary: string;
-		count: number;
-	}[] {
-		return ARCHITECTURE_ORDER.map((arch) => ({
-			arch,
-			...ARCHITECTURES[arch],
-			count: this.#scopedResults.filter((summary) => targetArchitecture(summary) === arch).length,
-		})).filter((entry) => entry.count > 0);
-	}
-
 	architecture(summary: SummaryResult): Architecture | null {
 		return targetArchitecture(summary);
 	}
@@ -527,7 +424,7 @@ export class RunsPageState {
 	/** The rows currently in view, in the current order. */
 	get #orderedRows(): SummaryResult[] {
 		const rows = this.#scopedResults.filter(
-			(summary) => !this.db || dbProfile(summary) === this.db,
+			(summary) => !this.dialect || dialectOf(summary) === this.dialect,
 		);
 		return [...rows].sort(this.#comparator);
 	}
@@ -652,7 +549,12 @@ export class RunsPageState {
 		if (!loaded) return null;
 
 		const series = loaded.series
-			.filter((entry) => (!this.os || entry.os === this.os) && (!this.db || entry.db === this.db))
+			.filter(
+				(entry) =>
+					(!this.os || entry.os === this.os) &&
+					(!this.dialect ||
+						(entry.db !== undefined && profileDialect(entry.db as DbProfile) === this.dialect)),
+			)
 			.sort((a, b) => (b.rps ?? 0) - (a.rps ?? 0));
 		if (series.length === 0) return null;
 
@@ -753,26 +655,19 @@ export class RunsPageState {
 		return this.osScopes.map((scope) => ({
 			label: `${scope.label} (${scope.count})`,
 			title: scope.detail,
-			href: this.rankingUrl(this.db, this.sort, scope.os),
+			href: this.rankingUrl(this.dialect, this.sort, scope.os),
 			active: this.os === scope.os,
 		}));
 	}
 
-	get dbFilters(): FilterOption[] {
-		const present = new Set(this.#scopedResults.map((summary) => dbProfile(summary)));
-		const families = DB_PROFILE_ORDER.filter((profile) => present.has(profile));
+	get dialectFilters(): FilterOption[] {
+		const present = new Set(this.#scopedResults.map((summary) => dialectOf(summary)));
 		return [
-			{
-				label: 'All',
-				href: this.rankingUrl(null, this.sort),
-				active: !this.db,
-				title: 'Every database in this set, in one ranked table',
-			},
-			...families.map((profile) => ({
-				label: dbLabel(profile),
-				href: this.rankingUrl(profile, this.sort),
-				active: this.db === profile,
-				title: dbProfileDetail(profile),
+			{ label: 'All', href: this.rankingUrl(null, this.sort), active: !this.dialect },
+			...DIALECT_ORDER.filter((dialect) => present.has(dialect)).map((dialect) => ({
+				label: dialectLabel(dialect),
+				href: this.rankingUrl(dialect, this.sort),
+				active: this.dialect === dialect,
 			})),
 		];
 	}
@@ -788,16 +683,16 @@ export class RunsPageState {
 		return this.availableSorts.map((sort) => ({
 			label: SORT_LABELS[sort].label,
 			title: SORT_LABELS[sort].title,
-			href: this.rankingUrl(this.db, sort),
+			href: this.rankingUrl(this.dialect, sort),
 			active: this.sort === sort,
 		}));
 	}
 
-	rankingUrl(db: string | null, sort: RankingSort, os: string | null = this.os): string {
+	rankingUrl(dialect: string | null, sort: RankingSort, os: string | null = this.os): string {
 		const params = new URLSearchParams();
 		if (this.suite) params.set('suite', this.suite);
 		if (this.status) params.set('status', this.status);
-		if (db) params.set('db', db);
+		if (dialect) params.set('dialect', dialect);
 		// Omitted only when it is already the effective default, so the shortest URL and the
 		// rendered order always agree.
 		if (os && os !== this.defaultOs) params.set('os', os);

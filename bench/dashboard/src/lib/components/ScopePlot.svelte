@@ -272,10 +272,9 @@
 					{active.cpuText} cpu
 				</span>
 			{:else}
-				<span class="text-meta text-muted-foreground">
-					{scope.points.length} targets. The line marks where nothing else records both a higher rate
-					and a lower p95.
-				</span>
+				<span class="text-meta text-muted-foreground"
+					>{scope.points.length} targets · hover a point</span
+				>
 			{/if}
 		</div>
 
@@ -286,12 +285,12 @@
 		<ul class="text-meta text-muted-foreground flex flex-wrap gap-x-6 gap-y-1">
 			<li class="flex items-center gap-2">
 				<span class="bg-signal inline-block h-2.5 w-2.5 rounded-full" aria-hidden="true"></span>
-				on the line
+				best trade-off
 			</li>
 			<li class="flex items-center gap-2">
 				<span class="bg-foreground-faint inline-block h-2 w-2 rounded-full" aria-hidden="true"
 				></span>
-				off it
+				other
 			</li>
 			<li class="flex items-center gap-2">
 				<span

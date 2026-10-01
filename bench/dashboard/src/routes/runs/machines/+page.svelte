@@ -48,10 +48,7 @@
 	{/if}
 
 	<div class="mt-6">
-		<Note>
-			The same job, the same commit and the same request list, run on more than one machine. Every
-			bar below is identical work. The gaps between them are the machines.
-		</Note>
+		<Note>Same job, commit and requests on different machines. The gaps are the hardware.</Note>
 	</div>
 
 	{#if data.groups.length === 0}
@@ -106,14 +103,7 @@
 		{/each}
 
 		<div class="mt-4">
-			<Note>
-				Order held where the libraries were ranked the same on every machine; absolute throughput
-				did not. That is why the <a class="underline underline-offset-2" href="/">ranking</a> puts
-				an OS badge on every row — two rows carrying different badges came off different machines,
-				and most of any gap between them is the hardware. It is also why a 5% difference there is
-				noise.
-				<a class="underline underline-offset-2" href="/methodology">The method</a> spells out the rest.
-			</Note>
+			<Note>Ranking order held across machines; absolute throughput did not.</Note>
 		</div>
 	{/if}
 </Page>
