@@ -120,6 +120,7 @@ impl<'a, V: SQLParam + 'a, S> WindowSpec<'a, V, S> {
 
     /// Set the PARTITION BY clause.
     #[must_use]
+    #[allow(clippy::type_complexity)]
     pub fn partition_by<I>(
         mut self,
         exprs: I,
@@ -261,7 +262,7 @@ where
 #[derive(Debug, Clone)]
 pub struct WindowFnExpr<'a, V: SQLParam, T: DataType, N: Nullability, S = ()> {
     sql: SQL<'a, V>,
-    _marker: PhantomData<fn() -> (T, N, S)>,
+    _marker: super::TypeMarker<(T, N, S)>,
 }
 
 impl<'a, V, T, N, S> WindowFnExpr<'a, V, T, N, S>

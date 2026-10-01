@@ -10,7 +10,9 @@ use quote::{format_ident, quote};
 /// - `AliasedUsers` struct with `users::AliasedId` and `users::AliasedName` fields
 /// - Each aliased field contains the table alias name
 /// - `Users::alias::<Tag>() -> UsersAlias<Tag>` method
-/// Aliased-table items, with the alias tag threaded through every aliased type.
+///
+/// The alias tag is threaded through every aliased type, so two aliases of
+/// the same table are distinct sources.
 pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
     let tokens = generate_untagged(ctx);
     crate::common::alias_tag::tag_aliased_items(tokens, &aliased_paths(ctx))

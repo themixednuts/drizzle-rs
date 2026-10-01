@@ -261,6 +261,7 @@ where
 /// let cond = jsonb_contains(data, r#"{"key": "value"}"#);
 /// assert!(cond.to_sql().sql().contains("@>"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_contains<'a, L, R>(
     left: L,
     right: R,
@@ -297,6 +298,7 @@ where
 /// let cond = jsonb_contained(data, r#"{"key": "value", "other": 1}"#);
 /// assert!(cond.to_sql().sql().contains("<@"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_contained<'a, L, R>(
     left: L,
     right: R,
@@ -333,6 +335,7 @@ where
 /// let cond = jsonb_exists_key(data, "name");
 /// assert!(cond.to_sql().sql().contains("?"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_exists_key<'a, E>(
     expr: E,
     key: &'a str,
@@ -360,6 +363,7 @@ where
 /// let cond = jsonb_exists_any(data, &["name", "email"]);
 /// assert!(cond.to_sql().sql().contains("?|"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_exists_any<'a, E>(
     expr: E,
     keys: &[&'a str],
@@ -391,6 +395,7 @@ where
 /// let cond = jsonb_exists_all(data, &["name", "email"]);
 /// assert!(cond.to_sql().sql().contains("?&"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_exists_all<'a, E>(
     expr: E,
     keys: &[&'a str],
@@ -500,6 +505,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 
     /// JSONB contains (`@>` operator).
+    #[allow(clippy::type_complexity)]
     fn jsonb_contains<R>(
         self,
         other: R,
@@ -523,6 +529,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 
     /// JSONB is contained by (`<@` operator).
+    #[allow(clippy::type_complexity)]
     fn jsonb_contained<R>(
         self,
         other: R,
@@ -546,6 +553,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 
     /// JSONB key exists (`?` operator).
+    #[allow(clippy::type_complexity)]
     fn jsonb_exists_key(
         self,
         key: &'a str,

@@ -466,6 +466,7 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy>,
 {
     /// Groups rows by the supplied expressions.
+    #[allow(clippy::type_complexity)]
     pub fn group_by<Gr>(
         self,
         columns: Gr,

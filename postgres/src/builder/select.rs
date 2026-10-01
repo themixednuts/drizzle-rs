@@ -514,6 +514,7 @@ where
     /// functionally determines the whole row (SQL:1999, which `PostgreSQL`
     /// implements natively), so any scalar column of that table may be
     /// selected without being listed.
+    #[allow(clippy::type_complexity)]
     pub fn group_by<Gr>(
         self,
         columns: Gr,

@@ -40,6 +40,11 @@ mod typed;
 mod util;
 mod window;
 
+/// Zero-sized marker for type parameters a struct only carries at the type
+/// level. `fn() -> T` keeps the struct `Send`, `Sync` and covariant in `T`
+/// whatever `T` is.
+pub(crate) type TypeMarker<T> = core::marker::PhantomData<fn() -> T>;
+
 pub use agg::*;
 pub use case::*;
 pub use cmp::*;

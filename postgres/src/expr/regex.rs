@@ -24,6 +24,7 @@ use drizzle_types::postgres::types::Boolean;
 /// let cond = regex_match(name, "^[A-Z]");
 /// assert!(cond.to_sql().sql().contains("~"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn regex_match<'a, E>(
     expr: E,
     pattern: &'a str,
@@ -51,6 +52,7 @@ where
 /// let cond = regex_match_ci(name, "^john");
 /// assert!(cond.to_sql().sql().contains("~*"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn regex_match_ci<'a, E>(
     expr: E,
     pattern: &'a str,
@@ -78,6 +80,7 @@ where
 /// let cond = regex_not_match(name, "^[0-9]");
 /// assert!(cond.to_sql().sql().contains("!~"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn regex_not_match<'a, E>(
     expr: E,
     pattern: &'a str,
@@ -105,6 +108,7 @@ where
 /// let cond = regex_not_match_ci(name, "^admin");
 /// assert!(cond.to_sql().sql().contains("!~*"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn regex_not_match_ci<'a, E>(
     expr: E,
     pattern: &'a str,
@@ -123,6 +127,7 @@ where
 /// Extension trait providing method-based regex operators for `PostgreSQL` expressions.
 pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// Case-sensitive regex match (`~` operator).
+    #[allow(clippy::type_complexity)]
     fn regex_match(
         self,
         pattern: &'a str,
@@ -141,6 +146,7 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 
     /// Case-insensitive regex match (`~*` operator).
+    #[allow(clippy::type_complexity)]
     fn regex_match_ci(
         self,
         pattern: &'a str,
@@ -159,6 +165,7 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 
     /// Case-sensitive regex non-match (`!~` operator).
+    #[allow(clippy::type_complexity)]
     fn regex_not_match(
         self,
         pattern: &'a str,
@@ -177,6 +184,7 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 
     /// Case-insensitive regex non-match (`!~*` operator).
+    #[allow(clippy::type_complexity)]
     fn regex_not_match_ci(
         self,
         pattern: &'a str,

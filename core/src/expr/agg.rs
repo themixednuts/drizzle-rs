@@ -326,6 +326,7 @@ where
 /// sum(users.name);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn sum<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum, Null, Agg, E::Sources>
@@ -341,6 +342,7 @@ where
 ///
 /// Requires the expression to be `Numeric`.
 /// Result type is dialect-aware.
+#[allow(clippy::type_complexity)]
 pub fn sum_distinct<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Sum, Null, Agg, E::Sources>
@@ -375,6 +377,7 @@ where
 /// avg(users.name);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn avg<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg, Null, Agg, E::Sources>
@@ -389,6 +392,7 @@ where
 /// AVG(DISTINCT expr) - calculates average of distinct numeric values.
 ///
 /// Requires the expression to be `Numeric`.
+#[allow(clippy::type_complexity)]
 pub fn avg_distinct<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <E::SQLType as AggregatePolicy<V::DialectMarker>>::Avg, Null, Agg, E::Sources>
@@ -479,6 +483,7 @@ where
 /// // Generates: STDDEV_POP("measurements"."value")
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn stddev_pop<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -515,6 +520,7 @@ where
 /// // Generates: STDDEV_SAMP("measurements"."value")
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn stddev_samp<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -551,6 +557,7 @@ where
 /// // Generates: VAR_POP("measurements"."value")
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn var_pop<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -587,6 +594,7 @@ where
 /// // Generates: VAR_SAMP("measurements"."value")
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn var_samp<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -606,6 +614,7 @@ where
 }
 
 /// Sample variance. Emits `VARIANCE` on PostgreSQL and `VAR_SAMP` on MySQL.
+#[allow(clippy::type_complexity)]
 pub fn variance<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -741,6 +750,7 @@ where
 }
 
 /// `STRING_AGG` - concatenates text values using a delimiter (`PostgreSQL`).
+#[allow(clippy::type_complexity)]
 pub fn string_agg<'a, V, E, D>(
     expr: E,
     delimiter: D,
@@ -803,6 +813,7 @@ where
 /// let obj = json_object_agg(settings.key, settings.value);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn json_object_agg<'a, V, K, Val>(
     key: K,
     value: Val,
@@ -833,6 +844,7 @@ where
 /// let obj = jsonb_object_agg(settings.key, settings.value);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_object_agg<'a, V, K, Val>(
     key: K,
     value: Val,

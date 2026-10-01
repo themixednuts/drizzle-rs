@@ -583,6 +583,7 @@ where
     /// of that table may be selected. Prefer `.group_by(table.pk)` over
     /// listing every selected column — it also lets `SQLite` stream groups in
     /// key order instead of sorting through a temp B-tree.
+    #[allow(clippy::type_complexity)]
     pub fn group_by<Gr>(
         self,
         columns: Gr,

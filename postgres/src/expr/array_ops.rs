@@ -98,6 +98,7 @@ where
 /// assert!(condition.to_sql().sql().contains("@>"));
 /// // Generates: tags @> $1
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn array_contains<'a, L, R>(
     left: L,
     right: R,
@@ -137,6 +138,7 @@ where
 /// assert!(condition.to_sql().sql().contains("<@"));
 /// // Generates: tags <@ $1
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn array_contained<'a, L, R>(
     left: L,
     right: R,
@@ -175,6 +177,7 @@ where
 /// assert!(condition.to_sql().sql().contains("&&"));
 /// // Generates: tags && $1
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn array_overlaps<'a, L, R>(
     left: L,
     right: R,
@@ -217,6 +220,7 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `@>` operator - array contains.
     ///
     /// Returns true if self contains all elements of the other array.
+    #[allow(clippy::type_complexity)]
     fn array_contains<R>(
         self,
         other: R,
@@ -241,6 +245,7 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `<@` operator - array is contained by.
     ///
     /// Returns true if self is contained by the other array.
+    #[allow(clippy::type_complexity)]
     fn array_contained<R>(
         self,
         other: R,
@@ -265,6 +270,7 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `&&` operator - arrays overlap.
     ///
     /// Returns true if self and the other array have any elements in common.
+    #[allow(clippy::type_complexity)]
     fn array_overlaps<R>(
         self,
         other: R,

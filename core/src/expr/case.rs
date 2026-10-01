@@ -112,7 +112,7 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
 /// only (a NULL condition falls through), THEN results propagate NULL.
 pub struct CaseBuilder<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S = ()> {
     sql: SQL<'a, V>,
-    _marker: PhantomData<fn() -> (V, T, N, A, S)>,
+    _marker: super::TypeMarker<(V, T, N, A, S)>,
 }
 
 impl<'a, V, T, N, A, S> CaseBuilder<'a, V, T, N, A, S>

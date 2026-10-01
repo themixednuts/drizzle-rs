@@ -222,6 +222,7 @@ impl DialectSupports<feature::Typeof> for SQLiteDialect {}
 /// let age_type = typeof_(users.age);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn typeof_<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -241,6 +242,7 @@ where
 }
 
 /// Alias for typeof_ (uses Rust raw identifier syntax).
+#[allow(clippy::type_complexity)]
 pub fn r#typeof<'a, V, E>(
     expr: E,
 ) -> SQLExpr<

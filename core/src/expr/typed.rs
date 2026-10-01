@@ -44,7 +44,7 @@ pub struct SQLExpr<
     S = (),
 > {
     sql: SQL<'a, V>,
-    _ty: PhantomData<fn() -> (T, N, A, S)>,
+    _ty: super::TypeMarker<(T, N, A, S)>,
 }
 
 impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<'a, V, T, N, A, S> {

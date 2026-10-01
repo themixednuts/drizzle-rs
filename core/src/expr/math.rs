@@ -517,6 +517,7 @@ where
 /// let exponential = exp(users.rate);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn exp<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
@@ -667,6 +668,7 @@ where
 /// let balance_sign = sign(users.balance);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn sign<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Sign, E::Nullable, E::Aggregate, E::Sources>

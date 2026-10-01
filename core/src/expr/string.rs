@@ -115,6 +115,7 @@ impl DialectSupports<feature::Repeat> for MySQLDialect {}
 /// upper(users.id);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn upper<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
@@ -140,6 +141,7 @@ where
 /// let email_lower = lower(users.email);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn lower<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
@@ -169,6 +171,7 @@ where
 /// let trimmed = trim(users.name);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn trim<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
@@ -183,6 +186,7 @@ where
 /// LTRIM - removes leading whitespace.
 ///
 /// Preserves the nullability of the input expression.
+#[allow(clippy::type_complexity)]
 pub fn ltrim<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
@@ -197,6 +201,7 @@ where
 /// RTRIM - removes trailing whitespace.
 ///
 /// Preserves the nullability of the input expression.
+#[allow(clippy::type_complexity)]
 pub fn rtrim<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
@@ -841,6 +846,7 @@ where
 /// INITCAP - converts the first letter of each word to uppercase (`PostgreSQL`).
 ///
 /// Preserves the nullability of the input expression.
+#[allow(clippy::type_complexity)]
 pub fn initcap<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
@@ -856,6 +862,7 @@ where
 /// REVERSE - reverses a string (`PostgreSQL` and `MySQL`).
 ///
 /// Preserves the nullability of the input expression.
+#[allow(clippy::type_complexity)]
 pub fn reverse<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>

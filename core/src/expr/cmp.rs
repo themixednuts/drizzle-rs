@@ -476,6 +476,7 @@ where
 ///
 /// Returns a boolean expression checking if the value is NULL.
 /// Any expression type can be null-checked.
+#[allow(clippy::type_complexity)]
 pub fn is_null<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -497,6 +498,7 @@ where
 ///
 /// Returns a boolean expression checking if the value is not NULL.
 /// Any expression type can be null-checked.
+#[allow(clippy::type_complexity)]
 pub fn is_not_null<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -618,6 +620,7 @@ where
 /// - `TRUE IS TRUE` → true
 /// - `FALSE IS TRUE` → false
 /// - `NULL IS TRUE` → false (not NULL!)
+#[allow(clippy::type_complexity)]
 pub fn is_true<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -641,6 +644,7 @@ where
 /// - `FALSE IS FALSE` → true
 /// - `TRUE IS FALSE` → false
 /// - `NULL IS FALSE` → false (not NULL!)
+#[allow(clippy::type_complexity)]
 pub fn is_false<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -898,6 +902,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
+    #[allow(clippy::type_complexity)]
     fn is_null(
         self,
     ) -> SQLExpr<
@@ -919,6 +924,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
+    #[allow(clippy::type_complexity)]
     fn is_not_null(
         self,
     ) -> SQLExpr<
@@ -1169,6 +1175,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
+    #[allow(clippy::type_complexity)]
     fn is_true(
         self,
     ) -> SQLExpr<
@@ -1191,6 +1198,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     /// # "####;
     /// ```
     #[allow(clippy::wrong_self_convention)]
+    #[allow(clippy::type_complexity)]
     fn is_false(
         self,
     ) -> SQLExpr<

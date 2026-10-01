@@ -65,6 +65,7 @@ where
 /// Logical NOT.
 ///
 /// Negates a boolean expression.
+#[allow(clippy::type_complexity)]
 pub fn not<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, E::Nullable, E::Aggregate, E::Sources>

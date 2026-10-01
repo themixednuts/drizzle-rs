@@ -138,6 +138,7 @@ with_col_sizes_200!(impl_in_subquery_lhs_tuple);
 ///
 /// Returns true if the expression's value is in the provided array.
 /// Requires the expression type to be compatible with the array element type.
+#[allow(clippy::type_complexity)]
 pub fn in_array<'a, V, E, I, R>(
     expr: E,
     values: I,
@@ -163,6 +164,7 @@ where
 ///
 /// Returns true if the expression's value is NOT in the provided array.
 /// Requires the expression type to be compatible with the array element type.
+#[allow(clippy::type_complexity)]
 pub fn not_in_array<'a, V, E, I, R>(
     expr: E,
     values: I,
@@ -228,6 +230,7 @@ where
 /// in_subquery((users.id, users.name), sub)        // multi-column
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn in_subquery<'a, V, L, S, M>(
     lhs: L,
     subquery: S,
@@ -262,6 +265,7 @@ where
 /// not_in_subquery((users.id, users.name), sub)    // multi-column
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn not_in_subquery<'a, V, L, S, M>(
     lhs: L,
     subquery: S,

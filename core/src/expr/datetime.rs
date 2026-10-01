@@ -133,6 +133,7 @@ where
 /// let created_date = date(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn date<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, E::Nullable, E::Aggregate, E::Sources>
@@ -159,6 +160,7 @@ where
 /// let created_time = time(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn time<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, E::Nullable, E::Aggregate, E::Sources>
@@ -185,6 +187,7 @@ where
 /// let dt = datetime(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn datetime<'a, V, E>(
     expr: E,
 ) -> SQLExpr<
@@ -270,6 +273,7 @@ where
 /// let julian = julianday(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn julianday<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
@@ -296,6 +300,7 @@ where
 /// let unix_ts = unixepoch(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn unixepoch<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, E::Nullable, E::Aggregate, E::Sources>
@@ -399,6 +404,7 @@ where
 /// let year = extract("YEAR", users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn extract<'a, 'f, V, E>(
     field: &'f str,
     expr: E,
