@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "promo-verify"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Every snippet shown in the promo videos lives here, so the code on screen
+# compiles against the current API. `cargo run` prints the SQL each query
+# renders; the scene files quote that output.
+
+[dependencies]
+drizzle = { path = "../..", features = ["rusqlite", "query"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
