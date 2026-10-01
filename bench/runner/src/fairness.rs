@@ -419,4 +419,30 @@ mod tests {
         assert!(blocks[0].tuning.is_none());
         assert_eq!(blocks[0].exempt, ["spacetime-sdk-rs"]);
     }
+
+    /// Logic running inside the database is real per-request database work,
+    /// so an `in-database` target is held to the family harness.
+    #[test]
+    fn an_in_database_target_is_compared_not_exempt() {
+        let mut module = target("spacetime-module-rs", "spacetimedb", 1, 1, "stock");
+        module.data_access = Some("in-database".to_string());
+        let targets = [
+            target("spacetime-pgwire-rs", "spacetimedb", 1, 4, "stock"),
+            module,
+        ];
+        assert!(harness(&targets).is_err(), "pool drift must still fail");
+
+        let mut module = target("spacetime-module-rs", "spacetimedb", 1, 4, "stock");
+        module.data_access = Some("in-database".to_string());
+        let targets = [
+            target("spacetime-pgwire-rs", "spacetimedb", 1, 4, "stock"),
+            module,
+        ];
+        let blocks = harness(&targets).expect("matching harness");
+        assert_eq!(
+            blocks[0].targets,
+            ["spacetime-pgwire-rs", "spacetime-module-rs"]
+        );
+        assert!(blocks[0].exempt.is_empty());
+    }
 }

@@ -208,9 +208,12 @@ pub struct Target {
     pub lang: String,
     #[serde(default)]
     pub group: Option<String>,
-    /// How the target reaches its data: `sql-roundtrip` (default) or
-    /// `in-process-cache`. Targets that serve from a replicated in-process
-    /// cache are exempt from the cross-target `fair` block equality check.
+    /// How the target reaches its data: `sql-roundtrip` (default),
+    /// `in-process-cache`, or `in-database` (route logic runs inside the
+    /// database, e.g. SpacetimeDB procedures). Only targets that serve from a
+    /// replicated in-process cache are exempt from the cross-target `fair`
+    /// block equality check; `in-database` targets do per-request database
+    /// work and are held to the family harness.
     #[serde(default)]
     pub data_access: Option<String>,
     /// Free-form note describing an intentional deviation from the canonical
