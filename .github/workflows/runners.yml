@@ -1399,7 +1399,12 @@ jobs:
 
           manifests=()
           if [[ -d bench-preview/artifacts ]]; then
-            mapfile -t manifests < <(find bench-preview/artifacts -name manifest.json | sort)
+            # `runner-*-failed` artifacts are diagnostics: they carry the run
+            # that failed and the baseline restored from an earlier commit's
+            # cache, neither of which is a result for this commit.
+            mapfile -t manifests < <(
+              find bench-preview/artifacts -path '*-failed' -prune -o -name manifest.json -print | sort
+            )
           fi
 
           assembled=0
@@ -1482,16 +1487,18 @@ jobs:
             return 1
           }
 
-          # Eight puts in flight. Each `wrangler r2 object put` is a fresh
+          # Four puts in flight. Each `wrangler r2 object put` is a fresh
           # Node process plus one request, about two seconds, and a release
           # store is well over a thousand objects: published one at a time it
           # ran past this job's timeout and got cancelled mid-upload, so the
-          # v0.2.1 numbers never reached the bucket.
+          # v0.2.1 numbers never reached the bucket. Four keeps the request
+          # rate well under Cloudflare's API limit (1200 per 5 minutes); the
+          # per-object retry absorbs the occasional 429.
           export -f put_object
           export wrangler R2_BUCKET
           failed=0
           find bench-out/dashboard-data -type f ! -path bench-out/dashboard-data/index.json -print0 | sort -z \
-            | xargs -0 -P 8 -I{} bash -c 'f="$1"; put_object "${f#bench-out/dashboard-data/}" "$f"' _ {} \
+            | xargs -0 -P 4 -I{} bash -c 'f="$1"; put_object "${f#bench-out/dashboard-data/}" "$f"' _ {} \
             || failed=1
 
           if (( failed )); then
