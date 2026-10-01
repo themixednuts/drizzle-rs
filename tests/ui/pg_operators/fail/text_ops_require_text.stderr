@@ -1,0 +1,241 @@
+error[E0277]: `Int4` is not a text SQL type
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:14:19
+   |
+14 |     let _ = ilike(account.id, "1%");
+   |             ----- ^^^^^^^^^^ expected Text or VarChar
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Textual` is not implemented for `Int4`
+   = help: the following other types implement trait `Textual`:
+             drizzle::core::types::Placeholder
+             drizzle::ddl::mysql::types::Char
+             drizzle::ddl::mysql::types::Enum
+             drizzle::ddl::mysql::types::LongText
+             drizzle::ddl::mysql::types::MediumText
+             drizzle::ddl::mysql::types::Set
+             drizzle::ddl::mysql::types::Text
+             drizzle::ddl::mysql::types::TinyText
+           and $N others
+note: required by a bound in `ilike`
+  --> postgres/src/expr/ilike.rs
+   |
+   | pub fn ilike<'a, E, P>(
+   |        ----- required by a bound in this function
+...
+   |     E::SQLType: Compatible<P::SQLType> + Textual,
+   |                                          ^^^^^^^ required by this bound in `ilike`
+
+error[E0277]: SQL type `Int4` is not compatible with `drizzle::postgres::types::Text`
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:14:19
+   |
+14 |     let _ = ilike(account.id, "1%");
+   |             ----- ^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Compatible<drizzle::postgres::types::Text>` is not implemented for `Int4`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+   = help: `Int4` implements trait `Compatible<Rhs>`:
+             Compatible<Float4>
+             Compatible<Float8>
+             Compatible<Int2>
+             Compatible<Int8>
+             Compatible<drizzle::core::types::Placeholder>
+             Compatible<drizzle::postgres::types::Any>
+             Compatible<drizzle::postgres::types::Numeric>
+             Compatible
+note: required by a bound in `ilike`
+  --> postgres/src/expr/ilike.rs
+   |
+   | pub fn ilike<'a, E, P>(
+   |        ----- required by a bound in this function
+...
+   |     E::SQLType: Compatible<P::SQLType> + Textual,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
+
+error[E0277]: SQL type `Int4` is not compatible with `drizzle::postgres::types::Text`
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:14:31
+   |
+14 |     let _ = ilike(account.id, "1%");
+   |             -----             ^^^^ these SQL types cannot be compared or coerced
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Compatible<drizzle::postgres::types::Text>` is not implemented for `Int4`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+   = help: `Int4` implements trait `Compatible<Rhs>`:
+             Compatible<Float4>
+             Compatible<Float8>
+             Compatible<Int2>
+             Compatible<Int8>
+             Compatible<drizzle::core::types::Placeholder>
+             Compatible<drizzle::postgres::types::Any>
+             Compatible<drizzle::postgres::types::Numeric>
+             Compatible
+   = note: required for `&str` to implement `ComparisonOperand<'_, drizzle::postgres::prelude::PostgresValue<'_>, Id>`
+note: required by a bound in `ilike`
+  --> postgres/src/expr/ilike.rs
+   |
+   | pub fn ilike<'a, E, P>(
+   |        ----- required by a bound in this function
+...
+   |     P: ComparisonOperand<'a, PostgresValue<'a>, E>,
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
+
+error[E0277]: SQL type `drizzle::postgres::types::Text` is not compatible with `Int4`
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:15:19
+   |
+15 |     let _ = ilike(account.name, 5i32);
+   |             ----- ^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Compatible<Int4>` is not implemented for `drizzle::postgres::types::Text`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+   = help: `drizzle::postgres::types::Text` implements trait `Compatible<Rhs>`:
+             Compatible<drizzle::core::types::Placeholder>
+             Compatible<drizzle::postgres::types::Any>
+             Compatible<drizzle::postgres::types::Char>
+             Compatible<drizzle::postgres::types::Date>
+             Compatible<drizzle::postgres::types::Enum>
+             Compatible<drizzle::postgres::types::Time>
+             Compatible<drizzle::postgres::types::Timestamp>
+             Compatible<drizzle::postgres::types::Timestamptz>
+             Compatible<drizzle::postgres::types::Varchar>
+             Compatible
+note: required by a bound in `ilike`
+  --> postgres/src/expr/ilike.rs
+   |
+   | pub fn ilike<'a, E, P>(
+   |        ----- required by a bound in this function
+...
+   |     E::SQLType: Compatible<P::SQLType> + Textual,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
+
+error[E0277]: `Int4` is not a text SQL type
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:15:33
+   |
+15 |     let _ = ilike(account.name, 5i32);
+   |             -----               ^^^^ expected Text or VarChar
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Textual` is not implemented for `Int4`
+   = help: the following other types implement trait `Textual`:
+             drizzle::core::types::Placeholder
+             drizzle::ddl::mysql::types::Char
+             drizzle::ddl::mysql::types::Enum
+             drizzle::ddl::mysql::types::LongText
+             drizzle::ddl::mysql::types::MediumText
+             drizzle::ddl::mysql::types::Set
+             drizzle::ddl::mysql::types::Text
+             drizzle::ddl::mysql::types::TinyText
+           and $N others
+note: required by a bound in `ilike`
+  --> postgres/src/expr/ilike.rs
+   |
+   | pub fn ilike<'a, E, P>(
+   |        ----- required by a bound in this function
+...
+   |     P::SQLType: Textual,
+   |                 ^^^^^^^ required by this bound in `ilike`
+
+error[E0277]: SQL type `drizzle::postgres::types::Text` is not compatible with `Int4`
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:15:33
+   |
+15 |     let _ = ilike(account.name, 5i32);
+   |             -----               ^^^^ these SQL types cannot be compared or coerced
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Compatible<Int4>` is not implemented for `drizzle::postgres::types::Text`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+   = help: `drizzle::postgres::types::Text` implements trait `Compatible<Rhs>`:
+             Compatible<drizzle::core::types::Placeholder>
+             Compatible<drizzle::postgres::types::Any>
+             Compatible<drizzle::postgres::types::Char>
+             Compatible<drizzle::postgres::types::Date>
+             Compatible<drizzle::postgres::types::Enum>
+             Compatible<drizzle::postgres::types::Time>
+             Compatible<drizzle::postgres::types::Timestamp>
+             Compatible<drizzle::postgres::types::Timestamptz>
+             Compatible<drizzle::postgres::types::Varchar>
+             Compatible
+   = note: required for `i32` to implement `ComparisonOperand<'_, drizzle::postgres::prelude::PostgresValue<'_>, Name>`
+note: required by a bound in `ilike`
+  --> postgres/src/expr/ilike.rs
+   |
+   | pub fn ilike<'a, E, P>(
+   |        ----- required by a bound in this function
+...
+   |     P: ComparisonOperand<'a, PostgresValue<'a>, E>,
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
+
+error[E0277]: `Int4` is not a text SQL type
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:16:25
+   |
+16 |     let _ = regex_match(account.id, "^1");
+   |             ----------- ^^^^^^^^^^ expected Text or VarChar
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Textual` is not implemented for `Int4`
+   = help: the following other types implement trait `Textual`:
+             drizzle::core::types::Placeholder
+             drizzle::ddl::mysql::types::Char
+             drizzle::ddl::mysql::types::Enum
+             drizzle::ddl::mysql::types::LongText
+             drizzle::ddl::mysql::types::MediumText
+             drizzle::ddl::mysql::types::Set
+             drizzle::ddl::mysql::types::Text
+             drizzle::ddl::mysql::types::TinyText
+           and $N others
+note: required by a bound in `drizzle::postgres::expr::regex_match`
+  --> postgres/src/expr/regex.rs
+   |
+   | pub fn regex_match<'a, E>(
+   |        ----------- required by a bound in this function
+...
+   |     E::SQLType: drizzle_types::Textual,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `regex_match`
+
+error[E0277]: SQL type `Int4` is not compatible with `drizzle::postgres::types::Text`
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:14:13
+   |
+14 |     let _ = ilike(account.id, "1%");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |
+   = help: the trait `Compatible<drizzle::postgres::types::Text>` is not implemented for `Int4`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+   = help: `Int4` implements trait `Compatible<Rhs>`:
+             Compatible<Float4>
+             Compatible<Float8>
+             Compatible<Int2>
+             Compatible<Int8>
+             Compatible<drizzle::core::types::Placeholder>
+             Compatible<drizzle::postgres::types::Any>
+             Compatible<drizzle::postgres::types::Numeric>
+             Compatible
+   = note: required for `&str` to implement `ComparisonOperand<'_, drizzle::postgres::prelude::PostgresValue<'_>, Id>`
+
+error[E0277]: SQL type `drizzle::postgres::types::Text` is not compatible with `Int4`
+  --> tests/ui/pg_operators/fail/text_ops_require_text.rs:15:13
+   |
+15 |     let _ = ilike(account.name, 5i32);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^ these SQL types cannot be compared or coerced
+   |
+   = help: the trait `Compatible<Int4>` is not implemented for `drizzle::postgres::types::Text`
+   = note: compatible types include: integers with integers/floats, text with text/varchar, and any type with itself
+   = help: `drizzle::postgres::types::Text` implements trait `Compatible<Rhs>`:
+             Compatible<drizzle::core::types::Placeholder>
+             Compatible<drizzle::postgres::types::Any>
+             Compatible<drizzle::postgres::types::Char>
+             Compatible<drizzle::postgres::types::Date>
+             Compatible<drizzle::postgres::types::Enum>
+             Compatible<drizzle::postgres::types::Time>
+             Compatible<drizzle::postgres::types::Timestamp>
+             Compatible<drizzle::postgres::types::Timestamptz>
+             Compatible<drizzle::postgres::types::Varchar>
+             Compatible
+   = note: required for `i32` to implement `ComparisonOperand<'_, drizzle::postgres::prelude::PostgresValue<'_>, Name>`

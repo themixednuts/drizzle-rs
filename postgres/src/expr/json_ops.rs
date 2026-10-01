@@ -11,8 +11,7 @@
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
 use crate::values::PostgresValue;
-use drizzle_core::ToSQL;
-use drizzle_core::expr::{Expr, NonNull, Null, SQLExpr, Scalar};
+use drizzle_core::expr::{AggOr, Expr, NonNull, Null, SQLExpr};
 use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk, Token};
 
@@ -41,7 +40,52 @@ fn typed_param<'a>(
     )
 }
 
-use drizzle_types::postgres::types::{Boolean, Json, Text};
+use drizzle_types::postgres::types::{Any, Boolean, Json, Jsonb, Text, Varchar};
+
+/// SQL types the JSON access operators (`->`, `->>`, `#>`, `#>>`) accept.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a PostgreSQL JSON type",
+    label = "JSON operators need a `json` or `jsonb` operand"
+)]
+pub trait JsonType {
+    /// The type `->` and `#>` return: `json` for `json`, `jsonb` for `jsonb`.
+    type Field: drizzle_types::DataType;
+}
+
+impl JsonType for Json {
+    type Field = Json;
+}
+impl JsonType for Jsonb {
+    type Field = Jsonb;
+}
+impl JsonType for Any {
+    type Field = Json;
+}
+
+/// SQL types the JSONB-only operators (`@>`, `<@`, `?`, `?|`, `?&`) accept.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not `jsonb`",
+    label = "this operator exists only for `jsonb`",
+    note = "PostgreSQL has no `@>`, `<@`, `?`, `?|` or `?&` for `json`; declare the column as `jsonb`"
+)]
+pub trait JsonbType {}
+
+impl JsonbType for Jsonb {}
+impl JsonbType for Any {}
+
+/// Right operand types of `@>` / `<@`. The operand is cast to `jsonb`, so JSON
+/// text is accepted as well.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be cast to `jsonb` for a containment check",
+    label = "expected a JSON value, JSON text, or untyped SQL"
+)]
+pub trait JsonbOperand {}
+
+impl JsonbOperand for Json {}
+impl JsonbOperand for Jsonb {}
+impl JsonbOperand for Text {}
+impl JsonbOperand for Varchar {}
+impl JsonbOperand for Any {}
 
 /// `PostgreSQL` `->` operator - get JSON object field by key, returns JSON.
 ///
@@ -58,9 +102,10 @@ use drizzle_types::postgres::types::{Boolean, Json, Text};
 pub fn json_get<'a, E>(
     expr: E,
     key: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, E::Sources>
+) -> SQLExpr<'a, PostgresValue<'a>, <E::SQLType as JsonType>::Field, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -84,9 +129,10 @@ where
 pub fn json_get_idx<'a, E>(
     expr: E,
     index: i32,
-) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, E::Sources>
+) -> SQLExpr<'a, PostgresValue<'a>, <E::SQLType as JsonType>::Field, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -110,9 +156,10 @@ where
 pub fn json_get_text<'a, E>(
     expr: E,
     key: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, E::Sources>
+) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -136,9 +183,10 @@ where
 pub fn json_get_text_idx<'a, E>(
     expr: E,
     index: i32,
-) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, E::Sources>
+) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -162,9 +210,10 @@ where
 pub fn json_get_path<'a, E>(
     expr: E,
     path: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, E::Sources>
+) -> SQLExpr<'a, PostgresValue<'a>, <E::SQLType as JsonType>::Field, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -188,9 +237,10 @@ where
 pub fn json_get_path_text<'a, E>(
     expr: E,
     path: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, E::Sources>
+) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -214,10 +264,20 @@ where
 pub fn jsonb_contains<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<L::Nullable, L::Sources>>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
-    R: ToSQL<'a, PostgresValue<'a>>,
+    L::Aggregate: AggOr<R::Aggregate>,
+    L::SQLType: JsonbType,
+    R: Expr<'a, PostgresValue<'a>>,
+    R::SQLType: JsonbOperand,
 {
     SQLExpr::new(
         left.to_sql()
@@ -241,10 +301,20 @@ where
 pub fn jsonb_contained<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<L::Nullable, L::Sources>>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
-    R: ToSQL<'a, PostgresValue<'a>>,
+    L::Aggregate: AggOr<R::Aggregate>,
+    L::SQLType: JsonbType,
+    R: Expr<'a, PostgresValue<'a>>,
+    R::SQLType: JsonbOperand,
 {
     SQLExpr::new(
         left.to_sql()
@@ -268,9 +338,10 @@ where
 pub fn jsonb_exists_key<'a, E>(
     expr: E,
     key: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonbType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -294,9 +365,10 @@ where
 pub fn jsonb_exists_any<'a, E>(
     expr: E,
     keys: &[&'a str],
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonbType,
 {
     let arr: Vec<PostgresValue<'a>> = keys
         .iter()
@@ -324,9 +396,10 @@ where
 pub fn jsonb_exists_all<'a, E>(
     expr: E,
     keys: &[&'a str],
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonbType,
 {
     let arr: Vec<PostgresValue<'a>> = keys
         .iter()
@@ -345,7 +418,17 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn json_get(
         self,
         key: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        <Self::SQLType as JsonType>::Field,
+        Null,
+        Self::Aggregate,
+        Self::Sources,
+    >
+    where
+        Self::SQLType: JsonType,
+    {
         json_get(self, key)
     }
 
@@ -353,7 +436,17 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn json_get_idx(
         self,
         index: i32,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        <Self::SQLType as JsonType>::Field,
+        Null,
+        Self::Aggregate,
+        Self::Sources,
+    >
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_idx(self, index)
     }
 
@@ -361,7 +454,10 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn json_get_text(
         self,
         key: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, Self::Sources> {
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Self::Aggregate, Self::Sources>
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_text(self, key)
     }
 
@@ -369,7 +465,10 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn json_get_text_idx(
         self,
         index: i32,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, Self::Sources> {
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Self::Aggregate, Self::Sources>
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_text_idx(self, index)
     }
 
@@ -377,7 +476,17 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn json_get_path(
         self,
         path: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        <Self::SQLType as JsonType>::Field,
+        Null,
+        Self::Aggregate,
+        Self::Sources,
+    >
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_path(self, path)
     }
 
@@ -385,7 +494,10 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn json_get_path_text(
         self,
         path: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, Self::Sources> {
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Self::Aggregate, Self::Sources>
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_path_text(self, path)
     }
 
@@ -393,9 +505,22 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn jsonb_contains<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        <Self::Aggregate as AggOr<R::Aggregate>>::Output,
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
+    >
     where
-        R: ToSQL<'a, PostgresValue<'a>>,
+        Self::Aggregate: AggOr<R::Aggregate>,
+        Self::SQLType: JsonbType,
+        R: Expr<'a, PostgresValue<'a>>,
+        R::SQLType: JsonbOperand,
     {
         jsonb_contains(self, other)
     }
@@ -404,9 +529,22 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn jsonb_contained<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        <Self::Aggregate as AggOr<R::Aggregate>>::Output,
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
+    >
     where
-        R: ToSQL<'a, PostgresValue<'a>>,
+        Self::Aggregate: AggOr<R::Aggregate>,
+        Self::SQLType: JsonbType,
+        R: Expr<'a, PostgresValue<'a>>,
+        R::SQLType: JsonbOperand,
     {
         jsonb_contained(self, other)
     }
@@ -415,7 +553,16 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn jsonb_exists_key(
         self,
         key: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Self::Aggregate,
+        Arg<Self::Nullable, Self::Sources>,
+    >
+    where
+        Self::SQLType: JsonbType,
     {
         jsonb_exists_key(self, key)
     }

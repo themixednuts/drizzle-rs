@@ -146,6 +146,13 @@ fn scalar_types_postgres_ui() {
     must_fail("tests/ui/scalar_types_postgres/fail/*.rs");
 }
 
+#[cfg(all(feature = "postgres", feature = "serde"))]
+#[test]
+fn pg_operators_ui() {
+    must_pass("tests/ui/pg_operators/pass/*.rs");
+    must_fail("tests/ui/pg_operators/fail/*.rs");
+}
+
 #[cfg(all(feature = "postgres", feature = "uuid"))]
 #[test]
 fn join_nullability_postgres_ui() {

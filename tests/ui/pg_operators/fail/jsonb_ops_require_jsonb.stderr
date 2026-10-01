@@ -1,0 +1,99 @@
+error[E0277]: `drizzle::postgres::types::Text` is not a PostgreSQL JSON type
+  --> tests/ui/pg_operators/fail/jsonb_ops_require_jsonb.rs:18:22
+   |
+18 |     let _ = json_get(doc.title, "a");
+   |             -------- ^^^^^^^^^ JSON operators need a `json` or `jsonb` operand
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `JsonType` is not implemented for `drizzle::postgres::types::Text`
+help: the following other types implement trait `JsonType`
+  --> postgres/src/expr/json_ops.rs
+   |
+   | impl JsonType for Json {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Json`
+...
+   | impl JsonType for Jsonb {
+   | ^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Jsonb`
+...
+   | impl JsonType for Any {
+   | ^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Any`
+note: required by a bound in `drizzle::postgres::expr::json_get`
+  --> postgres/src/expr/json_ops.rs
+   |
+   | pub fn json_get<'a, E>(
+   |        -------- required by a bound in this function
+...
+   |     E::SQLType: JsonType,
+   |                 ^^^^^^^^ required by this bound in `json_get`
+
+error[E0277]: `drizzle::postgres::types::Json` is not `jsonb`
+  --> tests/ui/pg_operators/fail/jsonb_ops_require_jsonb.rs:20:28
+   |
+20 |     let _ = jsonb_contains(doc.body, r#"{"a":1}"#);
+   |             -------------- ^^^^^^^^ this operator exists only for `jsonb`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `JsonbType` is not implemented for `drizzle::postgres::types::Json`
+   = note: PostgreSQL has no `@>`, `<@`, `?`, `?|` or `?&` for `json`; declare the column as `jsonb`
+help: the following other types implement trait `JsonbType`
+  --> postgres/src/expr/json_ops.rs
+   |
+   | impl JsonbType for Jsonb {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Jsonb`
+   | impl JsonbType for Any {}
+   | ^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Any`
+note: required by a bound in `drizzle::postgres::expr::jsonb_contains`
+  --> postgres/src/expr/json_ops.rs
+   |
+   | pub fn jsonb_contains<'a, L, R>(
+   |        -------------- required by a bound in this function
+...
+   |     L::SQLType: JsonbType,
+   |                 ^^^^^^^^^ required by this bound in `jsonb_contains`
+
+error[E0277]: `drizzle::postgres::types::Json` is not `jsonb`
+  --> tests/ui/pg_operators/fail/jsonb_ops_require_jsonb.rs:21:30
+   |
+21 |     let _ = jsonb_exists_key(doc.body, "a");
+   |             ---------------- ^^^^^^^^ this operator exists only for `jsonb`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `JsonbType` is not implemented for `drizzle::postgres::types::Json`
+   = note: PostgreSQL has no `@>`, `<@`, `?`, `?|` or `?&` for `json`; declare the column as `jsonb`
+help: the following other types implement trait `JsonbType`
+  --> postgres/src/expr/json_ops.rs
+   |
+   | impl JsonbType for Jsonb {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Jsonb`
+   | impl JsonbType for Any {}
+   | ^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Any`
+note: required by a bound in `drizzle::postgres::expr::jsonb_exists_key`
+  --> postgres/src/expr/json_ops.rs
+   |
+   | pub fn jsonb_exists_key<'a, E>(
+   |        ---------------- required by a bound in this function
+...
+   |     E::SQLType: JsonbType,
+   |                 ^^^^^^^^^ required by this bound in `jsonb_exists_key`
+
+error[E0277]: `drizzle::postgres::types::Text` is not a PostgreSQL JSON type
+  --> tests/ui/pg_operators/fail/jsonb_ops_require_jsonb.rs:18:13
+   |
+18 |     let _ = json_get(doc.title, "a");
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^ JSON operators need a `json` or `jsonb` operand
+   |
+   = help: the trait `JsonType` is not implemented for `drizzle::postgres::types::Text`
+help: the following other types implement trait `JsonType`
+  --> postgres/src/expr/json_ops.rs
+   |
+   | impl JsonType for Json {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Json`
+...
+   | impl JsonType for Jsonb {
+   | ^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Jsonb`
+...
+   | impl JsonType for Any {
+   | ^^^^^^^^^^^^^^^^^^^^^ `drizzle::postgres::types::Any`

@@ -1,4 +1,4 @@
-error[E0599]: no method named `intersect_all` found for struct `drizzle::sqlite::builder::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+error[E0599]: no method named `intersect_all` found for struct `QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
   --> tests/ui/set_ops_sqlite/fail/bag_set_ops_absent.rs:25:10
    |
 22 |       let _ = qb
@@ -14,7 +14,7 @@ help: there is a method `intersect` with a similar name
 25 +         .intersect(qb.select(users.name).from(users));
    |
 
-error[E0599]: no method named `except_all` found for struct `drizzle::sqlite::builder::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
+error[E0599]: no method named `except_all` found for struct `QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
   --> tests/ui/set_ops_sqlite/fail/bag_set_ops_absent.rs:29:10
    |
 26 |       let _ = qb

@@ -21,9 +21,10 @@ pub use drizzle_core::builder::{
 /// [`drizzle_core::ClauseAllowed`].
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
-    message = "`{C}` cannot be added in builder state `{Self}`",
-    label = "this clause is not available at this point of the query",
-    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET"
+    message = "builder state `{Self}` does not allow `{C}`",
+    label = "not available at this point of the query",
+    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET",
+    note = "only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source"
 )]
 pub trait SelectClause<C> {}
 
@@ -805,7 +806,7 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
     M: drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, crate::common::SQLiteSchemaType, T>,
 {
     /// Names this completed query so it can be used as a derived source.
@@ -879,7 +880,7 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     /// Combines this query with another using UNION.
     #[allow(clippy::type_complexity)]
@@ -969,7 +970,7 @@ where
 impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, SQLiteValue<'a>>
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
     M: drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>> + drizzle_core::SelectSources,
 {
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>>::SQLType;
@@ -992,13 +993,13 @@ where
 /// Conversion trait for types that can become a `SelectBuilder`.
 /// Used by set operations to accept both raw `SelectBuilder` and `DrizzleBuilder`.
 pub trait IntoSelect<'a, S, M, R> {
-    type State: drizzle_core::ExecutableState;
+    type State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>;
     type Table;
     fn into_select(self) -> SelectBuilder<'a, S, Self::State, Self::Table, M, R>;
 }
 
-impl<'a, S, State: drizzle_core::ExecutableState, T, M, R, G> IntoSelect<'a, S, M, R>
-    for SelectBuilder<'a, S, State, T, M, R, G>
+impl<'a, S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>, T, M, R, G>
+    IntoSelect<'a, S, M, R> for SelectBuilder<'a, S, State, T, M, R, G>
 {
     type State = State;
     type Table = T;
@@ -1016,22 +1017,7 @@ impl<'a, S, State: drizzle_core::ExecutableState, T, M, R, G> IntoSelect<'a, S, 
 }
 
 mod insert_select_private {
-    use super::{
-        SelectFromSet, SelectGroupSet, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
-        SelectOrderSet, SelectSetOpSet, SelectWhereSet,
-    };
-
     pub trait Sealed {}
-    pub trait Completed: drizzle_core::ExecutableState {}
-
-    impl Completed for SelectFromSet {}
-    impl Completed for SelectJoinSet {}
-    impl Completed for SelectWhereSet {}
-    impl Completed for SelectGroupSet {}
-    impl Completed for SelectOrderSet {}
-    impl Completed for SelectLimitSet {}
-    impl Completed for SelectOffsetSet {}
-    impl Completed for SelectSetOpSet {}
 }
 
 /// A completed SELECT that can supply rows to an INSERT.
@@ -1056,13 +1042,13 @@ pub trait IntoSelectQuery<'a, S, R> {
 impl<'a, S, State, T, M, R, G> insert_select_private::Sealed
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: insert_select_private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
 }
 
 impl<'a, S, State, T, M, R, G> CompletedSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: insert_select_private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     type Marker = M;
     type Grouped = G;
@@ -1074,7 +1060,7 @@ where
 
 impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: insert_select_private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     type Marker = M;
     type Grouped = G;

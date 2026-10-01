@@ -818,7 +818,7 @@ impl_select_methods! {
 impl<'a, Runner, Schema, State, T, M, R, G> IntoSelect<'a, Schema, M, R>
     for DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
-    State: drizzle_postgres::builder::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
     SelectBuilder<'a, Schema, State, T, M, R, G>:
         CompletedSelect<'a, Schema, R, Marker = M, Grouped = G>,
 {
@@ -892,7 +892,7 @@ where
 impl<'d, 'a, Runner, Schema, State, T, M, R>
     DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R>, State>
 where
-    State: drizzle_postgres::builder::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     #[allow(clippy::type_complexity)]
     pub fn union<M2>(
@@ -1085,7 +1085,7 @@ where
 impl<'a, Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
-    State: drizzle_postgres::builder::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     /// Names this completed projection for use as a derived table.
     ///

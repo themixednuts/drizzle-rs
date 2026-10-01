@@ -53,18 +53,26 @@ pub mod clause {
     /// `.join()` and its variants.
     #[derive(Debug, Clone, Copy, Default)]
     pub struct Join;
-    /// Use as a CTE, a derived table, or a locking read: a single,
-    /// non-compound SELECT.
+    /// Use as a CTE or a locking read: a single, non-compound SELECT.
     #[derive(Debug, Clone, Copy, Default)]
     pub struct Simple;
+    /// Operand of `UNION`/`INTERSECT`/`EXCEPT`: a SELECT, possibly compound,
+    /// without a locking clause.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Compound;
+    /// Row source for a derived table or `INSERT ... SELECT`: any completed
+    /// SELECT. Never an INSERT/UPDATE/DELETE, even with `RETURNING`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Source;
 }
 
 /// The builder state `Self` accepts the clause `Clause` next.
 ///
 /// Dialect crates add their own clause markers for dialect-only clauses.
 #[diagnostic::on_unimplemented(
-    message = "`{Clause}` cannot be added in builder state `{Self}`",
-    label = "this clause is not available at this point of the query",
-    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET"
+    message = "builder state `{Self}` does not allow `{Clause}`",
+    label = "not available at this point of the query",
+    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET",
+    note = "only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source"
 )]
 pub trait ClauseAllowed<Clause> {}

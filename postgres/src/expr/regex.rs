@@ -7,7 +7,7 @@
 //! - `!~*` (does not match regex, case-insensitive)
 
 use crate::values::PostgresValue;
-use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
+use drizzle_core::expr::{Expr, NonNull, SQLExpr};
 use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_types::postgres::types::Boolean;
@@ -20,16 +20,17 @@ use drizzle_types::postgres::types::Boolean;
 /// # use drizzle_postgres::expr::regex_match;
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
-/// let name = SQL::<PostgresValue>::raw("name");
+/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
 /// let cond = regex_match(name, "^[A-Z]");
 /// assert!(cond.to_sql().sql().contains("~"));
 /// ```
 pub fn regex_match<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: drizzle_types::Textual,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -46,16 +47,17 @@ where
 /// # use drizzle_postgres::expr::regex_match_ci;
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
-/// let name = SQL::<PostgresValue>::raw("name");
+/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
 /// let cond = regex_match_ci(name, "^john");
 /// assert!(cond.to_sql().sql().contains("~*"));
 /// ```
 pub fn regex_match_ci<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: drizzle_types::Textual,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -72,16 +74,17 @@ where
 /// # use drizzle_postgres::expr::regex_not_match;
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
-/// let name = SQL::<PostgresValue>::raw("name");
+/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
 /// let cond = regex_not_match(name, "^[0-9]");
 /// assert!(cond.to_sql().sql().contains("!~"));
 /// ```
 pub fn regex_not_match<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: drizzle_types::Textual,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -98,16 +101,17 @@ where
 /// # use drizzle_postgres::expr::regex_not_match_ci;
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
-/// let name = SQL::<PostgresValue>::raw("name");
+/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
 /// let cond = regex_not_match_ci(name, "^admin");
 /// assert!(cond.to_sql().sql().contains("!~*"));
 /// ```
 pub fn regex_not_match_ci<'a, E>(
     expr: E,
     pattern: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: drizzle_types::Textual,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -122,7 +126,16 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_match(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Self::Aggregate,
+        Arg<Self::Nullable, Self::Sources>,
+    >
+    where
+        Self::SQLType: drizzle_types::Textual,
     {
         regex_match(self, pattern)
     }
@@ -131,7 +144,16 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_match_ci(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Self::Aggregate,
+        Arg<Self::Nullable, Self::Sources>,
+    >
+    where
+        Self::SQLType: drizzle_types::Textual,
     {
         regex_match_ci(self, pattern)
     }
@@ -140,7 +162,16 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_not_match(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Self::Aggregate,
+        Arg<Self::Nullable, Self::Sources>,
+    >
+    where
+        Self::SQLType: drizzle_types::Textual,
     {
         regex_not_match(self, pattern)
     }
@@ -149,7 +180,16 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn regex_not_match_ci(
         self,
         pattern: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Self::Aggregate,
+        Arg<Self::Nullable, Self::Sources>,
+    >
+    where
+        Self::SQLType: drizzle_types::Textual,
     {
         regex_not_match_ci(self, pattern)
     }

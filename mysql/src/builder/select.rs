@@ -63,9 +63,10 @@ impl<Strength, Modifier> ExecutableState for SelectForSet<Strength, Modifier> {}
 /// [`drizzle_core::ClauseAllowed`].
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
-    message = "`{C}` cannot be added in builder state `{Self}`",
-    label = "this clause is not available at this point of the query",
-    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET"
+    message = "builder state `{Self}` does not allow `{C}`",
+    label = "not available at this point of the query",
+    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET",
+    note = "only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source"
 )]
 pub trait SelectClause<C> {}
 
@@ -73,11 +74,6 @@ pub trait SelectClause<C> {}
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MySqlOffset;
-
-/// MySQL clause marker: `UNION`/`INTERSECT`/`EXCEPT`.
-#[doc(hidden)]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SetOperation;
 
 // The shared SELECT states cover JOIN, GROUP BY, HAVING and the
 // CTE/locking-read gate; MySQL adds its own states to those and keeps
@@ -111,16 +107,18 @@ impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectHavingSet {}
 impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectOrderSet {}
 impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectSetOpSet {}
 
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectFromSet {}
-impl<Kind> drizzle_core::ClauseAllowed<SetOperation> for SelectIndexHintSet<Kind> {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectJoinSet {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectWhereSet {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectGroupSet {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectHavingSet {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectOrderSet {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectLimitSet {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectOffsetSet {}
-impl drizzle_core::ClauseAllowed<SetOperation> for SelectSetOpSet {}
+impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>
+    for SelectIndexHintSet<Kind>
+{
+}
+impl drizzle_core::ClauseAllowed<drizzle_core::clause::Compound> for SelectHavingSet {}
+
+impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Source> for SelectIndexHintSet<Kind> {}
+impl drizzle_core::ClauseAllowed<drizzle_core::clause::Source> for SelectHavingSet {}
+impl<Strength, Modifier> drizzle_core::ClauseAllowed<drizzle_core::clause::Source>
+    for SelectForSet<Strength, Modifier>
+{
+}
 
 impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Join> for SelectIndexHintSet<Kind> {}
 
@@ -143,7 +141,6 @@ mod private {
     pub trait SealedSelect {}
 
     pub trait Prepare {}
-    pub trait Completed: super::ExecutableState {}
 
     impl Prepare for SelectFromSet {}
     impl<Kind> Prepare for SelectIndexHintSet<Kind> {}
@@ -156,17 +153,6 @@ mod private {
     impl Prepare for SelectOffsetSet {}
     impl Prepare for SelectSetOpSet {}
     impl<Strength, Modifier> Prepare for SelectForSet<Strength, Modifier> {}
-
-    impl Completed for SelectFromSet {}
-    impl<Kind> Completed for SelectIndexHintSet<Kind> {}
-    impl Completed for SelectJoinSet {}
-    impl Completed for SelectWhereSet {}
-    impl Completed for SelectGroupSet {}
-    impl Completed for SelectHavingSet {}
-    impl Completed for SelectOrderSet {}
-    impl Completed for SelectLimitSet {}
-    impl Completed for SelectOffsetSet {}
-    impl Completed for SelectSetOpSet {}
 }
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
@@ -675,7 +661,7 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     /// Names this completed projection for use as a derived table.
     ///
@@ -741,7 +727,7 @@ macro_rules! set_operation {
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::ClauseAllowed<SetOperation>,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     set_operation!(union, drizzle_core::Token::UNION, false);
     set_operation!(union_all, drizzle_core::Token::UNION, true);
@@ -777,13 +763,13 @@ pub trait IntoSelectQuery<'a, S, R> {
 }
 
 impl<'a, S, State, T, M, R, G> private::SealedSelect for SelectBuilder<'a, S, State, T, M, R, G> where
-    State: private::Completed
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>
 {
 }
 
 impl<'a, S, State, T, M, R, G> CompletedSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     type Marker = M;
     type Grouped = G;
@@ -795,7 +781,7 @@ where
 
 impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     type Marker = M;
     type Grouped = G;
@@ -809,7 +795,7 @@ where
 impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, MySQLValue<'a>>
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound> + ExecutableState,
     M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>> + drizzle_core::SelectSources,
 {
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType;

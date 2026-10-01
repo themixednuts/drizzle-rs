@@ -1309,7 +1309,7 @@ where
 impl<'db, 'q, Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
-    State: drizzle_core::ClauseAllowed<builder::select::SetOperation>,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     #[allow(clippy::type_complexity)]
     pub fn union<O>(
@@ -1522,7 +1522,7 @@ where
 impl<'db, 'q, Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
-    State: builder::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     /// Names this completed projection for use as a derived table.
     ///

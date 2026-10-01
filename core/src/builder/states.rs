@@ -89,6 +89,24 @@ impl ClauseAllowed<clause::Simple> for SelectOrderSet {}
 impl ClauseAllowed<clause::Simple> for SelectLimitSet {}
 impl ClauseAllowed<clause::Simple> for SelectOffsetSet {}
 
+impl ClauseAllowed<clause::Compound> for SelectFromSet {}
+impl ClauseAllowed<clause::Compound> for SelectJoinSet {}
+impl ClauseAllowed<clause::Compound> for SelectWhereSet {}
+impl ClauseAllowed<clause::Compound> for SelectGroupSet {}
+impl ClauseAllowed<clause::Compound> for SelectOrderSet {}
+impl ClauseAllowed<clause::Compound> for SelectLimitSet {}
+impl ClauseAllowed<clause::Compound> for SelectOffsetSet {}
+impl ClauseAllowed<clause::Compound> for SelectSetOpSet {}
+
+impl ClauseAllowed<clause::Source> for SelectFromSet {}
+impl ClauseAllowed<clause::Source> for SelectJoinSet {}
+impl ClauseAllowed<clause::Source> for SelectWhereSet {}
+impl ClauseAllowed<clause::Source> for SelectGroupSet {}
+impl ClauseAllowed<clause::Source> for SelectOrderSet {}
+impl ClauseAllowed<clause::Source> for SelectLimitSet {}
+impl ClauseAllowed<clause::Source> for SelectOffsetSet {}
+impl ClauseAllowed<clause::Source> for SelectSetOpSet {}
+
 //------------------------------------------------------------------------------
 // INSERT states
 //------------------------------------------------------------------------------
