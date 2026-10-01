@@ -3,6 +3,7 @@
 //! This module provides shared abstractions to reduce code duplication between
 //! the dialect-specific macro implementations.
 
+pub mod alias_tag;
 pub mod column_types;
 pub mod constraint;
 pub mod constraints;

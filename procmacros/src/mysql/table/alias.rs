@@ -10,7 +10,24 @@ use quote::{format_ident, quote};
 /// - `AliasedUsers` struct with `users::AliasedId` and `users::AliasedName` fields
 /// - Each aliased field contains the table alias name
 /// - `Users::alias::<Tag>() -> UsersAlias<Tag>` method
+/// Aliased-table items, with the alias tag threaded through every aliased type.
 pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
+    let tokens = generate_untagged(ctx);
+    crate::common::alias_tag::tag_aliased_items(tokens, &aliased_paths(ctx))
+        .unwrap_or_else(syn::Error::into_compile_error)
+}
+
+fn aliased_paths(ctx: &MacroContext) -> Vec<TokenStream> {
+    let table_name = &ctx.struct_ident;
+    let aliased_table_name = format_ident!("Aliased{}", table_name);
+    ctx.field_infos
+        .iter()
+        .map(|field| crate::common::column_types::aliased_column_type(table_name, &field.ident))
+        .chain(::core::iter::once(quote!(#aliased_table_name)))
+        .collect()
+}
+
+fn generate_untagged(ctx: &MacroContext) -> TokenStream {
     let table_name = &ctx.struct_ident;
     let struct_vis = &ctx.struct_vis;
     let aliased_table_name = format_ident!("Aliased{}", table_name);
@@ -47,7 +64,7 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
         quote! {
             impl #aliased_field_type {
                 pub const fn new(alias: &'static str) -> Self {
-                    Self { alias }
+                    Self { alias, _tag: ::core::marker::PhantomData }
                 }
             }
 
@@ -145,9 +162,9 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
             impl drizzle::core::ExprValueType for #aliased_field_type {
                 type ValueType = <#original_field_type as drizzle::core::ExprValueType>::ValueType;
             }
-            // TODO(alias-scope): aliased columns are opaque to scope checks.
+            // Columns of an aliased source read that alias.
             impl drizzle::core::expr::ExprSources for #aliased_field_type {
-                type Sources = ();
+                type Sources = drizzle::core::Src<drizzle::core::AliasKey<__DrizzleAliasTag>>;
             }
             impl drizzle::core::IntoSelectTarget for #aliased_field_type {
                 type Marker = drizzle::core::SelectCols<(#aliased_field_type,)>;
@@ -210,10 +227,45 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
 
         // Generate the aliased table struct
         #[allow(non_upper_case_globals, dead_code)]
-        #[derive(Debug, Clone, Copy, Default)]
         #struct_vis struct #aliased_table_name {
             alias: &'static str,
             #(#aliased_struct_fields),*
+        }
+
+        impl ::core::clone::Clone for #aliased_table_name {
+            fn clone(&self) -> Self {
+                *self
+            }
+        }
+
+        impl ::core::marker::Copy for #aliased_table_name {}
+
+        impl ::core::default::Default for #aliased_table_name {
+            fn default() -> Self {
+                Self::new("")
+            }
+        }
+
+        impl ::core::fmt::Debug for #aliased_table_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(stringify!(#aliased_table_name))
+                    .field("alias", &self.alias)
+                    .finish()
+            }
+        }
+
+        impl ::core::cmp::PartialEq for #aliased_table_name {
+            fn eq(&self, other: &Self) -> bool {
+                self.alias == other.alias
+            }
+        }
+
+        impl ::core::cmp::Eq for #aliased_table_name {}
+
+        impl ::core::hash::Hash for #aliased_table_name {
+            fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
+                self.alias.hash(state);
+            }
         }
 
         impl #aliased_table_name {

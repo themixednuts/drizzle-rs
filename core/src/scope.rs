@@ -35,6 +35,42 @@ use core::marker::PhantomData;
 use crate::expr::{NonNull, Null, NullAnd, NullOr, Nullability};
 use crate::{Cons, Nil};
 
+/// Bound-free `Clone`/`Copy`/`Default`/`Debug` for type-level markers, so user
+/// tag and table types need not implement them.
+macro_rules! marker_impls {
+    ($($name:ident<$($p:ident),+>),+ $(,)?) => {$(
+        impl<$($p),+> Clone for $name<$($p),+> {
+            fn clone(&self) -> Self {
+                *self
+            }
+        }
+        impl<$($p),+> Copy for $name<$($p),+> {}
+        impl<$($p),+> Default for $name<$($p),+> {
+            fn default() -> Self {
+                Self(PhantomData)
+            }
+        }
+        impl<$($p),+> core::fmt::Debug for $name<$($p),+> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str(stringify!($name))
+            }
+        }
+    )+};
+}
+
+marker_impls!(
+    AliasKey<Tag>,
+    OuterJoined<T>,
+    ScopeThere<Prev>,
+    TableKey<Name, Table>,
+    Scoped<Marker, Scope, Used>,
+    Src<T>,
+    Coalesce<A, B>,
+    At<Scope, S>,
+    Lateral<Kind>,
+);
+
+
 // =============================================================================
 // Scope entries
 // =============================================================================
@@ -72,7 +108,6 @@ impl<V: crate::SQLParam> ScopeEntry for crate::SQL<'_, V> {
 }
 
 /// Key for a source referred to by an alias name.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct AliasKey<Tag>(PhantomData<Tag>);
 
 impl<Tag> ScopeEntry for AliasKey<Tag> {
@@ -85,7 +120,6 @@ impl<Tag> ScopeEntry for AliasKey<Tag> {
 ///
 /// `LEFT JOIN` wraps the joined source, `RIGHT JOIN` wraps every source
 /// already in scope, and `FULL JOIN` wraps both.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct OuterJoined<T>(PhantomData<T>);
 
 impl<T: ScopeEntry> ScopeEntry for OuterJoined<T> {
@@ -100,7 +134,6 @@ impl<T: ScopeEntry> ScopeEntry for OuterJoined<T> {
 pub struct ScopeHere;
 
 /// Type-level witness that a source is deeper in a scope list.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct ScopeThere<Prev>(PhantomData<Prev>);
 
 /// Witness for a table or view key, found by name comparison.
@@ -151,7 +184,6 @@ where
 
 /// Key of a table or view: its SQL name as a type-level list of nibbles
 /// (see [`name`]), plus the Rust type for diagnostics.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct TableKey<Name, Table>(PhantomData<(Name, Table)>);
 
 /// Type-level boolean `true`.
@@ -323,7 +355,6 @@ where
 ///   was written against. It is checked when the query runs, or against the
 ///   enclosing query when this one is used as a subquery, so correlated
 ///   subqueries can read their outer query's sources.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct Scoped<Marker, Scope, Used = ()>(PhantomData<(Marker, Scope, Used)>);
 
 /// Exposes the scope of a SELECT marker and records clause sources on it.
@@ -347,11 +378,9 @@ impl<Marker, Scope, Used> HasScope for Scoped<Marker, Scope, Used> {
 // =============================================================================
 
 /// Sources-tree leaf: a column of the source `T` (a [`ScopeEntry`]).
-#[derive(Debug, Clone, Copy, Default)]
 pub struct Src<T>(PhantomData<T>);
 
 /// Sources-tree node that is NULL only when both sides are NULL.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct Coalesce<A, B>(PhantomData<(A, B)>);
 
 /// Sources that are scope-checked but never make the result NULL.
@@ -408,7 +437,6 @@ where
 ///
 /// Never NULL by itself: a subquery's inner sources do not make the outer
 /// expression NULL (the subquery operator decides that).
-#[derive(Debug, Clone, Copy, Default)]
 pub struct At<Scope, S>(PhantomData<(Scope, S)>);
 
 impl<Outer, Scope, S, Proof> SourcesIn<Outer, Proof> for At<Scope, S>
@@ -557,7 +585,6 @@ pub struct FullJoin;
 
 /// `[INNER|LEFT|CROSS] JOIN LATERAL`: the joined subquery may read the
 /// sources joined before it.
-#[derive(Debug, Clone, Copy, Default)]
 pub struct Lateral<Kind>(PhantomData<Kind>);
 
 impl join_kind_private::Sealed for InnerJoin {}

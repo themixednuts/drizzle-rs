@@ -173,9 +173,44 @@ pub fn generate_columns_module(
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
             #item_vis struct #column;
 
-            #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
-            #item_vis struct #aliased {
+            /// A column of an aliased source, tagged with the alias type.
+            #item_vis struct #aliased<Tag> {
                 pub(super) alias: &'static str,
+                pub(super) _tag: ::core::marker::PhantomData<fn() -> Tag>,
+            }
+
+            impl<Tag> ::core::clone::Clone for #aliased<Tag> {
+                fn clone(&self) -> Self {
+                    *self
+                }
+            }
+
+            impl<Tag> ::core::marker::Copy for #aliased<Tag> {}
+
+            impl<Tag> ::core::default::Default for #aliased<Tag> {
+                fn default() -> Self {
+                    Self { alias: "", _tag: ::core::marker::PhantomData }
+                }
+            }
+
+            impl<Tag> ::core::fmt::Debug for #aliased<Tag> {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    f.debug_struct(stringify!(#aliased)).field("alias", &self.alias).finish()
+                }
+            }
+
+            impl<Tag> ::core::cmp::PartialEq for #aliased<Tag> {
+                fn eq(&self, other: &Self) -> bool {
+                    self.alias == other.alias
+                }
+            }
+
+            impl<Tag> ::core::cmp::Eq for #aliased<Tag> {}
+
+            impl<Tag> ::core::hash::Hash for #aliased<Tag> {
+                fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
+                    self.alias.hash(state);
+                }
             }
 
             pub struct #set;

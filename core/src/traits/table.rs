@@ -9,7 +9,7 @@ pub struct Empty;
 pub struct NonEmpty;
 
 /// Type-level name marker used for strongly-typed aliases/CTEs.
-pub trait Tag {
+pub trait Tag: 'static {
     const NAME: &'static str;
 }
 
