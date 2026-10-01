@@ -2,7 +2,7 @@
 //!
 //! # Quick start
 //!
-//! ```no_run
+//! ```
 //! use drizzle::sqlite::rusqlite::Drizzle;
 //! use drizzle::sqlite::prelude::*;
 //!
@@ -38,7 +38,7 @@
 //! Return `Ok(value)` to commit, `Err(...)` to rollback. Panics also trigger
 //! a rollback.
 //!
-//! ```no_run
+//! ```
 //! # use drizzle::sqlite::rusqlite::Drizzle;
 //! # use drizzle::sqlite::prelude::*;
 //! # #[SQLiteTable] struct User { #[column(primary)] id: i32, name: String }
@@ -65,7 +65,7 @@
 //! Savepoints nest inside transactions — a failed savepoint rolls back
 //! without aborting the outer transaction.
 //!
-//! ```no_run
+//! ```
 //! # use drizzle::sqlite::rusqlite::Drizzle;
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::sqlite::TransactionConfig;
@@ -97,7 +97,7 @@
 //! Build a query once and execute it many times with different parameters.
 //! Use `column.placeholder("name")` for type-safe bind parameters.
 //!
-//! ```no_run
+//! ```
 //! # use drizzle::sqlite::rusqlite::Drizzle;
 //! # use drizzle::sqlite::prelude::*;
 //! # use drizzle::core::expr::eq;

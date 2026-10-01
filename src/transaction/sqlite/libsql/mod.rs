@@ -19,9 +19,9 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-/// LibSQL-specific transaction builder. See
-/// `TransactionBuilder` for the
-/// typestate-advancing methods; executor methods live below in this module.
+/// A query being built inside a [`Transaction`]. It has the same clause
+/// methods as the connection's builder; run it with `.execute()`, `.all()`,
+/// `.get()`, or `.rows()`.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<
         'tx,
@@ -36,7 +36,14 @@ use drizzle_core::prepared::prepare_render;
 
 crate::drizzle_tx_prepare_impl!();
 
-/// Transaction wrapper that provides the same query building capabilities as Drizzle
+/// An open libsql transaction, passed to the closure given to `transaction`.
+///
+/// It has the same query methods as the database handle (`select`,
+/// `insert`, `update`, `delete`, `with`), plus `savepoint` for nested
+/// rollback points. It commits or rolls back when the closure returns.
+///
+/// If a savepoint future is cancelled or its cleanup fails, every later
+/// query on the transaction returns `DrizzleError::TransactionError`.
 pub struct Transaction<Schema = ()> {
     tx: libsql::Transaction,
     tx_type: SQLiteTransactionType,
@@ -54,7 +61,7 @@ impl<Schema> std::fmt::Debug for Transaction<Schema> {
 }
 
 impl<Schema> Transaction<Schema> {
-    /// Creates a new transaction wrapper
+    /// Wraps a driver transaction that has already begun.
     pub(crate) fn new(
         tx: libsql::Transaction,
         tx_type: SQLiteTransactionType,
@@ -68,19 +75,21 @@ impl<Schema> Transaction<Schema> {
         }
     }
 
-    /// Gets a reference to the schema.
+    /// Returns the schema value the database handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    /// Gets a reference to the underlying transaction
+    /// Returns the driver's transaction, for calls drizzle does not cover,
+    /// such as running a prepared statement inside this transaction.
     #[inline]
     pub const fn inner(&self) -> &libsql::Transaction {
         &self.tx
     }
 
-    /// Gets the transaction type
+    /// Returns the mode the transaction was started with (`DEFERRED`,
+    /// `IMMEDIATE`, or `EXCLUSIVE`).
     #[inline]
     pub const fn tx_type(&self) -> SQLiteTransactionType {
         self.tx_type
@@ -93,7 +102,7 @@ impl<Schema> Transaction<Schema> {
         Ok(())
     }
 
-    /// Executes a nested savepoint within this transaction.
+    /// Runs `f` inside a savepoint nested in this transaction.
     ///
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
@@ -101,6 +110,8 @@ impl<Schema> Transaction<Schema> {
     /// The outer transaction is unaffected either way.
     ///
     /// Savepoints can be nested. Each level gets its own savepoint name.
+    ///
+    /// # Examples
     ///
     /// ```no_run
     /// # use drizzle::sqlite::prelude::*;
@@ -149,7 +160,8 @@ impl<Schema> Transaction<Schema> {
 
     sqlite_transaction_constructors!();
 
-    /// Executes a raw query within the transaction
+    /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, inside
+    /// the transaction and returns the number of rows it changed.
     ///
     /// # Errors
     ///
@@ -173,7 +185,7 @@ impl<Schema> Transaction<Schema> {
         .await?)
     }
 
-    /// Runs a query and returns all matching rows within the transaction
+    /// Runs any SQL value inside the transaction and decodes every row.
     ///
     /// # Errors
     ///
@@ -187,7 +199,7 @@ impl<Schema> Transaction<Schema> {
         self.rows(query).await?.collect().await
     }
 
-    /// Runs a query and returns a row cursor within the transaction.
+    /// Runs any SQL value inside the transaction and returns its decoded rows.
     ///
     /// # Errors
     ///
@@ -208,7 +220,7 @@ impl<Schema> Transaction<Schema> {
         Ok(Rows::new(rows))
     }
 
-    /// Runs a query and returns a single row within the transaction
+    /// Runs any SQL value inside the transaction and decodes its first row.
     ///
     /// # Errors
     ///
@@ -262,7 +274,12 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Runs the query and returns the number of affected rows
+    /// Runs the statement inside the transaction and returns the number of rows it changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when libsql cannot prepare or run the statement, for
+    /// example on a constraint violation.
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         self.runner.savepoints.ensure_usable()?;
         let (sql, params) = self.builder.sql.build();
@@ -278,7 +295,21 @@ where
         .await?)
     }
 
-    /// Runs the query and returns all matching rows using the builder's row type.
+    /// Runs the query inside the transaction and decodes every row into `R`.
+    ///
+    /// Reads see the transaction's own uncommitted writes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when libsql cannot prepare or run the query, or when a
+    /// row cannot be decoded into `R`.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The call does not compile unless every column the query reads belongs to
+    /// a table in its `FROM`/`JOIN` list, `R` matches the selection (with
+    /// `Option<T>` wherever a value can be `NULL`), and, with `GROUP BY`, each
+    /// column in a selected tuple is grouped or aggregated.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
@@ -302,7 +333,16 @@ where
         Ok(decoded)
     }
 
-    /// Runs the query and returns a row cursor using the builder's row type.
+    /// Runs the query inside the transaction and returns its rows, decoded into
+    /// the row type the query infers from its selection.
+    ///
+    /// Rows are fetched lazily as you call `next().await`. Unlike [`all`](Self::all), this method does not check scope or
+    /// grouping at compile time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when libsql cannot prepare or run the query, or when a
+    /// row cannot be decoded.
     pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
         Rw: for<'r> TryFrom<&'r Row>,
@@ -317,7 +357,17 @@ where
         Ok(Rows::new(rows))
     }
 
-    /// Runs the query and returns a single row using the builder's row type.
+    /// Runs the query inside the transaction and decodes its first row into
+    /// `R`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, and an error when libsql
+    /// cannot prepare or run the query or the row cannot be decoded into `R`.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The same checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>

@@ -1,8 +1,4 @@
-//! `PostgreSQL` case-insensitive pattern matching: [`ilike`] and [`not_ilike`].
-//!
-//! Both operands must be text: the left side is a `text`, `varchar`, `char`
-//! or enum expression ([`Textual`]), and the pattern must be a textual value
-//! that is [`Compatible`] with it, such as a `&str` or a placeholder.
+//! `PostgreSQL` `ILIKE` operators. Documented in [`crate::expr`].
 
 use crate::values::PostgresValue;
 use drizzle_core::expr::{AggregateKind, ComparisonOperand, Expr, NonNull, SQLExpr};

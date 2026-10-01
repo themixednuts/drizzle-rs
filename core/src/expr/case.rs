@@ -1,27 +1,9 @@
-//! Type-safe CASE/WHEN expressions.
+//! `CASE WHEN ... THEN ... ELSE ... END` expressions.
 //!
-//! Provides a typestate builder for SQL CASE expressions that tracks the
-//! result type and nullability through each WHEN branch and the optional
-//! ELSE clause.
-//!
-//! # Example
-//!
-//! ```rust
-//! # let _ = r####"
-//! use drizzle_core::expr::*;
-//!
-//! // Searched CASE with ELSE — result is NonNull Text
-//! case()
-//!     .when(gt(users.age, 65), "Senior")
-//!     .when(gt(users.age, 18), "Adult")
-//!     .r#else("Minor")
-//!
-//! // Without ELSE — result is always Null
-//! case()
-//!     .when(gt(users.age, 18), "Adult")
-//!     .end()
-//! # "####;
-//! ```
+//! [`case`] starts a builder. The first `.when(condition, result)` fixes the
+//! result type; later branches and the `ELSE` value must have a compatible
+//! type. Finish with [`r#else`](CaseBuilder::r#else) or
+//! [`end`](CaseBuilder::end).
 
 use core::marker::PhantomData;
 
@@ -36,10 +18,55 @@ use crate::scope::ScopeOnly;
 // Entry Point
 // =============================================================================
 
-/// Start building a searched CASE expression.
+/// Starts a searched `CASE` expression.
 ///
-/// Returns a `CaseInit` which requires at least one `.when()` call before
-/// it can be finished with `.end()` or `.r#else()`.
+/// Add at least one branch with [`when`](CaseInit::when), then finish with
+/// [`r#else`](CaseBuilder::r#else) or [`end`](CaseBuilder::end). The first
+/// branch's result sets the type of the whole expression; later results must
+/// have a compatible type.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let group = case()
+///     .when(gt(users.age, 65), "senior")
+///     .when(gt(users.age, 17), "adult")
+///     .r#else("minor");
+/// assert_eq!(
+///     group.sql(),
+///     r#"CASE WHEN "users"."age" > ? THEN ? WHEN "users"."age" > ? THEN ? ELSE ? END"#
+/// );
+/// ```
+///
+/// # Type safety
+///
+/// Branches with different result types do not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = case().when(gt(users.age, 65), "senior").r#else(0);
+/// ```
 #[must_use]
 pub fn case<'a, V: SQLParam>() -> CaseInit<'a, V> {
     CaseInit {
@@ -52,23 +79,18 @@ pub fn case<'a, V: SQLParam>() -> CaseInit<'a, V> {
 // CaseInit — before the first WHEN (no type established yet)
 // =============================================================================
 
-/// Builder state before the first WHEN branch.
+/// A `CASE` builder before its first branch; created by [`case`].
 ///
-/// The result type is not yet known — it will be set by the first `.when()`.
+/// The result type is set by the first [`when`](Self::when).
 pub struct CaseInit<'a, V: SQLParam> {
     sql: SQL<'a, V>,
     _marker: PhantomData<V>,
 }
 
 impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
-    /// Add the first WHEN branch. This establishes the result type.
+    /// Adds the first `WHEN condition THEN result` branch.
     ///
-    /// ```rust
-    /// # let _ = r####"
-    /// case().when(gt(users.age, 65), "Senior")
-    /// // Type T = Text, Nullability N = NonNull (from &str literal)
-    /// # "####;
-    /// ```
+    /// `condition` must be boolean. `result` sets the type of the whole `CASE`.
     #[allow(clippy::type_complexity)]
     pub fn when<C, R>(
         self,
@@ -105,11 +127,12 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
 // CaseBuilder — after at least one WHEN (type T established)
 // =============================================================================
 
-/// Builder state after at least one WHEN branch has been added.
+/// A `CASE` builder with at least one branch.
 ///
-/// The result type `T` and accumulated nullability `N` are tracked.
-/// `S` collects the sources read so far: WHEN conditions are scope-checked
-/// only (a NULL condition falls through), THEN results propagate NULL.
+/// `T` is the result type set by the first branch and `N` the nullability of
+/// the results so far. `S` records the tables read so far: `WHEN` conditions
+/// are only scope-checked (a NULL condition falls through to the next
+/// branch), while `THEN` results can make the result NULL.
 pub struct CaseBuilder<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S = ()> {
     sql: SQL<'a, V>,
     _marker: super::TypeMarker<(V, T, N, A, S)>,
@@ -122,10 +145,10 @@ where
     N: Nullability,
     A: AggregateKind,
 {
-    /// Add another WHEN branch.
+    /// Adds another `WHEN condition THEN result` branch.
     ///
-    /// The result type must be compatible with the type established by the
-    /// first branch. Nullability is accumulated via [`Nullability::Or`].
+    /// `condition` must be boolean and `result` must have a type compatible with
+    /// the first branch. The result becomes nullable if this branch's result is.
     #[allow(clippy::type_complexity)]
     pub fn when<C, R>(
         self,
@@ -163,19 +186,54 @@ where
         }
     }
 
-    /// Finish the CASE expression without an ELSE clause.
+    /// Finishes the expression without `ELSE` (`... END`).
     ///
-    /// Without ELSE, unmatched rows produce NULL, so the result is always
-    /// `Null` regardless of branch nullability.
+    /// Rows that match no branch give NULL, so the result is always nullable.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+    /// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+    /// # #[derive(Clone, Debug)] struct Value(String);
+    /// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+    /// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+    /// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+    /// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+    /// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+    /// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+    /// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+    /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+    /// let label = case().when(users.active, "active").end();
+    /// assert_eq!(label.sql(), r#"CASE WHEN "users"."active" THEN ? END"#);
+    /// ```
     pub fn end(self) -> SQLExpr<'a, V, T, Null, A, S> {
         let sql = self.sql.push(Token::END);
         SQLExpr::new(sql)
     }
 
-    /// Finish the CASE expression with an ELSE clause.
+    /// Finishes the expression with a default (`... ELSE default END`).
     ///
-    /// The ELSE value must have a compatible type. Nullability is the
-    /// combination of all branch nullabilities and the default's nullability.
+    /// `default` must have a type compatible with the first branch. The result is
+    /// nullable if any branch result or the default is.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+    /// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+    /// # #[derive(Clone, Debug)] struct Value(String);
+    /// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+    /// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+    /// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+    /// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+    /// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+    /// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+    /// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+    /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+    /// let label = case().when(users.active, "active").r#else("inactive");
+    /// assert_eq!(label.sql(), r#"CASE WHEN "users"."active" THEN ? ELSE ? END"#);
+    /// ```
     #[allow(clippy::type_complexity)]
     pub fn r#else<D>(
         self,

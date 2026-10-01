@@ -26,9 +26,9 @@ use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::tokio_postgres::tokio_postgres_materialize_params as materialize_params;
 
-/// `tokio_postgres`-specific transaction builder. See
-/// `TransactionBuilder` for the
-/// typestate-advancing methods; executor methods live below.
+/// A query being built inside a [`Transaction`]. It has the same clause
+/// methods as the connection's builder; run it with `.execute()`, `.all()`,
+/// `.get()`, or `.rows()`.
 pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
     crate::transaction::postgres::typestate::TransactionBuilder<
         'tx,
@@ -66,7 +66,7 @@ impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
 }
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
-    /// Creates a new transaction wrapper
+    /// Wraps a driver transaction that has already begun.
     pub(crate) fn new(
         tx: TokioPgTransaction<'conn>,
         config: TransactionConfig,
@@ -82,7 +82,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         }
     }
 
-    /// Gets a reference to the schema.
+    /// Returns the schema value the database handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
@@ -103,7 +103,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         }
     }
 
-    /// Gets the configuration used to begin this transaction.
+    /// Returns the configuration this transaction was started with.
     #[inline]
     pub const fn config(&self) -> TransactionConfig {
         self.config
@@ -134,7 +134,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Ok(())
     }
 
-    /// Executes a nested savepoint within this transaction.
+    /// Runs `f` inside a savepoint nested in this transaction.
     ///
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
@@ -142,6 +142,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// The outer transaction is unaffected either way.
     ///
     /// Savepoints can be nested — each level gets its own savepoint name.
+    ///
+    /// # Examples
     ///
     /// ```no_run
     /// # use drizzle::postgres::prelude::*;

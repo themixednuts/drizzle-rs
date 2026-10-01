@@ -1,7 +1,7 @@
-//! Internal wrapper types for column arithmetic operations.
+//! Result types of arithmetic on table columns (`users.age + 1`).
 //!
-//! These types are implementation details that allow `column + 5` syntax
-//! to work seamlessly. Users don't interact with these directly.
+//! The table macros implement the Rust operators on generated columns using
+//! these types. You do not name them directly.
 
 use core::marker::PhantomData;
 
@@ -12,9 +12,8 @@ use crate::types::{AlwaysNullable, ArithmeticOutput, NegOutput, Numeric, Propaga
 
 use super::{AggregateKind, Expr, NonNull, Nullability};
 
-/// Binary operation result for column arithmetic.
-///
-/// This is an implementation detail - users see `column + 5` and it "just works".
+/// The result of `column <op> value` on a generated column, such as
+/// `users.age + 1`.
 #[derive(Debug, Clone, Copy)]
 pub struct ColumnBinOp<Lhs, Rhs, Op, D, SQLType, Nullable> {
     lhs: Lhs,
@@ -38,7 +37,7 @@ pub use crate::types::{
     AddOp as OpAdd, DivOp as OpDiv, MulOp as OpMul, RemOp as OpRem, SubOp as OpSub,
 };
 
-/// Trait to get the token for an operation
+/// The SQL operator token of an arithmetic operation marker.
 pub trait BinOpToken {
     const TOKEN: Token;
 }
@@ -267,7 +266,7 @@ impl<Lhs, Rhs, Op, D, SQLType, Nullable> crate::row::IntoSelectTarget
     type Marker = crate::row::SelectCols<(Self,)>;
 }
 
-/// Negation result for column arithmetic.
+/// The result of `-column` on a generated column.
 #[derive(Debug, Clone, Copy)]
 pub struct ColumnNeg<T, D, SQLType, Nullable> {
     inner: T,

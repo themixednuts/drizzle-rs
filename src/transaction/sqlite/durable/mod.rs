@@ -24,9 +24,9 @@ use drizzle_sqlite::{
 
 use crate::builder::sqlite::durable::{DurableStorage, sqlite_value_to_storage};
 
-/// Query builder scoped to a [`Transaction`]. See
-/// `TransactionBuilder` for the
-/// typestate-advancing methods; executor methods live below in this module.
+/// A query being built inside a [`Transaction`]. It has the same clause
+/// methods as the connection's builder; run it with `.execute()`, `.all()`,
+/// or `.get()`.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<
         'tx,
@@ -62,19 +62,19 @@ impl<Schema> Transaction<Schema> {
         Self { conn, schema }
     }
 
-    /// Gets a reference to the schema.
+    /// Returns the schema value the database handle was created with.
     #[inline]
     pub fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    /// Gets a reference to the storage this transaction runs on.
+    /// Returns the storage this transaction runs on.
     #[inline]
     pub fn inner(&self) -> &DurableStorage {
         &self.conn
     }
 
-    /// Executes a nested savepoint within this transaction.
+    /// Runs `f` inside a savepoint nested in this transaction.
     ///
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released. If

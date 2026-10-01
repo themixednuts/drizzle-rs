@@ -8,10 +8,11 @@ use super::PostgreSQLType;
 // TypeCategory - Rust type classification for code generation
 // =============================================================================
 
-/// Categorizes Rust types for consistent handling across the `PostgreSQL` macro system.
+/// The kind of a Rust field type, as the `PostgreSQL` macros see it.
 ///
-/// This enum provides a single source of truth for type detection, eliminating
-/// fragile string matching scattered across multiple files.
+/// The table macro classifies each field's type with
+/// [`from_type_string`](Self::from_type_string) and uses the result to pick
+/// the default column type.
 ///
 /// # Examples
 ///
@@ -94,7 +95,8 @@ pub enum TypeCategory {
     // ========== Bit types (with-bit-vec-0_8) ==========
     /// `bit_vec::BitVec` -> BIT VARYING
     BitVec,
-    /// Unknown type - will result in compile error
+    /// Not recognised; the macro reports a compile error unless the column
+    /// type is given explicitly.
     Unknown,
 }
 

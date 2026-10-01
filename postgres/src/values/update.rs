@@ -23,7 +23,11 @@ use drizzle_core::{
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-/// Represents a value for UPDATE operations that can be skipped, null, or a SQL expression.
+/// One column in an `UPDATE ... SET`: skipped, `NULL`, or a value or SQL expression.
+///
+/// Generated `Update*` models store their fields as this type. `T` is the
+/// column's Rust type; `Target` and `TargetNull` are the column's SQL type
+/// and nullability, used to check what can be assigned.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum PostgresUpdateValue<
@@ -33,19 +37,19 @@ pub enum PostgresUpdateValue<
     Target: DataType = Any,
     TargetNull: Nullability = Null,
 > {
-    /// Don't include this column in the SET clause
+    /// Leave the column out of `SET`, so it keeps its current value.
     #[default]
     Skip,
-    /// Explicitly set column = NULL
+    /// Set the column to `NULL`.
     Null,
-    /// Set column to a SQL expression (value, placeholder, etc.)
+    /// Set the column to a bound value, placeholder or SQL expression.
     Value(ValueWrapper<'a, V, (T, Target, TargetNull)>),
 }
 
 impl<V: SQLParam, T, Target: DataType, TargetNull: Nullability>
     PostgresUpdateValue<'_, V, T, Target, TargetNull>
 {
-    /// Returns true if this is `Skip`
+    /// Returns `true` if the column is left out of `SET`.
     pub const fn is_skip(&self) -> bool {
         matches!(self, Self::Skip)
     }

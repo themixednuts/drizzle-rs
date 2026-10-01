@@ -1227,7 +1227,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         not_between(self, low, high)
     }
 
-    /// Membership in a list of values (`IN (...)`); see [`in_array`](crate::expr::in_array).
+    /// Membership in a list of values (`IN (...)`); see [`in_array`](super::in_array).
     #[allow(clippy::type_complexity)]
     fn in_array<I, R>(
         self,
@@ -1251,7 +1251,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::in_array(self, values)
     }
 
-    /// Non-membership in a list of values (`NOT IN (...)`); see [`not_in_array`](crate::expr::not_in_array).
+    /// Non-membership in a list of values (`NOT IN (...)`); see [`not_in_array`](super::not_in_array).
     #[allow(clippy::type_complexity)]
     fn not_in_array<I, R>(
         self,
@@ -1275,7 +1275,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::not_in_array(self, values)
     }
 
-    /// Membership in a subquery's rows (`IN (SELECT ...)`); see [`in_subquery`](crate::expr::in_subquery).
+    /// Membership in a subquery's rows (`IN (SELECT ...)`); see
+    /// [`in_subquery`](super::in_subquery).
     #[allow(clippy::type_complexity)]
     fn in_subquery<S>(
         self,
@@ -1298,7 +1299,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::in_subquery(self, subquery)
     }
 
-    /// Non-membership in a subquery's rows (`NOT IN (SELECT ...)`); see [`not_in_subquery`](crate::expr::not_in_subquery).
+    /// Non-membership in a subquery's rows (`NOT IN (SELECT ...)`); see
+    /// [`not_in_subquery`](super::not_in_subquery).
     #[allow(clippy::type_complexity)]
     fn not_in_subquery<S>(
         self,

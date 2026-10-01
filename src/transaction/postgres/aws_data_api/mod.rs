@@ -38,9 +38,9 @@ fn tx_consumed_error() -> DrizzleError {
     DrizzleError::TransactionError("Transaction already consumed".into())
 }
 
-/// AWS Data API transaction builder wrapper. See
-/// `TransactionBuilder` for the
-/// typestate-advancing methods; executor methods live below.
+/// A query being built inside a [`Transaction`]. It has the same clause
+/// methods as the connection's builder; run it with `.execute()`, `.all()`,
+/// `.get()`, or `.rows()`.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::postgres::typestate::TransactionBuilder<
         'tx,

@@ -1,8 +1,8 @@
 //! `MySQL` support for drizzle-rs.
 //!
 //! This crate is the MySQL dialect boundary. It exposes SQL types,
-//! client-neutral values, and a typed SQL builder. Feature-gated wire adapters
-//! layer execution on those contracts.
+//! client-neutral values, and a typed SQL builder ([`builder::QueryBuilder`]).
+//! Feature-gated wire adapters layer execution on those contracts.
 //!
 //! Wire adapters must set each connection's MySQL session time zone to UTC
 //! before executing typed queries. This is the adapter-owned invariant that

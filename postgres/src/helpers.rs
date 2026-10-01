@@ -1,3 +1,8 @@
+//! SQL fragment builders used by the `PostgreSQL` query builders.
+//!
+//! Most items are internal. The public `*_join_using` functions render a
+//! `JOIN ... USING (...)` fragment for hand-built SQL.
+
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
 use crate::traits::PostgresTable;
@@ -13,7 +18,7 @@ pub(crate) use helpers::{
 // Re-export Join from core
 pub use drizzle_core::Join;
 
-/// A table-like source accepted by an explicit JOIN tuple.
+/// A table or derived table that can be joined.
 #[doc(hidden)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
@@ -137,7 +142,7 @@ drizzle_core::impl_join_helpers!(
     sql_type: SQL<'a, PostgresValue<'a>>,
 );
 
-/// Helper function to create a SELECT DISTINCT ON statement (PostgreSQL-specific)
+/// Renders `SELECT DISTINCT ON (on) columns`.
 pub(crate) fn select_distinct_on<'a, On, Columns>(
     on: On,
     columns: Columns,
@@ -176,7 +181,84 @@ where
 // USING clause versions of JOIN functions (PostgreSQL-specific)
 //------------------------------------------------------------------------------
 
-/// Creates a JOIN ... USING clause, matching rows where the named columns are equal.
+/// Renders `JOIN table USING (columns)`, which joins rows whose same-named
+/// columns are equal.
+///
+/// `columns` is rendered as given. `PostgreSQL` requires bare column names in
+/// `USING`, so pass identifiers such as `SQL::ident("id")`; a table column
+/// renders qualified (`"posts"."id"`), which the server rejects.
+///
+/// # Examples
+///
+/// ```rust
+/// # extern crate self as drizzle;
+/// # mod _drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         #[cfg(feature = "aws-data-api")]
+/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// # pub use _drizzle::*;
+/// # pub use const_format;
+/// # fn main() {
+/// # use drizzle::postgres::prelude::*;
+/// # use drizzle::postgres::builder::QueryBuilder;
+/// # #[PostgresTable(name = "users")]
+/// # struct User {
+/// #     #[column(serial, primary)]
+/// #     id: i32,
+/// #     name: String,
+/// #     email: Option<String>,
+/// # }
+/// # #[PostgresTable(name = "posts")]
+/// # struct Post {
+/// #     #[column(serial, primary)]
+/// #     id: i32,
+/// #     #[column(references = User::id)]
+/// #     author_id: i32,
+/// #     title: String,
+/// # }
+/// # #[derive(PostgresSchema)]
+/// # struct Schema {
+/// #     user: User,
+/// #     post: Post,
+/// # }
+/// # let db = QueryBuilder::new::<Schema>();
+/// # let Schema { user, post } = Schema::new();
+/// use drizzle::core::SQL;
+/// use drizzle::postgres::values::PostgresValue;
+///
+/// let join = drizzle::postgres::helpers::join_using(post, SQL::<PostgresValue>::ident("id"));
+/// assert_eq!(join.sql(), r#"JOIN "posts" USING ("id")"#);
+/// # }
+/// ```
 pub fn join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -187,7 +269,7 @@ where
     join_using_internal(table, Join::new(), columns)
 }
 
-/// Creates an INNER JOIN ... USING clause.
+/// Renders `INNER JOIN table USING (columns)`. See [`join_using`] for how to pass `columns`.
 pub fn inner_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -198,7 +280,7 @@ where
     join_using_internal(table, Join::new().inner(), columns)
 }
 
-/// Creates a LEFT JOIN ... USING clause.
+/// Renders `LEFT JOIN table USING (columns)`. See [`join_using`] for how to pass `columns`.
 pub fn left_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -209,7 +291,7 @@ where
     join_using_internal(table, Join::new().left(), columns)
 }
 
-/// Creates a LEFT OUTER JOIN ... USING clause.
+/// Renders `LEFT OUTER JOIN table USING (columns)`. See [`join_using`] for how to pass `columns`.
 pub fn left_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -220,7 +302,7 @@ where
     join_using_internal(table, Join::new().left().outer(), columns)
 }
 
-/// Creates a RIGHT JOIN ... USING clause.
+/// Renders `RIGHT JOIN table USING (columns)`. See [`join_using`] for how to pass `columns`.
 pub fn right_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -231,7 +313,7 @@ where
     join_using_internal(table, Join::new().right(), columns)
 }
 
-/// Creates a RIGHT OUTER JOIN ... USING clause.
+/// Renders `RIGHT OUTER JOIN table USING (columns)`. See [`join_using`] for how to pass `columns`.
 pub fn right_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -242,7 +324,7 @@ where
     join_using_internal(table, Join::new().right().outer(), columns)
 }
 
-/// Creates a FULL JOIN ... USING clause.
+/// Renders `FULL JOIN table USING (columns)`. See [`join_using`] for how to pass `columns`.
 pub fn full_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -253,7 +335,7 @@ where
     join_using_internal(table, Join::new().full(), columns)
 }
 
-/// Creates a FULL OUTER JOIN ... USING clause.
+/// Renders `FULL OUTER JOIN table USING (columns)`. See [`join_using`] for how to pass `columns`.
 pub fn full_outer_join_using<'a, Table>(
     table: Table,
     columns: impl ToSQL<'a, PostgresValue<'a>>,
@@ -267,7 +349,7 @@ where
 // Note: NATURAL JOINs don't use USING clause as they automatically match column names
 // CROSS JOIN also doesn't use USING clause as it produces Cartesian product
 
-/// Creates an INSERT INTO statement with the specified table - `PostgreSQL` specific
+/// Renders `INSERT INTO table`.
 pub(crate) fn insert<'a, Table>(table: &Table) -> SQL<'a, PostgresValue<'a>>
 where
     Table: PostgresTable<'a>,
@@ -340,7 +422,7 @@ where
     columns_sql.parens().push(Token::VALUES).append(values_sql)
 }
 
-/// Helper function to create a RETURNING clause - `PostgreSQL` specific
+/// Renders `RETURNING columns`, or `RETURNING *` for an empty list.
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, PostgresValue<'a>>
 where
     I: ToSQL<'a, PostgresValue<'a>>,
@@ -358,46 +440,44 @@ where
 // FOR UPDATE/SHARE row locking (PostgreSQL-specific)
 //------------------------------------------------------------------------------
 
-/// Helper function to create a FOR UPDATE clause
+/// Renders `FOR UPDATE`.
 pub(crate) fn for_update<'a>() -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::UPDATE])
 }
 
-/// Helper function to create a FOR SHARE clause
+/// Renders `FOR SHARE`.
 pub(crate) fn for_share<'a>() -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::SHARE])
 }
 
-/// Helper function to create a FOR NO KEY UPDATE clause
+/// Renders `FOR NO KEY UPDATE`.
 pub(crate) fn for_no_key_update<'a>() -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::NO, Token::KEY, Token::UPDATE])
 }
 
-/// Helper function to create a FOR KEY SHARE clause
+/// Renders `FOR KEY SHARE`.
 pub(crate) fn for_key_share<'a>() -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::KEY, Token::SHARE])
 }
 
-/// Helper function to create a FOR UPDATE OF table clause.
-/// Uses unqualified table name as required by `PostgreSQL`.
+/// Renders `FOR UPDATE OF table`, with the bare table name `PostgreSQL` requires.
 pub(crate) fn for_update_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::UPDATE, Token::OF])
         .append(SQL::ident(String::from(table_name)))
 }
 
-/// Helper function to create a FOR SHARE OF table clause.
-/// Uses unqualified table name as required by `PostgreSQL`.
+/// Renders `FOR SHARE OF table`, with the bare table name `PostgreSQL` requires.
 pub(crate) fn for_share_of<'a>(table_name: &str) -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::FOR, Token::SHARE, Token::OF])
         .append(SQL::ident(String::from(table_name)))
 }
 
-/// Helper function to add NOWAIT to a FOR clause
+/// Renders `NOWAIT`.
 pub(crate) fn nowait<'a>() -> SQL<'a, PostgresValue<'a>> {
     SQL::from(Token::NOWAIT)
 }
 
-/// Helper function to add SKIP LOCKED to a FOR clause
+/// Renders `SKIP LOCKED`.
 pub(crate) fn skip_locked<'a>() -> SQL<'a, PostgresValue<'a>> {
     SQL::from_iter([Token::SKIP, Token::LOCKED])
 }

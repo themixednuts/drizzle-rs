@@ -150,6 +150,10 @@ macro_rules! join_using_impl {
     () => {
         /// Adds `JOIN table USING (columns)`, joining on equal values of
         /// same-named columns.
+        ///
+        /// `columns` is rendered as given, and `PostgreSQL` requires bare
+        /// names here: pass `SQL::ident("id")`, not a table column, which
+        /// renders qualified.
         pub fn join_using<U: PostgresTable<'a>>(
             self,
             table: U,
@@ -181,6 +185,9 @@ macro_rules! join_using_impl {
         paste! {
             /// Adds a join of the kind named by the method, with
             /// `USING (columns)`: joins on equal values of same-named columns.
+            ///
+            /// Pass bare column names, such as `SQL::ident("id")`; see
+            /// [`join_using`](Self::join_using).
             pub fn [<$type _join_using>]<U: PostgresTable<'a>>(
                 self,
                 table: U,

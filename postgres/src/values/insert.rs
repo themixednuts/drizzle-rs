@@ -1,4 +1,4 @@
-//! Insert value types for `PostgreSQL`
+//! [`PostgresInsertValue`], the field type of generated insert models.
 
 use super::{OwnedPostgresValue, PostgresValue};
 use crate::prelude::*;
@@ -31,21 +31,24 @@ impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
     }
 }
 
-/// Represents a value for INSERT operations that can be omitted, null, or a SQL expression
+/// One column of a row in an `INSERT`: omitted, `NULL`, or a value or SQL expression.
+///
+/// Generated `Insert*` models store their fields as this type. `T` is the
+/// column's Rust type, used to check what can be assigned.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum PostgresInsertValue<'a, V: SQLParam, T> {
-    /// Omit this column from the INSERT (use database default)
+    /// Leave the column out, so the database default applies.
     #[default]
     Omit,
-    /// Explicitly insert NULL
+    /// Insert `NULL`.
     Null,
-    /// Insert a SQL expression (value, placeholder, etc.)
+    /// Insert a bound value, placeholder or SQL expression.
     Value(ValueWrapper<'a, V, T>),
 }
 
 impl<'a, T> PostgresInsertValue<'a, PostgresValue<'a>, T> {
-    /// Converts this `InsertValue` to an owned version with 'static lifetime.
+    /// Converts to a `'static` value that owns all its data.
     ///
     /// The whole SQL fragment is kept: placeholders stay unbound and
     /// expressions keep their shape, with every bound value detached from its

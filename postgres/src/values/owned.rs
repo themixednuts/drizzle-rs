@@ -1,4 +1,4 @@
-//! Owned `PostgreSQL` value types for static lifetime scenarios
+//! [`OwnedPostgresValue`], a `PostgresValue` that owns its data.
 
 use super::PostgresValue;
 use crate::prelude::*;
@@ -33,7 +33,10 @@ use bit_vec::BitVec;
 #[cfg(feature = "rust-decimal")]
 use rust_decimal::Decimal;
 
-/// Owned version of `PostgresValue` that doesn't borrow data
+/// A [`PostgresValue`](super::PostgresValue) that owns its data, so it has no lifetime.
+///
+/// Use it to store values beyond the query that produced them, for example
+/// in an owned prepared statement. Convert with `From` in either direction.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum OwnedPostgresValue {
     /// SMALLINT values (16-bit signed integer)

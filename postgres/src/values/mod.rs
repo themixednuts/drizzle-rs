@@ -1,4 +1,8 @@
-//! `PostgreSQL` value conversion traits and types
+//! Values bound to and read from `PostgreSQL` queries.
+//!
+//! [`PostgresValue`] is a single parameter or column value; [`OwnedPostgresValue`]
+//! is its owned form. [`PostgresInsertValue`] and [`PostgresUpdateValue`] are
+//! the field types of the generated insert and update models.
 
 mod conversions;
 mod drivers;
@@ -53,9 +57,11 @@ use crate::traits::{FromPostgresValue, PostgresEnum};
 // PostgresValue Definition
 //------------------------------------------------------------------------------
 
-/// Represents a `PostgreSQL` value.
+/// One `PostgreSQL` value, borrowed for `'a`: a bound parameter or a decoded column.
 ///
-/// This enum provides type-safe value handling for `PostgreSQL` operations.
+/// Rust values convert into it with `From` (`42_i32.into()`), and it converts
+/// back with [`convert`](Self::convert) or `TryFrom`. Variants for optional
+/// crates (`chrono`, `uuid`, ...) exist only with the matching feature.
 ///
 /// # Examples
 ///
@@ -704,19 +710,31 @@ impl PostgresValue<'_> {
         }
     }
 
-    /// Converts this value into an owned representation.
+    /// Converts the value into an [`OwnedPostgresValue`], copying borrowed data.
     #[inline]
     #[must_use]
     pub fn into_owned(self) -> OwnedPostgresValue {
         self.into()
     }
 
-    /// Convert this `PostgreSQL` value to a Rust type using the `FromPostgresValue` trait.
+    /// Converts the value into a Rust type through [`FromPostgresValue`].
+    ///
+    /// Lossless conversions are allowed, such as `INTEGER` into `i64`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_postgres::values::PostgresValue;
+    ///
+    /// let value = PostgresValue::Integer(7);
+    /// let n: i64 = value.convert().unwrap();
+    /// assert_eq!(n, 7);
+    /// ```
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
-    /// native type does not match the target type `T`.
+    /// Returns [`DrizzleError::ConversionError`] when `T` cannot hold the
+    /// stored value, for example text that does not parse as the integer type.
     pub fn convert<T: FromPostgresValue>(self) -> Result<T, DrizzleError> {
         match self {
             PostgresValue::Boolean(value) => T::from_postgres_bool(value),
@@ -788,12 +806,13 @@ impl PostgresValue<'_> {
         }
     }
 
-    /// Convert a reference to this `PostgreSQL` value to a Rust type.
+    /// Like [`convert`](Self::convert), but borrows the value (cloning data
+    /// where `T` needs it).
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
-    /// native type does not match the target type `T`.
+    /// Returns [`DrizzleError::ConversionError`] when `T` cannot hold the
+    /// stored value.
     pub fn convert_ref<T: FromPostgresValue>(&self) -> Result<T, DrizzleError> {
         match self {
             PostgresValue::Boolean(value) => T::from_postgres_bool(*value),

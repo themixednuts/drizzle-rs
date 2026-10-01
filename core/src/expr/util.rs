@@ -1,4 +1,4 @@
-//! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
+//! Helpers: aliases (`AS`), `CAST`, `TYPEOF`, raw typed SQL and `EXCLUDED`.
 
 use crate::dialect::{DialectSupports, feature};
 use crate::dialect::{MySQLDialect, PostgresDialect, SQLiteDialect};
@@ -13,11 +13,11 @@ use crate::scope::ScopeOnly;
 // ALIAS
 // =============================================================================
 
-/// An expression aliased with `AS "name"`.
+/// An expression renamed with `AS "name"`; created by [`alias`] or
+/// [`AliasExt::alias`].
 ///
-/// Preserves the original expression's type information (`ExprValueType`,
-/// `Expr`, etc.) so that aliased columns in SELECT tuples still infer
-/// the correct row type.
+/// Keeps the inner expression's SQL type, nullability and decoded Rust type,
+/// so an aliased column in a SELECT list still decodes to the right type.
 #[derive(Clone, Copy, Debug)]
 pub struct AliasedExpr<E> {
     pub(crate) expr: E,
@@ -75,19 +75,41 @@ where
     type Marker = crate::row::SelectCols<(Self,)>;
 }
 
-/// Extension trait naming a selected expression: `.alias("name")` for a
-/// runtime name, `.named::<Tag>()` for a type-level name that derived tables
-/// can reference.
+/// Method syntax for naming a selected expression.
 ///
-/// For `SQL<'a, V>` values, the inherent `SQL::alias()` method takes
-/// precedence and returns `SQL<'a, V>` (no type preservation needed for raw SQL).
+/// - `.alias("name")` sets a name at run time ([`AliasedExpr`]).
+/// - `.named::<Tag>()` sets a name in the type ([`NamedExpr`]), so a derived
+///   table built from the query can refer to the column.
+///
+/// Implemented for every expression with a known Rust type. On raw [`SQL`],
+/// the inherent [`SQL::alias`] method is called instead and returns `SQL`.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, ToSQL, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = count(users.id).alias("user_count");
+/// assert_eq!(n.to_sql().sql(), r#"COUNT ("users"."id") AS "user_count""#);
+/// ```
+
 pub trait AliasExt: Sized {
-    /// Renders this expression as `expr AS name`.
+    /// Renames this expression: `expr AS "name"`.
     fn alias(self, name: &'static str) -> AliasedExpr<Self> {
         AliasedExpr { expr: self, name }
     }
 
-    /// Names this expression with a type-level [`crate::Tag`].
+    /// Names this expression with a type-level [`Tag`](crate::Tag), rendered
+    /// as `expr AS "<Tag::NAME>"`.
     fn named<Name: crate::Tag>(self) -> NamedExpr<Self, Name> {
         NamedExpr {
             expr: self,
@@ -98,26 +120,37 @@ pub trait AliasExt: Sized {
 
 impl<T: crate::row::ExprValueType> AliasExt for T {}
 
-/// Create an aliased expression.
+/// Renames an expression: `expr AS "name"`.
 ///
-/// # Example
+/// The result keeps the expression's SQL type, nullability and decoded Rust
+/// type. Same as [`AliasExt::alias`].
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::alias;
-///
-/// // SELECT users.first_name || users.last_name AS full_name
-/// let full_name = alias(string_concat(users.first_name, users.last_name), "full_name");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, ToSQL, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let label = alias(upper(users.name), "label");
+/// assert_eq!(label.to_sql().sql(), r#"UPPER ("users"."name") AS "label""#);
 /// ```
 pub const fn alias<E>(expr: E, name: &'static str) -> AliasedExpr<E> {
     AliasedExpr { expr, name }
 }
 
-/// An expression whose output name is represented by a type-level tag.
+/// An expression whose output name is a type-level [`Tag`](crate::Tag);
+/// created by [`AliasExt::named`].
 ///
-/// Unlike [`AliasedExpr`], this form can be projected from a derived table
-/// because the output name remains available in the expression's type.
+/// Unlike [`AliasedExpr`], the name is part of the type, so a derived table
+/// built from the query can select this column by name.
 #[derive(Clone, Copy, Debug)]
 pub struct NamedExpr<E, Name> {
     pub(crate) expr: E,
@@ -208,19 +241,26 @@ where
 
 impl DialectSupports<feature::Typeof> for SQLiteDialect {}
 
-/// Get the SQL type of an expression.
+/// The storage class of a value as text (`TYPEOF`), on SQLite.
 ///
-/// Returns the data type name as text.
+/// Returns `'null'`, `'integer'`, `'real'`, `'text'` or `'blob'`. Accepts any
+/// expression. The result is text and never NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::typeof_;
-///
-/// // SELECT TYPEOF(users.age) -- returns "integer"
-/// let age_type = typeof_(users.age);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(typeof_(users.age).sql(), r#"TYPEOF ("users"."age")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn typeof_<'a, V, E>(
@@ -241,7 +281,7 @@ where
     SQLExpr::new(SQL::func("TYPEOF", expr.into_expr_sql()))
 }
 
-/// Alias for typeof_ (uses Rust raw identifier syntax).
+/// Same as [`typeof_`], spelled with a raw identifier.
 #[allow(clippy::type_complexity)]
 pub fn r#typeof<'a, V, E>(
     expr: E,
@@ -265,8 +305,10 @@ where
 // CAST
 // =============================================================================
 
-/// Default SQL cast type name for a type marker.
+/// The SQL type name [`cast`] writes when given a type marker, such as
+/// `"INTEGER"` for SQLite's `Integer`.
 pub trait DefaultCastTypeName: DataType {
+    /// The type name used in `CAST(expr AS <name>)`.
     const CAST_TYPE_NAME: &'static str;
 }
 
@@ -429,16 +471,18 @@ impl DefaultCastTypeName for drizzle_types::mysql::types::Year {
     const CAST_TYPE_NAME: &'static str = "YEAR";
 }
 
-/// Input accepted by [`cast`].
-///
-/// You can pass:
-/// - a SQL type string (dialect-specific), or
-/// - a type marker value (uses that marker's default SQL cast name).
+/// The target argument of [`cast`]: a SQL type name such as `"VARCHAR(255)"`,
+/// or a type marker value whose [`DefaultCastTypeName`] is used.
 pub trait CastTarget<'a, T: DataType, D> {
+    /// The SQL type name to cast to.
     fn cast_type_name(self) -> &'a str;
 }
 
-/// Additional cast safety policy by dialect.
+/// Casts from `Source` to `Target` that dialect `D` allows.
+///
+/// On SQLite and PostgreSQL the two types must be compatible. On MySQL,
+/// `CAST` accepts a fixed set of targets (`SIGNED`, `DOUBLE`, `CHAR`,
+/// `DATE`, ...).
 #[diagnostic::on_unimplemented(
     message = "cannot cast `{Source}` to `{Target}` for this dialect",
     label = "cast target is incompatible with source type",
@@ -446,7 +490,8 @@ pub trait CastTarget<'a, T: DataType, D> {
 )]
 pub trait CastTypePolicy<D, Source: DataType, Target: DataType> {}
 
-/// Dialect policy for casts that may produce `NULL` from a non-NULL input.
+/// Nullability of a cast to `Self` on dialect `D`. MySQL temporal casts give
+/// NULL for invalid input, so they are nullable.
 #[doc(hidden)]
 pub trait CastNullabilityPolicy<D, Input: Nullability>: DataType {
     type Output: Nullability;
@@ -528,31 +573,40 @@ where
     }
 }
 
-/// Cast an expression to a different type.
+/// Converts an expression to another SQL type (`CAST(expr AS type)`).
 ///
-/// The target type marker specifies the result type for the type system.
-/// The cast target may be:
-/// - a SQL type string (`"INTEGER"`, `"int4"`, `"VARCHAR(255)"`), or
-/// - a type marker value (`Int`, `Text`, `drizzle::sqlite::types::Integer`, ...).
+/// The target is either a type marker value, such as
+/// `drizzle::sqlite::types::Text`, whose SQL name is used, or a SQL type
+/// name such as `"VARCHAR(255)"`. With a name, give the result type
+/// explicitly: `cast::<_, _, Text>(expr, "VARCHAR(255)")`.
 ///
-/// Preserves the aggregate marker. Nullability follows the dialect and target
-/// type because MySQL temporal casts can return `NULL` for invalid non-NULL
-/// input.
+/// On SQLite and PostgreSQL, source and target types must be compatible (see
+/// [`CastTypePolicy`]). The result has the target type and keeps the
+/// expression's aggregate kind. It keeps the expression's nullability,
+/// except for MySQL casts to temporal types, which can give NULL for invalid
+/// input and so are nullable.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::cast;
-/// use drizzle_core::types::{Int, Text};
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // Integer to SQLite REAL, using the type marker.
+/// let real = cast(users.age, Real::default());
+/// assert_eq!(real.sql(), r#"CAST ("users"."age" AS REAL)"#);
 ///
-/// // SELECT CAST(users.age AS TEXT)
-/// let age_text = cast::<_, _, Text>(users.age, Text);
-///
-/// // Explicit SQL type name (dialect-specific)
-/// let age_text = cast::<_, _, Text>(users.age, "VARCHAR(255)");
-/// let age_int = cast::<_, _, Int>(users.age, "int4");
-/// # "####;
+/// // The same with an explicit type name.
+/// let real = cast::<_, _, Real>(users.age, "DOUBLE");
+/// assert_eq!(real.sql(), r#"CAST ("users"."age" AS DOUBLE)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn cast<'a, V, E, Target>(
@@ -584,38 +638,28 @@ where
 // STRING CONCATENATION
 // =============================================================================
 
-/// Concatenate two string expressions using dialect-appropriate SQL.
+/// Joins two text values; same as [`concat`](super::concat).
 ///
-/// Requires both operands to be `Textual` (Text or `VarChar`).
-/// Nullability follows SQL concatenation rules: nullable input -> nullable output.
-/// SQLite and PostgreSQL render `left || right`; MySQL renders
-/// `CONCAT(left, right)` because `||` is logical OR under its default SQL mode.
+/// Renders `left || right` on SQLite and PostgreSQL and `CONCAT(left, right)`
+/// on MySQL. Both arguments must be text. The result is text, nullable if
+/// either argument is.
 ///
-/// # Type Safety
-///
-/// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Both are Text
-/// string_concat(users.first_name, users.last_name);
-///
-/// // ✅ OK: Text with string literal
-/// string_concat(users.first_name, " ");
-///
-/// // ❌ Compile error: Int is not Textual
-/// string_concat(users.id, users.name);
-/// # "####;
-/// ```
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::string_concat;
-///
-/// // SQLite/PostgreSQL: first_name || ' ' || last_name
-/// // MySQL: CONCAT(CONCAT(first_name, ' '), last_name)
-/// let full_name = string_concat(string_concat(users.first_name, " "), users.last_name);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let label = string_concat(users.name, "!");
+/// assert_eq!(label.sql(), r#""users"."name" || ?"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn string_concat<'a, V, L, R>(
@@ -645,24 +689,29 @@ where
 // RAW SQL Expression
 // =============================================================================
 
-/// Create a raw SQL expression with a specified type.
+/// A raw SQL fragment with a declared SQL type, typed as nullable.
 ///
-/// Use this for dialect-specific features or when the type system
-/// can't infer the correct type.
+/// The text is inserted into the query as is, so never build it from user
+/// input. The type system trusts the declared type `T` and cannot check the
+/// SQL. The result is nullable; use [`raw_non_null`] when the SQL can never be
+/// NULL.
 ///
-/// # Safety
-///
-/// This bypasses type checking. Use sparingly and only when necessary.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::raw;
-/// use drizzle_core::types::Int;
-///
-/// let expr = raw::<_, Int>("RANDOM()");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let one = raw::<Value, Int>("1");
+/// assert_eq!(eq(users.id, one).sql(), r#""users"."id" = 1"#);
 /// ```
 #[must_use]
 pub fn raw<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar, ()>
@@ -673,7 +722,8 @@ where
     SQLExpr::new(SQL::raw(sql))
 }
 
-/// Create a raw SQL expression with explicit nullable nullability.
+/// A raw SQL fragment with a declared SQL type, typed as nullable; same as
+/// [`raw`].
 #[must_use]
 pub fn raw_nullable<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar, ()>
 where
@@ -683,7 +733,28 @@ where
     SQLExpr::new(SQL::raw(sql))
 }
 
-/// Create a raw SQL expression with explicit non-null nullability.
+/// A raw SQL fragment with a declared SQL type, typed as non-null.
+///
+/// Like [`raw`], but the result is non-null. The type system trusts both the
+/// declared type `T` and the claim that the SQL is never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let now = raw_non_null::<Value, Text>("CURRENT_TIMESTAMP");
+/// assert_eq!(now.sql(), "CURRENT_TIMESTAMP");
+/// ```
 #[must_use]
 pub fn raw_non_null<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, NonNull, Scalar, ()>
 where
@@ -697,8 +768,8 @@ where
 // EXCLUDED (for ON CONFLICT DO UPDATE)
 // =============================================================================
 
-/// Wraps a column to reference its value from the proposed insert row
-/// (the EXCLUDED row in ON CONFLICT DO UPDATE SET).
+/// A column of the row that failed to insert (`EXCLUDED."column"`); created
+/// by [`excluded`].
 #[derive(Clone, Copy, Debug)]
 pub struct Excluded<C> {
     column: C,
@@ -707,19 +778,22 @@ pub struct Excluded<C> {
 impl DialectSupports<feature::Excluded> for SQLiteDialect {}
 impl DialectSupports<feature::Excluded> for PostgresDialect {}
 
-/// Reference a column's value from the proposed insert row (EXCLUDED).
+/// Refers to the value a conflicting insert tried to write (`EXCLUDED."column"`).
 ///
-/// Used in ON CONFLICT DO UPDATE SET to reference the value that would
-/// have been inserted.
+/// Use it in `ON CONFLICT ... DO UPDATE SET` to copy the new value into the
+/// existing row. The argument must be a table column. The result has the
+/// column's SQL type and nullability. Available on SQLite and PostgreSQL.
 ///
-/// # Example
+/// # Examples
+///
 /// ```rust
 /// # let _ = r####"
+/// // INSERT INTO "simple" ("id", "name") VALUES (?, ?)
+/// //   ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"
 /// db.insert(simple)
 ///     .values([InsertSimple::new("test").with_id(1)])
 ///     .on_conflict(simple.id)
 ///     .do_update(UpdateSimple::default().with_name(excluded(simple.name)));
-/// // Generates: ... ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"
 /// # "####;
 /// ```
 pub const fn excluded<C>(column: C) -> Excluded<C> {

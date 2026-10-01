@@ -1,47 +1,4 @@
-//! `PostgreSQL` JSON and JSONB operators.
-//!
-//! Access operators work on `json` and `jsonb` (operand bound: [`JsonType`]):
-//!
-//! | Operator | Function | Returns |
-//! |---|---|---|
-//! | `->` key | [`json_get`] | the field, as the input type (`json` or `jsonb`) |
-//! | `->` index | [`json_get_idx`] | the array element, as the input type |
-//! | `->>` key | [`json_get_text`] | the field as `text` |
-//! | `->>` index | [`json_get_text_idx`] | the array element as `text` |
-//! | `#>` path | [`json_get_path`] | the value at the path, as the input type |
-//! | `#>>` path | [`json_get_path_text`] | the value at the path as `text` |
-//!
-//! Access results are nullable: a missing key, index or path yields NULL.
-//!
-//! Containment and key operators exist only for `jsonb` (operand bound: [`JsonbType`]):
-//!
-//! | Operator | Function | True when |
-//! |---|---|---|
-//! | `@>` | [`jsonb_contains`] | the left value contains the right value |
-//! | `<@` | [`jsonb_contained`] | the left value is contained in the right value |
-//! | `?` | [`jsonb_exists_key`] | the key is a top-level key |
-//! | `?\|` | [`jsonb_exists_any`] | any of the keys is a top-level key |
-//! | `?&` | [`jsonb_exists_all`] | all of the keys are top-level keys |
-//!
-//! [`JsonExprExt`] offers most of these as methods.
-//! Untyped SQL (`SQL::raw`) is accepted wherever a JSON operand is expected.
-//!
-//! # Examples
-//!
-//! ```
-//! use drizzle_core::{ToSQL, expr::raw_non_null};
-//! use drizzle_postgres::expr::JsonExprExt;
-//! use drizzle_postgres::values::PostgresValue;
-//! use drizzle_types::postgres::types::Jsonb;
-//!
-//! // Stands in for a `profile jsonb NOT NULL` column.
-//! let profile = raw_non_null::<PostgresValue, Jsonb>("profile");
-//! let city = profile.json_get("address").json_get_text("city");
-//! assert_eq!(
-//!     city.to_sql().sql(),
-//!     "profile -> CAST ($1 AS TEXT) ->> CAST ($2 AS TEXT)"
-//! );
-//! ```
+//! `PostgreSQL` JSON and JSONB operators. Documented in [`crate::expr`].
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;

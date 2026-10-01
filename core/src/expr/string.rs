@@ -1411,7 +1411,10 @@ where
     ))
 }
 
-/// [`regexp_replace`] with flags (`REGEXP_REPLACE(expr, pattern, replacement, flags)`), on PostgreSQL.
+/// Replaces POSIX regular expression matches, with flags, on PostgreSQL.
+///
+/// Like [`regexp_replace`] with a fourth argument: renders
+/// `REGEXP_REPLACE(expr, pattern, replacement, flags)`.
 ///
 /// Common flags: `"g"` (every match), `"i"` (ignore case), `"gi"` (both). All
 /// arguments must be text. The result is text and keeps `expr`'s
@@ -1527,7 +1530,11 @@ where
     ))
 }
 
-/// [`regexp_match`] with flags (`REGEXP_MATCH(expr, pattern, flags)`), on PostgreSQL.
+/// Capture groups of the first POSIX regular expression match, with flags,
+/// on PostgreSQL.
+///
+/// Like [`regexp_match`] with a third argument: renders
+/// `REGEXP_MATCH(expr, pattern, flags)`.
 ///
 /// A common flag is `"i"` (ignore case). The `"g"` flag is not allowed here.
 /// All arguments must be text. The result is a nullable text array.

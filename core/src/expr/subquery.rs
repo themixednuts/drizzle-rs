@@ -1,16 +1,17 @@
-//! Typed subquery SQL-type extraction.
+//! The SQL type a subquery produces, for use in comparisons and `IN`.
 //!
-//! This module maps a `SELECT` marker to the SQL type produced by the subquery:
-//! - single-column selects map to the column SQL type
-//! - multi-column selects map to a tuple of SQL types
+//! A one-column select has that column's SQL type; a select of several
+//! columns has a tuple of their SQL types.
 
 use crate::traits::SQLParam;
 use crate::types::DataType;
 
 use super::Expr;
 
-/// Maps a select marker to the SQL type produced by that subquery.
+/// Maps a select marker (the type-level record of what a query selects) to
+/// the SQL type the query produces as a subquery.
 pub trait SubqueryType<'a, V: SQLParam> {
+    /// SQL type of the subquery: the column's type, or a tuple of types.
     type SQLType: DataType;
 }
 

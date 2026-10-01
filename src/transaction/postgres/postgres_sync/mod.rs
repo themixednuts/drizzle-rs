@@ -32,15 +32,9 @@ use crate::builder::postgres::postgres_sync::{
 #[cfg(feature = "query")]
 use drizzle_core::query::{DeserializeStore, FromJsonObject as _};
 
-/// `postgres_sync`-specific transaction builder.
-///
-/// This is a thin type alias over the dialect-shared
-/// `TransactionBuilder`; every
-/// typestate-advancing method (`.value`/`.values`/`.r#where`/`.set`/
-/// `.on_conflict`/`.returning`/`.from`/`.join`/etc.) lives on the generic
-/// struct over there. Executor methods (`.execute`/`.all`/`.rows`/`.get`)
-/// — the only parts that need `postgres::Transaction`-specific access —
-/// stay below in this module.
+/// A query being built inside a [`Transaction`]. It has the same clause
+/// methods as the connection's builder; run it with `.execute()`, `.all()`,
+/// `.get()`, or `.rows()`.
 pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
     crate::transaction::postgres::typestate::TransactionBuilder<
         'tx,
@@ -76,7 +70,7 @@ impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
 }
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
-    /// Creates a new transaction wrapper
+    /// Wraps a driver transaction that has already begun.
     pub(crate) const fn new(
         tx: PgTransaction<'conn>,
         config: TransactionConfig,
@@ -106,7 +100,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             .transaction_statement(self.client_id, tx, sql, param_types)
     }
 
-    /// Gets a reference to the schema.
+    /// Returns the schema value the database handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
@@ -127,7 +121,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         }
     }
 
-    /// Gets the configuration used to begin this transaction.
+    /// Returns the configuration this transaction was started with.
     #[inline]
     pub const fn config(&self) -> TransactionConfig {
         self.config
@@ -158,7 +152,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Ok(())
     }
 
-    /// Executes a nested savepoint within this transaction.
+    /// Runs `f` inside a savepoint nested in this transaction.
     ///
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
@@ -166,6 +160,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// The outer transaction is unaffected either way.
     ///
     /// Savepoints can be nested — each level gets its own savepoint name.
+    ///
+    /// # Examples
     ///
     /// ```no_run
     /// # use drizzle::postgres::prelude::*;

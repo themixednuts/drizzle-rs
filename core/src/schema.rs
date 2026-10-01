@@ -5,15 +5,18 @@ use core::any::Any;
 #[cfg(feature = "std")]
 use std::collections::BTreeSet;
 
-/// Trait for database enum types that can be part of a schema
+/// Schema metadata for a database enum type, such as a PostgreSQL
+/// `CREATE TYPE ... AS ENUM`.
+///
+/// The enum derive macros implement it; schemas use it to create the type.
 pub trait SQLEnumInfo: Any + Send + Sync {
-    /// The name of this enum type
+    /// The type name in the database.
     fn name(&self) -> &'static str;
 
-    /// The SQL CREATE TYPE statement for this enum
+    /// The `CREATE TYPE` statement for this enum.
     fn create_type_sql(&self) -> String;
 
-    /// All possible values of this enum
+    /// Every value of the enum, in declaration order.
     fn variants(&self) -> &'static [&'static str];
 }
 
@@ -26,17 +29,24 @@ impl core::fmt::Debug for dyn SQLEnumInfo {
     }
 }
 
-/// Sort direction for ORDER BY clauses
+/// Sort direction of an `ORDER BY` term.
+///
+/// Usually written through [`asc`] and [`desc`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OrderBy {
+    /// Ascending order (`ASC`): smallest first.
     Asc,
+    /// Descending order (`DESC`): largest first.
     Desc,
 }
 
-/// One `ORDER BY` term (`column ASC`), carrying the sources it reads.
+/// One `ORDER BY` term, such as `"users"."age" DESC`; created by [`asc`] or
+/// [`desc`].
 ///
-/// Mix terms of different columns in a tuple: `order_by((asc(a), desc(b)))`.
-/// An array or `Vec` works when every term has the same type.
+/// `S` records the tables the term reads, for the query's scope check. To
+/// order by several columns, pass a tuple of terms:
+/// `order_by((asc(a), desc(b)))`. An array or `Vec` also works when every
+/// term has the same type.
 #[derive(Debug, Clone)]
 pub struct Ordered<'a, V: SQLParam, S> {
     sql: SQL<'a, V>,
@@ -44,7 +54,7 @@ pub struct Ordered<'a, V: SQLParam, S> {
 }
 
 impl<'a, V: SQLParam, S> Ordered<'a, V, S> {
-    /// Forget which sources this term reads (see
+    /// Forgets which tables this term reads (see
     /// [`SQLExpr::unscoped`](crate::expr::SQLExpr::unscoped)).
     #[must_use]
     pub fn unscoped(self) -> Ordered<'a, V, ()> {
@@ -69,8 +79,9 @@ impl<V: SQLParam, S> crate::expr::ExprSources for Ordered<'_, V, S> {
     type Sources = S;
 }
 
-/// An `ORDER BY` term. Arrays and `Vec`s of one term type read that type's
-/// sources.
+/// A value that can be one `ORDER BY` term: an [`Ordered`] or raw [`SQL`].
+///
+/// Arrays and `Vec`s of one term type read that type's sources.
 pub trait OrderTerm: crate::expr::ExprSources {}
 
 impl<V: SQLParam, S> OrderTerm for Ordered<'_, V, S> {}
@@ -85,7 +96,34 @@ impl<T: OrderTerm> crate::expr::ExprSources for Vec<T> {
     type Sources = T::Sources;
 }
 
-/// Creates an ascending ORDER BY term: "column ASC"
+/// Sorts by an expression in ascending order (`expr ASC`).
+///
+/// Accepts a column or any other expression and returns an [`Ordered`] term
+/// for `order_by`.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// use drizzle_core::{asc, desc};
+/// # use drizzle_core::ToSQL;
+///
+/// assert_eq!(asc(users.age).to_sql().sql(), r#""users"."age" ASC"#);
+///
+/// // Several terms go in a tuple.
+/// let terms = (desc(users.score), asc(users.name));
+/// assert_eq!(terms.to_sql().sql(), r#""users"."score" DESC, "users"."name" ASC"#);
+/// ```
 pub fn asc<'a, V, T>(column: T) -> Ordered<'a, V, T::Sources>
 where
     V: SQLParam + 'a,
@@ -97,7 +135,34 @@ where
     }
 }
 
-/// Creates a descending ORDER BY term: "column DESC"
+/// Sorts by an expression in descending order (`expr DESC`).
+///
+/// Accepts a column or any other expression and returns an [`Ordered`] term
+/// for `order_by`.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// use drizzle_core::{asc, desc};
+/// # use drizzle_core::ToSQL;
+///
+/// assert_eq!(desc(users.age).to_sql().sql(), r#""users"."age" DESC"#);
+///
+/// // Several terms go in a tuple.
+/// let terms = (desc(users.score), asc(users.name));
+/// assert_eq!(terms.to_sql().sql(), r#""users"."score" DESC, "users"."name" ASC"#);
+/// ```
 pub fn desc<'a, V, T>(column: T) -> Ordered<'a, V, T::Sources>
 where
     V: SQLParam + 'a,

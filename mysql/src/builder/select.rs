@@ -175,7 +175,7 @@ impl drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> for SelectHavingS
 ///
 /// ```rust
 /// # let _ = r####"
-/// # use drizzle::core::expr::{count, eq, gt};
+/// # use drizzle::core::expr::{alias, count, eq, gt};
 /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
 /// # #[MySQLTable(NAME = "users")]
 /// # struct Users {
@@ -257,7 +257,7 @@ where
     ///
     /// ```rust
     /// # let _ = r####"
-    /// # use drizzle::core::expr::{count, eq, gt};
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
     /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
     /// # #[MySQLTable(NAME = "users")]
     /// # struct Users {
@@ -338,7 +338,7 @@ where
     ///
     /// ```rust
     /// # let _ = r####"
-    /// # use drizzle::core::expr::{count, eq, gt};
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
     /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
     /// # #[MySQLTable(NAME = "users")]
     /// # struct Users {
@@ -431,7 +431,7 @@ macro_rules! join_on_method {
         ///
         /// ```rust
         /// # let _ = r####"
-        /// # use drizzle::core::expr::{count, eq, gt};
+        /// # use drizzle::core::expr::{alias, count, eq, gt};
         /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
         /// # #[MySQLTable(NAME = "users")]
         /// # struct Users {
@@ -780,7 +780,7 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
     ///
     /// ```rust
     /// # let _ = r####"
-    /// # use drizzle::core::expr::{count, eq, gt};
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
     /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
     /// # #[MySQLTable(NAME = "users")]
     /// # struct Users {
@@ -858,7 +858,7 @@ where
     ///
     /// ```rust
     /// # let _ = r####"
-    /// # use drizzle::core::expr::{count, eq, gt};
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
     /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
     /// # #[MySQLTable(NAME = "users")]
     /// # struct Users {
@@ -929,7 +929,7 @@ where
     ///
     /// ```rust
     /// # let _ = r####"
-    /// # use drizzle::core::expr::{count, eq, gt};
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
     /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
     /// # #[MySQLTable(NAME = "users")]
     /// # struct Users {
@@ -1083,7 +1083,7 @@ macro_rules! set_operation {
         ///
         /// ```rust
         /// # let _ = r####"
-        /// # use drizzle::core::expr::{count, eq, gt};
+        /// # use drizzle::core::expr::{alias, count, eq, gt};
         /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
         /// # #[MySQLTable(NAME = "users")]
         /// # struct Users {

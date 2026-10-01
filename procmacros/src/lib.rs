@@ -1395,11 +1395,24 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// assert_eq!(
 ///     Accounts::ddl_sql(),
-///     "TODO_PG_ACCOUNTS"
+///     "CREATE TABLE \"accounts\" (\n\
+///     \t\"id\" SERIAL,\n\
+///     \t\"email\" VARCHAR(255) NOT NULL,\n\
+///     \t\"balance\" BIGINT DEFAULT 0 NOT NULL,\n\
+///     \t\"note\" TEXT,\n\
+///     \tPRIMARY KEY(\"id\"),\n\
+///     \tCONSTRAINT \"accounts_email_key\" UNIQUE(\"email\"),\n\
+///     \tCONSTRAINT \"accounts_balance_check\" CHECK (balance >= 0)\n\
+///     );"
 /// );
 /// assert_eq!(
 ///     Events::ddl_sql(),
-///     "TODO_PG_EVENTS"
+///     "CREATE TABLE \"events\" (\n\
+///     \t\"id\" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,\n\
+///     \t\"account_id\" INTEGER NOT NULL,\n\
+///     \tPRIMARY KEY(\"id\"),\n\
+///     \tCONSTRAINT \"events_account_id_fkey\" FOREIGN KEY (\"account_id\") REFERENCES \"accounts\"(\"id\") ON DELETE CASCADE\n\
+///     );"
 /// );
 ///
 /// // `id` is serial and `balance` has a default, so only `email` is required.
@@ -1510,7 +1523,7 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// );
 /// assert_eq!(
 ///     AccountIds::ddl_sql(),
-///     "TODO_PG_MVIEW"
+///     r#"CREATE MATERIALIZED VIEW "account_ids" AS SELECT "public"."accounts"."id" AS "id" FROM "public"."accounts" WITH NO DATA"#
 /// );
 /// # }
 /// # #[cfg(not(feature = "postgres"))]
@@ -1585,7 +1598,7 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// );
 /// assert_eq!(
 ///     LiveUsersIdx::ddl_sql(),
-///     "TODO_PG_IDX2"
+///     r#"CREATE INDEX CONCURRENTLY "live_users_idx" ON "public"."users"("email", "deleted_at") WHERE deleted_at IS NULL"#
 /// );
 /// # }
 /// # #[cfg(not(feature = "postgres"))]
@@ -1648,7 +1661,7 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// assert_eq!(
 ///     OwnerCanRead::ddl_sql(),
-///     "TODO_PG_POLICY"
+///     r#"CREATE POLICY "owner_can_read" ON "public"."documents" AS PERMISSIVE FOR SELECT TO PUBLIC USING (owner = current_user);"#
 /// );
 /// # }
 /// # #[cfg(not(feature = "postgres"))]

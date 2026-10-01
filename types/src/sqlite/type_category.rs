@@ -8,11 +8,10 @@ use super::SQLiteType;
 // TypeCategory - Rust type classification for code generation
 // =============================================================================
 
-/// Categorizes Rust types for consistent handling across the macro system.
+/// The kind of a Rust field type, as the `SQLite` macros see it.
 ///
-/// This enum provides a single source of truth for type detection, eliminating
-/// fragile string matching scattered across multiple files. This is used for
-/// both type inference (Rust type → `SQLite` type) and code generation.
+/// Used to infer a column's `SQLite` type from its Rust type and to generate
+/// conversion code.
 ///
 /// # Examples
 ///

@@ -1,4 +1,4 @@
-//! `SQLExpr` - A typed SQL expression wrapper.
+//! [`SQLExpr`]: SQL text paired with its SQL type, nullability and aggregate kind.
 
 use core::fmt::{self, Display};
 use core::marker::PhantomData;
@@ -10,30 +10,40 @@ use crate::types::DataType;
 
 use super::{Agg, AggregateKind, Expr, NonNull, Null, Nullability, Scalar};
 
-/// A SQL expression that carries type information.
+/// A SQL fragment together with its type information.
 ///
-/// This wrapper preserves the SQL type through operations, enabling
-/// compile-time type checking of SQL expressions.
+/// Every function in [`crate::expr`] returns an `SQLExpr`. The type
+/// parameters record what the fragment produces:
 ///
-/// # Type Parameters
+/// - `'a`: lifetime of borrowed values inside it;
+/// - `V`: the dialect's value type (`SQLiteValue`, `PostgresValue`, ...);
+/// - `T`: the SQL data type marker;
+/// - `N`: [`NonNull`] or [`Null`];
+/// - `A`: [`Scalar`] or [`Agg`];
+/// - `S`: the tables it reads (see [`crate::scope`]).
 ///
-/// - `'a`: Lifetime of borrowed data
-/// - `V`: The dialect's value type (`SQLiteValue`, `PostgresValue`)
-/// - `T`: The SQL data type marker (Int, Text, etc.)
-/// - `N`: The nullability marker (`NonNull` or Null)
-/// - `A`: The aggregation marker (Scalar or Agg)
-/// - `S`: The sources the expression reads (see [`crate::scope`])
+/// `SQLExpr` dereferences to [`SQL`], so methods such as [`SQL::sql`] work on
+/// it directly. The Rust operators `+ - * / %` and unary `-` do arithmetic on
+/// numeric expressions, and `& | !` combine boolean ones.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::{SQLExpr, NonNull, Scalar};
-/// use drizzle_core::types::Int;
-///
-/// let expr: SQLExpr<'_, SQLiteValue, Int, NonNull, Scalar> = ...;
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let total = users.age.clone() * 2 + 1;
+/// assert_eq!(total.sql(), r#""users"."age" * ? + ?"#);
 /// ```
+
 #[derive(Debug, Clone)]
 pub struct SQLExpr<
     'a,
@@ -48,7 +58,9 @@ pub struct SQLExpr<
 }
 
 impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<'a, V, T, N, A, S> {
-    /// Create a new typed expression from raw SQL.
+    /// Wraps a SQL fragment, declaring its type.
+    ///
+    /// The type parameters are trusted, not checked against the SQL.
     #[inline]
     pub const fn new(sql: SQL<'a, V>) -> Self {
         Self {
@@ -57,13 +69,13 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<
         }
     }
 
-    /// Consume the wrapper and return the inner SQL.
+    /// Returns the SQL fragment, dropping the type information.
     #[inline]
     pub fn into_sql(self) -> SQL<'a, V> {
         self.sql
     }
 
-    /// Change the nullability marker (internal use only).
+    /// Changes the nullability marker.
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn with_nullability<N2: Nullability>(self) -> SQLExpr<'a, V, T, N2, A, S> {
@@ -73,14 +85,15 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<
         }
     }
 
-    /// Mark this expression as nullable while preserving its SQL type and aggregate kind.
+    /// Marks this expression as nullable, keeping its SQL type and aggregate
+    /// kind.
     #[inline]
     #[must_use]
     pub fn nullable(self) -> SQLExpr<'a, V, T, Null, A, S> {
         self.with_nullability::<Null>()
     }
 
-    /// Change the aggregation marker (internal use only).
+    /// Changes the aggregate marker.
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn with_aggregation<A2: AggregateKind>(self) -> SQLExpr<'a, V, T, N, A2, S> {
@@ -90,7 +103,7 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<
         }
     }
 
-    /// Change the data type marker (internal use only).
+    /// Changes the SQL type marker.
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn with_type<T2: DataType>(self) -> SQLExpr<'a, V, T2, N, A, S> {
@@ -100,7 +113,7 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<
         }
     }
 
-    /// Replace the recorded sources (internal use only).
+    /// Replaces the recorded sources.
     #[inline]
     pub(crate) fn with_sources<S2>(self) -> SQLExpr<'a, V, T, N, A, S2> {
         SQLExpr {
@@ -109,7 +122,7 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> SQLExpr<
         }
     }
 
-    /// Forget which sources this expression reads.
+    /// Forgets which tables this expression reads.
     ///
     /// The result passes every scope check. Use it only for SQL that is valid
     /// in a scope the type system cannot see, such as a correlated subquery
@@ -171,34 +184,23 @@ impl<V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> super::ExprS
 // Convenience Type Aliases
 // =============================================================================
 
-/// A scalar, non-null expression.
+/// A non-null, scalar [`SQLExpr`].
 pub type ScalarExpr<'a, V, T> = SQLExpr<'a, V, T, NonNull, Scalar>;
 
-/// A scalar, nullable expression.
+/// A nullable, scalar [`SQLExpr`].
 pub type NullableExpr<'a, V, T> = SQLExpr<'a, V, T, Null, Scalar>;
 
-/// An aggregate, non-null expression.
+/// A non-null, aggregate [`SQLExpr`].
 pub type AggExpr<'a, V, T> = SQLExpr<'a, V, T, NonNull, Agg>;
 
-/// An aggregate, nullable expression.
+/// A nullable, aggregate [`SQLExpr`].
 pub type NullableAggExpr<'a, V, T> = SQLExpr<'a, V, T, Null, Agg>;
 
 // =============================================================================
 // Display Implementation
 // =============================================================================
 
-/// Display the SQL expression as a string.
-///
-/// Delegates to the inner `SQL` type's Display implementation.
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// let expr = eq(users.id, 42);
-/// println!("{}", expr);  // "users"."id" = 42
-/// # "####;
-/// ```
+/// Formats the expression like its inner [`SQL`].
 impl<V, T, N, A, S> Display for SQLExpr<'_, V, T, N, A, S>
 where
     V: SQLParam + Display,
@@ -225,17 +227,8 @@ where
 // Deref Implementation
 // =============================================================================
 
-/// Provides transparent access to inner SQL methods via Deref coercion.
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// let expr = eq(users.id, 42);
-/// // Access SQL methods directly:
-/// let sql_str = expr.to_string();
-/// # "####;
-/// ```
+/// Gives direct access to the inner [`SQL`] and its methods, such as
+/// [`SQL::sql`].
 impl<'a, V, T, N, A, S> Deref for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam,
@@ -254,17 +247,7 @@ where
 // AsRef Implementation
 // =============================================================================
 
-/// Provides reference conversion to inner SQL.
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// fn takes_sql_ref<'a, V>(sql: &SQL<'a, V>) { ... }
-/// let expr = eq(users.id, 42);
-/// takes_sql_ref(expr.as_ref());
-/// # "####;
-/// ```
+/// Borrows the inner [`SQL`].
 impl<'a, V, T, N, A, S> AsRef<SQL<'a, V>> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam,

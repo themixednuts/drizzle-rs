@@ -1,34 +1,4 @@
-//! `PostgreSQL` array operators.
-//!
-//! | Operator | Function / method | True when |
-//! |---|---|---|
-//! | `@>` | [`array_contains`] / [`ArrayExprExt::array_contains`] | the left array holds every element of the right |
-//! | `<@` | [`array_contained`] / [`ArrayExprExt::array_contained`] | every element of the left array is in the right |
-//! | `&&` | [`array_overlaps`] / [`ArrayExprExt::array_overlaps`] | the arrays share at least one element |
-//!
-//! # Operand types
-//!
-//! Both operands must be arrays, checked through [`ArrayOperand`]:
-//!
-//! - An `Array<T>` column (for example a `text[]` column) accepts an
-//!   `Array<U>` operand when `T` is [`Compatible`] with `U`.
-//! - Bind a Rust list with [`PgArray`]: `PgArray(vec!["a", "b"])` is an
-//!   `Array<Text>`. A bare `Vec` or a single value is not an array operand.
-//! - A placeholder or untyped SQL (`SQL::raw`) is accepted on either side.
-//!
-//! # Examples
-//!
-//! ```
-//! use drizzle_core::{ToSQL, expr::raw_non_null};
-//! use drizzle_postgres::expr::{ArrayExprExt, PgArray};
-//! use drizzle_postgres::values::PostgresValue;
-//! use drizzle_types::{Array, postgres::types::Text};
-//!
-//! // Stands in for a `tags text[] NOT NULL` column.
-//! let tags = raw_non_null::<PostgresValue, Array<Text>>("tags");
-//! let condition = tags.array_contains(PgArray(vec!["rust", "sql"]));
-//! assert_eq!(condition.to_sql().sql(), "tags @> $1");
-//! ```
+//! `PostgreSQL` array operators. Documented in [`crate::expr`].
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
