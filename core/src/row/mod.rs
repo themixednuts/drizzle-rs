@@ -943,17 +943,30 @@ impl<T> SameType<T> for T {}
 #[diagnostic::on_unimplemented(
     message = "selected column decodes as `{Expected}`, but the decode target uses `{Actual}`",
     label = "the decode target does not match the selected columns",
-    note = "`JoinNullable<T>` marks a column from the nullable side of a LEFT/RIGHT/FULL JOIN: \
-            decode it as `Option<T>`"
+    note = "a selected `JoinNullable<T>` comes from the nullable side of a LEFT/RIGHT/FULL JOIN \
+            and must be decoded as `Option<T>`"
 )]
 trait ColumnTypeCompatible<Row: ?Sized, Expected, Actual> {}
 
 impl<Row: ?Sized, T> ColumnTypeCompatible<Row, T, T> for () {}
 
 // A column from the nullable side of an outer join decodes only into `Option`.
-impl<Row: ?Sized, T> ColumnTypeCompatible<Row, JoinNullable<T>, Option<T>> for () {}
+// The accepted inner types live on a separate trait so a decode error lists
+// one candidate here instead of every widened variant.
+impl<Row: ?Sized, Expected, Actual>
+    ColumnTypeCompatible<Row, JoinNullable<Expected>, Option<Actual>> for ()
+where
+    (): JoinNullableCompatible<Row, Expected, Actual>,
+{
+}
 
-impl<Row: ?Sized, T> ColumnTypeCompatible<Row, JoinNullable<Option<T>>, Option<T>> for () {}
+/// Inner-type rule for [`JoinNullable`] columns: `Expected` is the column's
+/// own decoded type, `Actual` the type inside the target's `Option`.
+trait JoinNullableCompatible<Row: ?Sized, Expected, Actual> {}
+
+impl<Row: ?Sized, T> JoinNullableCompatible<Row, T, T> for () {}
+
+impl<Row: ?Sized, T> JoinNullableCompatible<Row, Option<T>, T> for () {}
 
 trait TypeListCompatible<Row: ?Sized, ActualList> {}
 
@@ -997,13 +1010,13 @@ impl_sqlite_integer_decode_compat!(
 macro_rules! impl_sqlite_join_nullable_integer_decode_compat {
     ($($actual:ty),+ $(,)?) => {
         $(
-            impl<Row> ColumnTypeCompatible<Row, JoinNullable<i64>, Option<$actual>> for ()
+            impl<Row> JoinNullableCompatible<Row, i64, $actual> for ()
             where
                 Row: SqliteDecodeRow,
             {
             }
 
-            impl<Row> ColumnTypeCompatible<Row, JoinNullable<Option<i64>>, Option<$actual>> for ()
+            impl<Row> JoinNullableCompatible<Row, Option<i64>, $actual> for ()
             where
                 Row: SqliteDecodeRow,
             {
