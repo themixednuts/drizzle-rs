@@ -30,12 +30,15 @@ help: the trait `JoinArg<'_, T>` is conditionally implemented for `(U, C)`
 note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
   --> mysql/src/builder/select.rs
    |
-   |         pub fn $name<J: helpers::JoinArg<'a, T>>(
-   |                         ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
+   |           pub fn $name<J: helpers::JoinArg<'a, T>>(
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
 ...
-   |     join_on_method!(inner_join, drizzle_core::Join::new().inner(), AfterJoin);
-   |     -------------------------------------------------------------------------
-   |     |               |
-   |     |               required by a bound in this associated function
-   |     in this macro invocation
+   | /     join_on_method!(
+   | |         inner_join,
+   | |         ---------- required by a bound in this associated function
+   | |         drizzle_core::Join::new().inner(),
+   | |         AfterJoin,
+   | |         ScopePush
+   | |     );
+   | |_____- in this macro invocation
    = note: this error originates in the macro `drizzle_core::impl_join_arg_trait` which comes from the expansion of the macro `join_on_method` (in Nightly builds, run with -Z macro-backtrace for more info)

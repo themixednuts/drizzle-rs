@@ -17,9 +17,14 @@ help: there is a method `left_join` with a similar name, but with different argu
    | |         ) -> SelectBuilder<
 ...  |
    | |             M: drizzle_core::$row_trait<R, J::JoinedTable>
-   | |                 + drizzle_core::ScopePush<J::JoinedTable>,
-   | |__________________________________________________________^
+   | |                 + drizzle_core::$scope_trait<J::JoinedTable>,
+   | |_____________________________________________________________^
 ...
-   |       join_on_method!(left_join, drizzle_core::Join::new().left(), AfterLeftJoin);
-   |       --------------------------------------------------------------------------- in this macro invocation
+   | /     join_on_method!(
+   | |         left_join,
+   | |         drizzle_core::Join::new().left(),
+   | |         AfterLeftJoin,
+   | |         ScopePushLeft
+   | |     );
+   | |_____- in this macro invocation
    = note: this error originates in the macro `join_on_method` (in Nightly builds, run with -Z macro-backtrace for more info)

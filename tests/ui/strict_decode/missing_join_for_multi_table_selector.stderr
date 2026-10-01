@@ -4,15 +4,21 @@ error[E0277]: the trait bound `Nil: ScopeContains<Post, _>` is not satisfied
 38 |     let _rows: Vec<UserPostRow> = db.select(UserPostRow::Select).from(user).all().unwrap();
    |                                                                             ^^^ the trait `ScopeContains<Post, _>` is not implemented for `Nil`
    |
-help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
+help: the following other types implement trait `ScopeContains<Table, Witness>`
   --> core/src/row/mod.rs
    |
    |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, drizzle_core::row::ScopeHere>`
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Cons<Head, Tail>` implements `ScopeContains<Head, drizzle_core::row::ScopeHere>`
    |
    | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
    | |     Tail: ScopeContains<Table, Witness>
-   | |_______________________________________^ `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+   | |_______________________________________^ `Cons<Head, Tail>` implements `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+...
+   | / impl<Table, Inner, Tail, Witness> ScopeContains<Table, ScopeOuter<Witness>>
+   | |     for Cons<OuterJoined<Inner>, Tail>
+   | | where
+   | |     Cons<Inner, Nil>: ScopeContains<Table, Witness>,
+   | |____________________________________________________^ `Cons<OuterJoined<Inner>, Tail>` implements `ScopeContains<Table, drizzle_core::row::ScopeOuter<Witness>>`
    = note: required for `Cons<User, Nil>` to implement `ScopeContains<Post, drizzle_core::row::ScopeThere<_>>`
    = note: required for `Cons<User, Nil>` to implement `drizzle_core::row::ScopeSatisfies<Cons<Post, Nil>, (drizzle_core::row::ScopeThere<_>, ())>`
    = note: 1 redundant requirement hidden

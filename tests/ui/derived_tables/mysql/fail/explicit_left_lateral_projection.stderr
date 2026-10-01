@@ -4,15 +4,21 @@ error[E0277]: the trait bound `Nil: ScopeContains<Derived<'_, _, DerivedPosts, _
 43 |         .left_join_lateral((source, eq(users.id, source_user_id)));
    |          ^^^^^^^^^^^^^^^^^ the trait `ScopeContains<Derived<'_, _, DerivedPosts, _, _>, _>` is not implemented for `Nil`
    |
-help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
+help: the following other types implement trait `ScopeContains<Table, Witness>`
   --> core/src/row/mod.rs
    |
    |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, drizzle_core::row::ScopeHere>`
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Cons<Head, Tail>` implements `ScopeContains<Head, drizzle_core::row::ScopeHere>`
    |
    | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
    | |     Tail: ScopeContains<Table, Witness>
-   | |_______________________________________^ `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+   | |_______________________________________^ `Cons<Head, Tail>` implements `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+...
+   | / impl<Table, Inner, Tail, Witness> ScopeContains<Table, ScopeOuter<Witness>>
+   | |     for Cons<OuterJoined<Inner>, Tail>
+   | | where
+   | |     Cons<Inner, Nil>: ScopeContains<Table, Witness>,
+   | |____________________________________________________^ `Cons<OuterJoined<Inner>, Tail>` implements `ScopeContains<Table, drizzle_core::row::ScopeOuter<Witness>>`
    = note: required for `Cons<Users, Nil>` to implement `ScopeContains<Derived<'_, _, DerivedPosts, _, _>, drizzle_core::row::ScopeThere<_>>`
    = note: required for `DerivedField<DerivedPosts, UserId>` to implement `drizzle_core::row::ColumnInScope<Cons<Users, Nil>, (Derived<'_, _, DerivedPosts, _, _>, drizzle_core::row::ScopeThere<_>)>`
    = note: required for `Cons<DerivedField<DerivedPosts, UserId>, Nil>` to implement `drizzle_core::row::ColumnsInScope<Cons<Users, Nil>, ((Derived<'_, _, DerivedPosts, _, _>, drizzle_core::row::ScopeThere<_>), ())>`

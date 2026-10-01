@@ -6,15 +6,21 @@ error[E0277]: the trait bound `Nil: ScopeContains<Id, _>` is not satisfied
    |                   |
    |                   required by a bound introduced by this call
    |
-help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
+help: the following other types implement trait `ScopeContains<Table, Witness>`
   --> core/src/row/mod.rs
    |
    |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, drizzle_core::row::ScopeHere>`
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Cons<Head, Tail>` implements `ScopeContains<Head, drizzle_core::row::ScopeHere>`
    |
    | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
    | |     Tail: ScopeContains<Table, Witness>
-   | |_______________________________________^ `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+   | |_______________________________________^ `Cons<Head, Tail>` implements `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
+...
+   | / impl<Table, Inner, Tail, Witness> ScopeContains<Table, ScopeOuter<Witness>>
+   | |     for Cons<OuterJoined<Inner>, Tail>
+   | | where
+   | |     Cons<Inner, Nil>: ScopeContains<Table, Witness>,
+   | |____________________________________________________^ `Cons<OuterJoined<Inner>, Tail>` implements `ScopeContains<Table, drizzle_core::row::ScopeOuter<Witness>>`
    = note: required for `Cons<Name, Nil>` to implement `ScopeContains<Id, drizzle_core::row::ScopeThere<_>>`
    = note: required for `Scoped<SelectCols<(Name,)>, Cons<Users, Nil>>` to implement `helpers::set_order_private::ProjectionAllows<'_, Id, Users, drizzle_core::row::ScopeThere<_>>`
    = note: required for `Cons<Id, Nil>` to implement `helpers::set_order_private::ProjectionListAllowed<'_, Scoped<SelectCols<(Name,)>, Cons<Users, Nil>>, Users, (drizzle_core::row::ScopeThere<_>, ())>`

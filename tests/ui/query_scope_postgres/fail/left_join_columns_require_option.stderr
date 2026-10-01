@@ -5,31 +5,10 @@ error[E0277]: selected column decodes as `drizzle::core::JoinNullable<std::strin
    |                                                                           ^^^ the decode target does not match the selected columns
    |
    = help: the trait `drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::string::String>, std::string::String>` is not implemented for `()`
-   = note: `JoinNullable<T>` marks a column from the nullable side of a LEFT/RIGHT/FULL JOIN: decode it as `Option<T>`
+   = note: a selected `JoinNullable<T>` comes from the nullable side of a LEFT/RIGHT/FULL JOIN and must be decoded as `Option<T>`
    = help: `()` implements trait `drizzle_core::row::ColumnTypeCompatible<Row, Expected, Actual>`:
              drizzle_core::row::ColumnTypeCompatible<Row, T, T>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<T>, std::option::Option<T>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<bool>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<i16>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<i32>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<i8>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<isize>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<u16>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<u32>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<u64>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<u8>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<i64>, std::option::Option<usize>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<T>>, std::option::Option<T>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<bool>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<i16>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<i32>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<i8>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<isize>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<u16>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<u32>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<u64>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<u8>>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<std::option::Option<i64>>, std::option::Option<usize>>
+             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<Expected>, std::option::Option<Actual>>
              drizzle_core::row::ColumnTypeCompatible<Row, i64, bool>
              drizzle_core::row::ColumnTypeCompatible<Row, i64, i16>
              drizzle_core::row::ColumnTypeCompatible<Row, i64, i32>

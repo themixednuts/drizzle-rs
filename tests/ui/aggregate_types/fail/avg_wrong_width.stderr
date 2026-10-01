@@ -11,15 +11,13 @@ note: expected this to be `Cons<std::option::Option<f64>, Nil>`
    |          ^^^^^^^^^^^^^
    = note: expected struct `Cons<std::option::Option<f64>, Nil>`
               found struct `Cons<std::option::Option<f32>, Nil>`
-   = note: required for `SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Real, drizzle::core::expr::Null, Agg>>,)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (std::option::Option<f64>,), AvgRow>`
-   = note: 1 redundant requirement hidden
-   = note: required for `Scoped<SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Real, drizzle::core::expr::Null, Agg>>,)>, Cons<User, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (std::option::Option<f64>,), AvgRow>`
+   = note: required for `Scoped<SelectCols<(AliasedExpr<SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Real, drizzle::core::expr::Null, Agg>>,)>, Cons<User, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (std::option::Option<f64>,), AvgRow, (drizzle_core::row::WrappedScope<drizzle::core::OpaqueScope>, ())>`
 note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, drizzle::sqlite::builder::QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
    |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
    |            --- required by a bound in this associated function
 ...
-   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
    = note: this error originates in the derive macro `SQLiteFromRow` (in Nightly builds, run with -Z macro-backtrace for more info)
