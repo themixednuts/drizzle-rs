@@ -251,6 +251,12 @@ jobs:
   # ~313 min padded, ~260 min at measured rates. The saturation jobs are
   # unchanged in method (2 trials, unpaced ramp) and now cover every family the
   # OS can host, PostgreSQL included.
+  #
+  # Every step after a job's first family carries `if: !cancelled()`. Without
+  # it one failing family skipped every family after it in the same job, which
+  # is how a PostgreSQL seed failure silently removed PostgreSQL TS, the Rust
+  # ORMs and SpacetimeDB from both release rankings. The job still ends red;
+  # it just measures everything it can on the way there.
   # ---------------------------------------------------------------------------
   paced-linux-embedded:
     name: Paced embedded (linux)
@@ -302,6 +308,7 @@ jobs:
       # No database service: both targets seed their own file-backed temp
       # database via `bench-runner seed-sqlite` before announcing LISTENING.
       - name: Benchmark SQLite TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: sqlite-ts
@@ -313,6 +320,7 @@ jobs:
           trials: ${{ needs.plan.outputs.paced_trials }}
 
       - name: Benchmark Turso family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: turso
@@ -371,9 +379,11 @@ jobs:
       # SpacetimeDB's daemon starts after libsql has finished measuring, so it
       # is not sitting resident underneath another family's run.
       - name: Install SpacetimeDB CLI
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/install-spacetime
 
       - name: Start SpacetimeDB
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           rm -rf "$HOME/.local/share/spacetime/data" "$HOME/.config/spacetime"
@@ -396,12 +406,14 @@ jobs:
           done
 
       - name: Build and publish SpacetimeDB module
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           spacetime build -p bench/targets/spacetime-module
           spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
 
       - name: Extract SpacetimeDB identity token
+        if: ${{ !cancelled() }}
         id: spacetime-token
         shell: bash
         run: |
@@ -420,6 +432,7 @@ jobs:
           echo "SPACETIME_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: Benchmark SpacetimeDB family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: spacetimedb
@@ -509,6 +522,7 @@ jobs:
           db-cpuset: '3'
 
       - name: Benchmark PostgreSQL TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-ts
@@ -522,6 +536,7 @@ jobs:
           db-cpuset: '3'
 
       - name: Benchmark PostgreSQL Rust ORM family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-rust-orms
@@ -602,6 +617,7 @@ jobs:
           trials: ${{ needs.plan.outputs.paced_trials }}
 
       - name: Benchmark SQLite TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: sqlite-ts
@@ -614,6 +630,7 @@ jobs:
           trials: ${{ needs.plan.outputs.paced_trials }}
 
       - name: Benchmark Turso family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: turso
@@ -631,9 +648,11 @@ jobs:
       # else on these platforms (Linux pins it with taskset; there is no
       # equivalent here and the topology block says so by carrying null).
       - name: Install SpacetimeDB CLI
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/install-spacetime
 
       - name: Start SpacetimeDB
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -655,12 +674,14 @@ jobs:
           spacetime server ping http://127.0.0.1:3000
 
       - name: Build and publish SpacetimeDB module
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           spacetime build -p bench/targets/spacetime-module
           spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
 
       - name: Extract SpacetimeDB identity token
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           config="$HOME/.config/spacetime/cli.toml"
@@ -681,6 +702,7 @@ jobs:
           echo "SPACETIME_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: Benchmark SpacetimeDB family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: spacetimedb
@@ -759,6 +781,7 @@ jobs:
           database-url: ${{ steps.pgnative.outputs.url }}
 
       - name: Benchmark PostgreSQL TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-ts
@@ -772,6 +795,7 @@ jobs:
           database-url: ${{ steps.pgnative.outputs.url }}
 
       - name: Benchmark PostgreSQL Rust ORM family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-rust-orms
@@ -920,6 +944,7 @@ jobs:
           runner-features: libsql
 
       - name: Benchmark SQLite TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: sqlite-ts
@@ -933,6 +958,7 @@ jobs:
           runner-features: libsql
 
       - name: Benchmark libSQL family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: libsql
@@ -946,6 +972,7 @@ jobs:
           runner-features: libsql
 
       - name: Benchmark Turso family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: turso
@@ -960,6 +987,7 @@ jobs:
           prebuild-manifests: bench/targets/toasty/Cargo.toml
 
       - name: Benchmark PostgreSQL family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres
@@ -975,6 +1003,7 @@ jobs:
           db-cpuset: '3'
 
       - name: Benchmark PostgreSQL Rust ORM family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-rust-orms
@@ -993,6 +1022,7 @@ jobs:
             bench/targets/toasty/Cargo.toml
 
       - name: Benchmark PostgreSQL TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-ts
@@ -1008,12 +1038,14 @@ jobs:
           db-cpuset: '3'
 
       - name: Install SpacetimeDB CLI
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/install-spacetime
 
       # Started last and pinned to the same core the PostgreSQL service owns.
       # PostgreSQL is idle by this point, and both are the out-of-process engine
       # for their own family, so the two never contend.
       - name: Start SpacetimeDB
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           rm -rf "$HOME/.local/share/spacetime/data" "$HOME/.config/spacetime"
@@ -1036,12 +1068,14 @@ jobs:
           done
 
       - name: Build and publish SpacetimeDB module
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           spacetime build -p bench/targets/spacetime-module
           spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
 
       - name: Extract SpacetimeDB identity token
+        if: ${{ !cancelled() }}
         id: spacetime-token
         shell: bash
         run: |
@@ -1060,6 +1094,7 @@ jobs:
           echo "SPACETIME_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: Benchmark SpacetimeDB family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: spacetimedb
@@ -1151,6 +1186,7 @@ jobs:
           trials: ${{ needs.plan.outputs.cross_trials }}
 
       - name: Benchmark SQLite TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: sqlite-ts
@@ -1164,6 +1200,7 @@ jobs:
           trials: ${{ needs.plan.outputs.cross_trials }}
 
       - name: Benchmark Turso family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: turso
@@ -1178,10 +1215,12 @@ jobs:
           prebuild-manifests: bench/targets/toasty/Cargo.toml
 
       - name: Set up PostgreSQL 18
+        if: ${{ !cancelled() }}
         id: pgnative
         uses: ./.github/actions/setup-postgres-native
 
       - name: Benchmark PostgreSQL family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres
@@ -1196,6 +1235,7 @@ jobs:
           database-url: ${{ steps.pgnative.outputs.url }}
 
       - name: Benchmark PostgreSQL TS family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-ts
@@ -1210,6 +1250,7 @@ jobs:
           database-url: ${{ steps.pgnative.outputs.url }}
 
       - name: Benchmark PostgreSQL Rust ORM family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: postgres-rust-orms
@@ -1227,9 +1268,11 @@ jobs:
             bench/targets/toasty/Cargo.toml
 
       - name: Install SpacetimeDB CLI
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/install-spacetime
 
       - name: Start SpacetimeDB
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -1251,12 +1294,14 @@ jobs:
           spacetime server ping http://127.0.0.1:3000
 
       - name: Build and publish SpacetimeDB module
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           spacetime build -p bench/targets/spacetime-module
           spacetime publish bench-module -p bench/targets/spacetime-module --server http://127.0.0.1:3000
 
       - name: Extract SpacetimeDB identity token
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           config="$HOME/.config/spacetime/cli.toml"
@@ -1277,6 +1322,7 @@ jobs:
           echo "SPACETIME_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: Benchmark SpacetimeDB family
+        if: ${{ !cancelled() }}
         uses: ./.github/actions/bench-runner-run
         with:
           family: spacetimedb
@@ -1293,7 +1339,7 @@ jobs:
   dashboard-preview:
     name: Dashboard preview data
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     needs:
       - plan
       - paced-linux-embedded
@@ -1436,12 +1482,17 @@ jobs:
             return 1
           }
 
+          # Eight puts in flight. Each `wrangler r2 object put` is a fresh
+          # Node process plus one request, about two seconds, and a release
+          # store is well over a thousand objects: published one at a time it
+          # ran past this job's timeout and got cancelled mid-upload, so the
+          # v0.2.1 numbers never reached the bucket.
+          export -f put_object
+          export wrangler R2_BUCKET
           failed=0
-          while read -r file; do
-            key="${file#bench-out/dashboard-data/}"
-            [[ "$key" == "index.json" ]] && continue
-            put_object "$key" "$file" || failed=1
-          done < <(find bench-out/dashboard-data -type f | sort)
+          find bench-out/dashboard-data -type f ! -path bench-out/dashboard-data/index.json -print0 | sort -z \
+            | xargs -0 -P 8 -I{} bash -c 'f="$1"; put_object "${f#bench-out/dashboard-data/}" "$f"' _ {} \
+            || failed=1
 
           if (( failed )); then
             echo "::error::one or more objects failed to publish; index.json withheld"
