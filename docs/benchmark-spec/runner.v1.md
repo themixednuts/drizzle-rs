@@ -708,7 +708,8 @@ should be labelled as such wherever it is shown.
    No-op on other platforms. CI sets both on every Linux job — see §13.
 4. `headroom.cpu_peak` is the peak single-core utilisation;
    `headroom.cpu_mean_peak` is the peak of the mean across cores and is what the
-   publish gate compares.
+   publish gate compares. Both read steady-state buckets only, the same ones as
+   `primary.cpu.peak`: a target's warmup is cold start, not host load.
 
 ## 7. Stdout/Stderr
 

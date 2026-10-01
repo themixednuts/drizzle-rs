@@ -2676,15 +2676,17 @@ fn harness_summary(block: &HarnessDoc) -> String {
 /// single-core utilization"), but the gate compares `cpu_mean_peak`: on a
 /// 16-core runner one saturated core reads 100% while 15 sit idle, which says
 /// nothing about whether the box had headroom.
+///
+/// Both read the same steady-state buckets as `primary.cpu.peak`: a target's
+/// cold start (JIT tiers, pool fill, the warmup window) is not load the host
+/// failed to absorb, and an enforced `limits.cpu_mean_peak` must not trip on it.
 fn compute_headroom(measurements: &BTreeMap<String, Vec<TrialMeasurement>>) -> Headroom {
     let mut cpu_peak: f64 = 0.0;
     let mut cpu_mean_peak: f64 = 0.0;
     for target_measurements in measurements.values() {
-        for measurement in target_measurements {
-            for point in &measurement.series {
-                cpu_peak = cpu_peak.max(peak(&point.cpu));
-                cpu_mean_peak = cpu_mean_peak.max(avg(&point.cpu));
-            }
+        for point in hold_points(target_measurements) {
+            cpu_peak = cpu_peak.max(peak(&point.cpu));
+            cpu_mean_peak = cpu_mean_peak.max(avg(&point.cpu));
         }
     }
     Headroom {
@@ -3241,8 +3243,9 @@ fn validate_saturation(workload: &Workload) -> Result<(), Fail> {
         if higher <= lower {
             return Err(invalid(format!(
                 "workload.saturation steps must climb in concurrency, but a step at \
-                 {higher} VUs follows one at {lower}. The curve is read left to right \
-                 and the peak is the highest qualifying step."
+                 {higher} VUs follows one at {lower}. The curve is read left to right: \
+                 whether it turned over is judged against the steps after its fastest \
+                 qualifying one."
             )));
         }
     }
@@ -3256,9 +3259,10 @@ fn validate_saturation(workload: &Workload) -> Result<(), Fail> {
 /// paced ramp is exactly where the whole-run aggregate is most misleading).
 /// Two things it cannot tolerate: a ladder with fewer than two steps — the
 /// floor is the reference other steps are judged against, so it cannot
-/// corroborate itself — and a ladder that dips: the reading point is the last
-/// step of the contiguous sustained prefix, which only names a load level when
-/// concurrency climbs left to right.
+/// corroborate itself — and a ladder that dips: every rung's offered load is
+/// the floor's per-VU rate scaled by its concurrency, and the published figure
+/// is read at the second rung, which is only "the same load for every target,
+/// above the floor" when concurrency climbs left to right.
 fn validate_latency(workload: &Workload) -> Result<(), Fail> {
     if workload.latency.is_none() {
         return Ok(());
@@ -3280,9 +3284,9 @@ fn validate_latency(workload: &Workload) -> Result<(), Fail> {
         if higher <= lower {
             return Err(invalid(format!(
                 "workload.latency steps must climb in concurrency, but a step at \
-                 {higher} VUs follows one at {lower}. The published figure is the \
-                 highest step the target sustained, which is only a load level when \
-                 the ladder ascends."
+                 {higher} VUs follows one at {lower}. The published figure is read \
+                 at the second rung and judged against the floor below it, which \
+                 only works when the ladder ascends."
             )));
         }
     }
@@ -3716,6 +3720,27 @@ mod tests {
         let headroom = compute_headroom(&measurements);
         assert_eq!(headroom.cpu_peak, 100.0);
         assert_eq!(headroom.cpu_mean_peak, Some(25.0));
+    }
+
+    /// The warmup window is a target's cold start, not host load: it must not
+    /// set the headroom numbers any more than it sets `primary.cpu.peak`.
+    #[test]
+    fn headroom_ignores_warmup_buckets() {
+        let mut hold = point(100.0, 0.0);
+        hold.phase = Some(Phase::Hold);
+        hold.cpu = vec![40.0, 20.0];
+        let mut warm = point(10.0, 0.0);
+        warm.phase = Some(Phase::Warmup);
+        warm.cpu = vec![100.0, 100.0];
+        let mut measurements = BTreeMap::new();
+        measurements.insert(
+            "t".to_string(),
+            vec![TrialMeasurement::new(point(100.0, 30.0), vec![warm, hold])],
+        );
+
+        let headroom = compute_headroom(&measurements);
+        assert_eq!(headroom.cpu_peak, 40.0);
+        assert_eq!(headroom.cpu_mean_peak, Some(30.0));
     }
 
     /// A saturation workload must be able to produce the number it claims, so
