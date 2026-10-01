@@ -1,8 +1,8 @@
-import { version } from '$app/env';
-import { parseTheme, THEME_COOKIE, type ThemePreference } from '#lib/theme';
+import { version } from "$app/env";
+import { parseTheme, THEME_COOKIE, type ThemePreference } from "#lib/theme";
 // `Handle` moved to `@sveltejs/kit/hooks` in Kit 3; `RequestEvent` stays on the root export.
-import type { Handle } from '@sveltejs/kit/hooks';
-import type { RequestEvent } from '@sveltejs/kit';
+import type { Handle } from "@sveltejs/kit/hooks";
+import type { RequestEvent } from "@sveltejs/kit";
 
 /**
  * Edge page cache built on the Workers Cache API (`caches.default`).
@@ -16,13 +16,13 @@ import type { RequestEvent } from '@sveltejs/kit';
 
 /** How long a stored entry stays fresh at the edge, and which query params vary it. */
 interface CachePolicy {
-	/** Seconds. Written onto the stored copy as `s-maxage`, which is what the Cache API honours. */
-	ttl: number;
-	/**
-	 * Query parameters that genuinely change the rendered output. Everything else is dropped from
-	 * the cache key, so `?utm_source=...` or any other junk cannot mint unbounded cache entries.
-	 */
-	params: readonly string[];
+  /** Seconds. Written onto the stored copy as `s-maxage`, which is what the Cache API honours. */
+  ttl: number;
+  /**
+   * Query parameters that genuinely change the rendered output. Everything else is dropped from
+   * the cache key, so `?utm_source=...` or any other junk cannot mint unbounded cache entries.
+   */
+  params: readonly string[];
 }
 
 const FIVE_MINUTES = 300;
@@ -42,31 +42,34 @@ const ONE_YEAR = 31_536_000;
  * an arbitrary path segment opt itself in.
  */
 const POLICIES: Record<string, CachePolicy> = {
-	'/': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'db', 'sort'] },
-	'/runs': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'q'] },
-	'/runs/[run_id]': { ttl: ONE_YEAR, params: ['metric'] },
-	'/runs/trends': { ttl: FIVE_MINUTES, params: ['suite', 'target'] },
-	'/runs/compare': { ttl: FIVE_MINUTES, params: ['cohort', 'metric'] },
-	'/runs/machines': { ttl: FIVE_MINUTES, params: ['suite'] },
-	'/methodology': { ttl: FIVE_MINUTES, params: [] },
-	// The JSON API already advertises `max-age=300` to shared caches; the edge TTL matches it.
-	'/api/v1/runs/latest': { ttl: FIVE_MINUTES, params: ['suite'] },
-	'/api/v1/runs/[run_id]/manifest': { ttl: FIVE_MINUTES, params: [] },
-	'/api/v1/runs/[run_id]/summary': { ttl: FIVE_MINUTES, params: ['targets'] },
-	'/api/v1/runs/[run_id]/timeseries': { ttl: FIVE_MINUTES, params: ['targets', 'from', 'to'] },
-	'/api/v1/compare': { ttl: FIVE_MINUTES, params: ['base', 'head', 'metric'] },
+  "/": { ttl: FIVE_MINUTES, params: ["suite", "status", "db", "os", "sort"] },
+  "/runs": { ttl: FIVE_MINUTES, params: ["suite", "status", "q"] },
+  "/runs/[run_id]": { ttl: ONE_YEAR, params: ["metric"] },
+  "/runs/trends": { ttl: FIVE_MINUTES, params: ["suite", "target"] },
+  "/runs/compare": { ttl: FIVE_MINUTES, params: ["cohort", "metric"] },
+  "/runs/machines": { ttl: FIVE_MINUTES, params: ["suite"] },
+  "/methodology": { ttl: FIVE_MINUTES, params: [] },
+  // The JSON API already advertises `max-age=300` to shared caches; the edge TTL matches it.
+  "/api/v1/runs/latest": { ttl: FIVE_MINUTES, params: ["suite"] },
+  "/api/v1/runs/[run_id]/manifest": { ttl: FIVE_MINUTES, params: [] },
+  "/api/v1/runs/[run_id]/summary": { ttl: FIVE_MINUTES, params: ["targets"] },
+  "/api/v1/runs/[run_id]/timeseries": {
+    ttl: FIVE_MINUTES,
+    params: ["targets", "from", "to"],
+  },
+  "/api/v1/compare": { ttl: FIVE_MINUTES, params: ["base", "head", "metric"] },
 };
 
 /** Values of the `x-cache` response header, which exists so this is observable from outside. */
-type CacheStatus = 'hit' | 'miss' | 'bypass';
+type CacheStatus = "hit" | "miss" | "bypass";
 
-const CACHEABLE_METHODS = new Set(['GET', 'HEAD']);
+const CACHEABLE_METHODS = new Set(["GET", "HEAD"]);
 
 interface Caller {
-	/** True when anything about this request could make the response visitor-specific. */
-	credentialed: boolean;
-	/** Theme the response will be rendered in; a dimension of the cache key. */
-	theme: ThemePreference;
+  /** True when anything about this request could make the response visitor-specific. */
+  credentialed: boolean;
+  /** Theme the response will be rendered in; a dimension of the cache key. */
+  theme: ThemePreference;
 }
 
 /**
@@ -83,21 +86,22 @@ interface Caller {
  * The name match is exact. A cookie called `theme2` or `mytheme` counts as "some other cookie".
  */
 function inspectCaller(request: Request): Caller {
-	if (request.headers.has('authorization')) return { credentialed: true, theme: 'system' };
+  if (request.headers.has("authorization"))
+    return { credentialed: true, theme: "system" };
 
-	const header = request.headers.get('cookie');
-	if (!header) return { credentialed: false, theme: 'system' };
+  const header = request.headers.get("cookie");
+  if (!header) return { credentialed: false, theme: "system" };
 
-	let theme: ThemePreference = 'system';
-	for (const pair of header.split(';')) {
-		const separator = pair.indexOf('=');
-		const name = (separator === -1 ? pair : pair.slice(0, separator)).trim();
-		if (name === '') continue;
-		if (name !== THEME_COOKIE) return { credentialed: true, theme: 'system' };
-		theme = parseTheme(decodeURIComponent(pair.slice(separator + 1).trim()));
-	}
+  let theme: ThemePreference = "system";
+  for (const pair of header.split(";")) {
+    const separator = pair.indexOf("=");
+    const name = (separator === -1 ? pair : pair.slice(0, separator)).trim();
+    if (name === "") continue;
+    if (name !== THEME_COOKIE) return { credentialed: true, theme: "system" };
+    theme = parseTheme(decodeURIComponent(pair.slice(separator + 1).trim()));
+  }
 
-	return { credentialed: false, theme };
+  return { credentialed: false, theme };
 }
 
 /**
@@ -108,17 +112,24 @@ function inspectCaller(request: Request): Caller {
  * is what makes every deploy start cold, which is the whole invalidation story: there is no purge
  * API because nothing in the app ever needed to invalidate a single entry.
  */
-function cacheKey(url: URL, policy: CachePolicy, theme: ThemePreference): Request {
-	const key = new URL(`/__page-cache/${version}/${theme}${url.pathname}`, url.origin);
+function cacheKey(
+  url: URL,
+  policy: CachePolicy,
+  theme: ThemePreference,
+): Request {
+  const key = new URL(
+    `/__page-cache/${version}/${theme}${url.pathname}`,
+    url.origin,
+  );
 
-	for (const name of [...policy.params].sort()) {
-		for (const value of url.searchParams.getAll(name).sort()) {
-			key.searchParams.append(name, value);
-		}
-	}
+  for (const name of [...policy.params].sort()) {
+    for (const value of url.searchParams.getAll(name).sort()) {
+      key.searchParams.append(name, value);
+    }
+  }
 
-	// Always a GET, so a HEAD and a GET for the same page share one entry.
-	return new Request(key, { method: 'GET' });
+  // Always a GET, so a HEAD and a GET for the same page share one entry.
+  return new Request(key, { method: "GET" });
 }
 
 /**
@@ -129,14 +140,14 @@ function cacheKey(url: URL, policy: CachePolicy, theme: ThemePreference): Reques
  * the DOM lib is what wins for the global here.
  */
 function openCache(event: RequestEvent): Cache | undefined {
-	try {
-		const storage =
-			event.platform?.caches ??
-			(globalThis.caches as (CacheStorage & { default?: Cache }) | undefined);
-		return storage?.default;
-	} catch {
-		return undefined;
-	}
+  try {
+    const storage =
+      event.platform?.caches ??
+      (globalThis.caches as (CacheStorage & { default?: Cache }) | undefined);
+    return storage?.default;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -147,11 +158,11 @@ function openCache(event: RequestEvent): Cache | undefined {
  * the renderer considered this response visitor-specific, and we take it at its word.
  */
 function isStorable(response: Response): boolean {
-	if (response.status !== 200) return false;
-	if (response.headers.has('set-cookie')) return false;
+  if (response.status !== 200) return false;
+  if (response.headers.has("set-cookie")) return false;
 
-	const control = response.headers.get('cache-control')?.toLowerCase() ?? '';
-	return !control.includes('private') && !control.includes('no-store');
+  const control = response.headers.get("cache-control")?.toLowerCase() ?? "";
+  return !control.includes("private") && !control.includes("no-store");
 }
 
 /**
@@ -169,95 +180,99 @@ function isStorable(response: Response): boolean {
  * revalidates against the ETag. Routes that set their own directive keep it untouched, which
  * preserves the JSON API's deliberate `public, max-age=300` contract for its consumers.
  */
-function forClient(response: Response, status: CacheStatus, method: string): Response {
-	// A cached Response has immutable headers, so copy it before annotating. HEAD must not carry a
-	// body even though the entry it shares with GET has one.
-	const out = new Response(method === 'HEAD' ? null : response.body, response);
+function forClient(
+  response: Response,
+  status: CacheStatus,
+  method: string,
+): Response {
+  // A cached Response has immutable headers, so copy it before annotating. HEAD must not carry a
+  // body even though the entry it shares with GET has one.
+  const out = new Response(method === "HEAD" ? null : response.body, response);
 
-	if (status === 'hit') {
-		// Strip only the `s-maxage` this hook appended when storing. Whatever directive the route
-		// set for itself survives, so the JSON API still tells its consumers `public, max-age=300`.
-		const remaining = (out.headers.get('cache-control') ?? '')
-			.split(',')
-			.map((directive) => directive.trim())
-			.filter((directive) => directive !== '' && !/^s-maxage=/i.test(directive))
-			.join(', ');
+  if (status === "hit") {
+    // Strip only the `s-maxage` this hook appended when storing. Whatever directive the route
+    // set for itself survives, so the JSON API still tells its consumers `public, max-age=300`.
+    const remaining = (out.headers.get("cache-control") ?? "")
+      .split(",")
+      .map((directive) => directive.trim())
+      .filter((directive) => directive !== "" && !/^s-maxage=/i.test(directive))
+      .join(", ");
 
-		if (remaining) out.headers.set('cache-control', remaining);
-		else out.headers.delete('cache-control');
-	}
+    if (remaining) out.headers.set("cache-control", remaining);
+    else out.headers.delete("cache-control");
+  }
 
-	if (!out.headers.has('cache-control')) {
-		out.headers.set('cache-control', 'private, no-cache');
-	}
+  if (!out.headers.has("cache-control")) {
+    out.headers.set("cache-control", "private, no-cache");
+  }
 
-	out.headers.set('x-cache', status);
-	return out;
+  out.headers.set("x-cache", status);
+  return out;
 }
 
 function run(promise: Promise<unknown>, event: RequestEvent): void {
-	const settled = promise.catch(() => {
-		// A cache write is best-effort. Oversized bodies, an evicted colo, or a runtime without a
-		// real Cache API must never turn into a failed request.
-	});
-	const ctx = event.platform?.ctx;
-	if (ctx) ctx.waitUntil(settled);
+  const settled = promise.catch(() => {
+    // A cache write is best-effort. Oversized bodies, an evicted colo, or a runtime without a
+    // real Cache API must never turn into a failed request.
+  });
+  const ctx = event.platform?.ctx;
+  if (ctx) ctx.waitUntil(settled);
 }
 
 export const pageCache: Handle = async ({ event, resolve }) => {
-	const policy = event.route.id ? POLICIES[event.route.id] : undefined;
-	const cache = openCache(event);
-	const caller = inspectCaller(event.request);
+  const policy = event.route.id ? POLICIES[event.route.id] : undefined;
+  const cache = openCache(event);
+  const caller = inspectCaller(event.request);
 
-	const eligible =
-		policy !== undefined &&
-		cache !== undefined &&
-		CACHEABLE_METHODS.has(event.request.method) &&
-		!caller.credentialed;
+  const eligible =
+    policy !== undefined &&
+    cache !== undefined &&
+    CACHEABLE_METHODS.has(event.request.method) &&
+    !caller.credentialed;
 
-	if (!policy || !cache || !eligible) {
-		return forClient(await resolve(event), 'bypass', event.request.method);
-	}
+  if (!policy || !cache || !eligible) {
+    return forClient(await resolve(event), "bypass", event.request.method);
+  }
 
-	const key = cacheKey(event.url, policy, caller.theme);
+  const key = cacheKey(event.url, policy, caller.theme);
 
-	const hit = await cache.match(key).catch(() => undefined);
-	if (hit) return forClient(hit, 'hit', event.request.method);
+  const hit = await cache.match(key).catch(() => undefined);
+  if (hit) return forClient(hit, "hit", event.request.method);
 
-	const response = await resolve(event);
-	if (!isStorable(response)) {
-		return forClient(response, 'bypass', event.request.method);
-	}
+  const response = await resolve(event);
+  if (!isStorable(response)) {
+    return forClient(response, "bypass", event.request.method);
+  }
 
-	// Two copies of one stream: the one the visitor gets, and the one that goes into the cache.
-	const client = new Response(response.body, response);
-	const storedBody = client.clone().body;
+  // Two copies of one stream: the one the visitor gets, and the one that goes into the cache.
+  const client = new Response(response.body, response);
+  const storedBody = client.clone().body;
 
-	const storedHeaders = new Headers(client.headers);
-	// Defensive: `isStorable` already rejected these, but the stored copy must not carry a cookie
-	// under any circumstances — `cache.put` rejects such responses outright anyway.
-	storedHeaders.delete('set-cookie');
-	// The edge TTL goes on the *stored* copy only.
-	//
-	// Putting it on the response the visitor receives means Cloudflare's own CDN caches that
-	// response too, in front of this Worker — which was observable in testing as request 2 replaying
-	// request 1's exact headers (`CF-Cache-Status: HIT`, and a frozen `x-cache: miss`). One cache
-	// layer, under this hook's control, with an honest status header.
-	if (!/s-maxage=/i.test(storedHeaders.get('cache-control') ?? '')) {
-		storedHeaders.append('cache-control', `s-maxage=${policy.ttl}`);
-	}
+  const storedHeaders = new Headers(client.headers);
+  // Defensive: `isStorable` already rejected these, but the stored copy must not carry a cookie
+  // under any circumstances — `cache.put` rejects such responses outright anyway.
+  storedHeaders.delete("set-cookie");
+  // The edge TTL goes on the *stored* copy only.
+  //
+  // Putting it on the response the visitor receives means Cloudflare's own CDN caches that
+  // response too, in front of this Worker — which was observable in testing as request 2 replaying
+  // request 1's exact headers (`CF-Cache-Status: HIT`, and a frozen `x-cache: miss`). One cache
+  // layer, under this hook's control, with an honest status header.
+  if (!/s-maxage=/i.test(storedHeaders.get("cache-control") ?? "")) {
+    storedHeaders.append("cache-control", `s-maxage=${policy.ttl}`);
+  }
 
-	run(
-		cache.put(
-			key,
-			new Response(storedBody, {
-				status: client.status,
-				statusText: client.statusText,
-				headers: storedHeaders,
-			}),
-		),
-		event,
-	);
+  run(
+    cache.put(
+      key,
+      new Response(storedBody, {
+        status: client.status,
+        statusText: client.statusText,
+        headers: storedHeaders,
+      }),
+    ),
+    event,
+  );
 
-	return forClient(client, 'miss', event.request.method);
+  return forClient(client, "miss", event.request.method);
 };

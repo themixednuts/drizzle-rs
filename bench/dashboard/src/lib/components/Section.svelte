@@ -16,9 +16,12 @@
 		children,
 		/** `flush` drops the body padding, for sections whose content is a full-bleed table. */
 		flush = false,
+		id,
 		class: className,
 	}: {
 		title?: string;
+		/** Anchor for in-page links; also labels the section for assistive tech. */
+		id?: string;
 		aside?: Snippet;
 		children: Snippet;
 		flush?: boolean;
@@ -26,7 +29,7 @@
 	} = $props();
 </script>
 
-<section class={cn('bg-card mt-4 rounded-md', className)}>
+<section {id} class={cn('bg-card mt-4 scroll-mt-20 rounded-md', className)}>
 	{#if title || aside}
 		<div class="flex flex-wrap items-baseline gap-x-5 gap-y-1.5 px-6 pt-6">
 			{#if title}

@@ -136,10 +136,9 @@ prepared`), the dialect moved to its own column, and the full attribute list is 
   restart, no per-band bar scale. Rank runs `01..N` over the whole set and the bar is scaled to the
   fastest row on screen, because whether an embedded engine beats a TCP one at this workload is part
   of the comparison rather than an artefact to partition away. The honesty the split used to carry
-  rides on things that are always on the row instead: the `database` column (family description on
-  its tooltip), the OS badge, the in-process-cache note, the per-database `vs drizzle-rs` delta
-  inside each row, the footnote pointing at Repeatability and Method, and the amber callout on
-  `/compare`.
+  rides on things that are always on the row instead: the database and architecture on the note
+  line, the platform scope above the table, the per-database verdict cards, and the footnote
+  pointing at the machines view and Method.
 - Route eyebrows, section rules and per-tile card borders are gone. Nothing below the headline was
   deleted — the numbers the old ranking showed inline are one native `<details>` away on each row.
 
@@ -160,16 +159,23 @@ Two abbreviations earn a box, and only two:
   `<select>` options are distinguishable too. `null` for every non-drizzle-rs library — the
   drizzle-orm TypeScript rows are a different library and do not borrow our vocabulary.
 
-**Ranking baselines.** The table is global; the `vs drizzle-rs` delta is not. Each row is measured
-against the drizzle baseline for _its own database_ (`baselinesByDb`), computed from the whole set
-rather than the filtered view so a `?db=` pill never changes a number. A database with no drizzle
-row shows `—`, and every delta tooltip names the row it compared against.
+**Architecture marks.** Every target answers the same HTTP contract, so every target is ranked in
+one table — but they reach their data four ways, and the gap between rows on different
+architectures is mostly the architecture. `targetArchitecture()` classifies each row as
+`embedded` (SQLite, libSQL, Turso), `client-server` (PostgreSQL, and SpacetimeDB driven over
+PGWire), `in-database` (the route runs as SpacetimeDB module code — SpacetimeDB's own design
+point) or `client-cache` (the SDK's synced replica, which does no database work per request). The
+declared `data_access` decides first; the engine is the fallback. Each row carries the mark as a
+dot plus a word (`ArchTag`), and the home page and Method state the four once in full
+(`ArchitectureLegend`).
 
-**Verdict strip.** One wrapping row of compact tiles above the table, one per database, each linking
-to `?db=`. It answers "how does drizzle-rs place against its own field", which a single global order
-genuinely cannot show — drizzle-rs can be tenth overall and first on its database, and both are
-true. It is deliberately small: as a grid of cards it read as the page's headline and inverted what
-the page is for.
+**Verdict cards.** One card per database above the table, each linking to `?db=`. It answers what
+a visitor to a drizzle-rs benchmark site came for — where drizzle-rs placed in that engine's own
+field, and how far it sits from the fastest raw driver on the same engine — which a single global
+order cannot show: drizzle-rs can be tenth overall and first on its database. Computed over the
+platform scope on the table's sort column, so filtering never moves a card and a card never
+disagrees with the table. A database with no drizzle-rs target (SpacetimeDB) still gets a card,
+saying so, because it is still part of the comparison.
 
 ## Page cache
 
@@ -234,20 +240,20 @@ toggle would bypass the cache entirely. The name match is exact — `theme2` or 
 
 ### Allowlist
 
-| Route id                           | TTL    | Query params in the cache key   |
-| ---------------------------------- | ------ | ------------------------------- |
-| `/`                                | 300s   | `suite`, `status`, `db`, `sort` |
-| `/runs`                            | 300s   | `suite`, `status`, `q`          |
-| `/runs/[run_id]`                   | 1 year | `metric`                        |
-| `/trends`                          | 300s   | `suite`, `target`               |
-| `/compare`                         | 300s   | `cohort`, `metric`              |
-| `/repeatability`                   | 300s   | `suite`                         |
-| `/methodology`                     | 300s   | —                               |
-| `/api/v1/runs/latest`              | 300s   | `suite`                         |
-| `/api/v1/runs/[run_id]/manifest`   | 300s   | —                               |
-| `/api/v1/runs/[run_id]/summary`    | 300s   | `targets`                       |
-| `/api/v1/runs/[run_id]/timeseries` | 300s   | `targets`, `from`, `to`         |
-| `/api/v1/compare`                  | 300s   | `base`, `head`, `metric`        |
+| Route id                           | TTL    | Query params in the cache key         |
+| ---------------------------------- | ------ | ------------------------------------- |
+| `/`                                | 300s   | `suite`, `status`, `db`, `os`, `sort` |
+| `/runs`                            | 300s   | `suite`, `status`, `q`                |
+| `/runs/[run_id]`                   | 1 year | `metric`                              |
+| `/trends`                          | 300s   | `suite`, `target`                     |
+| `/compare`                         | 300s   | `cohort`, `metric`                    |
+| `/repeatability`                   | 300s   | `suite`                               |
+| `/methodology`                     | 300s   | —                                     |
+| `/api/v1/runs/latest`              | 300s   | `suite`                               |
+| `/api/v1/runs/[run_id]/manifest`   | 300s   | —                                     |
+| `/api/v1/runs/[run_id]/summary`    | 300s   | `targets`                             |
+| `/api/v1/runs/[run_id]/timeseries` | 300s   | `targets`, `from`, `to`               |
+| `/api/v1/compare`                  | 300s   | `base`, `head`, `metric`              |
 
 A run's artifacts are immutable once published, hence the long TTL on `/runs/[run_id]`.
 

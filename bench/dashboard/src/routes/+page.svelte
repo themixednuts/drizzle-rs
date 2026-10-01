@@ -13,6 +13,9 @@
 	import Replay from '#lib/components/Replay.svelte';
 	import HarnessStrip from '#lib/components/HarnessStrip.svelte';
 	import RunList from '#lib/components/RunList.svelte';
+	import VerdictCards from '#lib/components/VerdictCards.svelte';
+	import ArchitectureLegend from '#lib/components/ArchitectureLegend.svelte';
+	import { SORT_LABELS } from '#lib/ranking';
 	import { cn } from '#lib/utils.js';
 	import { RunsPageState } from './home.svelte';
 	import type { PageData } from './$types';
@@ -38,13 +41,25 @@
 </script>
 
 <svelte:head>
-	<title>Ranking / drizzle-rs benchmarks</title>
+	<title>drizzle-rs benchmarks</title>
 </svelte:head>
 
 <Page>
-	<PageHeader title="Ranking">
+	<PageHeader title="How fast is drizzle-rs?">
 		{#snippet subtitle()}{view.overviewMeta}{/snippet}
 	</PageHeader>
+
+	<!--
+		The page states what it is before it shows anything. A reader landing here from a README badge
+		does not know that every row answers the same HTTP routes, that the rows reach their data in
+		four different ways, or that drizzle-rs is a query builder being measured against the raw
+		drivers it sits on. Two sentences carry all three.
+	-->
+	<p class="measure text-prose text-foreground-secondary mt-4">
+		Every library below serves the same HTTP routes over the same Northwind dataset, on the same
+		CI machine, under the same load. drizzle-rs is a query builder, so the number that matters most
+		is its distance from the raw driver underneath it.
+	</p>
 
 	{#if view.warnings.length > 0}
 		<div class="mt-7"><WarningNotice warnings={view.warnings} /></div>
@@ -66,37 +81,58 @@
 		</div>
 	{:else}
 		<!--
-			The field, then the controls, then the table. The page used to run controls-first, which told
-			a reader what they could adjust before telling them anything worth adjusting.
-
-			The plot leads because it is the only view here that does not have to pick one column to be
-			the order. The table below is that same set of rows put in one, and hovering either lights
-			the other.
+			The platform first, because it scopes every number below it: verdicts, plot and table are
+			all computed inside one operating system, and a rank that spanned two would be two
+			comparisons stacked.
 		-->
-		<section
-			class="bg-card mt-6 rounded-md px-5 pt-5 pb-4 lg:px-6"
-			aria-label="throughput against tail latency"
-		>
-			<ScopePlot scope={view.scope} bind:hovered={view.hoverRowId} />
+		<div class="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
+			<FilterPills label="platform" options={view.osFilters} />
+		</div>
+
+		<!-- The answer to the page's title, one engine at a time. -->
+		<section class="mt-5" aria-labelledby="verdicts-heading">
+			<h2 id="verdicts-heading" class="text-heading font-semibold">drizzle-rs on each database</h2>
+			<p class="text-meta text-muted-foreground mt-1">
+				Position within that database's own field by {SORT_LABELS[view.sort].label}, and the
+				distance to the fastest raw driver on the same engine. Pick a card to filter the table.
+			</p>
+			<div class="mt-4">
+				<VerdictCards
+					verdicts={view.verdicts}
+					metric={SORT_LABELS[view.sort].label}
+					active={view.db}
+				/>
+			</div>
 		</section>
 
 		<!--
-			The ramp the plot is a snapshot of.
-
-			It goes here rather than below the table because it answers the first question the plot
-			raises. Every point on that plot sits on a diagonal — the faster a target is, the lower its
-			p95 — and that looks like a suspiciously tidy result until you watch the ramp: the load
-			climbs to three thousand virtual users whether or not a target can serve them, so past its
-			ceiling the extra load is queue depth and the queue is most of what the p95 measures.
+			Why the table mixes engines without lying about it. SpacetimeDB in particular is compared on
+			its own terms — its logic is meant to live inside the database — and this is where a reader
+			learns what each dot on a row means.
 		-->
-		{#if view.replay}
-			<section class="bg-card mt-4 rounded-md px-5 pt-5 pb-5 lg:px-6">
-				<Replay replay={view.replay} />
-				<p class="text-meta text-muted-foreground measure mt-4">
-					Past a target's ceiling the extra load is queue time, which is most of the p95 column.
-				</p>
-			</section>
-		{/if}
+		<section class="bg-card mt-6 rounded-md px-5 py-5 lg:px-6" aria-labelledby="arch-heading">
+			<h2 id="arch-heading" class="text-heading font-semibold">Same contract, different shapes</h2>
+			<p class="text-meta text-muted-foreground measure mt-1">
+				Everything is ranked together because everything answers the same requests. How a target
+				reaches its data is part of what is being compared, so each row says which of these it is.
+			</p>
+			<div class="mt-4">
+				<ArchitectureLegend entries={view.architectureLegend} />
+			</div>
+		</section>
+
+		<section
+			class="bg-card mt-4 rounded-md px-5 pt-5 pb-4 lg:px-6"
+			aria-labelledby="scope-heading"
+		>
+			<h2 id="scope-heading" class="text-heading font-semibold">Rate against tail latency</h2>
+			<p class="text-meta text-muted-foreground measure mt-1 mb-4">
+				Further right serves more requests per second; lower answers faster at p95. Bottom-right is
+				best. Lit points are the trade-off line: nothing else is both faster and quicker to answer.
+				Hover a point to find its row.
+			</p>
+			<ScopePlot scope={view.scope} bind:hovered={view.hoverRowId} />
+		</section>
 
 		<!--
 			The filters sit directly above the table they filter.
@@ -110,8 +146,8 @@
 			They render whenever there is anything to filter, including when the current filter matches
 			nothing. Hiding them in that state left the only way back to "All" in the URL bar.
 		-->
-		<div class="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3">
-			<FilterPills label="os" options={view.osFilters} />
+		<h2 class="text-heading mt-12 font-semibold">Full ranking</h2>
+		<div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
 			<FilterPills label="database" options={view.dbFilters} />
 			<SortLinks options={view.sortOptions} />
 		</div>
@@ -143,7 +179,7 @@
 						COLUMNS,
 					)}
 				>
-					<span class="pb-0.5 max-lg:hidden">pos</span>
+					<span class="pb-0.5 max-lg:hidden">#</span>
 					<span class="pb-0.5">library</span>
 					{#if view.hasCapacity}
 						<span class="pb-0.5 max-lg:hidden">ramp</span>
@@ -178,10 +214,10 @@
 								at fixed load
 							</Hint>
 						</span>
-						<span class="pb-0.5 text-right lg:hidden">peak / rps / p95 / gap</span>
+						<span class="pb-0.5 text-right lg:hidden">peak / rps / p95 / vs #1</span>
 					{:else}
 						<span class="pb-0.5 text-right max-lg:hidden">requests/sec</span>
-						<span class="pb-0.5 text-right lg:hidden">rps / p95 / gap</span>
+						<span class="pb-0.5 text-right lg:hidden">rps / p95 / vs #1</span>
 					{/if}
 					<!-- The column carries one of two different measurements; the heading says which. -->
 					<span class="pb-0.5 text-right max-lg:hidden">
@@ -205,9 +241,9 @@
 					-->
 					<span class="pb-0.5 text-right max-lg:hidden">
 						<Hint
-							hint="Top figure: distance to the row leading this order. Below it: distance to the row directly above, which is where the field's clusters show. Both are measured on the column the table is sorted by."
+							hint="Top figure: how far this row is behind the leader. Below it: the distance to the row directly above, which is where clusters of near-identical results show. Both are measured on the column the table is sorted by."
 						>
-							gap / int
+							vs #1
 						</Hint>
 					</span>
 				</div>
@@ -225,6 +261,7 @@
 						showLatencyLoad={view.latencyLoad === null}
 						variant={view.variantNote(row.summary)}
 						harness={view.harnessFor(row.summary)}
+						arch={view.architecture(row.summary)}
 						sort={view.sort}
 						showCapacity={view.hasCapacity}
 						showRamp={view.hasCapacity}
@@ -252,6 +289,23 @@
 				was internally consistent.
 			-->
 			<HarnessStrip rows={view.harnessRows} />
+		{/if}
+
+		<!--
+			The ramp the numbers above came off. It sits after the table because it answers the question
+			the table raises — why two rows a few percent apart in rate can be far apart in p95 — and it
+			follows the same filters.
+		-->
+		{#if view.replay}
+			<section class="bg-card mt-8 rounded-md px-5 pt-5 pb-5 lg:px-6" aria-labelledby="replay-heading">
+				<h2 id="replay-heading" class="text-heading font-semibold">Watch the load ramp</h2>
+				<p class="text-meta text-muted-foreground measure mt-1">
+					Load climbs along the bottom; each line is a target's served rate. Where a line flattens,
+					the target has hit its ceiling, and further load turns into queueing — which is most of
+					what a p95 measured past that point is made of.
+				</p>
+				<div class="mt-4"><Replay replay={view.replay} /></div>
+			</section>
 		{/if}
 	{/if}
 

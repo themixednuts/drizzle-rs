@@ -1,23 +1,23 @@
-import { osBadge } from './os';
+import { osBadge } from "./os";
 import type {
-	DataAccess,
-	SummaryResult,
-	TargetCompareItem,
-	TargetMeta,
-	TargetOption,
-} from './types';
+  DataAccess,
+  SummaryResult,
+  TargetCompareItem,
+  TargetMeta,
+  TargetOption,
+} from "./types";
 
 type TargetDisplayInput =
-	| SummaryResult
-	| TargetCompareItem
-	| TargetOption
-	| {
-			target_id: string;
-			target_name?: string;
-			group?: string;
-			runner_os?: string;
-			target_meta?: TargetMeta;
-	  };
+  | SummaryResult
+  | TargetCompareItem
+  | TargetOption
+  | {
+      target_id: string;
+      target_name?: string;
+      group?: string;
+      runner_os?: string;
+      target_meta?: TargetMeta;
+    };
 
 /**
  * Which of drizzle-rs's two query surfaces a target exercises.
@@ -33,60 +33,66 @@ type TargetDisplayInput =
  * for someone else's library.
  */
 export interface TargetApi {
-	/** Compact form, rendered beside the library name. */
-	label: 'sql' | 'relational';
-	/** Long form for the tooltip and for the picker labels. */
-	hint: string;
+  /** Compact form, rendered beside the library name. */
+  label: "sql" | "relational";
+  /** Long form for the tooltip and for the picker labels. */
+  hint: string;
 }
 
 export interface TargetDisplay {
-	name: string;
-	dialect: string;
-	os: string;
-	driver: string | null;
-	mode: string | null;
-	dataAccess: DataAccess | null;
-	sqlVariant: string | null;
-	/** Which drizzle-rs API this row exercises; `null` for every other library. */
-	api: TargetApi | null;
-	badges: string[];
-	/**
-	 * The one-line plain-language description that sits under a target's name — "query builder on
-	 * rusqlite, prepared", "raw driver, unprepared".
-	 *
-	 * This replaces the row of badge chips. The chips carried the same facts, but as five separate
-	 * outlined boxes per row they were the single loudest thing in every table: on the ranking page
-	 * that was eighty bordered rectangles competing with sixteen numbers. The facts survive as a
-	 * sentence, which is quieter and also reads correctly to a screen reader. The dialect is not in
-	 * here because it gets its own column, and the runner OS is not either because it is a property
-	 * of the machine rather than the library — both stay on `TargetDisplay` for the callers that
-	 * show them.
-	 */
-	note: string;
-	familyKey: string;
-	detail: string;
-	incomplete: boolean;
+  name: string;
+  dialect: string;
+  os: string;
+  driver: string | null;
+  mode: string | null;
+  dataAccess: DataAccess | null;
+  sqlVariant: string | null;
+  /** Which drizzle-rs API this row exercises; `null` for every other library. */
+  api: TargetApi | null;
+  badges: string[];
+  /**
+   * The one-line plain-language description that sits under a target's name — "query builder on
+   * rusqlite, prepared", "raw driver, unprepared".
+   *
+   * This replaces the row of badge chips. The chips carried the same facts, but as five separate
+   * outlined boxes per row they were the single loudest thing in every table: on the ranking page
+   * that was eighty bordered rectangles competing with sixteen numbers. The facts survive as a
+   * sentence, which is quieter and also reads correctly to a screen reader. The dialect is not in
+   * here because it gets its own column, and the runner OS is not either because it is a property
+   * of the machine rather than the library — both stay on `TargetDisplay` for the callers that
+   * show them.
+   */
+  note: string;
+  familyKey: string;
+  detail: string;
+  incomplete: boolean;
 }
 
 /** Coarse database family used to keep cross-family rows out of one ranked table. */
-export type DbProfile = 'sqlite' | 'libsql' | 'turso' | 'postgres' | 'spacetimedb' | 'other';
+export type DbProfile =
+  | "sqlite"
+  | "libsql"
+  | "turso"
+  | "postgres"
+  | "spacetimedb"
+  | "other";
 
 export const DB_PROFILE_ORDER: DbProfile[] = [
-	'sqlite',
-	'libsql',
-	'turso',
-	'postgres',
-	'spacetimedb',
-	'other',
+  "sqlite",
+  "libsql",
+  "turso",
+  "postgres",
+  "spacetimedb",
+  "other",
 ];
 
 const DB_PROFILE_LABELS: Record<DbProfile, string> = {
-	sqlite: 'SQLite (embedded, in-process file)',
-	libsql: 'libSQL (embedded, in-process file)',
-	turso: 'Turso (embedded)',
-	postgres: 'PostgreSQL (TCP round trip)',
-	spacetimedb: 'SpacetimeDB',
-	other: 'other',
+  sqlite: "SQLite (embedded, in-process file)",
+  libsql: "libSQL (embedded, in-process file)",
+  turso: "Turso (embedded)",
+  postgres: "PostgreSQL (TCP round trip)",
+  spacetimedb: "SpacetimeDB",
+  other: "other",
 };
 
 /**
@@ -108,57 +114,139 @@ const DB_PROFILE_LABELS: Record<DbProfile, string> = {
  * Engines with no entry are deliberately unclassified rather than guessed: SpacetimeDB runs the
  * application and the database together, which is neither.
  */
-const DB_ENGINE_CLASS: Partial<Record<DbProfile, 'embedded' | 'client/server'>> = {
-	sqlite: 'embedded',
-	libsql: 'embedded',
-	turso: 'embedded',
-	postgres: 'client/server',
+const DB_ENGINE_CLASS: Partial<
+  Record<DbProfile, "embedded" | "client/server">
+> = {
+  sqlite: "embedded",
+  libsql: "embedded",
+  turso: "embedded",
+  postgres: "client/server",
 };
 
-export function dbEngineClass(profile: DbProfile): 'embedded' | 'client/server' | null {
-	return DB_ENGINE_CLASS[profile] ?? null;
+export function dbEngineClass(
+  profile: DbProfile,
+): "embedded" | "client/server" | null {
+  return DB_ENGINE_CLASS[profile] ?? null;
+}
+
+/**
+ * Where a target's query logic runs, which is the first thing to know before reading its number.
+ *
+ * Every target answers the same HTTP contract, so every target belongs in the same table — but they
+ * get there four different ways, and the gap between two rows on different architectures is mostly
+ * the architecture:
+ *
+ * - `embedded`: the engine is a library inside the server process (SQLite, libSQL, Turso).
+ * - `client-server`: every query is a network round trip to a separate database process
+ *   (PostgreSQL, and SpacetimeDB driven as a SQL server over PGWire).
+ * - `in-database`: the route's logic is module code running inside the database, which is how
+ *   SpacetimeDB is meant to be used; the server process makes one call per request.
+ * - `client-cache`: the server answers from a locally synced replica, so the request does no
+ *   database work at all (SpacetimeDB's SDK subscription cache).
+ *
+ * `data_access` decides first because it is declared by the target; the engine is the fallback for
+ * targets that declare a plain round trip, or predate the field.
+ */
+export type Architecture =
+  | "embedded"
+  | "client-server"
+  | "in-database"
+  | "client-cache";
+
+export const ARCHITECTURE_ORDER: Architecture[] = [
+  "embedded",
+  "client-server",
+  "in-database",
+  "client-cache",
+];
+
+export interface ArchitectureInfo {
+  label: string;
+  /** One sentence a newcomer can read: what a request does on this architecture. */
+  summary: string;
+}
+
+export const ARCHITECTURES: Record<Architecture, ArchitectureInfo> = {
+  embedded: {
+    label: "Embedded",
+    summary:
+      "The database engine is a library inside the app process. No network hop per query.",
+  },
+  "client-server": {
+    label: "Client → server",
+    summary:
+      "The app sends SQL to a separate database process. Every query pays a network round trip.",
+  },
+  "in-database": {
+    label: "Logic in database",
+    summary:
+      "The route's query code runs inside the database as a module. The app makes one call per request.",
+  },
+  "client-cache": {
+    label: "Client replica",
+    summary:
+      "The app answers from a locally synced copy of the data. Requests do no database work, so the figure is a ceiling, not a query cost.",
+  },
+};
+
+export function targetArchitecture(
+  input: TargetDisplayInput,
+): Architecture | null {
+  const access = input.target_meta?.data_access;
+  if (access === "in-process-cache") return "client-cache";
+  if (access === "in-database") return "in-database";
+  const profile = dbProfile(input);
+  if (profile === "spacetimedb") return "client-server";
+  const engine = dbEngineClass(profile);
+  if (engine === "embedded") return "embedded";
+  if (engine === "client/server") return "client-server";
+  return null;
 }
 
 const DB_PROFILE_NOTES: Partial<Record<DbProfile, string>> = {
-	sqlite: 'Embedded engine: queries run in the server process, no network hop.',
-	libsql: 'Embedded engine: queries run in the server process, no network hop.',
-	turso: 'Embedded engine: queries run in the server process, no network hop.',
-	postgres: 'Client/server engine: every query is a TCP round trip to a separate process.',
-	spacetimedb: 'Database and application logic run together; access is over its own protocol.',
+  sqlite: "Embedded engine: queries run in the server process, no network hop.",
+  libsql: "Embedded engine: queries run in the server process, no network hop.",
+  turso: "Embedded engine: queries run in the server process, no network hop.",
+  postgres:
+    "Client/server engine: every query is a TCP round trip to a separate process.",
+  spacetimedb:
+    "Database and application logic are designed to run together: module code executes inside the database. Targets reach it as a SQL server (PGWire), through module calls, or from a synced client replica.",
 };
 
 const ORM_NAMES = new Map([
-	['drizzle-rs', 'Drizzle RS'],
-	['drizzle-orm', 'Drizzle ORM'],
-	['prisma', 'Prisma'],
-	['sqlx', 'SQLx'],
-	['diesel', 'Diesel'],
-	['sea-orm', 'SeaORM'],
+  ["drizzle-rs", "Drizzle RS"],
+  ["drizzle-orm", "Drizzle ORM"],
+  ["prisma", "Prisma"],
+  ["sqlx", "SQLx"],
+  ["diesel", "Diesel"],
+  ["sea-orm", "SeaORM"],
 ]);
 
 const GROUP_NAMES = new Map([
-	['bun-sql', 'Bun SQL'],
-	['bun-sqlite', 'Bun SQLite'],
-	['libsql', 'libSQL'],
-	['tokio-postgres', 'tokio-postgres'],
-	['rusqlite', 'rusqlite'],
-	['turso', 'Turso'],
-	['spacetimedb', 'SpacetimeDB'],
+  ["bun-sql", "Bun SQL"],
+  ["bun-sqlite", "Bun SQLite"],
+  ["libsql", "libSQL"],
+  ["tokio-postgres", "tokio-postgres"],
+  ["rusqlite", "rusqlite"],
+  ["turso", "Turso"],
+  ["spacetimedb", "SpacetimeDB"],
 ]);
 
 export function dbProfile(input: TargetDisplayInput): DbProfile {
-	const meta = input.target_meta;
-	const raw = `${meta?.db.profile ?? ''} ${meta?.fair.db ?? ''} ${input.target_id}`.toLowerCase();
-	if (raw.includes('spacetime')) return 'spacetimedb';
-	if (raw.includes('libsql')) return 'libsql';
-	if (raw.includes('turso')) return 'turso';
-	if (raw.includes('postgres') || raw.includes('-pg') || raw.endsWith('pg')) return 'postgres';
-	if (raw.includes('sqlite')) return 'sqlite';
-	return 'other';
+  const meta = input.target_meta;
+  const raw =
+    `${meta?.db.profile ?? ""} ${meta?.fair.db ?? ""} ${input.target_id}`.toLowerCase();
+  if (raw.includes("spacetime")) return "spacetimedb";
+  if (raw.includes("libsql")) return "libsql";
+  if (raw.includes("turso")) return "turso";
+  if (raw.includes("postgres") || raw.includes("-pg") || raw.endsWith("pg"))
+    return "postgres";
+  if (raw.includes("sqlite")) return "sqlite";
+  return "other";
 }
 
 export function dbProfileLabel(profile: DbProfile): string {
-	return DB_PROFILE_LABELS[profile];
+  return DB_PROFILE_LABELS[profile];
 }
 
 /**
@@ -167,16 +255,16 @@ export function dbProfileLabel(profile: DbProfile): string {
  * must not be able to drift into calling one database two things.
  */
 const DB_SHORT_LABELS: Record<DbProfile, string> = {
-	sqlite: 'SQLite',
-	libsql: 'libSQL',
-	turso: 'Turso',
-	postgres: 'PostgreSQL',
-	spacetimedb: 'SpacetimeDB',
-	other: 'other',
+  sqlite: "SQLite",
+  libsql: "libSQL",
+  turso: "Turso",
+  postgres: "PostgreSQL",
+  spacetimedb: "SpacetimeDB",
+  other: "other",
 };
 
 export function dbShortLabel(profile: DbProfile): string {
-	return DB_SHORT_LABELS[profile];
+  return DB_SHORT_LABELS[profile];
 }
 
 /**
@@ -193,8 +281,8 @@ export function dbShortLabel(profile: DbProfile): string {
  * were built under.
  */
 export function targetFamily(input: TargetDisplayInput): string {
-	const declared = input.target_meta?.fair.family?.trim();
-	return declared ? declared.toLowerCase() : dbProfile(input);
+  const declared = input.target_meta?.fair.family?.trim();
+  return declared ? declared.toLowerCase() : dbProfile(input);
 }
 
 /**
@@ -206,10 +294,10 @@ export function targetFamily(input: TargetDisplayInput): string {
  * because the ids are the runner's to mint and the labels are ours to write.
  */
 const FAMILY_SUFFIX_LABELS: Record<string, string> = {
-	ts: 'TypeScript',
-	go: 'Go',
-	py: 'Python',
-	java: 'Java',
+  ts: "TypeScript",
+  go: "Go",
+  py: "Python",
+  java: "Java",
 };
 
 /**
@@ -221,34 +309,36 @@ const FAMILY_SUFFIX_LABELS: Record<string, string> = {
  * distinguishes it, because the entire point of the split is that the two are not interchangeable.
  */
 export function familyLabel(family: string): string {
-	if (DB_PROFILE_ORDER.includes(family as DbProfile)) {
-		return DB_SHORT_LABELS[family as DbProfile];
-	}
+  if (DB_PROFILE_ORDER.includes(family as DbProfile)) {
+    return DB_SHORT_LABELS[family as DbProfile];
+  }
 
-	const split = family.indexOf('-');
-	if (split > 0) {
-		const engine = family.slice(0, split);
-		const suffix = FAMILY_SUFFIX_LABELS[family.slice(split + 1)];
-		if (suffix && DB_PROFILE_ORDER.includes(engine as DbProfile)) {
-			return `${DB_SHORT_LABELS[engine as DbProfile]} / ${suffix}`;
-		}
-	}
+  const split = family.indexOf("-");
+  if (split > 0) {
+    const engine = family.slice(0, split);
+    const suffix = FAMILY_SUFFIX_LABELS[family.slice(split + 1)];
+    if (suffix && DB_PROFILE_ORDER.includes(engine as DbProfile)) {
+      return `${DB_SHORT_LABELS[engine as DbProfile]} / ${suffix}`;
+    }
+  }
 
-	// An id this build has no rule for is passed through humanised rather than guessed at. It will
-	// look slightly wrong, which is the point — it is visible that a label is missing.
-	return humanize(family);
+  // An id this build has no rule for is passed through humanised rather than guessed at. It will
+  // look slightly wrong, which is the point — it is visible that a label is missing.
+  return humanize(family);
 }
 
 /** The one-sentence description of what this database makes a request do. `null` when there is
  * nothing useful to say — `other` is a bucket, not a kind of engine. */
 export function dbProfileNote(profile: DbProfile): string | null {
-	return DB_PROFILE_NOTES[profile] ?? null;
+  return DB_PROFILE_NOTES[profile] ?? null;
 }
 
 /** Label plus description as one string, for tooltips and accessible names. */
 export function dbProfileDetail(profile: DbProfile): string {
-	const note = dbProfileNote(profile);
-	return note ? `${DB_PROFILE_LABELS[profile]} — ${note}` : DB_PROFILE_LABELS[profile];
+  const note = dbProfileNote(profile);
+  return note
+    ? `${DB_PROFILE_LABELS[profile]} — ${note}`
+    : DB_PROFILE_LABELS[profile];
 }
 
 /**
@@ -256,41 +346,47 @@ export function dbProfileDetail(profile: DbProfile): string {
  * "sql-roundtrip" for unknown targets — an unknown access mode stays unlabelled.
  */
 export function dataAccess(meta: TargetMeta | undefined): DataAccess | null {
-	return meta?.data_access ?? null;
+  return meta?.data_access ?? null;
 }
 
 export function isInProcessCache(meta: TargetMeta | undefined): boolean {
-	return dataAccess(meta) === 'in-process-cache';
+  return dataAccess(meta) === "in-process-cache";
 }
 
 /** True when the target is a drizzle implementation (the baseline for "vs ours"). */
 export function isDrizzleTarget(input: {
-	target_id: string;
-	group?: string;
-	target_meta?: TargetMeta;
+  target_id: string;
+  group?: string;
+  target_meta?: TargetMeta;
 }): boolean {
-	const orm = input.target_meta?.orm.name.toLowerCase() ?? '';
-	const group = (input.group ?? input.target_meta?.group ?? '').toLowerCase();
-	const id = input.target_id.toLowerCase();
-	return orm.includes('drizzle') || group.includes('drizzle') || id.includes('drizzle');
+  const orm = input.target_meta?.orm.name.toLowerCase() ?? "";
+  const group = (input.group ?? input.target_meta?.group ?? "").toLowerCase();
+  const id = input.target_id.toLowerCase();
+  return (
+    orm.includes("drizzle") ||
+    group.includes("drizzle") ||
+    id.includes("drizzle")
+  );
 }
 
 /** True for the Rust drizzle-rs targets specifically (preferred baseline). */
 export function isDrizzleRsTarget(input: {
-	target_id: string;
-	group?: string;
-	target_meta?: TargetMeta;
+  target_id: string;
+  group?: string;
+  target_meta?: TargetMeta;
 }): boolean {
-	const orm = input.target_meta?.orm.name.toLowerCase() ?? '';
-	const group = (input.group ?? input.target_meta?.group ?? '').toLowerCase();
-	const id = input.target_id.toLowerCase();
-	return orm === 'drizzle-rs' || group === 'drizzle-rs' || id.includes('drizzle-rs');
+  const orm = input.target_meta?.orm.name.toLowerCase() ?? "";
+  const group = (input.group ?? input.target_meta?.group ?? "").toLowerCase();
+  const id = input.target_id.toLowerCase();
+  return (
+    orm === "drizzle-rs" || group === "drizzle-rs" || id.includes("drizzle-rs")
+  );
 }
 
 const API_HINTS = {
-	sql: 'drizzle-rs typed select builder — the SQL API: you write the query, it types the result.',
-	relational:
-		'drizzle-rs relational query API — `db.query(..).with(..)`: relations are loaded for you as subqueries.',
+  sql: "drizzle-rs typed select builder — the SQL API: you write the query, it types the result.",
+  relational:
+    "drizzle-rs relational query API — `db.query(..).with(..)`: relations are loaded for you as subqueries.",
 } as const;
 
 /**
@@ -302,17 +398,18 @@ const API_HINTS = {
  * whose id was not suffixed but whose runner declared it used the relational API.
  */
 export function targetApi(input: {
-	target_id: string;
-	group?: string;
-	target_meta?: TargetMeta;
+  target_id: string;
+  group?: string;
+  target_meta?: TargetMeta;
 }): TargetApi | null {
-	if (!isDrizzleRsTarget(input)) return null;
+  if (!isDrizzleRsTarget(input)) return null;
 
-	const id = input.target_id.toLowerCase();
-	const variant = (input.target_meta?.sql_variant ?? '').toLowerCase();
-	const relational = /(^|-)query(-|$)/.test(id) || variant.includes('relational query api');
-	const label = relational ? 'relational' : 'sql';
-	return { label, hint: API_HINTS[label] };
+  const id = input.target_id.toLowerCase();
+  const variant = (input.target_meta?.sql_variant ?? "").toLowerCase();
+  const relational =
+    /(^|-)query(-|$)/.test(id) || variant.includes("relational query api");
+  const label = relational ? "relational" : "sql";
+  return { label, hint: API_HINTS[label] };
 }
 
 /**
@@ -320,70 +417,73 @@ export function targetApi(input: {
  * placeholder keeps one malformed manifest entry from taking down the page (previously this
  * path threw, including during client-side render).
  */
-export function fallbackTargetMeta(targetId: string, group?: string): TargetMeta {
-	return {
-		id: targetId,
-		name: targetId,
-		group,
-		lang: 'unknown',
-		runtime: { name: 'unknown', ver: '' },
-		orm: { name: 'none', ver: '' },
-		driver: { name: 'unknown', ver: '' },
-		proc: { mode: 'unknown', workers: 0 },
-		pool: { max: 0 },
-		db: { profile: 'unknown', hash: '' },
-		wire: { format: 'unknown' },
-		fair: { workers: 0, pool: 0, db: '', schema: '', contract: '' },
-		contract: { ver: '' },
-		incomplete: true,
-	};
+export function fallbackTargetMeta(
+  targetId: string,
+  group?: string,
+): TargetMeta {
+  return {
+    id: targetId,
+    name: targetId,
+    group,
+    lang: "unknown",
+    runtime: { name: "unknown", ver: "" },
+    orm: { name: "none", ver: "" },
+    driver: { name: "unknown", ver: "" },
+    proc: { mode: "unknown", workers: 0 },
+    pool: { max: 0 },
+    db: { profile: "unknown", hash: "" },
+    wire: { format: "unknown" },
+    fair: { workers: 0, pool: 0, db: "", schema: "", contract: "" },
+    contract: { ver: "" },
+    incomplete: true,
+  };
 }
 
 export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
-	const meta = input.target_meta;
-	const name = targetName(input);
-	const dialect = targetDialect(meta, input.target_id);
-	const os = targetOs(input.runner_os);
-	const mode = targetMode(meta, input.target_id);
-	const driver = targetDriver(meta, input);
-	const access = dataAccess(meta);
-	const api = targetApi({
-		target_id: input.target_id,
-		group: inputGroup(input),
-		target_meta: meta,
-	});
-	// The API tag joins the attribute list so it reaches every picker label too — a `<select>` full
-	// of options all reading "Drizzle RS / SQLite / rusqlite / prepared" cannot be chosen from.
-	// `targetKind` joins the list so the framing this project cares about — a query builder measured
-	// against a raw driver is a different claim than two ORMs measured against each other — is still
-	// one hover away, now that the note no longer repeats it on every row.
-	const badges = [
-		dialect,
-		targetKind(meta),
-		driver,
-		mode,
-		api && `${api.label} API`,
-		accessBadge(access),
-		os,
-	]
-		.filter((badge): badge is string => Boolean(badge))
-		.filter((badge) => !sameLabel(badge, name));
+  const meta = input.target_meta;
+  const name = targetName(input);
+  const dialect = targetDialect(meta, input.target_id);
+  const os = targetOs(input.runner_os);
+  const mode = targetMode(meta, input.target_id);
+  const driver = targetDriver(meta, input);
+  const access = dataAccess(meta);
+  const api = targetApi({
+    target_id: input.target_id,
+    group: inputGroup(input),
+    target_meta: meta,
+  });
+  // The API tag joins the attribute list so it reaches every picker label too — a `<select>` full
+  // of options all reading "Drizzle RS / SQLite / rusqlite / prepared" cannot be chosen from.
+  // `targetKind` joins the list so the framing this project cares about — a query builder measured
+  // against a raw driver is a different claim than two ORMs measured against each other — is still
+  // one hover away, now that the note no longer repeats it on every row.
+  const badges = [
+    dialect,
+    targetKind(meta),
+    driver,
+    mode,
+    api && `${api.label} API`,
+    accessBadge(access),
+    os,
+  ]
+    .filter((badge): badge is string => Boolean(badge))
+    .filter((badge) => !sameLabel(badge, name));
 
-	return {
-		name,
-		dialect,
-		os,
-		driver,
-		mode,
-		dataAccess: access,
-		sqlVariant: meta?.sql_variant ?? null,
-		api,
-		badges,
-		note: targetNote(meta, driver, mode),
-		familyKey: slug(`${name}:${dialect}:${driver ?? 'default'}`),
-		detail: badges.join(' / '),
-		incomplete: meta?.incomplete === true,
-	};
+  return {
+    name,
+    dialect,
+    os,
+    driver,
+    mode,
+    dataAccess: access,
+    sqlVariant: meta?.sql_variant ?? null,
+    api,
+    badges,
+    note: targetNote(meta, driver, mode),
+    familyKey: slug(`${name}:${dialect}:${driver ?? "default"}`),
+    detail: badges.join(" / "),
+    incomplete: meta?.incomplete === true,
+  };
 }
 
 /**
@@ -393,10 +493,10 @@ export function targetDisplay(input: TargetDisplayInput): TargetDisplay {
  * query builder against a raw driver is a different claim than comparing two ORMs.
  */
 function targetKind(meta: TargetMeta | undefined): string {
-	const orm = meta?.orm.name.toLowerCase() ?? '';
-	if (!orm || orm === 'none') return 'raw driver';
-	if (orm.includes('drizzle')) return 'query builder';
-	return 'ORM';
+  const orm = meta?.orm.name.toLowerCase() ?? "";
+  if (!orm || orm === "none") return "raw driver";
+  if (orm.includes("drizzle")) return "query builder";
+  return "ORM";
 }
 
 /**
@@ -413,60 +513,64 @@ function targetKind(meta: TargetMeta | undefined): string {
  * were prepared.
  */
 function targetNote(
-	meta: TargetMeta | undefined,
-	driver: string | null,
-	mode: string | null,
+  meta: TargetMeta | undefined,
+  driver: string | null,
+  mode: string | null,
 ): string {
-	// This used to special-case an in-process cache and spell out "in-memory cache — no per-request
-	// DB work". It explained something the audience already knows, on every row that carried it.
-	// The data-access field is still on the tooltip and in the Method reference.
+  // This used to special-case an in-process cache and spell out "in-memory cache — no per-request
+  // DB work". It explained something the audience already knows, on every row that carried it.
+  // The data-access field is still on the tooltip and in the Method reference.
 
-	// No driver to name means the library *is* the driver, and its own kind is the only fact left.
-	const head = driver ?? targetKind(meta);
-	return mode ? `${head}, ${mode}` : head;
+  // No driver to name means the library *is* the driver, and its own kind is the only fact left.
+  const head = driver ?? targetKind(meta);
+  return mode ? `${head}, ${mode}` : head;
 }
 
 export function targetLabel(input: TargetDisplayInput): string {
-	const display = targetDisplay(input);
-	return `${display.name} / ${display.detail}`;
+  const display = targetDisplay(input);
+  return `${display.name} / ${display.detail}`;
 }
 
 function accessBadge(access: DataAccess | null): string | null {
-	if (access === 'in-process-cache') return 'in-process cache';
-	return null;
+  if (access === "in-process-cache") return "in-process cache";
+  if (access === "in-database") return "logic in database";
+  return null;
 }
 
 function targetName(input: TargetDisplayInput): string {
-	const meta = input.target_meta;
-	const orm = meta?.orm.name.toLowerCase();
-	if (orm && orm !== 'none') {
-		return ORM_NAMES.get(orm) ?? humanize(orm);
-	}
+  const meta = input.target_meta;
+  const orm = meta?.orm.name.toLowerCase();
+  if (orm && orm !== "none") {
+    return ORM_NAMES.get(orm) ?? humanize(orm);
+  }
 
-	const group = (inputGroup(input) ?? meta?.group ?? '').toLowerCase();
-	if (group) {
-		return GROUP_NAMES.get(group) ?? humanize(group);
-	}
+  const group = (inputGroup(input) ?? meta?.group ?? "").toLowerCase();
+  if (group) {
+    return GROUP_NAMES.get(group) ?? humanize(group);
+  }
 
-	// `fallbackTargetMeta` fills its unknown slots with the literal string 'unknown'. Treating that
-	// as a driver name rendered every metadata-less target as "Unknown"; the target id is far more
-	// informative, so the sentinel is skipped here rather than named.
-	const driver = meta?.driver.name;
-	if (driver && driver !== 'unknown') {
-		return GROUP_NAMES.get(driver.toLowerCase()) ?? humanize(driver);
-	}
+  // `fallbackTargetMeta` fills its unknown slots with the literal string 'unknown'. Treating that
+  // as a driver name rendered every metadata-less target as "Unknown"; the target id is far more
+  // informative, so the sentinel is skipped here rather than named.
+  const driver = meta?.driver.name;
+  if (driver && driver !== "unknown") {
+    return GROUP_NAMES.get(driver.toLowerCase()) ?? humanize(driver);
+  }
 
-	return input.target_name && input.target_name !== input.target_id
-		? input.target_name
-		: humanize(input.target_id);
+  return input.target_name && input.target_name !== input.target_id
+    ? input.target_name
+    : humanize(input.target_id);
 }
 
 function targetDialect(meta: TargetMeta | undefined, targetId: string): string {
-	const raw = `${meta?.fair.db ?? ''} ${meta?.db.profile ?? ''} ${targetId}`.toLowerCase();
-	if (raw.includes('spacetime')) return 'SpacetimeDB';
-	if (raw.includes('postgres') || raw.includes('-pg') || raw.endsWith('pg')) return 'PostgreSQL';
-	if (raw.includes('sqlite') || raw.includes('turso') || raw.includes('libsql')) return 'SQLite';
-	return 'SQL';
+  const raw =
+    `${meta?.fair.db ?? ""} ${meta?.db.profile ?? ""} ${targetId}`.toLowerCase();
+  if (raw.includes("spacetime")) return "SpacetimeDB";
+  if (raw.includes("postgres") || raw.includes("-pg") || raw.endsWith("pg"))
+    return "PostgreSQL";
+  if (raw.includes("sqlite") || raw.includes("turso") || raw.includes("libsql"))
+    return "SQLite";
+  return "SQL";
 }
 
 /**
@@ -475,97 +579,104 @@ function targetDialect(meta: TargetMeta | undefined, targetId: string): string {
  * passed through verbatim rather than flattened, because the raw string is the only evidence left.
  */
 function targetOs(os: string | undefined): string {
-	const raw = (os ?? '').trim();
-	if (!raw) return 'unknown OS';
-	const badge = osBadge(raw);
-	return badge.code === 'OS?' ? raw : badge.name;
+  const raw = (os ?? "").trim();
+  if (!raw) return "unknown OS";
+  const badge = osBadge(raw);
+  return badge.code === "OS?" ? raw : badge.name;
 }
 
 /**
  * Prefer the declared `db.prepared` flag; fall back to the id/profile heuristic only when
  * the artifact predates the field.
  */
-function targetMode(meta: TargetMeta | undefined, targetId: string): string | null {
-	if (meta?.db.prepared === true) return 'prepared';
-	if (meta?.db.prepared === false) return 'unprepared';
+function targetMode(
+  meta: TargetMeta | undefined,
+  targetId: string,
+): string | null {
+  if (meta?.db.prepared === true) return "prepared";
+  if (meta?.db.prepared === false) return "unprepared";
 
-	const raw = `${meta?.db.profile ?? ''} ${targetId}`.toLowerCase();
-	if (raw.includes('unprepared')) return 'unprepared';
-	if (raw.includes('prepared')) return 'prepared';
-	return null;
+  const raw = `${meta?.db.profile ?? ""} ${targetId}`.toLowerCase();
+  if (raw.includes("unprepared")) return "unprepared";
+  if (raw.includes("prepared")) return "prepared";
+  return null;
 }
 
-function targetDriver(meta: TargetMeta | undefined, input: TargetDisplayInput): string | null {
-	const raw = meta?.driver.name;
-	if (!raw) return null;
+function targetDriver(
+  meta: TargetMeta | undefined,
+  input: TargetDisplayInput,
+): string | null {
+  const raw = meta?.driver.name;
+  if (!raw) return null;
 
-	const label = driverLabel(raw);
-	const group = (inputGroup(input) ?? meta?.group ?? '').toLowerCase();
-	const name = targetName(input);
-	const dialect = targetDialect(meta, input.target_id);
-	const orm = meta?.orm.name.toLowerCase();
-	const shouldExposeDriver =
-		orm === 'drizzle-rs' || orm === 'drizzle-orm' || group === 'spacetimedb';
+  const label = driverLabel(raw);
+  const group = (inputGroup(input) ?? meta?.group ?? "").toLowerCase();
+  const name = targetName(input);
+  const dialect = targetDialect(meta, input.target_id);
+  const orm = meta?.orm.name.toLowerCase();
+  const shouldExposeDriver =
+    orm === "drizzle-rs" || orm === "drizzle-orm" || group === "spacetimedb";
 
-	if (!shouldExposeDriver) return null;
+  if (!shouldExposeDriver) return null;
 
-	if (sameLabel(label, name) || sameLabel(raw, group)) return null;
-	if (sameLabel(label, `${name} ${dialect}`)) return null;
-	if (orm === 'none' && (sameLabel(label, group) || sameLabel(raw, group))) return null;
+  if (sameLabel(label, name) || sameLabel(raw, group)) return null;
+  if (sameLabel(label, `${name} ${dialect}`)) return null;
+  if (orm === "none" && (sameLabel(label, group) || sameLabel(raw, group)))
+    return null;
 
-	return label;
+  return label;
 }
 
 function inputGroup(input: TargetDisplayInput): string | undefined {
-	return 'group' in input ? input.group : undefined;
+  return "group" in input ? input.group : undefined;
 }
 
 function humanize(value: string): string {
-	return value
-		.split(/[-_:]+/)
-		.filter(Boolean)
-		.map((part) => {
-			const known = part.toLowerCase();
-			if (known === 'rs') return 'RS';
-			if (known === 'orm') return 'ORM';
-			if (known === 'sqlx') return 'SQLx';
-			if (known === 'pg') return 'PostgreSQL';
-			if (known === 'postgres') return 'PostgreSQL';
-			if (known === 'sqlite') return 'SQLite';
-			if (known === 'pgwire') return 'PGWire';
-			return part.charAt(0).toUpperCase() + part.slice(1);
-		})
-		.join(' ');
+  return value
+    .split(/[-_:]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const known = part.toLowerCase();
+      if (known === "rs") return "RS";
+      if (known === "orm") return "ORM";
+      if (known === "sqlx") return "SQLx";
+      if (known === "pg") return "PostgreSQL";
+      if (known === "postgres") return "PostgreSQL";
+      if (known === "sqlite") return "SQLite";
+      if (known === "pgwire") return "PGWire";
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
 }
 
 function driverLabel(value: string): string {
-	const known = value.toLowerCase();
-	if (known === 'bun:sql') return 'Bun SQL';
-	if (known === '@prisma/adapter-pg') return 'adapter-pg';
-	if (known === 'tokio-postgres-simple') return 'PGWire';
-	if (known === 'spacetimedb-sdk') return 'SDK';
-	// The synchronous Rust client is the crate literally named `postgres`, which `humanize` turns
-	// into "PostgreSQL" — the database's name, not the driver's. That rendered its row as "query
-	// builder on PostgreSQL" beside a sibling reading "query builder on tokio-postgres", so the two
-	// looked like the same target listed twice instead of the sync and async clients they are.
-	if (known === 'postgres') return 'postgres (sync)';
-	return GROUP_NAMES.get(known) ?? humanize(value);
+  const known = value.toLowerCase();
+  if (known === "bun:sql") return "Bun SQL";
+  if (known === "@prisma/adapter-pg") return "adapter-pg";
+  if (known === "tokio-postgres-simple") return "PGWire";
+  if (known === "spacetimedb-sdk") return "SDK";
+  // The synchronous Rust client is the crate literally named `postgres`, which `humanize` turns
+  // into "PostgreSQL" — the database's name, not the driver's. That rendered its row as "query
+  // builder on PostgreSQL" beside a sibling reading "query builder on tokio-postgres", so the two
+  // looked like the same target listed twice instead of the sync and async clients they are.
+  if (known === "postgres") return "postgres (sync)";
+  return GROUP_NAMES.get(known) ?? humanize(value);
 }
 
 function sameLabel(left: string, right: string | undefined): boolean {
-	if (!right) return false;
-	return normalize(left) === normalize(right);
+  if (!right) return false;
+  return normalize(left) === normalize(right);
 }
 
 function normalize(value: string): string {
-	return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function slug(value: string): string {
-	return value
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-|-$/g, '');
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 /**
@@ -585,65 +696,72 @@ function slug(value: string): string {
  * rather than removing it. Each candidate is now checked for distinctness across the group before
  * it is used, and if none is enough on its own they are combined.
  */
-export function legendLabels(inputs: readonly TargetDisplayInput[]): Map<string, string> {
-	const displays = inputs.map((input) => ({ id: input.target_id, display: targetDisplay(input) }));
+export function legendLabels(
+  inputs: readonly TargetDisplayInput[],
+): Map<string, string> {
+  const displays = inputs.map((input) => ({
+    id: input.target_id,
+    display: targetDisplay(input),
+  }));
 
-	const groups = new Map<string, typeof displays>();
-	for (const entry of displays) {
-		const group = groups.get(entry.display.name) ?? [];
-		group.push(entry);
-		groups.set(entry.display.name, group);
-	}
+  const groups = new Map<string, typeof displays>();
+  for (const entry of displays) {
+    const group = groups.get(entry.display.name) ?? [];
+    group.push(entry);
+    groups.set(entry.display.name, group);
+  }
 
-	type Entry = { id: string; display: TargetDisplay };
+  type Entry = { id: string; display: TargetDisplay };
 
-	/**
-	 * Candidate qualifiers, shortest and most readable first.
-	 *
-	 * The target id is last and is the reason this always terminates with a usable answer. Published
-	 * summaries do not always carry a driver or a prepared flag — on the PostgreSQL run every
-	 * drizzle-rs summary has both fields empty, so `drizzle-rs-pg` and `drizzle-rs-pg-sync` are
-	 * indistinguishable by any attribute the display layer can see. The id is unique by
-	 * construction, so it separates them, and an ugly-but-correct legend beats two identical
-	 * entries against two shades of one hue.
-	 */
-	const CANDIDATES: ((entry: Entry) => string | null)[] = [
-		({ display }) => display.api?.label ?? null,
-		({ display }) => display.driver,
-		({ display }) => display.mode,
-		({ display }) =>
-			[display.api?.label, display.driver, display.mode].filter(Boolean).join(', ') || null,
-		({ id }) => id,
-	];
+  /**
+   * Candidate qualifiers, shortest and most readable first.
+   *
+   * The target id is last and is the reason this always terminates with a usable answer. Published
+   * summaries do not always carry a driver or a prepared flag — on the PostgreSQL run every
+   * drizzle-rs summary has both fields empty, so `drizzle-rs-pg` and `drizzle-rs-pg-sync` are
+   * indistinguishable by any attribute the display layer can see. The id is unique by
+   * construction, so it separates them, and an ugly-but-correct legend beats two identical
+   * entries against two shades of one hue.
+   */
+  const CANDIDATES: ((entry: Entry) => string | null)[] = [
+    ({ display }) => display.api?.label ?? null,
+    ({ display }) => display.driver,
+    ({ display }) => display.mode,
+    ({ display }) =>
+      [display.api?.label, display.driver, display.mode]
+        .filter(Boolean)
+        .join(", ") || null,
+    ({ id }) => id,
+  ];
 
-	const labels = new Map<string, string>();
-	for (const [name, group] of groups) {
-		if (group.length < 2) {
-			labels.set(group[0].id, name);
-			continue;
-		}
+  const labels = new Map<string, string>();
+  for (const [name, group] of groups) {
+    if (group.length < 2) {
+      labels.set(group[0].id, name);
+      continue;
+    }
 
-		const qualifier = CANDIDATES.find((pick) => {
-			const values = group.map(pick);
-			// Usable only if every member has one and no two share it.
-			return (
-				values.every((value) => value !== null && value !== '') &&
-				new Set(values).size === group.length
-			);
-		});
+    const qualifier = CANDIDATES.find((pick) => {
+      const values = group.map(pick);
+      // Usable only if every member has one and no two share it.
+      return (
+        values.every((value) => value !== null && value !== "") &&
+        new Set(values).size === group.length
+      );
+    });
 
-		for (const entry of group) {
-			const value = qualifier?.(entry);
-			if (!value) {
-				labels.set(entry.id, name);
-			} else if (value === entry.id) {
-				// The id stands alone rather than being parenthesised after the name it already
-				// contains: "Drizzle RS (drizzle-rs-pg-query)" says the library twice.
-				labels.set(entry.id, entry.id);
-			} else {
-				labels.set(entry.id, `${name} (${value})`);
-			}
-		}
-	}
-	return labels;
+    for (const entry of group) {
+      const value = qualifier?.(entry);
+      if (!value) {
+        labels.set(entry.id, name);
+      } else if (value === entry.id) {
+        // The id stands alone rather than being parenthesised after the name it already
+        // contains: "Drizzle RS (drizzle-rs-pg-query)" says the library twice.
+        labels.set(entry.id, entry.id);
+      } else {
+        labels.set(entry.id, `${name} (${value})`);
+      }
+    }
+  }
+  return labels;
 }
