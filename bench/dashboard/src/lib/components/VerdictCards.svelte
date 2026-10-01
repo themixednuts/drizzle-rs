@@ -50,7 +50,7 @@
 							<span
 								class={cn(
 									'font-mono font-medium tabular-nums',
-									verdict.ahead ? 'text-positive' : 'text-foreground',
+									verdict.ahead && verdict.vsRaw !== '=' ? 'text-positive' : 'text-foreground',
 								)}
 							>
 								{verdict.vsRaw === '=' ? 'level' : verdict.vsRaw}
