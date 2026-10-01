@@ -490,6 +490,17 @@ pub struct OrderExpr<T> {
     direction: drizzle_core::OrderBy,
 }
 
+impl<T: drizzle_core::expr::ExprSources> drizzle_core::expr::ExprSources for OrderExpr<T> {
+    type Sources = T::Sources;
+}
+
+impl<T: drizzle_core::expr::ExprSources> drizzle_core::OrderTerm for OrderExpr<T> {}
+
+/// An output alias names a SELECT output, not a FROM source.
+impl drizzle_core::expr::ExprSources for OutputAlias {
+    type Sources = ();
+}
+
 impl<'a, T> ToSQL<'a, MySQLValue<'a>> for OrderExpr<T>
 where
     T: ToSQL<'a, MySQLValue<'a>>,

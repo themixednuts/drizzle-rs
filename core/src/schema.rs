@@ -69,20 +69,20 @@ impl<V: SQLParam, S> crate::expr::ExprSources for Ordered<'_, V, S> {
     type Sources = S;
 }
 
-impl<V: SQLParam, S, const N: usize> crate::expr::ExprSources for [Ordered<'_, V, S>; N] {
-    type Sources = S;
+/// An `ORDER BY` term. Arrays and `Vec`s of one term type read that type's
+/// sources.
+pub trait OrderTerm: crate::expr::ExprSources {}
+
+impl<V: SQLParam, S> OrderTerm for Ordered<'_, V, S> {}
+
+impl<V: SQLParam> OrderTerm for SQL<'_, V> {}
+
+impl<T: OrderTerm, const N: usize> crate::expr::ExprSources for [T; N] {
+    type Sources = T::Sources;
 }
 
-impl<V: SQLParam, S> crate::expr::ExprSources for Vec<Ordered<'_, V, S>> {
-    type Sources = S;
-}
-
-impl<V: SQLParam, const N: usize> crate::expr::ExprSources for [SQL<'_, V>; N] {
-    type Sources = ();
-}
-
-impl<V: SQLParam> crate::expr::ExprSources for Vec<SQL<'_, V>> {
-    type Sources = ();
+impl<T: OrderTerm> crate::expr::ExprSources for Vec<T> {
+    type Sources = T::Sources;
 }
 
 /// Creates an ascending ORDER BY term: "column ASC"

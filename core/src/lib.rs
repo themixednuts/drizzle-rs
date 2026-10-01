@@ -123,7 +123,7 @@ pub use scope::{
     AliasKey, FromMarker, FullJoin, HasScope, InnerJoin, JoinKind, JoinStep, Lateral, LeftJoin,
     OuterJoined, RightJoin, ScopeContains, ScopeEntry, Scoped, SelectSources, SetOperand, Src,
 };
-pub use schema::{OrderBy, Ordered, asc, desc};
+pub use schema::{OrderBy, OrderTerm, Ordered, asc, desc};
 pub use sql::{
     ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,
     OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, TableSqlRef, Token,
