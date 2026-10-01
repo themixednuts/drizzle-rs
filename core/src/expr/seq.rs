@@ -3,6 +3,7 @@
 //! These functions interact with `PostgreSQL` sequences (serial/identity columns).
 
 use crate::dialect::DialectTypes;
+use crate::dialect::{DialectSupports, feature};
 use crate::sql::SQL;
 use crate::traits::SQLParam;
 use crate::types::Textual;
@@ -12,13 +13,7 @@ use crate::scope::ScopeOnly;
 
 use crate::PostgresDialect;
 
-#[diagnostic::on_unimplemented(
-    message = "sequence functions are not available for this dialect",
-    label = "sequence functions require PostgreSQL"
-)]
-pub trait SequenceSupport {}
-
-impl SequenceSupport for PostgresDialect {}
+impl DialectSupports<feature::Sequence> for PostgresDialect {}
 
 /// NEXTVAL - advances a sequence and returns its new value (`PostgreSQL`).
 ///
@@ -46,7 +41,7 @@ pub fn nextval<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SequenceSupport,
+    V::DialectMarker: DialectSupports<feature::Sequence>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
@@ -79,7 +74,7 @@ pub fn currval<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SequenceSupport,
+    V::DialectMarker: DialectSupports<feature::Sequence>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
@@ -112,7 +107,7 @@ pub fn setval<'a, V, E, N>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SequenceSupport,
+    V::DialectMarker: DialectSupports<feature::Sequence>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     N: Expr<'a, V>,

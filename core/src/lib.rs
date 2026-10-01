@@ -99,7 +99,9 @@ pub use builder::{
 pub use derived::{
     Derived, DerivedField, DerivedProjection, DerivedSelection, ProjectionOutput, TableProjection,
 };
-pub use dialect::{Dialect, DialectTypes, MySQLDialect, PostgresDialect, SQLiteDialect};
+pub use dialect::{
+    Dialect, DialectSupports, DialectTypes, MySQLDialect, PostgresDialect, SQLiteDialect, feature,
+};
 pub use join::{Join, JoinType, LateralArg, LateralSource};
 #[cfg(feature = "serde")]
 pub use json::Json;

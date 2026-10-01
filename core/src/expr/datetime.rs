@@ -12,6 +12,7 @@
 //! Cross-database functions try to use compatible SQL where possible.
 
 use crate::dialect::DialectTypes;
+use crate::dialect::{DialectSupports, feature};
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{DataType, Numeric, Temporal, Textual};
@@ -21,18 +22,6 @@ use drizzle_types::postgres::types::{Timestamp as PgTimestamp, Timestamptz as Pg
 use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
 
 #[diagnostic::on_unimplemented(
-    message = "this date/time function is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait SQLiteDateTimeSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "this date/time function is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait PostgresDateTimeSupport {}
-
-#[diagnostic::on_unimplemented(
     message = "DATE_TRUNC output type is not defined for `{Self}` on this dialect",
     label = "DATE_TRUNC accepts timestamp/timestamptz and preserves the timestamp flavor"
 )]
@@ -40,8 +29,8 @@ pub trait DateTruncPolicy<D>: Temporal {
     type Output: DataType;
 }
 
-impl SQLiteDateTimeSupport for SQLiteDialect {}
-impl PostgresDateTimeSupport for PostgresDialect {}
+impl DialectSupports<feature::SQLiteDateTime> for SQLiteDialect {}
+impl DialectSupports<feature::PostgresDateTime> for PostgresDialect {}
 
 impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
     type Output = Self;
@@ -149,7 +138,7 @@ pub fn date<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -175,7 +164,7 @@ pub fn time<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -208,7 +197,7 @@ pub fn datetime<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -255,7 +244,7 @@ pub fn strftime<'a, V, F, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     F: Expr<'a, V>,
     F::SQLType: Textual,
     E: Expr<'a, V>,
@@ -287,7 +276,7 @@ pub fn julianday<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -313,7 +302,7 @@ pub fn unixepoch<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -341,7 +330,7 @@ pub fn now<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("NOW()"))
 }
@@ -378,7 +367,7 @@ pub fn date_trunc<'a, V, P, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     P: Expr<'a, V>,
     P::SQLType: Textual,
     E: Expr<'a, V>,
@@ -419,7 +408,7 @@ pub fn extract<'a, 'f, V, E>(
 where
     'f: 'a,
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -466,7 +455,7 @@ pub fn age<'a, V, E1, E2>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E1: Expr<'a, V>,
     E1::SQLType: Temporal,
     E2: Expr<'a, V>,
@@ -523,7 +512,7 @@ pub fn to_char<'a, V, E, F>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
     F: Expr<'a, V>,
@@ -555,7 +544,7 @@ pub fn to_timestamp<'a, V, E>(
 ) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -594,7 +583,7 @@ pub fn to_date<'a, V, E, F>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     F: Expr<'a, V>,
@@ -635,7 +624,7 @@ pub fn to_number<'a, V, E, F>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     F: Expr<'a, V>,
@@ -682,7 +671,7 @@ pub fn date_bin<'a, V, S, E, O>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     S: Expr<'a, V>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
@@ -739,7 +728,7 @@ pub fn make_date<'a, V, Y, M, D>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     Y: Expr<'a, V>,
     Y::SQLType: Numeric,
     M: Expr<'a, V>,
@@ -804,7 +793,7 @@ pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     Y: Expr<'a, V>,
     Y::SQLType: Numeric,
     Mo: Expr<'a, V>,
@@ -878,7 +867,7 @@ pub fn localtime<'a, V>()
 -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("LOCALTIME"))
 }
@@ -899,7 +888,7 @@ where
 pub fn localtimestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("LOCALTIMESTAMP"))
 }
@@ -922,7 +911,7 @@ where
 pub fn clock_timestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamptz, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("CLOCK_TIMESTAMP()"))
 }
@@ -959,7 +948,7 @@ pub fn timediff<'a, V, E1, E2>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E1: Expr<'a, V>,
     E1::SQLType: Temporal,
     E2: Expr<'a, V>,

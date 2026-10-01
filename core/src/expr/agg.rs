@@ -10,6 +10,7 @@
 //! - `min`, `max`: Work with any type (ordered types in SQL)
 
 use crate::dialect::{Dialect, DialectTypes};
+use crate::dialect::{DialectSupports, feature};
 use crate::sql::SQL;
 use crate::traits::SQLParam;
 use crate::types::{Array, Numeric};
@@ -67,33 +68,6 @@ pub trait StatisticalAggregatePolicy<D>: Numeric {
 )]
 pub trait BooleanAggregatePolicy<D>: crate::types::DataType {}
 
-#[diagnostic::on_unimplemented(
-    message = "this aggregate is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait PostgresAggregateSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "this aggregate is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait SQLiteAggregateSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "GROUP_CONCAT is not available for this dialect",
-    label = "use the dialect's native string aggregate"
-)]
-pub trait GroupConcatSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "no COUNT return type defined for this dialect",
-    label = "COUNT result type is not configured for this dialect marker"
-)]
-pub trait CountPolicy {
-    /// The integer type returned by COUNT (e.g. Integer on `SQLite`, Int8 on `PostgreSQL`).
-    type Count: crate::types::DataType;
-}
-
 mod count_arg_private {
     use super::SQLParam;
 
@@ -133,40 +107,6 @@ where
     fn count_sql(self) -> SQL<'a, V> {
         SQL::func("COUNT", self.into_sql().parens_if_subquery())
     }
-}
-
-impl CountPolicy for SQLiteDialect {
-    type Count = drizzle_types::sqlite::types::Integer;
-}
-
-impl CountPolicy for PostgresDialect {
-    type Count = drizzle_types::postgres::types::Int8;
-}
-
-impl CountPolicy for MySQLDialect {
-    type Count = drizzle_types::mysql::types::BigInt;
-}
-
-#[diagnostic::on_unimplemented(
-    message = "no floating-point return type defined for this dialect",
-    label = "PERCENT_RANK/CUME_DIST result type is not configured for this dialect marker"
-)]
-pub trait FloatPolicy {
-    /// The floating-point type returned by distribution window functions
-    /// like `PERCENT_RANK` and `CUME_DIST` (Real on `SQLite`, Float8 on `PostgreSQL`).
-    type Float: crate::types::DataType;
-}
-
-impl FloatPolicy for SQLiteDialect {
-    type Float = drizzle_types::sqlite::types::Real;
-}
-
-impl FloatPolicy for PostgresDialect {
-    type Float = drizzle_types::postgres::types::Float8;
-}
-
-impl FloatPolicy for MySQLDialect {
-    type Float = drizzle_types::mysql::types::Double;
 }
 
 macro_rules! mysql_aggregate_policy {
@@ -283,10 +223,10 @@ impl StatisticalAggregatePolicy<PostgresDialect> for PgNumeric {
 
 impl BooleanAggregatePolicy<PostgresDialect> for PgBoolean {}
 
-impl PostgresAggregateSupport for PostgresDialect {}
-impl SQLiteAggregateSupport for SQLiteDialect {}
-impl GroupConcatSupport for SQLiteDialect {}
-impl GroupConcatSupport for MySQLDialect {}
+impl DialectSupports<feature::PostgresAggregate> for PostgresDialect {}
+impl DialectSupports<feature::SQLiteAggregate> for SQLiteDialect {}
+impl DialectSupports<feature::GroupConcat> for SQLiteDialect {}
+impl DialectSupports<feature::GroupConcat> for MySQLDialect {}
 
 impl AggregatePolicy<PostgresDialect> for Int2 {
     type Sum = Int8;
@@ -338,10 +278,9 @@ impl AggregatePolicy<PostgresDialect> for PgNumeric {
 /// ```
 pub fn count<'a, V, A>(
     arg: A,
-) -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg, ScopeOnly<A::Sources>>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull, Agg, ScopeOnly<A::Sources>>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
     A: CountArg<'a, V>,
 {
     SQLExpr::new(arg.count_sql())
@@ -353,10 +292,9 @@ where
 /// Works with any expression type.
 pub fn count_distinct<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull, Agg, ScopeOnly<E::Sources>>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull, Agg, ScopeOnly<E::Sources>>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func(
@@ -698,7 +636,7 @@ pub fn bool_and<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     E: Expr<'a, V>,
     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
 {
@@ -711,7 +649,7 @@ pub fn bool_or<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     E: Expr<'a, V>,
     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
 {
@@ -724,7 +662,7 @@ pub fn json_agg<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("JSON_AGG", expr.into_expr_sql()))
@@ -736,7 +674,7 @@ pub fn jsonb_agg<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("JSONB_AGG", expr.into_expr_sql()))
@@ -746,7 +684,7 @@ where
 pub fn array_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Array<E::SQLType>, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("ARRAY_AGG", expr.into_expr_sql()))
@@ -776,7 +714,7 @@ pub fn total<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull, Agg, ScopeOnly<E::Sources>>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteAggregate>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -795,7 +733,7 @@ pub fn group_concat<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: GroupConcatSupport,
+    V::DialectMarker: DialectSupports<feature::GroupConcat>,
     E: Expr<'a, V>,
     E::SQLType: crate::types::Textual,
 {
@@ -809,7 +747,7 @@ pub fn string_agg<'a, V, E, D>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg, (E::Sources, D::Sources)>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     E: Expr<'a, V>,
     E::SQLType: crate::types::Textual,
     D: Expr<'a, V>,
@@ -846,7 +784,7 @@ pub fn every<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     E: Expr<'a, V>,
     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
 {
@@ -871,7 +809,7 @@ pub fn json_object_agg<'a, V, K, Val>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg, (K::Sources, Val::Sources)>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     K: Expr<'a, V>,
     Val: Expr<'a, V>,
 {
@@ -901,7 +839,7 @@ pub fn jsonb_object_agg<'a, V, K, Val>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg, (K::Sources, Val::Sources)>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresAggregateSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
     K: Expr<'a, V>,
     Val: Expr<'a, V>,
 {

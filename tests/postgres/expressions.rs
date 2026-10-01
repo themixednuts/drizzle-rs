@@ -1,9 +1,8 @@
 //! PostgreSQL-only expression functions, executed against the server.
 //!
 //! Portable functions run in `crate::common::expressions`; this file covers
-//! the `PostgresStringSupport`, `PostgresAggregateSupport`,
-//! `PostgresDateTimeSupport`, `SequenceSupport` and operator surface that
-//! only PostgreSQL provides.
+//! the string, aggregate, date/time and sequence functions and the operator
+//! surface that only PostgreSQL provides.
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 

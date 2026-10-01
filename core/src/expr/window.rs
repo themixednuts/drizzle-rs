@@ -23,23 +23,20 @@
 //! # "####;
 //! ```
 
+use crate::dialect::{DialectSupports, feature};
 use core::marker::PhantomData;
 
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{BooleanLike, Compatible, DataType};
 
-use super::agg::{CountPolicy, FloatPolicy};
 use super::null::NullOr;
 use super::{Agg, Expr, ExprSources, NonNull, Null, Nullability, SQLExpr, Scalar};
 use crate::dialect::DialectTypes;
 use crate::scope::ScopeOnly;
 
-/// Dialects that support an aggregate `FILTER (WHERE ...)` clause.
-pub trait AggregateFilterSupport {}
-
-impl AggregateFilterSupport for crate::SQLiteDialect {}
-impl AggregateFilterSupport for crate::PostgresDialect {}
+impl DialectSupports<feature::AggregateFilter> for crate::SQLiteDialect {}
+impl DialectSupports<feature::AggregateFilter> for crate::PostgresDialect {}
 
 // =============================================================================
 // Frame Bounds
@@ -240,7 +237,7 @@ where
     where
         C: Expr<'a, V>,
         C::SQLType: BooleanLike,
-        V::DialectMarker: AggregateFilterSupport,
+        V::DialectMarker: DialectSupports<feature::AggregateFilter>,
     {
         let sql = self
             .into_sql()
@@ -303,10 +300,10 @@ where
 ///
 /// Returns an integer, never NULL.
 #[must_use]
-pub fn row_number<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
+pub fn row_number<'a, V>()
+-> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::raw("ROW_NUMBER()"))
 }
@@ -315,10 +312,9 @@ where
 ///
 /// Returns an integer, never NULL.
 #[must_use]
-pub fn rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
+pub fn rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::raw("RANK()"))
 }
@@ -327,10 +323,10 @@ where
 ///
 /// Returns an integer, never NULL.
 #[must_use]
-pub fn dense_rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
+pub fn dense_rank<'a, V>()
+-> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::raw("DENSE_RANK()"))
 }
@@ -353,10 +349,9 @@ where
 /// Returns a float between 0.0 and 1.0, never NULL.
 #[must_use]
 pub fn percent_rank<'a, V>()
--> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
+-> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: FloatPolicy,
 {
     WindowFnExpr::new(SQL::raw("PERCENT_RANK()"))
 }
@@ -365,10 +360,9 @@ where
 ///
 /// Returns a float between 0.0 and 1.0 (exclusive of 0), never NULL.
 #[must_use]
-pub fn cume_dist<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
+pub fn cume_dist<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: FloatPolicy,
 {
     WindowFnExpr::new(SQL::raw("CUME_DIST()"))
 }

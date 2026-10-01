@@ -61,6 +61,17 @@ pub trait DialectTypes {
     type Json: DataType;
     type Jsonb: DataType;
     type Any: DataType;
+
+    /// Result type of `RANDOM()`.
+    type Random: DataType;
+    /// Result type of `SIGN(x)`.
+    type Sign: DataType;
+    /// Nullability of a math function whose domain is narrower than its
+    /// input type (`SQRT`, `LN`, `LOG`, ...) given input nullability `Input`:
+    /// SQLite and MySQL answer NULL outside the domain, PostgreSQL raises.
+    type DomainNullable<Input: crate::expr::Nullability>: crate::expr::Nullability;
+    /// Name of the character-count function (`LENGTH` on SQLite).
+    const CHAR_LENGTH_FN: &'static str;
 }
 
 impl DialectTypes for SQLiteDialect {
@@ -80,6 +91,11 @@ impl DialectTypes for SQLiteDialect {
     type Json = drizzle_types::sqlite::types::Text;
     type Jsonb = drizzle_types::sqlite::types::Text;
     type Any = drizzle_types::sqlite::types::Any;
+
+    type Random = drizzle_types::sqlite::types::Integer;
+    type Sign = drizzle_types::sqlite::types::Integer;
+    type DomainNullable<Input: crate::expr::Nullability> = crate::expr::Null;
+    const CHAR_LENGTH_FN: &'static str = "LENGTH";
 }
 
 impl DialectTypes for PostgresDialect {
@@ -99,6 +115,11 @@ impl DialectTypes for PostgresDialect {
     type Json = drizzle_types::postgres::types::Json;
     type Jsonb = drizzle_types::postgres::types::Jsonb;
     type Any = drizzle_types::postgres::types::Any;
+
+    type Random = drizzle_types::postgres::types::Float8;
+    type Sign = drizzle_types::postgres::types::Float8;
+    type DomainNullable<Input: crate::expr::Nullability> = Input;
+    const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
 }
 
 impl DialectTypes for MySQLDialect {
@@ -118,6 +139,11 @@ impl DialectTypes for MySQLDialect {
     type Json = drizzle_types::mysql::types::Json;
     type Jsonb = drizzle_types::mysql::types::Json;
     type Any = drizzle_types::mysql::types::Any;
+
+    type Random = drizzle_types::mysql::types::Double;
+    type Sign = drizzle_types::mysql::types::BigInt;
+    type DomainNullable<Input: crate::expr::Nullability> = crate::expr::Null;
+    const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
 }
 
 /// Parameter placeholder rendering style.
@@ -178,3 +204,57 @@ impl ParamStyle {
 pub fn write_placeholder(dialect: Dialect, index: usize, buf: &mut impl core::fmt::Write) {
     ParamStyle::for_dialect(dialect).write(index, buf);
 }
+
+/// Dialect-only SQL features gated by [`DialectSupports`].
+pub mod feature {
+    /// SQLite date/time functions (`unixepoch`, `strftime`, ...).
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct SQLiteDateTime;
+    /// PostgreSQL date/time functions (`date_trunc`, `age`, ...).
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct PostgresDateTime;
+    /// Sequence functions (`nextval`, `currval`, `setval`).
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Sequence;
+    /// `TYPEOF`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Typeof;
+    /// The `EXCLUDED` row in an upsert.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Excluded;
+    /// Aggregate `FILTER (WHERE ...)`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct AggregateFilter;
+    /// PostgreSQL aggregates (`array_agg`, `bool_and`, `json_agg`, ...).
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct PostgresAggregate;
+    /// SQLite-only aggregates.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct SQLiteAggregate;
+    /// `GROUP_CONCAT`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct GroupConcat;
+    /// PostgreSQL string functions (`initcap`, `split_part`, ...).
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct PostgresString;
+    /// `LEFT` / `RIGHT`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct LeftRight;
+    /// `LPAD` / `RPAD`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Pad;
+    /// `REVERSE`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Reverse;
+    /// `REPEAT`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Repeat;
+}
+
+/// The dialect `Self` provides the SQL feature `Feature`.
+#[diagnostic::on_unimplemented(
+    message = "`{Feature}` is not available for `{Self}`",
+    label = "this function is not supported by this dialect",
+    note = "use a dialect-specific alternative"
+)]
+pub trait DialectSupports<Feature> {}

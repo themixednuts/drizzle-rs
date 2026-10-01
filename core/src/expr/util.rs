@@ -1,5 +1,6 @@
 //! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
 
+use crate::dialect::{DialectSupports, feature};
 use crate::dialect::{MySQLDialect, PostgresDialect, SQLiteDialect};
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
@@ -211,13 +212,7 @@ impl<T: crate::row::ExprValueType> NamedExt for T {}
 // TYPEOF
 // =============================================================================
 
-#[diagnostic::on_unimplemented(
-    message = "TYPEOF is not available for this dialect",
-    label = "use a dialect-specific type inspection expression"
-)]
-pub trait TypeofSupport {}
-
-impl TypeofSupport for SQLiteDialect {}
+impl DialectSupports<feature::Typeof> for SQLiteDialect {}
 
 /// Get the SQL type of an expression.
 ///
@@ -245,7 +240,7 @@ pub fn typeof_<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: TypeofSupport,
+    V::DialectMarker: DialectSupports<feature::Typeof>,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("TYPEOF", expr.into_expr_sql()))
@@ -264,7 +259,7 @@ pub fn r#typeof<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: TypeofSupport,
+    V::DialectMarker: DialectSupports<feature::Typeof>,
     E: Expr<'a, V>,
 {
     typeof_(expr)
@@ -715,11 +710,8 @@ pub struct Excluded<C> {
     column: C,
 }
 
-/// Dialects whose upsert syntax exposes the proposed row as `EXCLUDED`.
-pub trait ExcludedSupport {}
-
-impl ExcludedSupport for SQLiteDialect {}
-impl ExcludedSupport for PostgresDialect {}
+impl DialectSupports<feature::Excluded> for SQLiteDialect {}
+impl DialectSupports<feature::Excluded> for PostgresDialect {}
 
 /// Reference a column's value from the proposed insert row (EXCLUDED).
 ///
@@ -748,7 +740,7 @@ impl<C> super::ExprSources for Excluded<C> {
 impl<'a, V, C> Expr<'a, V> for Excluded<C>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: ExcludedSupport,
+    V::DialectMarker: DialectSupports<feature::Excluded>,
     C: Expr<'a, V> + SQLColumnInfo,
 {
     type SQLType = C::SQLType;
@@ -759,7 +751,7 @@ where
 impl<'a, V, C> ToSQL<'a, V> for Excluded<C>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: ExcludedSupport,
+    V::DialectMarker: DialectSupports<feature::Excluded>,
     C: SQLColumnInfo,
 {
     fn to_sql(&self) -> SQL<'a, V> {

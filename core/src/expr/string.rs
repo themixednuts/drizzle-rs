@@ -10,6 +10,7 @@
 //! - `substr`, `replace`, `instr`: Require `Textual` types
 
 use crate::dialect::{Dialect, DialectTypes};
+use crate::dialect::{DialectSupports, feature};
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{DataType, Integral, Textual};
@@ -32,42 +33,12 @@ pub trait LengthPolicy<D>: DataType {
 }
 
 #[diagnostic::on_unimplemented(
-    message = "this string function is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait PostgresStringSupport {}
-
-#[diagnostic::on_unimplemented(
     message = "INSTR is not available for this dialect",
     label = "use a dialect-specific substring-position function"
 )]
 pub trait InstrPolicy {
     type Output: DataType;
 }
-
-#[diagnostic::on_unimplemented(
-    message = "LEFT/RIGHT are not available for this dialect",
-    label = "use a dialect-specific substring function"
-)]
-pub trait LeftRightSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "LPAD/RPAD are not available for this dialect",
-    label = "use a dialect-specific padding expression"
-)]
-pub trait PadSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "REVERSE is not available for this dialect",
-    label = "use a dialect-specific string expression"
-)]
-pub trait ReverseSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "REPEAT is not available for this dialect",
-    label = "use a dialect-specific string expression"
-)]
-pub trait RepeatSupport {}
 
 impl LengthPolicy<SQLiteDialect> for SqliteText {
     type Output = SqliteInteger;
@@ -107,7 +78,7 @@ mysql_length_policy!(
     drizzle_types::mysql::types::Set,
 );
 
-impl PostgresStringSupport for PostgresDialect {}
+impl DialectSupports<feature::PostgresString> for PostgresDialect {}
 
 impl InstrPolicy for SQLiteDialect {
     type Output = SqliteInteger;
@@ -116,14 +87,14 @@ impl InstrPolicy for MySQLDialect {
     type Output = drizzle_types::mysql::types::BigInt;
 }
 
-impl LeftRightSupport for PostgresDialect {}
-impl LeftRightSupport for MySQLDialect {}
-impl PadSupport for PostgresDialect {}
-impl PadSupport for MySQLDialect {}
-impl ReverseSupport for PostgresDialect {}
-impl ReverseSupport for MySQLDialect {}
-impl RepeatSupport for PostgresDialect {}
-impl RepeatSupport for MySQLDialect {}
+impl DialectSupports<feature::LeftRight> for PostgresDialect {}
+impl DialectSupports<feature::LeftRight> for MySQLDialect {}
+impl DialectSupports<feature::Pad> for PostgresDialect {}
+impl DialectSupports<feature::Pad> for MySQLDialect {}
+impl DialectSupports<feature::Reverse> for PostgresDialect {}
+impl DialectSupports<feature::Reverse> for MySQLDialect {}
+impl DialectSupports<feature::Repeat> for PostgresDialect {}
+impl DialectSupports<feature::Repeat> for MySQLDialect {}
 
 // =============================================================================
 // CASE CONVERSION
@@ -509,7 +480,7 @@ pub fn strpos<'a, V, E, S>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     S: Expr<'a, V>,
@@ -677,7 +648,7 @@ pub fn left<'a, V, E, N>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: LeftRightSupport,
+    V::DialectMarker: DialectSupports<feature::LeftRight>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     N: Expr<'a, V>,
@@ -721,7 +692,7 @@ pub fn right<'a, V, E, N>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: LeftRightSupport,
+    V::DialectMarker: DialectSupports<feature::LeftRight>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     N: Expr<'a, V>,
@@ -766,7 +737,7 @@ pub fn split_part<'a, V, E, D, N>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     D: Expr<'a, V>,
@@ -819,7 +790,7 @@ pub fn lpad<'a, V, E, L, F>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PadSupport,
+    V::DialectMarker: DialectSupports<feature::Pad>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     L: Expr<'a, V>,
@@ -872,7 +843,7 @@ pub fn rpad<'a, V, E, L, F>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PadSupport,
+    V::DialectMarker: DialectSupports<feature::Pad>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     L: Expr<'a, V>,
@@ -906,7 +877,7 @@ pub fn initcap<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
@@ -921,7 +892,7 @@ pub fn reverse<'a, V, E>(
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: ReverseSupport,
+    V::DialectMarker: DialectSupports<feature::Reverse>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
 {
@@ -954,7 +925,7 @@ pub fn repeat<'a, V, E, N>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: RepeatSupport,
+    V::DialectMarker: DialectSupports<feature::Repeat>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     N: Expr<'a, V>,
@@ -999,7 +970,7 @@ pub fn starts_with<'a, V, E, P>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     P: Expr<'a, V>,
@@ -1016,25 +987,6 @@ where
 // =============================================================================
 // CHAR_LENGTH / OCTET_LENGTH (Standard SQL)
 // =============================================================================
-
-/// Dialect-aware function name for `CHAR_LENGTH`.
-///
-/// PostgreSQL and MySQL use `CHAR_LENGTH`; SQLite uses `LENGTH`.
-pub trait CharLengthPolicy {
-    const CHAR_LENGTH_FN: &'static str;
-}
-
-impl CharLengthPolicy for SQLiteDialect {
-    const CHAR_LENGTH_FN: &'static str = "LENGTH";
-}
-
-impl CharLengthPolicy for PostgresDialect {
-    const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
-}
-
-impl CharLengthPolicy for crate::MySQLDialect {
-    const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
-}
 
 /// `CHAR_LENGTH` - returns the number of characters in a string.
 ///
@@ -1065,12 +1017,11 @@ pub fn char_length<'a, V, E>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CharLengthPolicy,
     E: Expr<'a, V>,
     E::SQLType: LengthPolicy<V::DialectMarker>,
 {
     SQLExpr::new(SQL::func(
-        <V::DialectMarker as CharLengthPolicy>::CHAR_LENGTH_FN,
+        <V::DialectMarker as DialectTypes>::CHAR_LENGTH_FN,
         expr.into_sql(),
     ))
 }
@@ -1142,7 +1093,7 @@ pub fn translate<'a, V, E, F, T>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     F: Expr<'a, V>,
@@ -1198,7 +1149,7 @@ pub fn regexp_replace<'a, V, E, P, R>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     P: Expr<'a, V>,
@@ -1252,7 +1203,7 @@ pub fn regexp_replace_flags<'a, V, E, P, R, F>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     P: Expr<'a, V>,
@@ -1310,7 +1261,7 @@ pub fn regexp_match<'a, V, E, P>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     P: Expr<'a, V>,
@@ -1355,7 +1306,7 @@ pub fn regexp_match_flags<'a, V, E, P, F>(
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresStringSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresString>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     P: Expr<'a, V>,
