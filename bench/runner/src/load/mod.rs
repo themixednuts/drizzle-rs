@@ -786,6 +786,13 @@ async fn measure_vus_async(
     // the steps of the saturation curve; the aggregate spans all of them.
     let mut steps: Vec<Window> = Vec::new();
 
+    // Buckets tile the timeline: each one closes at the instant its queue depth
+    // is snapshotted and the next opens at that same instant. Timing only the
+    // sleep would leave the drain/summarize gap between buckets on no bucket's
+    // clock while the requests completing inside it are still counted in the
+    // next bucket, inflating rps by gap/bucket — and the gap grows with the
+    // sample count, so the fastest targets were inflated most.
+    let mut window_start = Instant::now();
     let mut idx = 0_usize;
     while idx < schedule.len() {
         let plan = schedule[idx];
@@ -862,14 +869,18 @@ async fn measure_vus_async(
         }
 
         let secs = (end - idx) as u64;
-        let start = Instant::now();
-        tokio::time::sleep(Duration::from_secs(secs)).await;
-        let wall = start.elapsed().as_secs_f64().max(0.001);
+        // Sleep to the bucket's deadline rather than for a fixed span, so the
+        // processing time of the previous bucket is absorbed instead of
+        // stretching every bucket past its schedule.
+        tokio::time::sleep_until((window_start + Duration::from_secs(secs)).into()).await;
 
         // Snapshot the queue depth before draining. Requests that land while we
         // drain completed after the window closed and belong to the next bucket;
         // counting them here inflates this bucket's rps against its own wall.
+        let closed = Instant::now();
         let pending = rx.len();
+        let wall = bucket_wall(window_start, closed);
+        window_start = closed;
         let mut latencies = Vec::with_capacity(pending);
         let mut errors = 0_u64;
         let mut total = 0_u64;
@@ -951,6 +962,14 @@ async fn measure_vus_async(
             .map(|step| step.finish(&query_keys, trial))
             .collect(),
     })
+}
+
+/// Seconds a bucket covered: from the previous bucket's close to this one's.
+fn bucket_wall(open: Instant, close: Instant) -> f64 {
+    close
+        .saturating_duration_since(open)
+        .as_secs_f64()
+        .max(0.001)
 }
 
 fn plan_index(vu_id: u64, iter: u64, len: usize) -> usize {
@@ -1591,6 +1610,28 @@ impl QueryParams {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    /// Bucket walls tile the run: consecutive closes share an edge, so the
+    /// drain time between two sleeps lands on a bucket's clock instead of on
+    /// none. Summed walls must equal the elapsed span, which is what keeps
+    /// `requests / wall` an honest rate.
+    #[test]
+    fn bucket_walls_tile_the_timeline() {
+        let start = Instant::now();
+        let closes = [
+            start + Duration::from_millis(1_000),
+            start + Duration::from_millis(2_007), // 7 ms of drain carried in
+            start + Duration::from_millis(3_000),
+        ];
+        let mut open = start;
+        let mut total = 0.0;
+        for close in closes {
+            total += bucket_wall(open, close);
+            open = close;
+        }
+        assert!((total - 3.0).abs() < 1e-9, "{total}");
+        assert!((bucket_wall(closes[0], closes[1]) - 1.007).abs() < 1e-9);
+    }
 
     #[test]
     fn request_plan_groups_query_metrics_by_method_and_route() {
