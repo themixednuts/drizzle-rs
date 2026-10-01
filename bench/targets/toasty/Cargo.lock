@@ -512,7 +512,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
 dependencies = [
- "nom 7.1.3",
+ "nom",
 ]
 
 [[package]]
@@ -964,12 +964,13 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "drizzle"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
  "const_format",
  "drizzle-core",
  "drizzle-macros",
  "drizzle-migrations",
+ "drizzle-mysql",
  "drizzle-postgres",
  "drizzle-sqlite",
  "drizzle-types",
@@ -981,7 +982,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-core"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "compact_str",
@@ -998,46 +999,53 @@ dependencies = [
 
 [[package]]
 name = "drizzle-macros"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
- "drizzle-core",
  "drizzle-migrations",
- "drizzle-postgres",
- "drizzle-sqlite",
  "drizzle-types",
  "heck",
- "paste",
  "pluralizer",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "rand 0.9.5",
  "serde",
  "serde_json",
  "syn 2.0.119",
  "toml",
- "turso",
 ]
 
 [[package]]
 name = "drizzle-migrations"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
  "drizzle-types",
  "heck",
- "nom 8.0.0",
+ "proc-macro2",
+ "quote",
  "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "syn 2.0.119",
  "thiserror",
  "toml",
  "uuid",
 ]
 
 [[package]]
+name = "drizzle-mysql"
+version = "0.2.1"
+dependencies = [
+ "chrono",
+ "compact_str",
+ "drizzle-core",
+ "drizzle-types",
+ "mysql_common",
+]
+
+[[package]]
 name = "drizzle-postgres"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "compact_str",
@@ -1050,10 +1058,11 @@ dependencies = [
 
 [[package]]
 name = "drizzle-seed"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "drizzle-core",
+ "drizzle-mysql",
  "drizzle-postgres",
  "drizzle-sqlite",
  "rand 0.9.5",
@@ -1061,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-sqlite"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "compact_str",
@@ -1074,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-types"
-version = "0.1.15"
+version = "0.2.1"
 dependencies = [
  "serde",
 ]
@@ -2303,6 +2312,7 @@ dependencies = [
  "btoi",
  "byteorder",
  "bytes",
+ "chrono",
  "crc32fast",
  "flate2",
  "getrandom 0.3.4",
@@ -2343,15 +2353,6 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
-]
-
-[[package]]
-name = "nom"
-version = "8.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
-dependencies = [
- "memchr",
 ]
 
 [[package]]
@@ -3774,7 +3775,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfadb8526b6da90704feb293b0701a6aae62ea14983143344be2dc5ce30f1d82"
 dependencies = [
  "fnv",
- "nom 7.1.3",
+ "nom",
  "ordered-float",
  "serde",
  "serde_json",
