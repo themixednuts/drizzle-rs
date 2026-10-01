@@ -32,8 +32,8 @@ use crate::types::{BooleanLike, Compatible, DataType};
 use super::agg::{CountPolicy, FloatPolicy};
 use super::null::NullOr;
 use super::{Agg, Expr, ExprSources, NonNull, Null, Nullability, SQLExpr, Scalar};
-use crate::scope::ScopeOnly;
 use crate::dialect::DialectTypes;
+use crate::scope::ScopeOnly;
 
 /// Dialects that support an aggregate `FILTER (WHERE ...)` clause.
 pub trait AggregateFilterSupport {}

@@ -186,14 +186,7 @@ where
 #[allow(clippy::type_complexity)]
 pub fn all<'a, V, L>(
     conditions: L,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Bool,
-    L::Nullable,
-    L::Aggregate,
-    L::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, L::Nullable, L::Aggregate, L::Sources>
 where
     V: SQLParam + 'a,
     L: ConditionList<'a, V>,
@@ -220,14 +213,7 @@ where
 #[allow(clippy::type_complexity)]
 pub fn any<'a, V, L>(
     conditions: L,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Bool,
-    L::Nullable,
-    L::Aggregate,
-    L::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, L::Nullable, L::Aggregate, L::Sources>
 where
     V: SQLParam + 'a,
     L: ConditionList<'a, V>,

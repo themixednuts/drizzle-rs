@@ -79,7 +79,11 @@ mod private {
     message = "`{Self}` is not a valid nullability marker",
     label = "expected `NonNull` or `Null`"
 )]
-pub trait Nullability: private::Sealed + Copy + Default + 'static {}
+pub trait Nullability: private::Sealed + Copy + Default + 'static {
+    /// A decoded value of type `T` under this nullability: `T` for
+    /// [`NonNull`], [`MaybeNull<T>`](crate::row::MaybeNull) for [`Null`].
+    type Decoded<T>;
+}
 
 /// Marker indicating an expression cannot be NULL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -91,8 +95,12 @@ pub struct Null;
 
 impl private::Sealed for NonNull {}
 impl private::Sealed for Null {}
-impl Nullability for NonNull {}
-impl Nullability for Null {}
+impl Nullability for NonNull {
+    type Decoded<T> = T;
+}
+impl Nullability for Null {
+    type Decoded<T> = crate::row::MaybeNull<T>;
+}
 
 /// Compile-time relation between a column's nullability and an assigned value.
 ///

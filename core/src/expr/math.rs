@@ -574,14 +574,7 @@ where
 /// ```
 pub fn exp<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Double,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
@@ -759,14 +752,7 @@ impl SignPolicy for MySQLDialect {
 /// ```
 pub fn sign<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as SignPolicy>::Sign,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as SignPolicy>::Sign, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SignPolicy,
@@ -840,14 +826,7 @@ where
 /// ```
 #[must_use]
 pub fn pi<'a, V>()
--> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Double,
-    super::NonNull,
-    Scalar,
-    (),
->
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
@@ -874,14 +853,7 @@ where
 /// ```
 #[must_use]
 pub fn random<'a, V>()
--> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as RandomPolicy>::Random,
-    super::NonNull,
-    Scalar,
-    (),
->
+-> SQLExpr<'a, V, <V::DialectMarker as RandomPolicy>::Random, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
     V::DialectMarker: RandomPolicy,

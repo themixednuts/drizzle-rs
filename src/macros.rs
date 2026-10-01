@@ -218,34 +218,13 @@ macro_rules! drizzle_pg_builder_join_impl {
 #[doc(hidden)]
 macro_rules! drizzle_pg_builder_join_using_impl {
     () => {
-        drizzle_pg_builder_join_using_impl!(
-            left,
-            drizzle_core::LeftJoin
-        );
-        drizzle_pg_builder_join_using_impl!(
-            left_outer,
-            drizzle_core::LeftJoin
-        );
-        drizzle_pg_builder_join_using_impl!(
-            right,
-            drizzle_core::RightJoin
-        );
-        drizzle_pg_builder_join_using_impl!(
-            right_outer,
-            drizzle_core::RightJoin
-        );
-        drizzle_pg_builder_join_using_impl!(
-            full,
-            drizzle_core::FullJoin
-        );
-        drizzle_pg_builder_join_using_impl!(
-            full_outer,
-            drizzle_core::FullJoin
-        );
-        drizzle_pg_builder_join_using_impl!(
-            inner,
-            drizzle_core::InnerJoin
-        );
+        drizzle_pg_builder_join_using_impl!(left, drizzle_core::LeftJoin);
+        drizzle_pg_builder_join_using_impl!(left_outer, drizzle_core::LeftJoin);
+        drizzle_pg_builder_join_using_impl!(right, drizzle_core::RightJoin);
+        drizzle_pg_builder_join_using_impl!(right_outer, drizzle_core::RightJoin);
+        drizzle_pg_builder_join_using_impl!(full, drizzle_core::FullJoin);
+        drizzle_pg_builder_join_using_impl!(full_outer, drizzle_core::FullJoin);
+        drizzle_pg_builder_join_using_impl!(inner, drizzle_core::InnerJoin);
 
         /// JOIN USING clause (plain JOIN).
         pub fn join_using<U: drizzle_postgres::traits::PostgresTable<'a>>(

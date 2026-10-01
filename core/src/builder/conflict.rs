@@ -130,7 +130,8 @@ where
     #[must_use]
     pub fn r#where<E, ScopeProof>(mut self, condition: E) -> Self
     where
-        E: Expr<'a, V> + crate::scope::ReadsWithin<crate::Cons<Table, crate::Nil>, ScopeProof>,
+        E: Expr<'a, V>,
+        E::Sources: crate::scope::SourcesIn<crate::Cons<Table, crate::Nil>, ScopeProof>,
         E::SQLType: BooleanLike,
     {
         self.target_where = Some(condition.into_expr_sql());

@@ -169,7 +169,8 @@ impl<'a, V: SQLParam, T, Rels, Cols, Ord, Lim>
         condition: E,
     ) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<HasWhere, Ord, Lim>>
     where
-        E: crate::expr::Expr<'a, V> + crate::scope::ReadsWithin<crate::Cons<T, crate::Nil>, ScopeProof>,
+        E: crate::expr::Expr<'a, V>,
+        E::Sources: crate::scope::SourcesIn<crate::Cons<T, crate::Nil>, ScopeProof>,
         E::SQLType: crate::types::BooleanLike,
         V: 'a,
     {
@@ -198,7 +199,8 @@ impl<'a, V: SQLParam, T, Rels, Cols, W, Lim>
         expr: E,
     ) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, HasOrderBy, Lim>>
     where
-        E: crate::traits::ToSQL<'a, V> + crate::scope::ReadsWithin<crate::Cons<T, crate::Nil>, ScopeProof>,
+        E: crate::traits::ToSQL<'a, V> + crate::expr::ExprSources,
+        E::Sources: crate::scope::SourcesIn<crate::Cons<T, crate::Nil>, ScopeProof>,
         V: 'a,
     {
         QueryBuilder {

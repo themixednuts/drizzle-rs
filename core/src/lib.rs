@@ -82,8 +82,8 @@ pub use serde;
 #[doc(hidden)]
 pub use serde_json;
 pub mod row;
-pub mod scope;
 pub mod schema;
+pub mod scope;
 pub mod sql;
 pub mod tracing;
 pub mod types;
@@ -91,11 +91,10 @@ pub mod types;
 // Re-export key types and traits
 pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
 pub use builder::{
-    BuilderInit, ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, IncludesRequired,
-    InsertColumn, InsertColumnsSet, InsertSelectAllColumns, InsertSelectColumns,
-    InsertSelectCompatible, InsertSelectTable, InsertTargetColumnList,
-    InsertTargetColumns, InsertTargetMarker, JoinAllowed, LimitAllowed, OffsetAllowed,
-    OrderByAllowed, PartialInsertSelectCompatible, WhereAllowed,
+    BuilderInit, ClauseAllowed, ExecutableState, IncludesRequired, InsertColumn, InsertColumnsSet,
+    InsertSelectAllColumns, InsertSelectColumns, InsertSelectCompatible, InsertSelectTable,
+    InsertTargetColumnList, InsertTargetColumns, InsertTargetMarker, PartialInsertSelectCompatible,
+    clause,
 };
 pub use derived::{
     Derived, DerivedField, DerivedProjection, DerivedSelection, ProjectionOutput, TableProjection,
@@ -111,19 +110,19 @@ pub use placeholder::*;
 pub use relation::{AssembleRel, CardWrap, Many, One, OptionalOne, RelationDef};
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
-    DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel,
-    IntoGroupBy, IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerAggValidFor,
-    MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup, ResolveRow,
-    RowColumnList, SQLTypeToRust, SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectStar,
-    SelectTableFields, SelectedExpressionList, TableFields, WrapNullable,
+    DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy,
+    IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerAggValidFor,
+    MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup, ResolveRow, RowColumnList,
+    SQLTypeToRust, SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectStar, SelectTableFields,
+    SelectedExpressionList, TableFields, WrapNullable,
 };
 #[doc(hidden)]
 pub use row::{MaybeNull, ProjectionIn};
-pub use scope::{
-    AliasKey, FromMarker, FullJoin, HasScope, InnerJoin, JoinKind, JoinStep, Lateral, LeftJoin,
-    OuterJoined, RightJoin, ScopeContains, ScopeEntry, Scoped, SelectSources, SetOperand, Src,
-};
 pub use schema::{OrderBy, OrderTerm, Ordered, asc, desc};
+pub use scope::{
+    AliasKey, FromMarker, FullJoin, HasScope, InnerJoin, JoinStep, Lateral, LeftJoin, OuterJoined,
+    RightJoin, ScopeContains, ScopeEntry, Scoped, SelectSources, SetOperand, Src,
+};
 pub use sql::{
     ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,
     OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, TableSqlRef, Token,

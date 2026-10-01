@@ -100,7 +100,8 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, Ord, Lim>
         condition: E,
     ) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<HasWhere, Ord, Lim>>
     where
-        E: crate::expr::Expr<'a, V> + crate::scope::ReadsWithin<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
+        E: crate::expr::Expr<'a, V>,
+        E::Sources: crate::scope::SourcesIn<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
         E::SQLType: crate::types::BooleanLike,
         V: 'a,
     {
@@ -129,7 +130,8 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Lim>
         expr: E,
     ) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, HasOrderBy, Lim>>
     where
-        E: crate::traits::ToSQL<'a, V> + crate::scope::ReadsWithin<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
+        E: crate::traits::ToSQL<'a, V> + crate::expr::ExprSources,
+        E::Sources: crate::scope::SourcesIn<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
         V: 'a,
     {
         RelationHandle {

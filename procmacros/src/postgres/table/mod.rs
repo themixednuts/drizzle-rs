@@ -89,7 +89,10 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         ctx.struct_ident,
         ctx.struct_vis,
         &column_field_idents,
-        &attrs.schema.as_deref().map_or_else(|| ctx.table_name.clone(), |schema| format!("{schema}.{}", ctx.table_name)),
+        &attrs.schema.as_deref().map_or_else(
+            || ctx.table_name.clone(),
+            |schema| format!("{schema}.{}", ctx.table_name),
+        ),
     );
     let (column_definitions, column_zst_idents) = generate_column_definitions(&ctx)?;
     let column_fields = generate_column_fields(&ctx, &column_zst_idents);

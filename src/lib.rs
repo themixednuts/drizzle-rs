@@ -193,14 +193,14 @@ pub mod core {
     #[doc(inline)]
     pub use drizzle_core::row::{
         DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel,
-        IntoGroupBy, IntoSelectTarget, JoinedStarRow, LeftLateralSelection,
-        MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, OuterJoined, PkGroup,
-        ResolveRow, RowColumnList, SQLTypeToRust, Scoped, SelectAs, SelectAsFrom, SelectCols,
-        SelectExpr, SelectStar, WrapNullable,
+        IntoGroupBy, IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerColumnCountValid,
+        MarkerScopeValidFor, NullProbeRow, OuterJoined, PkGroup, ResolveRow, RowColumnList,
+        SQLTypeToRust, Scoped, SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectStar,
+        WrapNullable,
     };
     #[doc(inline)]
     pub use drizzle_core::scope::{
-        FullJoin, HasScope, InnerJoin, JoinKind, JoinStep, Lateral, LeftJoin, RightJoin,
+        FullJoin, HasScope, InnerJoin, JoinStep, Lateral, LeftJoin, RightJoin,
     };
 }
 

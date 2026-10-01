@@ -70,14 +70,7 @@ impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
 /// ```
 #[must_use]
 pub fn current_date<'a, V>()
--> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Date,
-    super::NonNull,
-    Scalar,
-    (),
->
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
 {
@@ -100,14 +93,7 @@ where
 /// ```
 #[must_use]
 pub fn current_time<'a, V>()
--> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Time,
-    super::NonNull,
-    Scalar,
-    (),
->
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
 {
@@ -133,14 +119,7 @@ where
 /// ```
 #[must_use]
 pub fn current_timestamp<'a, V>()
--> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::TimestampTz,
-    super::NonNull,
-    Scalar,
-    (),
->
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
 {
@@ -167,14 +146,7 @@ where
 /// ```
 pub fn date<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Date,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -200,14 +172,7 @@ where
 /// ```
 pub fn time<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Time,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -319,14 +284,7 @@ where
 /// ```
 pub fn julianday<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Double,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -352,14 +310,7 @@ where
 /// ```
 pub fn unixepoch<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::BigInt,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: SQLiteDateTimeSupport,
@@ -387,14 +338,7 @@ where
 /// ```
 #[must_use]
 pub fn now<'a, V>()
--> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::TimestampTz,
-    super::NonNull,
-    Scalar,
-    (),
->
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,
@@ -471,14 +415,7 @@ where
 pub fn extract<'a, 'f, V, E>(
     field: &'f str,
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Double,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
 where
     'f: 'a,
     V: SQLParam + 'a,
@@ -613,7 +550,9 @@ where
 /// let ts = to_timestamp(users.created_unix);
 /// # "####;
 /// ```
-pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate, E::Sources>
+pub fn to_timestamp<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,
@@ -855,7 +794,13 @@ pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
     <<<<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output as AggOr<
         H::Aggregate,
     >>::Output as AggOr<<Mi::Aggregate as AggOr<S::Aggregate>>::Output>>::Output,
-    (Y::Sources, (Mo::Sources, (D::Sources, (H::Sources, (Mi::Sources, S::Sources))))),
+    (
+        Y::Sources,
+        (
+            Mo::Sources,
+            (D::Sources, (H::Sources, (Mi::Sources, S::Sources))),
+        ),
+    ),
 >
 where
     V: SQLParam + 'a,
@@ -930,14 +875,7 @@ where
 /// ```
 #[must_use]
 pub fn localtime<'a, V>()
--> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Time,
-    super::NonNull,
-    Scalar,
-    (),
->
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresDateTimeSupport,

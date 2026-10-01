@@ -302,7 +302,8 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Order, Limit>
         drizzle_core::query::Clauses<drizzle_core::query::HasWhere, Order, Limit>,
     >
     where
-        Expr: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        Expr: drizzle_core::expr::ExprSources,
+        Expr::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Expr: drizzle_core::expr::Expr<'q, MySQLValue<'q>>,
         Expr::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -341,7 +342,8 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Where, Limit>
         drizzle_core::query::Clauses<Where, drizzle_core::query::HasOrderBy, Limit>,
     >
     where
-        Expr: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        Expr: drizzle_core::expr::ExprSources,
+        Expr::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Expr: ToSQL<'q, MySQLValue<'q>>,
     {
         DrizzleQueryBuilder {
@@ -667,7 +669,15 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectWhereSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>,
+            SelectBuilder<
+                'q,
+                Schema,
+                SelectWhereSet,
+                T,
+                <M as drizzle_core::HasScope>::With<E::Sources>,
+                R,
+                G,
+            >,
             SelectWhereSet,
         >
         where
@@ -686,7 +696,15 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectGroupSet, T, <M as drizzle_core::HasScope>::With<Gr::Sources>, R, Gr::Columns>,
+            SelectBuilder<
+                'q,
+                Schema,
+                SelectGroupSet,
+                T,
+                <M as drizzle_core::HasScope>::With<Gr::Sources>,
+                R,
+                Gr::Columns,
+            >,
             SelectGroupSet,
         >
         where
@@ -704,7 +722,15 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectHavingSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>,
+            SelectBuilder<
+                'q,
+                Schema,
+                SelectHavingSet,
+                T,
+                <M as drizzle_core::HasScope>::With<E::Sources>,
+                R,
+                G,
+            >,
             SelectHavingSet,
         >
         where
@@ -723,7 +749,15 @@ macro_rules! select_method {
             'db,
             Runner,
             Schema,
-            SelectBuilder<'q, Schema, SelectOrderSet, T, <M as drizzle_core::HasScope>::With<O::Sources>, R, G>,
+            SelectBuilder<
+                'q,
+                Schema,
+                SelectOrderSet,
+                T,
+                <M as drizzle_core::HasScope>::With<O::Sources>,
+                R,
+                G,
+            >,
             SelectOrderSet,
         >
         where
@@ -780,8 +814,18 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::InnerJoin,
+                    J::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::InnerJoin,
+                    J::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -805,8 +849,18 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::InnerJoin,
+                    J::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::InnerJoin,
+                    J::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -830,8 +884,18 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::InnerJoin,
+                    Arg::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::InnerJoin,
+                    Arg::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -855,15 +919,30 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                    Arg::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                    Arg::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
-            M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>, Arg::OnSources>,
+            M: drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                    Arg::OnSources,
+                >,
         {
             self.map(|builder| builder.inner_join_lateral(arg))
         }
@@ -880,16 +959,30 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::LeftJoin>,
+                    Arg::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::LeftJoin>,
+                    Arg::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
-            M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::Lateral<drizzle_core::LeftJoin>, Arg::OnSources>
-                + drizzle_core::LeftLateralSelection<SelectionProof>,
+            M: drizzle_core::JoinStep<
+                    R,
+                    Arg::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::LeftJoin>,
+                    Arg::OnSources,
+                > + drizzle_core::LeftLateralSelection<SelectionProof>,
         {
             self.map(|builder| builder.left_join_lateral(arg))
         }
@@ -906,15 +999,27 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Source::JoinedTable,
-                <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Marker,
-                <M as drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Source::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    Source::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
         >
         where
             Source: drizzle_core::LateralSource<'q, MySQLValue<'q>>,
-            M: drizzle_core::JoinStep<R, Source::JoinedTable, drizzle_core::Lateral<drizzle_core::InnerJoin>>,
+            M: drizzle_core::JoinStep<
+                    R,
+                    Source::JoinedTable,
+                    drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                >,
         {
             self.map(|builder| builder.cross_join_lateral(source))
         }
@@ -931,8 +1036,18 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::LeftJoin,
+                    J::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::LeftJoin,
+                    J::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -956,8 +1071,18 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::LeftJoin,
+                    J::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::LeftJoin,
+                    J::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -981,8 +1106,18 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::RightJoin,
+                    J::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::RightJoin,
+                    J::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -1006,8 +1141,18 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Marker,
-                <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>>::Row,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::RightJoin,
+                    J::OnSources,
+                >>::Marker,
+                <M as drizzle_core::JoinStep<
+                    R,
+                    J::JoinedTable,
+                    drizzle_core::RightJoin,
+                    J::OnSources,
+                >>::Row,
                 G,
             >,
             SelectJoinSet,
@@ -1164,7 +1309,7 @@ where
 impl<'db, 'q, Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
-    State: builder::select::SetOperationAllowed,
+    State: drizzle_core::ClauseAllowed<builder::select::SetOperation>,
 {
     #[allow(clippy::type_complexity)]
     pub fn union<O>(
@@ -1360,7 +1505,7 @@ where
 impl<'db, 'q, Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
-    State: builder::select::AsCteState + builder::ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> + builder::ExecutableState,
     T: SQLTable<'q, MySQLSchemaType, MySQLValue<'q>>,
 {
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
@@ -1642,7 +1787,11 @@ macro_rules! mutation_method {
                 condition: E,
             ) -> DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $next, Table>, $next>
             where
-                E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+                E: drizzle_core::expr::ExprSources,
+                E::Sources: drizzle_core::scope::SourcesIn<
+                        drizzle_core::Cons<Table, drizzle_core::Nil>,
+                        ScopeProof,
+                    >,
                 E: drizzle_core::expr::Expr<'q, MySQLValue<'q>>,
                 E::SQLType: drizzle_core::types::BooleanLike,
             {
@@ -1659,7 +1808,11 @@ macro_rules! mutation_method {
                 order: O,
             ) -> DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $next, Table>, $next>
             where
-                O: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+                O: drizzle_core::expr::ExprSources,
+                O::Sources: drizzle_core::scope::SourcesIn<
+                        drizzle_core::Cons<Table, drizzle_core::Nil>,
+                        ScopeProof,
+                    >,
                 O: ToSQL<'q, MySQLValue<'q>>,
             {
                 self.map(|builder| builder.order_by(order))
@@ -1700,7 +1853,7 @@ mutation_method!(DeleteBuilder, DeleteOrderSet, limit => DeleteLimitSet);
 impl<'db, 'q, Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'db, Runner, Schema, SelectBuilder<'q, Schema, State, T, M, R, G>, State>
 where
-    State: builder::select::LockingReadAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
 {
     pub fn for_update(
         self,

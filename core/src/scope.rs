@@ -70,7 +70,6 @@ marker_impls!(
     Lateral<Kind>,
 );
 
-
 // =============================================================================
 // Scope entries
 // =============================================================================
@@ -207,7 +206,9 @@ pub mod name {
         };
     }
 
-    nibbles!(H0, H1, H2, H3, H4, H5, H6, H7, H8, H9, HA, HB, HC, HD, HE, HF);
+    nibbles!(
+        H0, H1, H2, H3, H4, H5, H6, H7, H8, H9, HA, HB, HC, HD, HE, HF
+    );
 
     /// Nibble equality.
     pub trait NibEq<Other> {
@@ -232,7 +233,9 @@ pub mod name {
         };
     }
 
-    nib_eq!(H0, H1, H2, H3, H4, H5, H6, H7, H8, H9, HA, HB, HC, HD, HE, HF);
+    nib_eq!(
+        H0, H1, H2, H3, H4, H5, H6, H7, H8, H9, HA, HB, HC, HD, HE, HF
+    );
 }
 
 /// Equality of two nibble lists.
@@ -509,23 +512,6 @@ impl<R, Other> SetOperand<Other> for crate::row::SelectAs<R> {
     type Combined = Self;
 }
 
-/// Every source `Self` reads is in `Scope`.
-///
-/// Used by statements whose scope is fixed when the clause is written
-/// (`UPDATE`/`DELETE`/`INSERT ... ON CONFLICT`/`RETURNING`).
-#[diagnostic::on_unimplemented(
-    message = "`{Self}` reads a source outside this statement",
-    label = "this clause may only read the statement's own table(s)"
-)]
-pub trait ReadsWithin<Scope, Proof> {}
-
-impl<E, Scope, Proof> ReadsWithin<Scope, Proof> for E
-where
-    E: crate::expr::ExprSources + ?Sized,
-    E::Sources: SourcesIn<Scope, Proof>,
-{
-}
-
 /// Sources of a COALESCE-style operand: its declared nullability plus the
 /// nullability its sources pick up from outer joins.
 pub type Arg<N, S> = (N, S);
@@ -563,14 +549,7 @@ where
 // Joins
 // =============================================================================
 
-mod join_kind_private {
-    pub trait Sealed {}
-}
-
-/// A join kind marker: [`InnerJoin`], [`LeftJoin`], [`RightJoin`], [`FullJoin`].
-pub trait JoinKind: join_kind_private::Sealed {}
-
-/// `JOIN` / `INNER JOIN` / `CROSS JOIN`.
+/// Join kind: `JOIN` / `INNER JOIN` / `CROSS JOIN`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InnerJoin;
 /// `LEFT [OUTER] JOIN`: the joined source can be NULL.
@@ -586,17 +565,6 @@ pub struct FullJoin;
 /// `[INNER|LEFT|CROSS] JOIN LATERAL`: the joined subquery may read the
 /// sources joined before it.
 pub struct Lateral<Kind>(PhantomData<Kind>);
-
-impl join_kind_private::Sealed for InnerJoin {}
-impl<Kind: JoinKind> join_kind_private::Sealed for Lateral<Kind> {}
-impl<Kind: JoinKind> JoinKind for Lateral<Kind> {}
-impl join_kind_private::Sealed for LeftJoin {}
-impl join_kind_private::Sealed for RightJoin {}
-impl join_kind_private::Sealed for FullJoin {}
-impl JoinKind for InnerJoin {}
-impl JoinKind for LeftJoin {}
-impl JoinKind for RightJoin {}
-impl JoinKind for FullJoin {}
 
 /// Wraps every entry of a scope list in [`OuterJoined`].
 #[doc(hidden)]
@@ -676,8 +644,7 @@ where
     type Row = M::Row;
 }
 
-impl<M, Scope, Used, Row, J, On> JoinStep<Row, J, Lateral<InnerJoin>, On>
-    for Scoped<M, Scope, Used>
+impl<M, Scope, Used, Row, J, On> JoinStep<Row, J, Lateral<InnerJoin>, On> for Scoped<M, Scope, Used>
 where
     M: JoinRow<Row, J, InnerJoin>,
     J: ScopeEntry,

@@ -10,10 +10,10 @@
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
-use drizzle_core::scope::Arg;
 use crate::values::PostgresValue;
 use drizzle_core::ToSQL;
 use drizzle_core::expr::{Expr, NonNull, Null, SQLExpr, Scalar};
+use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk, Token};
 
 /// `CAST($n AS type)` around an operator argument.
@@ -55,7 +55,10 @@ use drizzle_types::postgres::types::{Boolean, Json, Text};
 /// let field = json_get(data, "name");
 /// assert!(field.to_sql().sql().contains("->"));
 /// ```
-pub fn json_get<'a, E>(expr: E, key: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, E::Sources>
+pub fn json_get<'a, E>(
+    expr: E,
+    key: &'a str,
+) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -211,14 +214,7 @@ where
 pub fn jsonb_contains<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<
-    'a,
-    PostgresValue<'a>,
-    Boolean,
-    NonNull,
-    Scalar,
-    Arg<L::Nullable, L::Sources>,
->
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<L::Nullable, L::Sources>>
 where
     L: Expr<'a, PostgresValue<'a>>,
     R: ToSQL<'a, PostgresValue<'a>>,
@@ -245,14 +241,7 @@ where
 pub fn jsonb_contained<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<
-    'a,
-    PostgresValue<'a>,
-    Boolean,
-    NonNull,
-    Scalar,
-    Arg<L::Nullable, L::Sources>,
->
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<L::Nullable, L::Sources>>
 where
     L: Expr<'a, PostgresValue<'a>>,
     R: ToSQL<'a, PostgresValue<'a>>,
@@ -279,14 +268,7 @@ where
 pub fn jsonb_exists_key<'a, E>(
     expr: E,
     key: &'a str,
-) -> SQLExpr<
-    'a,
-    PostgresValue<'a>,
-    Boolean,
-    NonNull,
-    Scalar,
-    Arg<E::Nullable, E::Sources>,
->
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -312,14 +294,7 @@ where
 pub fn jsonb_exists_any<'a, E>(
     expr: E,
     keys: &[&'a str],
-) -> SQLExpr<
-    'a,
-    PostgresValue<'a>,
-    Boolean,
-    NonNull,
-    Scalar,
-    Arg<E::Nullable, E::Sources>,
->
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -349,14 +324,7 @@ where
 pub fn jsonb_exists_all<'a, E>(
     expr: E,
     keys: &[&'a str],
-) -> SQLExpr<
-    'a,
-    PostgresValue<'a>,
-    Boolean,
-    NonNull,
-    Scalar,
-    Arg<E::Nullable, E::Sources>,
->
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
 {
@@ -374,27 +342,42 @@ where
 /// Extension trait providing method-based JSON operators for `PostgreSQL` expressions.
 pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// Get JSON object field by key (`->` operator), returns JSON.
-    fn json_get(self, key: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
+    fn json_get(
+        self,
+        key: &'a str,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
         json_get(self, key)
     }
 
     /// Get JSON array element by index (`->` operator), returns JSON.
-    fn json_get_idx(self, index: i32) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
+    fn json_get_idx(
+        self,
+        index: i32,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
         json_get_idx(self, index)
     }
 
     /// Get JSON object field as text (`->>` operator).
-    fn json_get_text(self, key: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, Self::Sources> {
+    fn json_get_text(
+        self,
+        key: &'a str,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, Self::Sources> {
         json_get_text(self, key)
     }
 
     /// Get JSON array element as text (`->>` operator).
-    fn json_get_text_idx(self, index: i32) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, Self::Sources> {
+    fn json_get_text_idx(
+        self,
+        index: i32,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar, Self::Sources> {
         json_get_text_idx(self, index)
     }
 
     /// Get JSON object at path (`#>` operator), returns JSON.
-    fn json_get_path(self, path: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
+    fn json_get_path(
+        self,
+        path: &'a str,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar, Self::Sources> {
         json_get_path(self, path)
     }
 
@@ -407,14 +390,10 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 
     /// JSONB contains (`@>` operator).
-    fn jsonb_contains<R>(self, other: R) -> SQLExpr<
-        'a,
-        PostgresValue<'a>,
-        Boolean,
-        NonNull,
-        Scalar,
-        Arg<Self::Nullable, Self::Sources>,
-    >
+    fn jsonb_contains<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
     where
         R: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -425,14 +404,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn jsonb_contained<R>(
         self,
         other: R,
-    ) -> SQLExpr<
-        'a,
-        PostgresValue<'a>,
-        Boolean,
-        NonNull,
-        Scalar,
-        Arg<Self::Nullable, Self::Sources>,
-    >
+    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
     where
         R: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -443,14 +415,8 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn jsonb_exists_key(
         self,
         key: &'a str,
-    ) -> SQLExpr<
-        'a,
-        PostgresValue<'a>,
-        Boolean,
-        NonNull,
-        Scalar,
-        Arg<Self::Nullable, Self::Sources>,
-    > {
+    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar, Arg<Self::Nullable, Self::Sources>>
+    {
         jsonb_exists_key(self, key)
     }
 }

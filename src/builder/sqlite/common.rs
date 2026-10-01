@@ -15,9 +15,7 @@ use drizzle_sqlite::{
         UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet,
         delete::DeleteBuilder,
         insert::InsertBuilder,
-        select::{
-            AsCteState, CompletedSelect, IntoSelect, IntoSelectQuery, SelectBuilder, SelectSetOpSet,
-        },
+        select::{CompletedSelect, IntoSelect, IntoSelectQuery, SelectBuilder, SelectSetOpSet},
         update::UpdateBuilder,
     },
     common::SQLiteSchemaType,
@@ -45,7 +43,8 @@ impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Sch
     /// Adds a WHERE clause to the conflict target for partial index matching.
     pub fn r#where<E, ScopeProof>(mut self, condition: E) -> Self
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -681,7 +680,9 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Ord, Lim>
         drizzle_core::query::Clauses<drizzle_core::query::HasWhere, Ord, Lim>,
     >
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -724,7 +725,9 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Lim>
         drizzle_core::query::Clauses<W, drizzle_core::query::HasOrderBy, Lim>,
     >
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::traits::ToSQL<'a, SQLiteValue<'a>>,
     {
         DrizzleQueryBuilder {
@@ -1224,7 +1227,14 @@ where
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<M2>>::Combined,
+            R,
+        >,
         SelectSetOpSet,
     >
     where
@@ -1245,7 +1255,14 @@ where
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<M2>>::Combined,
+            R,
+        >,
         SelectSetOpSet,
     >
     where
@@ -1266,7 +1283,14 @@ where
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<M2>>::Combined,
+            R,
+        >,
         SelectSetOpSet,
     >
     where
@@ -1287,7 +1311,14 @@ where
         'd,
         Runner,
         Schema,
-        SelectBuilder<'a, Schema, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R>,
+        SelectBuilder<
+            'a,
+            Schema,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<M2>>::Combined,
+            R,
+        >,
         SelectSetOpSet,
     >
     where
@@ -1380,7 +1411,7 @@ where
 impl<'a, Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'_, Runner, Schema, SelectBuilder<'a, Schema, State, T, M, R, G>, State>
 where
-    State: AsCteState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
@@ -1638,7 +1669,8 @@ where
         InsertReturningSet,
     >
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1679,7 +1711,8 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertReturningSet,
     >
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1713,7 +1746,8 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertOnConflictSet,
     >
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1743,7 +1777,8 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertReturningSet,
     >
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1807,7 +1842,8 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateWhereSet,
     >
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1837,7 +1873,8 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateReturningSet,
     >
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1877,7 +1914,8 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateReturningSet,
     >
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1906,7 +1944,9 @@ where
         DeleteWhereSet,
     >
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, SQLiteValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1936,7 +1976,9 @@ where
         DeleteReturningSet,
     >
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
@@ -1970,7 +2012,9 @@ impl<'a, 'b, Runner, Schema, T>
         DeleteReturningSet,
     >
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {

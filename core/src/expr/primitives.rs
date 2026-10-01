@@ -639,4 +639,3 @@ impl ExprSources for rust_decimal::Decimal {
 impl<V: SQLParam> ExprSources for crate::sql::SQL<'_, V> {
     type Sources = ();
 }
-

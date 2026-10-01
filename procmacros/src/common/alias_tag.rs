@@ -49,7 +49,9 @@ impl VisitMut for AddTag<'_> {
 
 fn mentions(item: &impl ToTokens, targets: &[Vec<String>]) -> bool {
     let text = item.to_token_stream().to_string().replace(' ', "");
-    targets.iter().any(|t| text.contains(&t.join("::")) || text.contains(t.last().unwrap()))
+    targets
+        .iter()
+        .any(|t| text.contains(&t.join("::")) || text.contains(t.last().unwrap()))
 }
 
 /// Adds the alias tag to `tokens`. `aliased` lists the aliased column type
@@ -76,13 +78,17 @@ pub fn tag_aliased_items(tokens: TokenStream, aliased: &[TokenStream]) -> syn::R
                 } else if let (false, Some(tag)) = (self_is_aliased, existing_tag) {
                     Some(tag)
                 } else {
-                    imp.generics
-                        .params
-                        .push(GenericParam::Type(parse_quote!(#tag_param: drizzle::core::Tag)));
+                    imp.generics.params.push(GenericParam::Type(
+                        parse_quote!(#tag_param: drizzle::core::Tag),
+                    ));
                     Some(tag_param.clone())
                 };
                 if let Some(tag) = tag {
-                    AddTag { targets: &targets, tag }.visit_item_impl_mut(imp);
+                    AddTag {
+                        targets: &targets,
+                        tag,
+                    }
+                    .visit_item_impl_mut(imp);
                 }
             }
             Item::Struct(st) => {
@@ -90,13 +96,23 @@ pub fn tag_aliased_items(tokens: TokenStream, aliased: &[TokenStream]) -> syn::R
                     .iter()
                     .any(|t| t.len() == 1 && st.ident == t[0].as_str());
                 if is_target {
-                    st.generics.params.push(GenericParam::Type(parse_quote!(#tag_param: drizzle::core::Tag)));
-                    AddTag { targets: &targets, tag: tag_param.clone() }.visit_item_struct_mut(st);
+                    st.generics.params.push(GenericParam::Type(
+                        parse_quote!(#tag_param: drizzle::core::Tag),
+                    ));
+                    AddTag {
+                        targets: &targets,
+                        tag: tag_param.clone(),
+                    }
+                    .visit_item_struct_mut(st);
                 } else if let Some(tag) = st.generics.params.iter().find_map(|p| match p {
                     GenericParam::Type(t) if t.ident == "Tag" => Some(t.ident.clone()),
                     _ => None,
                 }) {
-                    AddTag { targets: &targets, tag }.visit_item_struct_mut(st);
+                    AddTag {
+                        targets: &targets,
+                        tag,
+                    }
+                    .visit_item_struct_mut(st);
                 }
             }
             _ => {}

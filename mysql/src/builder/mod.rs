@@ -31,10 +31,11 @@ macro_rules! mutation_builder_methods {
                 pub fn order_by<O, ScopeProof>(self, order: O) -> $builder<'a, S, $ordered, T>
                 where
                     O: drizzle_core::ToSQL<'a, crate::values::MySQLValue<'a>>
-                        + drizzle_core::scope::ReadsWithin<
-                            drizzle_core::Cons<T, drizzle_core::Nil>,
-                            ScopeProof,
-                        >,
+                        + drizzle_core::expr::ExprSources,
+                    O::Sources: drizzle_core::scope::SourcesIn<
+                        drizzle_core::Cons<T, drizzle_core::Nil>,
+                        ScopeProof,
+                    >,
                 {
                     $builder::from_sql(self.sql.append(crate::helpers::order_by(order)))
                 }

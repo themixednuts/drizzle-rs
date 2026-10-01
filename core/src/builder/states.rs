@@ -1,9 +1,6 @@
 //! Shared typestate markers for dialect query builders.
 
-use super::{
-    ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, JoinAllowed, LimitAllowed,
-    OffsetAllowed, OrderByAllowed, WhereAllowed,
-};
+use super::{ClauseAllowed, ExecutableState, clause};
 
 //------------------------------------------------------------------------------
 // SELECT states
@@ -54,52 +51,43 @@ impl ExecutableState for SelectGroupSet {}
 impl ExecutableState for SelectJoinSet {}
 impl ExecutableState for SelectSetOpSet {}
 
-impl WhereAllowed for SelectFromSet {}
-impl WhereAllowed for SelectJoinSet {}
+impl ClauseAllowed<clause::Where> for SelectFromSet {}
+impl ClauseAllowed<clause::Where> for SelectJoinSet {}
 
-impl GroupByAllowed for SelectFromSet {}
-impl GroupByAllowed for SelectJoinSet {}
-impl GroupByAllowed for SelectWhereSet {}
+impl ClauseAllowed<clause::GroupBy> for SelectFromSet {}
+impl ClauseAllowed<clause::GroupBy> for SelectJoinSet {}
+impl ClauseAllowed<clause::GroupBy> for SelectWhereSet {}
 
-impl OrderByAllowed for SelectFromSet {}
-impl OrderByAllowed for SelectJoinSet {}
-impl OrderByAllowed for SelectWhereSet {}
-impl OrderByAllowed for SelectGroupSet {}
+impl ClauseAllowed<clause::OrderBy> for SelectFromSet {}
+impl ClauseAllowed<clause::OrderBy> for SelectJoinSet {}
+impl ClauseAllowed<clause::OrderBy> for SelectWhereSet {}
+impl ClauseAllowed<clause::OrderBy> for SelectGroupSet {}
 // `SelectSetOpSet` is deliberately absent: a compound query orders by output
 // column names, so each dialect builder provides its own `order_by` there.
 
-impl LimitAllowed for SelectFromSet {}
-impl LimitAllowed for SelectJoinSet {}
-impl LimitAllowed for SelectWhereSet {}
-impl LimitAllowed for SelectGroupSet {}
-impl LimitAllowed for SelectOrderSet {}
-impl LimitAllowed for SelectSetOpSet {}
+impl ClauseAllowed<clause::Limit> for SelectFromSet {}
+impl ClauseAllowed<clause::Limit> for SelectJoinSet {}
+impl ClauseAllowed<clause::Limit> for SelectWhereSet {}
+impl ClauseAllowed<clause::Limit> for SelectGroupSet {}
+impl ClauseAllowed<clause::Limit> for SelectOrderSet {}
+impl ClauseAllowed<clause::Limit> for SelectSetOpSet {}
 
-impl OffsetAllowed for SelectFromSet {}
-impl OffsetAllowed for SelectLimitSet {}
-impl OffsetAllowed for SelectSetOpSet {}
+impl ClauseAllowed<clause::Offset> for SelectFromSet {}
+impl ClauseAllowed<clause::Offset> for SelectLimitSet {}
+impl ClauseAllowed<clause::Offset> for SelectSetOpSet {}
 
-impl JoinAllowed for SelectFromSet {}
-impl JoinAllowed for SelectJoinSet {}
+impl ClauseAllowed<clause::Join> for SelectFromSet {}
+impl ClauseAllowed<clause::Join> for SelectJoinSet {}
 
-impl HavingAllowed for SelectGroupSet {}
+impl ClauseAllowed<clause::Having> for SelectGroupSet {}
 
-impl GroupByApplied for SelectGroupSet {}
-impl GroupByApplied for SelectOrderSet {}
-impl GroupByApplied for SelectLimitSet {}
-impl GroupByApplied for SelectOffsetSet {}
-impl GroupByApplied for SelectSetOpSet {}
-
-#[doc(hidden)]
-pub trait AsCteState {}
-
-impl AsCteState for SelectFromSet {}
-impl AsCteState for SelectJoinSet {}
-impl AsCteState for SelectWhereSet {}
-impl AsCteState for SelectGroupSet {}
-impl AsCteState for SelectOrderSet {}
-impl AsCteState for SelectLimitSet {}
-impl AsCteState for SelectOffsetSet {}
+impl ClauseAllowed<clause::Simple> for SelectFromSet {}
+impl ClauseAllowed<clause::Simple> for SelectJoinSet {}
+impl ClauseAllowed<clause::Simple> for SelectWhereSet {}
+impl ClauseAllowed<clause::Simple> for SelectGroupSet {}
+impl ClauseAllowed<clause::Simple> for SelectOrderSet {}
+impl ClauseAllowed<clause::Simple> for SelectLimitSet {}
+impl ClauseAllowed<clause::Simple> for SelectOffsetSet {}
 
 //------------------------------------------------------------------------------
 // INSERT states

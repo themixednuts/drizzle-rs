@@ -141,8 +141,8 @@ impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> ToSQL<'a
 // Into<SQL> Implementation - For builder compatibility
 // =============================================================================
 
-impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S> From<SQLExpr<'a, V, T, N, A, S>>
-    for SQL<'a, V>
+impl<'a, V: SQLParam, T: DataType, N: Nullability, A: AggregateKind, S>
+    From<SQLExpr<'a, V, T, N, A, S>> for SQL<'a, V>
 {
     fn from(expr: SQLExpr<'a, V, T, N, A, S>) -> Self {
         expr.sql

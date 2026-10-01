@@ -158,20 +158,6 @@ use crate::scope::SourcesIn;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MaybeNull<T>(PhantomData<T>);
 
-/// Applies scope nullability to a decoded value type.
-#[doc(hidden)]
-pub trait WidenNullable<T> {
-    type Out;
-}
-
-impl<T> WidenNullable<T> for crate::expr::NonNull {
-    type Out = T;
-}
-
-impl<T> WidenNullable<T> for crate::expr::Null {
-    type Out = MaybeNull<T>;
-}
-
 /// Checks an explicit SELECT list against the query scope.
 ///
 /// Each expression's sources must be in `Scope`. The decode-check column
@@ -191,13 +177,12 @@ impl<Head, Tail, Scope, HeadProof, TailProof> ProjectionIn<Scope, (HeadProof, Ta
 where
     Head: crate::expr::ExprSources + ExprValueType,
     Head::Sources: SourcesIn<Scope, HeadProof>,
-    <Head::Sources as SourcesIn<Scope, HeadProof>>::Nullable: WidenNullable<Head::ValueType>,
     Tail: ProjectionIn<Scope, TailProof>,
 {
     type Columns = Cons<
-        <<Head::Sources as SourcesIn<Scope, HeadProof>>::Nullable as WidenNullable<
+        <<Head::Sources as SourcesIn<Scope, HeadProof>>::Nullable as crate::expr::Nullability>::Decoded<
             Head::ValueType,
-        >>::Out,
+        >,
         Tail::Columns,
     >;
 }
@@ -562,13 +547,22 @@ pub trait MarkerAggValidFor<Grouped, Proof = ()> {}
 impl<Mk> MarkerAggValidFor<()> for Mk {}
 
 // SelectStar with GROUP BY: can't check at compile time, always passes
-impl<Scope, Used, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectStar, Scope, Used> {}
+impl<Scope, Used, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>>
+    for Scoped<SelectStar, Scope, Used>
+{
+}
 
 // SelectExpr with GROUP BY: can't check, always passes
-impl<Scope, Used, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectExpr, Scope, Used> {}
+impl<Scope, Used, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>>
+    for Scoped<SelectExpr, Scope, Used>
+{
+}
 
 // SelectAs with GROUP BY: user-specified type, always passes
-impl<Scope, Used, R, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>> for Scoped<SelectAs<R>, Scope, Used> {}
+impl<Scope, Used, R, Head, Tail> MarkerAggValidFor<Cons<Head, Tail>>
+    for Scoped<SelectAs<R>, Scope, Used>
+{
+}
 
 // SelectCols with GROUP BY: check each scalar column is in the Grouped list
 impl<Scope, Used, Cols, Head, Tail, Proof> MarkerAggValidFor<Cons<Head, Tail>, Proof>
@@ -587,8 +581,10 @@ impl<Scope, Used, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectExpr, Scope,
 
 impl<Scope, Used, R, T> MarkerAggValidFor<PkGroup<T>> for Scoped<SelectAs<R>, Scope, Used> {}
 
-impl<Scope, Used, Cols, T, Proof> MarkerAggValidFor<PkGroup<T>, Proof> for Scoped<SelectCols<Cols>, Scope, Used> where
-    Cols: ScalarColumnsIn<PkGroup<T>, Proof>
+impl<Scope, Used, Cols, T, Proof> MarkerAggValidFor<PkGroup<T>, Proof>
+    for Scoped<SelectCols<Cols>, Scope, Used>
+where
+    Cols: ScalarColumnsIn<PkGroup<T>, Proof>,
 {
 }
 
@@ -635,8 +631,8 @@ impl<Row: ?Sized, T> ColumnTypeCompatible<Row, T, T> for () {}
 // A column from the nullable side of an outer join decodes only into `Option`.
 // The accepted inner types live on a separate trait so a decode error lists
 // one candidate here instead of every widened variant.
-impl<Row: ?Sized, Expected, Actual>
-    ColumnTypeCompatible<Row, MaybeNull<Expected>, Option<Actual>> for ()
+impl<Row: ?Sized, Expected, Actual> ColumnTypeCompatible<Row, MaybeNull<Expected>, Option<Actual>>
+    for ()
 where
     (): MaybeNullCompatible<Row, Expected, Actual>,
 {

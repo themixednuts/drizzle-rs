@@ -37,7 +37,9 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// Filters the rows updated by this statement.
     pub fn r#where<E, ScopeProof>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {

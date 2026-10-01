@@ -19,8 +19,8 @@ use drizzle_types::postgres::types::{
 };
 use drizzle_types::sqlite::types::{Integer as SqliteInteger, Text as SqliteText};
 
-use super::{AggOr, AggregateKind, Expr, NonNull, NullOr, Nullability, SQLExpr};
 use super::ExprSources;
+use super::{AggOr, AggregateKind, Expr, NonNull, NullOr, Nullability, SQLExpr};
 use crate::scope::Arg;
 
 #[diagnostic::on_unimplemented(
@@ -146,14 +146,7 @@ impl RepeatSupport for MySQLDialect {}
 /// ```
 pub fn upper<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -178,14 +171,7 @@ where
 /// ```
 pub fn lower<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -214,14 +200,7 @@ where
 /// ```
 pub fn trim<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -235,14 +214,7 @@ where
 /// Preserves the nullability of the input expression.
 pub fn ltrim<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -256,14 +228,7 @@ where
 /// Preserves the nullability of the input expression.
 pub fn rtrim<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -938,14 +903,7 @@ where
 /// Preserves the nullability of the input expression.
 pub fn initcap<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: PostgresStringSupport,
@@ -960,14 +918,7 @@ where
 /// Preserves the nullability of the input expression.
 pub fn reverse<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Text,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: ReverseSupport,

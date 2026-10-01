@@ -322,7 +322,10 @@ fn generate_tosql_impl(
     let selector_sources = collect_required_tables(fields, default_from)
         .iter()
         .rev()
-        .fold(quote!(()), |tail, table| quote!((drizzle::core::Src<#table>, #tail)));
+        .fold(
+            quote!(()),
+            |tail, table| quote!((drizzle::core::Src<#table>, #tail)),
+        );
 
     let column_specs = fields
         .iter()

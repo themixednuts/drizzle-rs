@@ -243,7 +243,9 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     #[inline]
     pub fn r#where<E, ScopeProof>(self, condition: E) -> DeleteBuilder<'a, S, DeleteWhereSet, T>
     where
-        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -261,9 +263,14 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
 
     /// Adds a RETURNING clause to the query
     #[inline]
-    pub fn returning<Columns, ScopeProof>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(
+        self,
+        columns: Columns,
+    ) -> ReturningBuilder<'a, S, T, Columns>
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
@@ -287,9 +294,14 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
     #[inline]
-    pub fn returning<Columns, ScopeProof>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(
+        self,
+        columns: Columns,
+    ) -> ReturningBuilder<'a, S, T, Columns>
     where
-        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {

@@ -222,7 +222,10 @@ where
     }
 }
 
-impl<Marker, Scope, Used> private::Projection for Scoped<Marker, Scope, Used> where Marker: private::Projection {}
+impl<Marker, Scope, Used> private::Projection for Scoped<Marker, Scope, Used> where
+    Marker: private::Projection
+{
+}
 
 /// Projection marker used when a dialect has proven that `SELECT *` comes from
 /// one base table.

@@ -32,10 +32,7 @@ use crate::scope::{Arg, ScopeOnly};
 /// Sources of a NULL-propagating comparison: NULL when either operand is.
 type CmpSources<'a, V, L, R> = (
     Arg<<L as Expr<'a, V>>::Nullable, <L as ExprSources>::Sources>,
-    Arg<
-        <R as ComparisonOperand<'a, V, L>>::Nullable,
-        <R as ComparisonOperand<'a, V, L>>::Sources,
-    >,
+    Arg<<R as ComparisonOperand<'a, V, L>>::Nullable, <R as ComparisonOperand<'a, V, L>>::Sources>,
 );
 
 /// Sources of `BETWEEN`: NULL when any operand is.
@@ -1066,7 +1063,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         Self::Aggregate,
-        (Arg<Self::Nullable, Self::Sources>, Arg<R::Nullable, R::Sources>),
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
     >
     where
         I: IntoIterator<Item = R>,
@@ -1096,7 +1096,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         Self::Aggregate,
-        (Arg<Self::Nullable, Self::Sources>, Arg<R::Nullable, R::Sources>),
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
     >
     where
         I: IntoIterator<Item = R>,
@@ -1117,7 +1120,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         Self::Aggregate,
-        (Arg<Self::Nullable, Self::Sources>, Arg<S::Nullable, S::Sources>),
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<S::Nullable, S::Sources>,
+        ),
     >
     where
         S: Expr<'a, V>,
@@ -1137,7 +1143,10 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
         Self::Aggregate,
-        (Arg<Self::Nullable, Self::Sources>, Arg<S::Nullable, S::Sources>),
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<S::Nullable, S::Sources>,
+        ),
     >
     where
         S: Expr<'a, V>,

@@ -67,14 +67,7 @@ where
 /// Negates a boolean expression.
 pub fn not<'a, V, E>(
     expr: E,
-) -> SQLExpr<
-    'a,
-    V,
-    <V::DialectMarker as DialectTypes>::Bool,
-    E::Nullable,
-    E::Aggregate,
-    E::Sources,
->
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,

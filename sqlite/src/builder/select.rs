@@ -9,25 +9,40 @@ use paste::paste;
 //------------------------------------------------------------------------------
 
 pub use drizzle_core::builder::{
-    AsCteState, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
-    SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+    SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
+    SelectOrderSet, SelectSetOpSet, SelectWhereSet,
 };
 
-/// States that accept a plain `ORDER BY`.
+/// Clause gate for SELECT methods whose names collide with INSERT/UPDATE/DELETE
+/// builder methods on the shared `QueryBuilder` type.
 ///
-/// `SelectSetOpSet` is excluded on purpose: a compound query orders by its
-/// output columns, which the dedicated `order_by` on that state renders.
-pub trait SelectOrderAllowed {}
-impl SelectOrderAllowed for SelectFromSet {}
-impl SelectOrderAllowed for SelectJoinSet {}
-impl SelectOrderAllowed for SelectWhereSet {}
-impl SelectOrderAllowed for SelectGroupSet {}
-
+/// Coherence can only rule out overlapping inherent impls through a trait
+/// local to this crate, so these clauses use this trait instead of
+/// [`drizzle_core::ClauseAllowed`].
 #[doc(hidden)]
-pub trait SelectWhereAllowed: drizzle_core::WhereAllowed {}
+#[diagnostic::on_unimplemented(
+    message = "`{C}` cannot be added in builder state `{Self}`",
+    label = "this clause is not available at this point of the query",
+    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET"
+)]
+pub trait SelectClause<C> {}
 
-impl SelectWhereAllowed for SelectFromSet {}
-impl SelectWhereAllowed for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::Where> for SelectFromSet {}
+impl SelectClause<drizzle_core::clause::Where> for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectFromSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectWhereSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectGroupSet {}
+// `SelectSetOpSet` takes no plain ORDER BY: a compound query orders by its
+// output columns, which the dedicated `order_by` on that state renders.
+
+/// `SQLite` clause marker: `OFFSET` without a preceding `LIMIT`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StandaloneOffset;
+
+impl drizzle_core::ClauseAllowed<StandaloneOffset> for SelectFromSet {}
+impl drizzle_core::ClauseAllowed<StandaloneOffset> for SelectSetOpSet {}
 
 //------------------------------------------------------------------------------
 // Join macro (generates all join variants)
@@ -348,7 +363,7 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
 // JOIN (available from SelectFromSet and SelectJoinSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::JoinAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Join>,
 {
     /// Adds an INNER JOIN clause to the query.
     ///
@@ -412,7 +427,7 @@ where
     >
     where
         M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>,
-    {
+{
         SelectBuilder {
             sql: self
                 .sql
@@ -441,8 +456,18 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Marker,
-        <M as drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>>::Row,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::InnerJoin,
+            Arg::OnSources,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::InnerJoin,
+            Arg::OnSources,
+        >>::Row,
         G,
     >
     where
@@ -463,7 +488,7 @@ where
 // WHERE (available from SelectFromSet and SelectJoinSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectWhereAllowed,
+    State: SelectClause<drizzle_core::clause::Where>,
 {
     /// Adds a WHERE clause to filter query results.
     ///
@@ -518,7 +543,15 @@ where
     pub fn r#where<E>(
         self,
         condition: E,
-    ) -> SelectBuilder<'a, S, SelectWhereSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectWhereSet,
+        T,
+        <M as drizzle_core::HasScope>::With<E::Sources>,
+        R,
+        G,
+    >
     where
         M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
@@ -539,7 +572,7 @@ where
 // GROUP BY (available from SelectFromSet, SelectJoinSet, SelectWhereSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::GroupByAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy>,
 {
     /// Adds a GROUP BY clause to the query.
     ///
@@ -580,14 +613,22 @@ where
 // HAVING (available only from SelectGroupSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::HavingAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Having>,
 {
     /// Adds a HAVING clause after GROUP BY.
     #[allow(clippy::type_complexity)]
     pub fn having<E>(
         self,
         condition: E,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T, <M as drizzle_core::HasScope>::With<E::Sources>, R, G>
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectGroupSet,
+        T,
+        <M as drizzle_core::HasScope>::With<E::Sources>,
+        R,
+        G,
+    >
     where
         M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
@@ -608,7 +649,7 @@ where
 // ORDER BY (available from many states)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectOrderAllowed,
+    State: SelectClause<drizzle_core::clause::OrderBy>,
 {
     /// Sorts the query results.
     #[inline]
@@ -671,7 +712,7 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
 // LIMIT (available from many states)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::LimitAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Limit>,
 {
     /// Limits the number of rows returned.
     ///
@@ -698,16 +739,10 @@ where
     }
 }
 
-/// States that accept an `OFFSET` without a preceding `LIMIT`.
-#[doc(hidden)]
-pub trait SelectStandaloneOffsetAllowed: drizzle_core::OffsetAllowed {}
-impl SelectStandaloneOffsetAllowed for SelectFromSet {}
-impl SelectStandaloneOffsetAllowed for SelectSetOpSet {}
-
 // OFFSET without LIMIT (available from SelectFromSet and SelectSetOpSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectStandaloneOffsetAllowed,
+    State: drizzle_core::ClauseAllowed<StandaloneOffset>,
 {
     /// Sets the offset for the query results.
     ///
@@ -816,7 +851,7 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: AsCteState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
     T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
@@ -942,7 +977,8 @@ where
     type Aggregate = drizzle_core::expr::Scalar;
 }
 
-impl<S, State, T, M, R, G> drizzle_core::expr::ExprSources for SelectBuilder<'_, S, State, T, M, R, G>
+impl<S, State, T, M, R, G> drizzle_core::expr::ExprSources
+    for SelectBuilder<'_, S, State, T, M, R, G>
 where
     M: drizzle_core::SelectSources,
 {
