@@ -288,7 +288,7 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Order, Limit>
         drizzle_core::query::Clauses<drizzle_core::query::NoWhere, Order, Limit>,
     >
 {
-    pub fn r#where<Expr>(
+    pub fn r#where<Expr, ScopeProof>(
         self,
         condition: Expr,
     ) -> DrizzleQueryBuilder<
@@ -302,6 +302,7 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Order, Limit>
         drizzle_core::query::Clauses<drizzle_core::query::HasWhere, Order, Limit>,
     >
     where
+        Expr: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Expr: drizzle_core::expr::Expr<'q, MySQLValue<'q>>,
         Expr::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -326,7 +327,7 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Where, Limit>
         drizzle_core::query::Clauses<Where, drizzle_core::query::NoOrderBy, Limit>,
     >
 {
-    pub fn order_by<Expr>(
+    pub fn order_by<Expr, ScopeProof>(
         self,
         expression: Expr,
     ) -> DrizzleQueryBuilder<
@@ -340,6 +341,7 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Where, Limit>
         drizzle_core::query::Clauses<Where, drizzle_core::query::HasOrderBy, Limit>,
     >
     where
+        Expr: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Expr: ToSQL<'q, MySQLValue<'q>>,
     {
         DrizzleQueryBuilder {
@@ -1635,11 +1637,12 @@ macro_rules! mutation_method {
         impl<'db, 'q, Runner, Schema, Table>
             DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
         {
-            pub fn r#where<E>(
+            pub fn r#where<E, ScopeProof>(
                 self,
                 condition: E,
             ) -> DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $next, Table>, $next>
             where
+                E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
                 E: drizzle_core::expr::Expr<'q, MySQLValue<'q>>,
                 E::SQLType: drizzle_core::types::BooleanLike,
             {
@@ -1651,11 +1654,12 @@ macro_rules! mutation_method {
         impl<'db, 'q, Runner, Schema, Table>
             DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
         {
-            pub fn order_by<O>(
+            pub fn order_by<O, ScopeProof>(
                 self,
                 order: O,
             ) -> DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $next, Table>, $next>
             where
+                O: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
                 O: ToSQL<'q, MySQLValue<'q>>,
             {
                 self.map(|builder| builder.order_by(order))

@@ -128,9 +128,9 @@ where
     /// Calling this method after selecting such a target replaces that predicate,
     /// so the replacement must still identify the same unique index.
     #[must_use]
-    pub fn r#where<E>(mut self, condition: E) -> Self
+    pub fn r#where<E, ScopeProof>(mut self, condition: E) -> Self
     where
-        E: Expr<'a, V>,
+        E: Expr<'a, V> + crate::scope::ReadsWithin<crate::Cons<Table, crate::Nil>, ScopeProof>,
         E::SQLType: BooleanLike,
     {
         self.target_where = Some(condition.into_expr_sql());

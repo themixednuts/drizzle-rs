@@ -319,6 +319,10 @@ fn generate_tosql_impl(
     let token = core_paths::token();
     let selector_ident = format_ident!("__DrizzleSelect{}", struct_name);
     let select_const_ident = format_ident!("Select");
+    let selector_sources = collect_required_tables(fields, default_from)
+        .iter()
+        .rev()
+        .fold(quote!(()), |tail, table| quote!((drizzle::core::Src<#table>, #tail)));
 
     let column_specs = fields
         .iter()
@@ -375,6 +379,11 @@ fn generate_tosql_impl(
                 #(#column_specs)*
                 #sql::join(columns, #token::COMMA)
             }
+        }
+
+        // The selector reads every table its fields come from.
+        impl drizzle::core::expr::ExprSources for #selector_ident {
+            type Sources = #selector_sources;
         }
 
         impl drizzle::core::IntoSelectTarget for #selector_ident {

@@ -189,6 +189,11 @@ pub fn generate_columns_module(
             #(#items)*
         }
 
+        // A table or view used as an expression (`returning(table)`) reads itself.
+        impl drizzle::core::expr::ExprSources for #table {
+            type Sources = drizzle::core::Src<Self>;
+        }
+
         // Scope entries for tables and views compare by SQL name.
         impl drizzle::core::ScopeEntry for #table {
             type Key = drizzle::core::scope::TableKey<#name_key, Self>;

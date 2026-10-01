@@ -95,12 +95,12 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, Ord, Lim>
     ///
     /// Can only be called once. To combine multiple conditions, use boolean
     /// operators: `and(cond_a, cond_b)` or `or(cond_a, cond_b)`.
-    pub fn r#where<E>(
+    pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
     ) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<HasWhere, Ord, Lim>>
     where
-        E: crate::expr::Expr<'a, V>,
+        E: crate::expr::Expr<'a, V> + crate::scope::ReadsWithin<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
         E::SQLType: crate::types::BooleanLike,
         V: 'a,
     {
@@ -124,12 +124,12 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Lim>
     ///
     /// Can only be called once. ORDER BY expressions are column references
     /// (e.g., `asc(col)`, `desc(col)`), which never produce bind parameters.
-    pub fn order_by<E>(
+    pub fn order_by<E, ScopeProof>(
         self,
         expr: E,
     ) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, HasOrderBy, Lim>>
     where
-        E: crate::traits::ToSQL<'a, V>,
+        E: crate::traits::ToSQL<'a, V> + crate::scope::ReadsWithin<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
         V: 'a,
     {
         RelationHandle {

@@ -81,10 +81,13 @@ where
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// Adds a FROM clause and transitions to the `FromSet` state
     #[inline]
-    pub fn from(
+    pub fn from<F>(
         self,
-        source: impl ToSQL<'a, PostgresValue<'a>>,
-    ) -> UpdateBuilder<'a, S, UpdateFromSet, T> {
+        source: F,
+    ) -> UpdateBuilder<'a, S, UpdateFromSet, T, drizzle_core::Cons<F, drizzle_core::Nil>>
+    where
+        F: ToSQL<'a, PostgresValue<'a>> + drizzle_core::ScopeEntry,
+    {
         let from_sql = crate::helpers::from(source);
         UpdateBuilder {
             sql: self.sql.append(from_sql),
@@ -99,8 +102,9 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 
     /// Adds a WHERE condition and transitions to the `WhereSet` state
     #[inline]
-    pub fn r#where<E>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
+    pub fn r#where<E, ScopeProof>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -118,8 +122,9 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 
     /// Adds a RETURNING clause and transitions to the `ReturningSet` state
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
@@ -140,11 +145,12 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 // Post-FROM Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
+impl<'a, S, T, M> UpdateBuilder<'a, S, UpdateFromSet, T, M> {
     /// Adds a WHERE condition after FROM
     #[inline]
-    pub fn r#where<E>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
+    pub fn r#where<E, ScopeProof>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T, M>
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, M>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -162,8 +168,9 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
 
     /// Adds a RETURNING clause after FROM
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, M>, ScopeProof>,
         Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
@@ -184,11 +191,12 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateFromSet, T> {
 // Post-WHERE Implementation
 //------------------------------------------------------------------------------
 
-impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
+impl<'a, S, T, M> UpdateBuilder<'a, S, UpdateWhereSet, T, M> {
     /// Adds a RETURNING clause after WHERE
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, M>, ScopeProof>,
         Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {

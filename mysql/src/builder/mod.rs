@@ -28,9 +28,13 @@ macro_rules! mutation_builder_methods {
         $(
             impl<'a, S, T> $builder<'a, S, $order, T> {
                 /// Orders the rows considered by this mutation.
-                pub fn order_by<O>(self, order: O) -> $builder<'a, S, $ordered, T>
+                pub fn order_by<O, ScopeProof>(self, order: O) -> $builder<'a, S, $ordered, T>
                 where
-                    O: drizzle_core::ToSQL<'a, crate::values::MySQLValue<'a>>,
+                    O: drizzle_core::ToSQL<'a, crate::values::MySQLValue<'a>>
+                        + drizzle_core::scope::ReadsWithin<
+                            drizzle_core::Cons<T, drizzle_core::Nil>,
+                            ScopeProof,
+                        >,
                 {
                     $builder::from_sql(self.sql.append(crate::helpers::order_by(order)))
                 }

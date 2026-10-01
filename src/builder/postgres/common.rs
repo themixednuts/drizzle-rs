@@ -221,7 +221,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Ord, Lim>
     /// Sets the WHERE clause for the query.
     ///
     /// Can only be called once. To combine conditions, use `and(a, b)` or `or(a, b)`.
-    pub fn r#where<E>(
+    pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
     ) -> DrizzleQueryBuilder<
@@ -235,6 +235,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Ord, Lim>
         drizzle_core::query::Clauses<drizzle_core::query::HasWhere, Ord, Lim>,
     >
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -261,7 +262,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Lim>
     >
 {
     /// Adds a typed ORDER BY clause. Can only be called once.
-    pub fn order_by<E>(
+    pub fn order_by<E, ScopeProof>(
         self,
         expr: E,
     ) -> DrizzleQueryBuilder<
@@ -275,6 +276,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Lim>
         drizzle_core::query::Clauses<W, drizzle_core::query::HasOrderBy, Lim>,
     >
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::traits::ToSQL<'a, PostgresValue<'a>>,
     {
         DrizzleQueryBuilder {
@@ -422,8 +424,9 @@ pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
 
 impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
     /// Adds a WHERE clause to the conflict target for partial index matching.
-    pub fn r#where<E>(mut self, condition: E) -> Self
+    pub fn r#where<E, ScopeProof>(mut self, condition: E) -> Self
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1315,7 +1318,7 @@ where
     }
 
     /// Adds RETURNING clause
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1333,6 +1336,7 @@ where
         InsertReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1355,7 +1359,7 @@ impl<'a, 'b, Runner, Schema, Table>
     >
 {
     /// Adds RETURNING clause after ON CONFLICT
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1373,6 +1377,7 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1395,7 +1400,7 @@ impl<'a, 'b, Runner, Schema, Table>
     >
 {
     /// Adds WHERE clause after DO UPDATE SET
-    pub fn r#where<E>(
+    pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
     ) -> DrizzleBuilder<
@@ -1406,6 +1411,7 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertOnConflictSet,
     >
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1417,7 +1423,7 @@ impl<'a, 'b, Runner, Schema, Table>
     }
 
     /// Adds RETURNING clause after DO UPDATE SET
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1435,6 +1441,7 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1487,17 +1494,20 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateSetClauseSet,
     >
 {
-    pub fn from(
+    pub fn from<F>(
         self,
-        source: impl ToSQL<'b, PostgresValue<'b>>,
+        source: F,
     ) -> DrizzleBuilder<
         'a,
         Runner,
         Schema,
-        UpdateBuilder<'b, Schema, UpdateFromSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateFromSet, Table, drizzle_core::Cons<F, drizzle_core::Nil>>,
         UpdateFromSet,
-    > {
-        let builder = self.builder.from(source.to_sql());
+    >
+    where
+        F: ToSQL<'b, PostgresValue<'b>> + drizzle_core::ScopeEntry,
+    {
+        let builder = self.builder.from(source);
         DrizzleBuilder {
             runner: self.runner,
             builder,
@@ -1505,7 +1515,7 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
-    pub fn r#where<E>(
+    pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
     ) -> DrizzleBuilder<
@@ -1516,6 +1526,7 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateWhereSet,
     >
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1527,7 +1538,7 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1545,6 +1556,7 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1557,26 +1569,27 @@ impl<'a, 'b, Runner, Schema, Table>
     }
 }
 
-impl<'a, 'b, Runner, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table, M>
     DrizzleBuilder<
         'a,
         Runner,
         Schema,
-        UpdateBuilder<'b, Schema, UpdateFromSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateFromSet, Table, M>,
         UpdateFromSet,
     >
 {
-    pub fn r#where<E>(
+    pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
     ) -> DrizzleBuilder<
         'a,
         Runner,
         Schema,
-        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table, M>,
         UpdateWhereSet,
     >
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, M>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1588,7 +1601,7 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1606,6 +1619,7 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, M>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1618,16 +1632,16 @@ impl<'a, 'b, Runner, Schema, Table>
     }
 }
 
-impl<'a, 'b, Runner, Schema, Table>
+impl<'a, 'b, Runner, Schema, Table, M>
     DrizzleBuilder<
         'a,
         Runner,
         Schema,
-        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table, M>,
         UpdateWhereSet,
     >
 {
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1645,6 +1659,7 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, M>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1668,7 +1683,7 @@ impl<'a, 'b, Runner, Schema, Table>
 where
     Table: PostgresTable<'b>,
 {
-    pub fn r#where<E>(
+    pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
     ) -> DrizzleBuilder<
@@ -1679,6 +1694,7 @@ where
         DeleteWhereSet,
     >
     where
+        E: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'b, PostgresValue<'b>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -1690,7 +1706,7 @@ where
         }
     }
 
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1708,6 +1724,7 @@ where
         DeleteReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {
@@ -1729,7 +1746,7 @@ impl<'a, 'b, Runner, Schema, Table>
         DeleteWhereSet,
     >
 {
-    pub fn returning<Columns>(
+    pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
     ) -> DrizzleBuilder<
@@ -1747,6 +1764,7 @@ impl<'a, 'b, Runner, Schema, Table>
         DeleteReturningSet,
     >
     where
+        Columns: drizzle_core::scope::ReadsWithin<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<Table>,
     {

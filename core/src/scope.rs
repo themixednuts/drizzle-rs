@@ -481,6 +481,23 @@ impl<R, Other> SetOperand<Other> for crate::row::SelectAs<R> {
     type Combined = Self;
 }
 
+/// Every source `Self` reads is in `Scope`.
+///
+/// Used by statements whose scope is fixed when the clause is written
+/// (`UPDATE`/`DELETE`/`INSERT ... ON CONFLICT`/`RETURNING`).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` reads a source outside this statement",
+    label = "this clause may only read the statement's own table(s)"
+)]
+pub trait ReadsWithin<Scope, Proof> {}
+
+impl<E, Scope, Proof> ReadsWithin<Scope, Proof> for E
+where
+    E: crate::expr::ExprSources + ?Sized,
+    E::Sources: SourcesIn<Scope, Proof>,
+{
+}
+
 /// Sources of a COALESCE-style operand: its declared nullability plus the
 /// nullability its sources pick up from outer joins.
 pub type Arg<N, S> = (N, S);
