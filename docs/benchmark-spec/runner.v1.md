@@ -232,6 +232,10 @@ equality check — a replicated in-process cache has no connection pool to
 equalise — and are listed in `harness[].exempt` rather than dropped. A family
 whose members are all exempt reports `within_family_identical: false` with no
 workers/pool/tuning, meaning "nothing to enforce", never "drift was tolerated".
+`data_access: "in-database"` (route logic runs inside the database, e.g.
+SpacetimeDB module procedures behind a forwarding HTTP process) is *not*
+exempt: such a target does real database work per request and must declare the
+family's harness like any SQL round-trip target.
 
 Target lifecycle:
 

@@ -3,6 +3,10 @@
 //! This target avoids PGWire for measured behavior. It seeds through the
 //! module reducer, subscribes to the public benchmark tables over the SDK, then
 //! serves the standard HTTP contract from the materialized subscription cache.
+//!
+//! With `--module-procedures` it is instead the `spacetime-module-rs` target:
+//! a thin forwarder that maps each route to one module procedure call (see
+//! `module_forwarder`).
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -17,6 +21,7 @@ use std::time::{Duration, Instant};
 use sysinfo::System;
 
 mod module_bindings;
+mod module_forwarder;
 
 use module_bindings::customers_table::CustomersTableAccess;
 use module_bindings::employees_table::EmployeesTableAccess;
@@ -434,7 +439,7 @@ fn order_details_for(model: &ReadModel, order_id: u32) -> &[OrderDetail] {
         .unwrap_or(&[])
 }
 
-async fn stats() -> Json<Vec<f64>> {
+pub(crate) async fn stats() -> Json<Vec<f64>> {
     let mut sys = System::new_all();
     sys.refresh_cpu_usage();
     let cpu = sys
@@ -751,7 +756,7 @@ async fn search_product(
     Ok(Json(serde_json::to_value(resp).unwrap()))
 }
 
-fn spacetime_token() -> Option<String> {
+pub(crate) fn spacetime_token() -> Option<String> {
     if let Ok(token) = std::env::var("SPACETIME_TOKEN")
         && !token.trim().is_empty()
     {
@@ -858,22 +863,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     runtime.block_on(serve())
 }
 
-async fn serve() -> Result<(), Box<dyn std::error::Error>> {
-    let seed_value = std::env::var("BENCH_SEED")
-        .ok()
-        .and_then(|raw| raw.parse::<u64>().ok())
-        .unwrap_or(42);
-    let trial = std::env::var("BENCH_TRIAL")
-        .ok()
-        .and_then(|raw| raw.parse::<u32>().ok())
-        .unwrap_or(1);
-
+/// The `spacetime-sdk-rs` app: seed, subscribe, and answer from the cache.
+async fn cache_router(seed_value: u64, trial: u32) -> Result<Router, Box<dyn std::error::Error>> {
     let conn = connect_and_seed(seed_value, trial).await?;
     let model = Arc::new(ReadModel::from_connection(&conn)?);
     drop(conn);
 
     let state = AppState { model };
-    let app = Router::new()
+    Ok(Router::new()
         .route("/stats", get(stats))
         .route("/customers", get(customers))
         .route("/customer-by-id", get(customer_by_id))
@@ -891,7 +888,24 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route("/search-customer", get(search_customer))
         .route("/search-product", get(search_product))
-        .with_state(state);
+        .with_state(state))
+}
+
+async fn serve() -> Result<(), Box<dyn std::error::Error>> {
+    let seed_value = std::env::var("BENCH_SEED")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(42);
+    let trial = std::env::var("BENCH_TRIAL")
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .unwrap_or(1);
+
+    let app = if std::env::args().any(|arg| arg == "--module-procedures") {
+        module_forwarder::router(seed_value, trial).await?
+    } else {
+        cache_router(seed_value, trial).await?
+    };
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let port = listener.local_addr()?.port();
