@@ -1302,8 +1302,12 @@ where
     /// # Errors
     ///
     /// Returns an error if connection checkout, execution, or decoding fails.
-    pub async fn rows(self) -> Result<Rows<DecodedRow>>
+    pub async fn rows<ScopeProof, AggProof>(self) -> Result<Rows<DecodedRow>>
     where
+        for<'row> Marker: MarkerScopeValidFor<ScopeProof>
+            + StrictDecodeMarker
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, DecodedRow, ScopeProof>,
+        Marker: MarkerAggValidFor<Grouped, AggProof>,
         for<'row> DecodedRow: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
         Ok(self

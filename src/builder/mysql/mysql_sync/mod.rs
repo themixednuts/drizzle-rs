@@ -938,8 +938,12 @@ where
     /// # Errors
     ///
     /// Returns an error if execution or row decoding fails.
-    pub fn rows(self) -> Result<Rows<Rw>>
+    pub fn rows<ScopeProof, AggProof>(self) -> Result<Rows<Rw>>
     where
+        for<'row> Mk: MarkerScopeValidFor<ScopeProof>
+            + StrictDecodeMarker
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, Rw, Rw, ScopeProof>,
+        Mk: MarkerAggValidFor<Grouped, AggProof>,
         for<'row> Rw: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
         Ok(self.runner.query_rendered(self.builder)?.rows::<Rw>())

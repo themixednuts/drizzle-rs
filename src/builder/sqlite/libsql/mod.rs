@@ -1571,8 +1571,12 @@ where
     }
 
     /// Runs the query and returns a row cursor using the builder's row type.
-    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
+            + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, Rw, Proof>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         Rw: for<'r> TryFrom<&'r libsql::Row>,
         for<'r> <Rw as TryFrom<&'r libsql::Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {

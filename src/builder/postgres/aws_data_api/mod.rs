@@ -582,8 +582,10 @@ where
     }
 
     /// Run the builder and collect all rows using the builder's row type.
-    pub async fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
+    pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
@@ -609,8 +611,10 @@ where
     }
 
     /// Run the builder and return a lazy row cursor.
-    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
@@ -631,8 +635,10 @@ where
     }
 
     /// Run the builder and return a single row.
-    pub async fn get<R>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
