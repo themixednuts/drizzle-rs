@@ -153,8 +153,9 @@
 			-->
 			<span class="text-meta text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2">
 				<span
-					><span class="text-foreground-secondary" title={dbDetail}>{db}</span>{#if display.note}
-						· {display.note}{/if}</span
+					>{#if db !== display.name}<span class="text-foreground-secondary" title={dbDetail}
+							>{db}</span
+						>{#if display.note}{' · '}{/if}{/if}{display.note}</span
 				>
 				<ArchTag {arch} quiet plain />
 			</span>

@@ -58,6 +58,8 @@ export interface ScopeView {
 	points: ScopePoint[];
 	rate: Rail;
 	latency: Rail;
+	/** What the x axis measures, e.g. "peak req/s". */
+	rateLabel: string;
 	/** The non-dominated set, ascending by rate — the order the staircase is drawn in. */
 	frontier: ScopePoint[];
 }
@@ -158,14 +160,26 @@ function plotLabels(candidates: readonly Candidate[]): Map<string, string> {
  * which is what lets a hover cross between them. Rows whose rate or p95 is zero or missing are
  * dropped rather than pinned to an axis: a log scale has no position for them.
  */
-export function buildScope(rows: readonly { id: string; summary: SummaryResult }[]): ScopeView {
+export function buildScope(
+	rows: readonly { id: string; summary: SummaryResult }[],
+	/** The table's own figures, so the plot and the columns beside it never show two numbers. */
+	read: {
+		rate: (summary: SummaryResult) => number;
+		p95: (summary: SummaryResult) => number;
+		rateLabel: string;
+	} = {
+		rate: (summary) => summary.primary.rps.avg,
+		p95: (summary) => summary.primary.latency.p95,
+		rateLabel: 'requests / sec',
+	},
+): ScopeView {
 	const rate = buildRail(
-		rows.map((row) => row.summary.primary.rps.avg),
+		rows.map((row) => read.rate(row.summary)),
 		fmtRps,
 		5,
 	);
 	const latency = buildRail(
-		rows.map((row) => row.summary.primary.latency.p95),
+		rows.map((row) => read.p95(row.summary)),
 		fmtLatency,
 		5,
 	);
@@ -181,8 +195,10 @@ export function buildScope(rows: readonly { id: string; summary: SummaryResult }
 	const points: ScopePoint[] = [];
 	for (const row of rows) {
 		const primary = row.summary.primary;
-		const x = rate.at(primary.rps.avg);
-		const y = latency.at(primary.latency.p95);
+		const rps = read.rate(row.summary);
+		const p95 = read.p95(row.summary);
+		const x = rate.at(rps);
+		const y = latency.at(p95);
 		if (x === null || y === null) continue;
 
 		const display = targetDisplay(row.summary);
@@ -193,10 +209,10 @@ export function buildScope(rows: readonly { id: string; summary: SummaryResult }
 			api: display.api?.label ?? null,
 			db: dbShortLabel(dbProfile(row.summary)),
 			note: display.note,
-			rps: primary.rps.avg,
-			p95: primary.latency.p95,
-			rpsText: fmtRps(primary.rps.avg),
-			p95Text: fmtLatency(primary.latency.p95),
+			rps,
+			p95,
+			rpsText: fmtRps(rps),
+			p95Text: fmtLatency(p95),
 			cpuText: fmtCpu(primary.cpu.avg),
 			x,
 			y,
@@ -211,6 +227,7 @@ export function buildScope(rows: readonly { id: string; summary: SummaryResult }
 		points,
 		rate,
 		latency,
+		rateLabel: read.rateLabel,
 		frontier: points.filter((point) => point.onFrontier).sort((a, b) => a.rps - b.rps),
 	};
 }

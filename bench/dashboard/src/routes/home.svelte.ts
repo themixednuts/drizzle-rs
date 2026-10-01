@@ -528,7 +528,20 @@ export class RunsPageState {
 	 * made every labelled point appear twice.
 	 */
 	scope: ScopeView = $derived(
-		buildScope(this.#orderedRows.map((summary) => ({ id: rowId(summary), summary }))),
+		buildScope(
+			this.#orderedRows.map((summary) => ({ id: rowId(summary), summary })),
+			{
+				// Peak throughput wherever the set measured it: the paced rate is capped by the load
+				// generator, so on it every healthy target lands in the same place.
+				rate: (summary) => {
+					if (!this.hasCapacity) return summary.primary.rps.avg;
+					const view = this.capacity(summary);
+					return view.figure ? view.tierValue : Number.NaN;
+				},
+				p95: (summary) => this.latency(summary).value,
+				rateLabel: this.hasCapacity ? 'peak req/s' : 'req/s',
+			},
+		),
 	);
 
 	/**

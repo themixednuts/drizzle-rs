@@ -163,7 +163,7 @@
 				y={H - 6}
 				text-anchor="middle"
 			>
-				requests / sec →
+				{scope.rateLabel} →
 			</text>
 			<!-- Rotated, this arrow points up the page, which is now the direction latency grows. -->
 			<text
