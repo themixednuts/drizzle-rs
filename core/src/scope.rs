@@ -125,7 +125,7 @@ pub trait ScopeContains<Key, Witness> {
 
 impl<Name, Table, Scope> ScopeContains<TableKey<Name, Table>, ScopeFound> for Scope
 where
-    Scope: FindTable<Name, Table>,
+    Scope: FindTable<Table>,
 {
     type Nullable = Scope::Nullable;
 }
@@ -243,58 +243,74 @@ impl<A, B> NameEqRest<A, B> for False {
     type Out = False;
 }
 
-/// Whether a scope entry's key is the table named `Name`.
+/// The SQL name of a table key.
 #[doc(hidden)]
-pub trait IsTable<Name> {
+pub trait TableName {
+    type Name;
+}
+
+impl<Name, Table> TableName for TableKey<Name, Table> {
+    type Name = Name;
+}
+
+/// Whether a scope entry's key names the same table as `Table`.
+#[doc(hidden)]
+pub trait IsTable<Table> {
     type Out;
 }
 
-impl<Name, Other: NameEq<Name>, T> IsTable<Name> for TableKey<Other, T> {
+impl<Table, Other, T> IsTable<Table> for TableKey<Other, T>
+where
+    Table: ScopeEntry,
+    Table::Key: TableName,
+    Other: NameEq<<Table::Key as TableName>::Name>,
+{
     type Out = Other::Out;
 }
 
-impl<Name, Tag> IsTable<Name> for AliasKey<Tag> {
+impl<Table, Tag> IsTable<Table> for AliasKey<Tag> {
     type Out = False;
 }
 
-impl<Name> IsTable<Name> for RawSource {
+impl<Table> IsTable<Table> for RawSource {
     type Out = False;
 }
 
-/// Finds the first table named `Name` in a scope list.
+/// Finds the first source in a scope list that is the table `Table`
+/// (compared by SQL name).
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
     message = "`{Table}` is not in this query's FROM/JOIN scope",
     label = "this expression reads a table that the query never joins",
     note = "add the table with .from(...) or a .join(...) before using its columns"
 )]
-pub trait FindTable<Name, Table> {
+pub trait FindTable<Table> {
     type Nullable: Nullability;
 }
 
-impl<Name, Table, Head, Tail> FindTable<Name, Table> for Cons<Head, Tail>
+impl<Table, Head, Tail> FindTable<Table> for Cons<Head, Tail>
 where
     Head: ScopeEntry,
-    Head::Key: IsTable<Name>,
-    <Head::Key as IsTable<Name>>::Out: FoundOr<Head::Nullable, Tail, Name, Table>,
+    Head::Key: IsTable<Table>,
+    <Head::Key as IsTable<Table>>::Out: FoundOr<Head::Nullable, Tail, Table>,
 {
     type Nullable =
-        <<Head::Key as IsTable<Name>>::Out as FoundOr<Head::Nullable, Tail, Name, Table>>::Nullable;
+        <<Head::Key as IsTable<Table>>::Out as FoundOr<Head::Nullable, Tail, Table>>::Nullable;
 }
 
 /// `True`: the head matched; `False`: keep searching the tail.
 #[doc(hidden)]
-pub trait FoundOr<Nullable, Rest, Name, Table> {
+pub trait FoundOr<Nullable, Rest, Table> {
     type Nullable: Nullability;
 }
 
-impl<N: Nullability, Rest, Name, Table> FoundOr<N, Rest, Name, Table> for True {
+impl<N: Nullability, Rest, Table> FoundOr<N, Rest, Table> for True {
     type Nullable = N;
 }
 
-impl<N, Rest, Name, Table> FoundOr<N, Rest, Name, Table> for False
+impl<N, Rest, Table> FoundOr<N, Rest, Table> for False
 where
-    Rest: FindTable<Name, Table>,
+    Rest: FindTable<Table>,
 {
     type Nullable = Rest::Nullable;
 }

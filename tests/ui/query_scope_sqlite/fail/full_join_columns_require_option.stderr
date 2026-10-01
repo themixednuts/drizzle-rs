@@ -1,14 +1,14 @@
-error[E0277]: selected column decodes as `drizzle::core::JoinNullable<std::string::String>`, but the decode target uses `std::string::String`
+error[E0277]: selected column decodes as `drizzle::core::MaybeNull<std::string::String>`, but the decode target uses `std::string::String`
   --> tests/ui/query_scope_sqlite/fail/full_join_columns_require_option.rs:35:75
    |
 35 |         db.select((users.name, posts.title)).from(users).full_join(posts).all();
    |                                                                           ^^^ the decode target does not match the selected columns
    |
-   = help: the trait `for<'r> drizzle_core::row::ColumnTypeCompatible<Row<'r>, drizzle::core::JoinNullable<std::string::String>, std::string::String>` is not implemented for `()`
-   = note: a selected `JoinNullable<T>` comes from the nullable side of a LEFT/RIGHT/FULL JOIN and must be decoded as `Option<T>`
+   = help: the trait `for<'r> drizzle_core::row::ColumnTypeCompatible<Row<'r>, drizzle::core::MaybeNull<std::string::String>, std::string::String>` is not implemented for `()`
+   = note: a selected `MaybeNull<T>` can be NULL (an outer join or a nullable operand) and must be decoded as `Option<T>`
    = help: `()` implements trait `drizzle_core::row::ColumnTypeCompatible<Row, Expected, Actual>`:
              drizzle_core::row::ColumnTypeCompatible<Row, T, T>
-             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::JoinNullable<Expected>, std::option::Option<Actual>>
+             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::MaybeNull<Expected>, std::option::Option<Actual>>
              drizzle_core::row::ColumnTypeCompatible<Row, i64, bool>
              drizzle_core::row::ColumnTypeCompatible<Row, i64, i16>
              drizzle_core::row::ColumnTypeCompatible<Row, i64, i32>
@@ -29,10 +29,10 @@ error[E0277]: selected column decodes as `drizzle::core::JoinNullable<std::strin
              drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u64>>
              drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u8>>
              drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<usize>>
-   = note: required for `Cons<drizzle::core::JoinNullable<std::string::String>, Nil>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<std::string::String, Nil>>`
+   = note: required for `Cons<drizzle::core::MaybeNull<std::string::String>, Nil>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<std::string::String, Nil>>`
    = note: 1 redundant requirement hidden
-   = note: required for `Cons<drizzle::core::JoinNullable<std::string::String>, Cons<drizzle::core::JoinNullable<std::string::String>, Nil>>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<std::option::Option<std::string::String>, Cons<std::string::String, Nil>>>`
-   = note: required for `Scoped<SelectCols<(users::Name, posts::Title)>, Cons<OuterJoined<Posts>, Cons<OuterJoined<Users>, Nil>>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (std::string::String, std::string::String), (std::option::Option<std::string::String>, std::string::String), (drizzle::core::ColumnScope<Users, drizzle_core::row::ScopeThere<drizzle_core::row::ScopeOuter<drizzle_core::row::ScopeHere>>>, (drizzle::core::ColumnScope<Posts, drizzle_core::row::ScopeOuter<drizzle_core::row::ScopeHere>>, ()))>`
+   = note: required for `Cons<drizzle::core::MaybeNull<std::string::String>, Cons<drizzle::core::MaybeNull<std::string::String>, Nil>>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<std::option::Option<std::string::String>, Cons<std::string::String, Nil>>>`
+   = note: required for `Scoped<SelectCols<(users::Name, posts::Title)>, Cons<OuterJoined<Posts>, Cons<OuterJoined<Users>, Nil>>, (((), ()), At<Cons<OuterJoined<Posts>, Cons<OuterJoined<Users>, Nil>>, ()>)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (std::string::String, std::string::String), (std::option::Option<std::string::String>, std::string::String), ((((), ()), ()), (ScopeFound, (ScopeFound, ())))>`
 note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
