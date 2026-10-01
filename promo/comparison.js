@@ -37,7 +37,7 @@ tl.scene(13, (el, len) => {
       h("span", { class: "caption", style: { width: "200px", color: r.name === "drizzle-rs" ? "var(--lime)" : "var(--text)" } }, r.name),
       h("span", { class: "sub", style: { fontSize: "22px" }, html: r.note }));
     const track = h("div", { style: { position: "relative", height: "34px" } });
-    const w = (n) => (n / max) * 1450;
+    const w = (n) => (n / max) * 1180;
     const bar = h("div", { style: { position: "absolute", left: 0, top: 0, height: "34px", borderRadius: "8px", background: r.name === "drizzle-rs" ? "var(--lime)" : "#3a4556" } });
     const gen = h("div", { style: { position: "absolute", top: 0, height: "34px", borderRadius: "8px", background: "repeating-linear-gradient(45deg,#232b37 0 8px,#1a2029 8px 16px)" } });
     const num = h("span", { class: "mono", style: { position: "absolute", top: "2px", fontSize: "24px", fontWeight: 700 } });
@@ -70,20 +70,28 @@ function topic(t, chapter, n) {
   tl.scene(len, (el) => {
     const head = header(el, `0${n} · ${chapter}`, t.title);
     const q = at(el, 110, 232, h("div", { class: "sub", html: t.question }));
-    const dz = codeWindow(el, 110, 300, { title: `drizzle-rs · ${t.drizzle.lines} lines`, width: 800, size: 20, height: 400, states: [{ at: 0, code: t.drizzle.code }] });
+    // largest font (max 20px) at which the snippet fits its window
+    const fit = (code, width, height) => {
+      const ls = code.replace(/^\n/, "").split("\n");
+      const longest = Math.max(...ls.map((l) => l.length));
+      return Math.min(23, Math.floor((width - 64) / (longest * 0.61)), Math.floor((height - 56) / (ls.length * 1.55)));
+    };
+    const H = 420;
+    const dz = codeWindow(el, 110, 300, { title: `drizzle-rs · ${t.drizzle.lines} lines`, width: 800, size: fit(t.drizzle.code, 800, H), height: H, states: [{ at: 0, code: t.drizzle.code }] });
     dz.win.querySelector(".title").style.color = "var(--lime)";
-    const dzNote = at(el, 110, 740, h("div", { class: "card", style: { width: "800px", fontSize: "23px", lineHeight: 1.45 }, html: t.drizzle.note }));
-    const tabs = at(el, 960, 300, h("div", { style: { display: "flex", gap: "10px" } }, ORMS.map((o) => h("span", { class: "pill", style: { fontSize: "20px", padding: "8px 18px" } }, o))));
+    const dzNote = at(el, 110, 800, h("div", { class: "card", style: { width: "800px", fontSize: "23px", lineHeight: 1.45 }, html: t.drizzle.note }));
+    const tabs = at(el, 960, 240, h("div", { style: { display: "flex", gap: "10px" } }, ORMS.map((o) => h("span", { class: "pill", style: { fontSize: "20px", padding: "8px 18px" } }, o))));
     const panes = ORMS.map((o, i) => {
       const d = t[o];
-      const w = codeWindow(el, 960, 360, { title: `${o} · ${d.lines} lines${d.status ? " · " + d.status : ""}`, width: 850, size: 19, height: 340, states: [{ at: 0, code: d.code }] });
-      const note = at(el, 960, 740, h("div", { class: "card", style: { width: "850px", fontSize: "23px", lineHeight: 1.45 }, html: d.note }));
+      const w = codeWindow(el, 960, 300, { title: `${o} · ${d.lines} lines${d.status ? " · " + d.status : ""}`, width: 850, size: fit(d.code, 850, H), height: H, states: [{ at: 0, code: d.code }] });
+      const note = at(el, 960, 800, h("div", { class: "card", style: { width: "850px", fontSize: "23px", lineHeight: 1.45 }, html: d.note }));
       return { w, note, a: t0 + i * per };
     });
     return (lt) => {
       head(lt, len);
       reveal(q, lt, 0.3, len - 0.5);
       reveal(dz.win, lt, 0.5, len - 0.5);
+      dz.update(lt);
       reveal(dzNote, lt, 1.0, len - 0.5);
       reveal(tabs, lt, t0 - 0.4, len - 0.5);
       panes.forEach((p, i) => {
@@ -93,6 +101,7 @@ function topic(t, chapter, n) {
         p.w.win.style.transform += ` translateX(${(1 - prog(lt, p.a, p.a + 0.35)) * 30}px)`;
         p.w.win.style.display = v > 0 ? "" : "none";
         reveal(p.note, lt, p.a + 0.2, b, 0.35, 10);
+        p.w.update(lt);
         const on = lt >= p.a && (last || lt < p.a + per);
         const tab = tabs.children[i];
         tab.style.background = on ? "var(--lime)" : "";
@@ -105,28 +114,33 @@ TOPICS.forEach((t, i) => topic(t, CH[i + 1], i + 2));
 
 // ─────────────────────────────────────────────────────────────── safety matrix
 tl.scene(24, (el, len) => {
-  const head = header(el, "05 · Compile-time safety", "Seven mistakes. <span class=accent>Who catches them before runtime?</span>", { size: 64 });
+  const head = header(el, "05 · Compile-time safety", "Eight mistakes. <span class=accent>Who catches them before runtime?</span>", { size: 64 });
   const cols = ["drizzle-rs", ...ORMS];
   const X0 = 110, W0 = 640, CW = 265;
   const hdr = cols.map((c, i) => at(el, X0 + W0 + i * CW, 250, h("div", { class: "mono", style: { width: CW - 16 + "px", textAlign: "center", fontSize: "24px", fontWeight: 700, color: i === 0 ? "var(--lime)" : "var(--text)" } }, c)));
   const KIND = { ce: ["compile error", "ok"], rt: ["runtime error", "warn"], silent: ["wrong result", "bad"], panic: ["panic", "bad"], na: ["n/a", ""] };
   const rows = SAFETY.rows.map((r, i) => {
-    const y = 300 + i * 74;
+    const y = 290 + i * 66;
     const label = at(el, X0, y, h("div", { style: { width: W0 - 20 + "px", fontSize: "23px", fontWeight: 600, lineHeight: 1.3 }, html: r.label }));
     const cells = cols.map((c, j) => {
       const v = r.cells[j];
       const [txt, cls] = KIND[v.k];
       const cell = h("div", { style: { width: CW - 16 + "px", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" } },
         h("span", { class: `tag ${cls}`, style: { fontSize: "15px" } }, txt),
-        v.d ? h("span", { class: "mono", style: { fontSize: "14px", color: "var(--muted)", textAlign: "center" } }, v.d) : null);
+        v.d ? h("span", { class: "mono", style: { fontSize: "15px", color: "var(--muted)", textAlign: "center" } }, v.d) : null);
       return at(el, X0 + W0 + j * CW, y, cell);
     });
     return { label, cells, y };
   });
-  const totals = at(el, X0, 300 + SAFETY.rows.length * 74 + 4, h("div", { style: { display: "flex", alignItems: "center" } },
+  const totals = at(el, X0, 290 + SAFETY.rows.length * 66 + 6, h("div", { style: { display: "flex", alignItems: "center" } },
     h("div", { class: "caption", style: { width: W0 + "px" } }, "Caught at compile time"),
-    ...SAFETY.totals.map((n, i) => h("div", { class: "mono", style: { width: CW + "px", textAlign: "center", fontSize: "40px", fontWeight: 800, color: i === 0 ? "var(--lime)" : "var(--text)" } }, `${n}/${SAFETY.rows.length}`))));
-  const caps = captions(el, 110, 940, SAFETY.captions.map(([a, b, html]) => [a, b === "end" ? len : b, html]), { cls: "sub", width: 1700 });
+    ...cols.map((_, i) => {
+      // n/a rows don't count against a library
+      const cells = SAFETY.rows.map((r) => r.cells[i].k).filter((k) => k !== "na");
+      const n = cells.filter((k) => k === "ce").length;
+      return h("div", { class: "mono", style: { width: CW + "px", textAlign: "center", fontSize: "40px", fontWeight: 800, color: i === 0 ? "var(--lime)" : "var(--text)" } }, `${n}/${cells.length}`);
+    })));
+  const caps = captions(el, 110, 912, SAFETY.captions.map(([a, b, html]) => [a, b === "end" ? len : b, html]), { cls: "sub", width: 1700 });
   return (lt) => {
     head(lt, len);
     stagger(hdr, lt, 0.6, 0.1, len - 0.5);
@@ -143,7 +157,7 @@ tl.scene(24, (el, len) => {
 // ─────────────────────────────────────────────────────────────── fair play
 tl.scene(12, (el, len) => {
   const head = header(el, "06 · Verdict", "Credit where it's due.");
-  const cards = STRENGTHS.others.map((s, i) => at(el, 110 + i * 580, 300, h("div", { class: "card", style: { width: "550px", height: "520px" }, html:
+  const cards = STRENGTHS.others.map((s, i) => at(el, 110 + i * 580, 300, h("div", { class: "card", style: { width: "550px", minHeight: "340px" }, html:
     `<div class="caption" style="font-size:36px">${s.name}</div><div class="mono" style="color:var(--muted);font-size:18px;margin:6px 0 22px">${s.version}</div>` +
     s.points.map((p) => `<div style="font-size:23px;line-height:1.4;margin-bottom:14px;color:#c9d1dc">${p}</div>`).join("") })));
   return (lt) => { head(lt, len); stagger(cards, lt, 0.6, 0.3, len - 0.5); };

@@ -44,7 +44,7 @@ To preview while editing, serve this directory (`npx serve promo`) and open
 
 Every drizzle snippet on screen compiles against this repo:
 `verify/` is a standalone crate holding them all, and its output is the SQL
-the videos quote. The compiler errors shown are real `cargo check` output
+the videos quote (broken across lines for readability). The compiler errors shown are real `cargo check` output
 (long type paths in the middle of a message are elided with `...`, as rustc
 itself does).
 
@@ -52,8 +52,9 @@ itself does).
 cd promo/verify && cargo run
 ```
 
-The SeaORM, Diesel and Toasty snippets were compiled against the crate
-versions listed in `comparison.js`, starting from the projects in
-`examples/orm-comparison/`.
+The Diesel, SeaORM and Toasty snippets and safety results in
+`comparison-data.js` were compiled and run against diesel 2.3.9,
+sea-orm 2.0.4 and toasty 0.11.0 on SQLite, starting from the projects in
+`examples/orm-comparison/`. Runtime outcomes are SQLite's.
 
 Fonts: Inter and JetBrains Mono (SIL Open Font License), in `assets/fonts/`.

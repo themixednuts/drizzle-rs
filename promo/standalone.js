@@ -239,18 +239,18 @@ let per_user: Vec<(String, i64)> = db
   const sql = codeWindow(el, 1050, 280, {
     title: "generated SQL", width: 760, size: 20, lang: "sql", height: 330,
     states: [{ at: 0, code: `
-SELECT "users"."name", COUNT("posts"."id")
+SELECT "users"."name", COUNT ("posts"."id")
 FROM "users"
 LEFT JOIN "posts"
   ON "posts"."author_id" = "users"."id"
 GROUP BY "users"."name"
-HAVING COUNT("posts"."id") > ?` }, { at: 6.0, code: `
-SELECT "users"."name", COUNT("posts"."id")
+HAVING COUNT ("posts"."id") > ?` }, { at: 6.0, code: `
+SELECT "users"."name", COUNT ("posts"."id")
 FROM "users"
 LEFT JOIN "posts"
   «ON "posts"."author_id" = "users"."id"»
 GROUP BY "users"."name"
-HAVING COUNT("posts"."id") > ?` }],
+HAVING COUNT ("posts"."id") > ?` }],
   });
   const cap = captions(el, 110, 820, [
     [1.0, 5.8, "<code>count</code>, <code>sum</code>, <code>avg</code>, <code>group_by</code>, <code>having</code>, subqueries, unions: all typed expressions."],

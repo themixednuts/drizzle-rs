@@ -80,12 +80,11 @@ fn main() -> drizzle::Result<()> {
 
     // Scene: aggregates / group by
     let q = db
-        .select((users.name, alias(count(posts.id), "posts")))
+        .select((users.name, count(posts.id)))
         .from(users)
         .left_join(posts)
         .group_by(users.name)
-        .having(gt(count(posts.id), 0))
-        .order_by(asc(users.name));
+        .having(gt(count(posts.id), 0));
     println!("GROUP   => {}", q.to_sql().sql());
     let per_user: Vec<(String, i64)> = q.all()?;
     println!("         {per_user:?}");
@@ -141,6 +140,13 @@ fn main() -> drizzle::Result<()> {
     let flat: Vec<(SelectUsers, Option<SelectPosts>)> =
         db.select(()).from(users).left_join(posts).all()?;
     println!("FLAT    => {} rows", flat.len());
+    let counts: Vec<(String, i64)> = db
+        .select((users.name, count(posts.id)))
+        .from(users)
+        .left_join(posts)
+        .group_by(users.name)
+        .all()?;
+    println!("COUNTS  => {counts:?}");
 
     // Scene: query API — filter, order, pick columns
     let ada = db
