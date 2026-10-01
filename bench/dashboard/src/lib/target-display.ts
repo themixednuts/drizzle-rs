@@ -119,12 +119,80 @@ export function dbEngineClass(profile: DbProfile): 'embedded' | 'client/server' 
 	return DB_ENGINE_CLASS[profile] ?? null;
 }
 
+/**
+ * Where a target's query logic runs, which is the first thing to know before reading its number.
+ *
+ * Every target answers the same HTTP contract, so every target belongs in the same table — but they
+ * get there four different ways, and the gap between two rows on different architectures is mostly
+ * the architecture:
+ *
+ * - `embedded`: the engine is a library inside the server process (SQLite, libSQL, Turso).
+ * - `client-server`: every query is a network round trip to a separate database process
+ *   (PostgreSQL, and SpacetimeDB driven as a SQL server over PGWire).
+ * - `in-database`: the route's logic is module code running inside the database, which is how
+ *   SpacetimeDB is meant to be used; the server process makes one call per request.
+ * - `client-cache`: the server answers from a locally synced replica, so the request does no
+ *   database work at all (SpacetimeDB's SDK subscription cache).
+ *
+ * `data_access` decides first because it is declared by the target; the engine is the fallback for
+ * targets that declare a plain round trip, or predate the field.
+ */
+export type Architecture = 'embedded' | 'client-server' | 'in-database' | 'client-cache';
+
+export const ARCHITECTURE_ORDER: Architecture[] = [
+	'embedded',
+	'client-server',
+	'in-database',
+	'client-cache',
+];
+
+export interface ArchitectureInfo {
+	label: string;
+	/** One sentence a newcomer can read: what a request does on this architecture. */
+	summary: string;
+}
+
+export const ARCHITECTURES: Record<Architecture, ArchitectureInfo> = {
+	embedded: {
+		label: 'Embedded',
+		summary: 'The database engine is a library inside the app process. No network hop per query.',
+	},
+	'client-server': {
+		label: 'Client → server',
+		summary:
+			'The app sends SQL to a separate database process. Every query pays a network round trip.',
+	},
+	'in-database': {
+		label: 'Logic in database',
+		summary:
+			"The route's query code runs inside the database as a module. The app makes one call per request.",
+	},
+	'client-cache': {
+		label: 'Client replica',
+		summary:
+			'The app answers from a locally synced copy of the data. Requests do no database work, so the figure is a ceiling, not a query cost.',
+	},
+};
+
+export function targetArchitecture(input: TargetDisplayInput): Architecture | null {
+	const access = input.target_meta?.data_access;
+	if (access === 'in-process-cache') return 'client-cache';
+	if (access === 'in-database') return 'in-database';
+	const profile = dbProfile(input);
+	if (profile === 'spacetimedb') return 'client-server';
+	const engine = dbEngineClass(profile);
+	if (engine === 'embedded') return 'embedded';
+	if (engine === 'client/server') return 'client-server';
+	return null;
+}
+
 const DB_PROFILE_NOTES: Partial<Record<DbProfile, string>> = {
 	sqlite: 'Embedded engine: queries run in the server process, no network hop.',
 	libsql: 'Embedded engine: queries run in the server process, no network hop.',
 	turso: 'Embedded engine: queries run in the server process, no network hop.',
 	postgres: 'Client/server engine: every query is a TCP round trip to a separate process.',
-	spacetimedb: 'Database and application logic run together; access is over its own protocol.',
+	spacetimedb:
+		'Database and application logic are designed to run together: module code executes inside the database. Targets reach it as a SQL server (PGWire), through module calls, or from a synced client replica.',
 };
 
 const ORM_NAMES = new Map([
@@ -433,6 +501,7 @@ export function targetLabel(input: TargetDisplayInput): string {
 
 function accessBadge(access: DataAccess | null): string | null {
 	if (access === 'in-process-cache') return 'in-process cache';
+	if (access === 'in-database') return 'logic in database';
 	return null;
 }
 
@@ -544,6 +613,7 @@ function driverLabel(value: string): string {
 	if (known === '@prisma/adapter-pg') return 'adapter-pg';
 	if (known === 'tokio-postgres-simple') return 'PGWire';
 	if (known === 'spacetimedb-sdk') return 'SDK';
+	if (known === 'spacetimedb-procedure-http') return 'module procedures';
 	// The synchronous Rust client is the crate literally named `postgres`, which `humanize` turns
 	// into "PostgreSQL" — the database's name, not the driver's. That rendered its row as "query
 	// builder on PostgreSQL" beside a sibling reading "query builder on tokio-postgres", so the two

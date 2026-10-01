@@ -14,8 +14,12 @@ import {
 	familyLabel,
 	isDrizzleRsTarget,
 	isInProcessCache,
+	targetArchitecture,
 	targetDisplay,
 	targetFamily,
+	ARCHITECTURE_ORDER,
+	ARCHITECTURES,
+	type Architecture,
 	type DbProfile,
 } from '#lib/target-display';
 import { cohortSearchText } from '#lib/cohort-search';
@@ -89,6 +93,28 @@ function dbLabel(profile: DbProfile): string {
 /** The row's identity, shared by the table and the plot so a hover crosses between them. */
 function rowId(summary: SummaryResult): string {
 	return `${summary.run_id}:${summary.target_key}`;
+}
+
+/**
+ * How drizzle-rs placed on one database: the headline a visitor to a drizzle-rs benchmark site came
+ * for, answered once per engine because a single global order cannot answer it.
+ */
+export interface DbVerdict {
+	db: DbProfile;
+	label: string;
+	href: string;
+	/** Rows on this database in the current OS scope. */
+	field: number;
+	/** drizzle-rs's best row on this database, on the table's sort column; null when none ran. */
+	ours: { name: string; value: string; position: number } | null;
+	/** The fastest raw-driver row on this database, the floor an ORM is measured against. */
+	raw: { name: string; value: string } | null;
+	/** drizzle-rs against that raw driver, e.g. "−4%" / "+2%"; null when either side is missing. */
+	vsRaw: string | null;
+	/** Whether drizzle-rs's figure is at least as good as the raw driver's. */
+	ahead: boolean | null;
+	/** Every architecture present on this database, so SpacetimeDB's three access paths show up. */
+	architectures: Architecture[];
 }
 
 /** One measured distance between two rows: what to print, and what it means. */
@@ -410,6 +436,92 @@ export class RunsPageState {
 				? `Ramp over ${curve.points.length} concurrency steps, peaking at ${fmtRps(peak.rps)} requests per second at ${peak.concurrency} concurrent.`
 				: `Ramp over ${curve.points.length} concurrency steps, with no peak found.`,
 		};
+	}
+
+	/**
+	 * The per-database verdict cards above the table: where drizzle-rs placed within each engine's
+	 * own field, and how far it sits from the fastest raw driver on that engine.
+	 *
+	 * Computed over the OS scope rather than the `?db=` slice, so the cards stay put as a reader
+	 * filters, and on the table's sort column so a card and the table never disagree about order.
+	 */
+	get verdicts(): DbVerdict[] {
+		const byDb = new Map<DbProfile, SummaryResult[]>();
+		for (const summary of this.#scopedResults) {
+			const db = dbProfile(summary);
+			byDb.set(db, [...(byDb.get(db) ?? []), summary]);
+		}
+		const better =
+			this.sort === 'latency' ? (a: number, b: number) => a < b : (a: number, b: number) => a > b;
+		const fmt = this.sort === 'latency' ? fmtLatency : fmtRps;
+
+		return DB_PROFILE_ORDER.filter((db) => byDb.has(db)).map((db) => {
+			const rows = [...(byDb.get(db) ?? [])].sort(this.#comparator);
+			const value = (summary: SummaryResult) => {
+				const comparable = this.#comparable(summary);
+				return comparable.kind === 'measured' ? comparable.value : null;
+			};
+			const oursIndex = rows.findIndex(
+				(summary) => isDrizzleRsTarget(summary) && value(summary) !== null,
+			);
+			const oursRow = oursIndex === -1 ? null : rows[oursIndex];
+			const rawRow =
+				rows.find(
+					(summary) =>
+						targetDisplay(summary).badges.includes('raw driver') &&
+						targetArchitecture(summary) !== 'client-cache' &&
+						value(summary) !== null,
+				) ?? null;
+			const oursValue = oursRow ? value(oursRow) : null;
+			const rawValue = rawRow ? value(rawRow) : null;
+			const vsRaw =
+				oursValue !== null && rawValue !== null ? gapPercent(oursValue, rawValue) : null;
+
+			return {
+				db,
+				label: dbLabel(db),
+				href: this.rankingUrl(db, this.sort),
+				field: rows.length,
+				ours:
+					oursRow && oursValue !== null
+						? {
+								name: targetDisplay(oursRow).name,
+								value: fmt(oursValue),
+								position: oursIndex + 1,
+							}
+						: null,
+				raw:
+					rawRow && rawValue !== null
+						? { name: targetDisplay(rawRow).name, value: fmt(rawValue) }
+						: null,
+				vsRaw,
+				ahead:
+					oursValue !== null && rawValue !== null
+						? oursValue === rawValue || better(oursValue, rawValue)
+						: null,
+				architectures: ARCHITECTURE_ORDER.filter((arch) =>
+					rows.some((summary) => targetArchitecture(summary) === arch),
+				),
+			};
+		});
+	}
+
+	/** Which architectures appear in the current scope, in legend order, with how many rows each. */
+	get architectureLegend(): {
+		arch: Architecture;
+		label: string;
+		summary: string;
+		count: number;
+	}[] {
+		return ARCHITECTURE_ORDER.map((arch) => ({
+			arch,
+			...ARCHITECTURES[arch],
+			count: this.#scopedResults.filter((summary) => targetArchitecture(summary) === arch).length,
+		})).filter((entry) => entry.count > 0);
+	}
+
+	architecture(summary: SummaryResult): Architecture | null {
+		return targetArchitecture(summary);
 	}
 
 	/** The rows currently in view, in the current order. */

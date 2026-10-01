@@ -232,6 +232,10 @@ equality check — a replicated in-process cache has no connection pool to
 equalise — and are listed in `harness[].exempt` rather than dropped. A family
 whose members are all exempt reports `within_family_identical: false` with no
 workers/pool/tuning, meaning "nothing to enforce", never "drift was tolerated".
+`data_access: "in-database"` (route logic runs inside the database, e.g.
+SpacetimeDB module procedures behind a forwarding HTTP process) is *not*
+exempt: such a target does real database work per request and must declare the
+family's harness like any SQL round-trip target.
 
 Target lifecycle:
 
@@ -704,7 +708,8 @@ should be labelled as such wherever it is shown.
    No-op on other platforms. CI sets both on every Linux job — see §13.
 4. `headroom.cpu_peak` is the peak single-core utilisation;
    `headroom.cpu_mean_peak` is the peak of the mean across cores and is what the
-   publish gate compares.
+   publish gate compares. Both read steady-state buckets only, the same ones as
+   `primary.cpu.peak`: a target's warmup is cold start, not host load.
 
 ## 7. Stdout/Stderr
 

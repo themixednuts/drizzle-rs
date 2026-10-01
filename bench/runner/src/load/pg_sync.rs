@@ -797,17 +797,26 @@ fn ensure_seed_cache(
         return Ok(());
     }
 
+    // The seeder's INSERTs name their tables schema-qualified (`"public"."customers"`,
+    // because that is the tables' declared schema), so `search_path` cannot
+    // redirect them into the cache schema. Build the dataset in `public`, where
+    // the statements point, then move the finished tables into the cache schema
+    // in the same transaction. `reset_public_from_cache` recreates `public`
+    // from the cache right after.
     let cache_ident = quote_ident(&cache_schema);
     db.conn_mut()
         .batch_execute(&format!(
             "BEGIN;
              DROP SCHEMA IF EXISTS {cache_ident} CASCADE;
              CREATE SCHEMA {cache_ident};
-             SET LOCAL search_path TO {cache_ident};"
+             SET LOCAL search_path TO public;"
         ))
         .map_err(|err| format!("postgres seed cache init failed: {err}"))?;
 
     let result = (|| {
+        db.conn_mut()
+            .batch_execute(DROP_PUBLIC_TABLES_SQL)
+            .map_err(|err| format!("postgres seed cache drop failed: {err}"))?;
         db.create()
             .map_err(|err| format!("postgres seed cache create failed: {err}"))?;
 
@@ -818,13 +827,36 @@ fn ensure_seed_cache(
             })?;
         }
 
+        // The cache only feeds `INSERT ... SELECT *` during reset, so it needs
+        // no secondary indexes; `reset_public_from_cache` builds them on the
+        // tables the targets actually query.
         db.conn_mut()
-            .batch_execute(CREATE_INDEXES_SQL)
-            .map_err(|err| format!("postgres seed cache indexes failed: {err}"))?;
+            .batch_execute(&move_public_tables_sql(&cache_ident))
+            .map_err(|err| format!("postgres seed cache move failed: {err}"))?;
         write_seed_cache_meta(db, &cache_ident, seed)
     })();
 
     finish_transaction(db, result, "postgres seed cache")
+}
+
+/// The tables the seed cache holds, in the order a reset copies them back
+/// (parents before children).
+const SEED_TABLES: [&str; 6] = [
+    "customers",
+    "employees",
+    "suppliers",
+    "products",
+    "orders",
+    "order_details",
+];
+
+/// Move every freshly seeded `public` table into the cache schema. Serial
+/// sequences owned by a column move with their table.
+fn move_public_tables_sql(cache_ident: &str) -> String {
+    SEED_TABLES
+        .iter()
+        .map(|table| format!("ALTER TABLE public.{table} SET SCHEMA {cache_ident};\n"))
+        .collect()
 }
 
 fn seed_cache_ready(
@@ -933,14 +965,7 @@ fn reset_public_from_cache(
         db.create()
             .map_err(|err| format!("postgres create failed: {err}"))?;
 
-        for table in [
-            "customers",
-            "employees",
-            "suppliers",
-            "products",
-            "orders",
-            "order_details",
-        ] {
+        for table in SEED_TABLES {
             db.conn_mut()
                 .batch_execute(&format!(
                     "INSERT INTO public.{table} SELECT * FROM {cache_ident}.{table};"
@@ -1610,4 +1635,37 @@ async fn search_product(
             term: params.term.unwrap_or_default()
         }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The seed-cache build depends on where the seeder's INSERTs land. They
+    /// name `"public"."<table>"` explicitly, so a `search_path` pointed at the
+    /// cache schema does not redirect them — the defect that failed every
+    /// PostgreSQL family with `relation "public.customers" does not exist`.
+    /// The cache is therefore built in `public` and moved; if the seeder ever
+    /// stops qualifying, this test says the move is no longer what the SQL
+    /// relies on.
+    #[test]
+    fn seed_inserts_target_public_tables_explicitly() {
+        let schema = Schema::new();
+        let statements = postgres_seed_statements(&schema, 42);
+        let first = statements.first().expect("seed statements").sql();
+        assert!(first.contains(r#""public"."#), "{first}");
+    }
+
+    #[test]
+    fn every_seeded_table_is_moved_into_the_cache() {
+        let sql = move_public_tables_sql(r#""bench_seed_x""#);
+        for table in SEED_TABLES {
+            assert!(
+                sql.contains(&format!(
+                    r#"ALTER TABLE public.{table} SET SCHEMA "bench_seed_x";"#
+                )),
+                "{sql}"
+            );
+        }
+    }
 }

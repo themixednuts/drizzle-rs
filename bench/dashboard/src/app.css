@@ -489,3 +489,27 @@
 		var(--caution-border) 6px
 	);
 }
+
+/*
+ * Architecture marks: where a target's query logic runs. One colour per architecture, always paired
+ * with its word (`ArchTag`, `ArchitectureLegend`); the hollow ring is the replica, which does no
+ * database work per request.
+ */
+@utility arch-dot {
+	display: inline-block;
+	flex: none;
+	border-radius: 999px;
+
+	&[data-arch='embedded'] {
+		background: var(--series-2);
+	}
+	&[data-arch='client-server'] {
+		background: var(--series-3);
+	}
+	&[data-arch='in-database'] {
+		background: var(--series-5);
+	}
+	&[data-arch='client-cache'] {
+		box-shadow: inset 0 0 0 1.5px var(--muted-foreground);
+	}
+}

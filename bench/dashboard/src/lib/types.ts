@@ -147,8 +147,11 @@ export interface HarnessFamily {
 	exempt?: string[];
 }
 
-/** How a target answers a request: a real database round trip, or an in-process cache. */
-export type DataAccess = 'sql-roundtrip' | 'in-process-cache';
+/**
+ * How a target answers a request: SQL sent to the database, a call into module code running inside
+ * the database, or an in-process cache that does no database work.
+ */
+export type DataAccess = 'sql-roundtrip' | 'in-database' | 'in-process-cache';
 
 export interface TargetMeta {
 	id: string;
