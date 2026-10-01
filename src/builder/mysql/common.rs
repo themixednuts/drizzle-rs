@@ -868,7 +868,7 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 Arg::JoinedTable,
-                <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+                <M as drizzle_core::ScopePushLeft<Arg::JoinedTable>>::Out,
                 <M as drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>>::NewRow,
                 G,
             >,
@@ -877,7 +877,7 @@ macro_rules! select_method {
         where
             Arg: drizzle_core::LateralArg<'q, MySQLValue<'q>>,
             M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
-                + drizzle_core::ScopePush<Arg::JoinedTable>
+                + drizzle_core::ScopePushLeft<Arg::JoinedTable>
                 + drizzle_core::LeftLateralSelection<SelectionProof>,
         {
             self.map(|builder| builder.left_join_lateral(arg))
@@ -921,7 +921,7 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+                <M as drizzle_core::ScopePushLeft<J::JoinedTable>>::Out,
                 <M as drizzle_core::AfterLeftJoin<R, J::JoinedTable>>::NewRow,
                 G,
             >,
@@ -930,7 +930,7 @@ macro_rules! select_method {
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
             M: drizzle_core::AfterLeftJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePush<J::JoinedTable>,
+                + drizzle_core::ScopePushLeft<J::JoinedTable>,
         {
             self.map(|builder| builder.left_join(arg))
         }
@@ -947,7 +947,7 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+                <M as drizzle_core::ScopePushLeft<J::JoinedTable>>::Out,
                 <M as drizzle_core::AfterLeftJoin<R, J::JoinedTable>>::NewRow,
                 G,
             >,
@@ -956,7 +956,7 @@ macro_rules! select_method {
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
             M: drizzle_core::AfterLeftJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePush<J::JoinedTable>,
+                + drizzle_core::ScopePushLeft<J::JoinedTable>,
         {
             self.map(|builder| builder.left_outer_join(arg))
         }
@@ -973,7 +973,7 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+                <M as drizzle_core::ScopePushRight<J::JoinedTable>>::Out,
                 <M as drizzle_core::AfterRightJoin<R, J::JoinedTable>>::NewRow,
                 G,
             >,
@@ -982,7 +982,7 @@ macro_rules! select_method {
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
             M: drizzle_core::AfterRightJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePush<J::JoinedTable>,
+                + drizzle_core::ScopePushRight<J::JoinedTable>,
         {
             self.map(|builder| builder.right_join(arg))
         }
@@ -999,7 +999,7 @@ macro_rules! select_method {
                 Schema,
                 SelectJoinSet,
                 J::JoinedTable,
-                <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+                <M as drizzle_core::ScopePushRight<J::JoinedTable>>::Out,
                 <M as drizzle_core::AfterRightJoin<R, J::JoinedTable>>::NewRow,
                 G,
             >,
@@ -1008,7 +1008,7 @@ macro_rules! select_method {
         where
             J: drizzle_mysql::helpers::JoinArg<'q, T>,
             M: drizzle_core::AfterRightJoin<R, J::JoinedTable>
-                + drizzle_core::ScopePush<J::JoinedTable>,
+                + drizzle_core::ScopePushRight<J::JoinedTable>,
         {
             self.map(|builder| builder.right_outer_join(arg))
         }

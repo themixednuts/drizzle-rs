@@ -1426,7 +1426,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = {
@@ -1491,7 +1491,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = {

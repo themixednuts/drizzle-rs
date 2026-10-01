@@ -698,7 +698,8 @@ struct UserWithPost {
     #[column(Users::id)]
     user_id: i64,
     name: String,
-    // LEFT JOIN — every Posts column must be Option<T> in case the user has no posts.
+    // LEFT JOIN — every Posts column must be Option<T> in case the user has no
+    // posts. A non-Option field here is a compile error.
     #[column(Posts::id)]
     post_id: Option<i64>,
     #[column(Posts::content)]

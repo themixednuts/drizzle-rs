@@ -281,3 +281,24 @@ fn aggregate_propagation_postgres_ui() {
     must_pass("tests/ui/aggregate_propagation_postgres/pass/*.rs");
     must_fail("tests/ui/aggregate_propagation_postgres/fail/*.rs");
 }
+
+#[cfg(all(feature = "rusqlite", not(feature = "query")))]
+#[test]
+fn query_scope_sqlite_ui() {
+    must_pass("tests/ui/query_scope_sqlite/pass/*.rs");
+    must_fail("tests/ui/query_scope_sqlite/fail/*.rs");
+}
+
+#[cfg(all(feature = "postgres-sync", not(feature = "query")))]
+#[test]
+fn query_scope_postgres_ui() {
+    must_pass("tests/ui/query_scope_postgres/pass/*.rs");
+    must_fail("tests/ui/query_scope_postgres/fail/*.rs");
+}
+
+#[cfg(all(feature = "mysql-sync", not(feature = "query")))]
+#[test]
+fn query_scope_mysql_ui() {
+    must_pass("tests/ui/query_scope_mysql/pass/*.rs");
+    must_fail("tests/ui/query_scope_mysql/fail/*.rs");
+}

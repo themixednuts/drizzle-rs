@@ -118,6 +118,53 @@ fn build_scope_list_type(table_paths: &[syn::Path]) -> TokenStream {
     )
 }
 
+/// Builds `Cons<TableFields<Table, Cons<Field, ...>>, ...>` in the same table
+/// order as [`collect_required_tables`], so strict decode can share the scope
+/// proof between the required-table check and the outer-join field check.
+fn build_table_fields_type(
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+    default_from: Option<&ExprPath>,
+) -> TokenStream {
+    let type_set_nil = core_paths::type_set_nil();
+    let type_set_cons = core_paths::type_set_cons();
+    let field_table = |field: &Field| {
+        parse_column_reference(field).map_or_else(
+            || default_from.map(|table| table.path.clone()),
+            |column_ref| extract_table_from_column_ref(&column_ref),
+        )
+    };
+
+    collect_required_tables(fields, default_from)
+        .iter()
+        .rev()
+        .fold(type_set_nil.clone(), |acc, table_path| {
+            let table_fields = fields
+                .iter()
+                .rev()
+                .filter(|field| field_table(field).is_some_and(|t| path_eq(&t, table_path)))
+                .fold(type_set_nil.clone(), |acc, field| {
+                    let ty = &field.ty;
+                    quote!(#type_set_cons<#ty, #acc>)
+                });
+            quote! {
+                #type_set_cons<drizzle::core::TableFields<#table_path, #table_fields>, #acc>
+            }
+        })
+}
+
+fn generate_table_fields_impl(
+    struct_name: &Ident,
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+    default_from: Option<&ExprPath>,
+) -> TokenStream {
+    let table_fields = build_table_fields_type(fields, default_from);
+    quote! {
+        impl drizzle::core::SelectTableFields for #struct_name {
+            type TableFields = #table_fields;
+        }
+    }
+}
+
 #[cfg(any(
     feature = "rusqlite",
     feature = "libsql",
@@ -533,10 +580,12 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
     let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
     let required_tables = collect_required_tables(fields, default_from.as_ref());
     let required_scope = build_scope_list_type(&required_tables);
+    let table_fields_impl = generate_table_fields_impl(struct_name, fields, default_from.as_ref());
     let required_tables_impl = quote! {
         impl #select_required_tables for #struct_name {
             type RequiredTables = #required_scope;
         }
+        #table_fields_impl
     };
 
     Ok(quote! {
@@ -689,10 +738,12 @@ pub fn generate_postgres_from_row_impl(input: &DeriveInput) -> Result<TokenStrea
     let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
     let required_tables = collect_required_tables(fields, default_from.as_ref());
     let required_scope = build_scope_list_type(&required_tables);
+    let table_fields_impl = generate_table_fields_impl(struct_name, fields, default_from.as_ref());
     let required_tables_impl = quote! {
         impl #select_required_tables for #struct_name {
             type RequiredTables = #required_scope;
         }
+        #table_fields_impl
     };
 
     Ok(quote! {
@@ -732,6 +783,7 @@ pub fn generate_mysql_from_row_impl(input: &DeriveInput) -> Result<TokenStream> 
     let select_required_tables = quote!(drizzle::core::SelectRequiredTables);
     let required_scope =
         build_scope_list_type(&collect_required_tables(fields, default_from.as_ref()));
+    let table_fields_impl = generate_table_fields_impl(struct_name, fields, default_from.as_ref());
     let into_select_target = core_paths::into_select_target();
     let select_as = quote!(drizzle::core::SelectAs);
     let drizzle_error = core_paths::drizzle_error();
@@ -801,6 +853,7 @@ pub fn generate_mysql_from_row_impl(input: &DeriveInput) -> Result<TokenStream> 
         impl #select_required_tables for #struct_name {
             type RequiredTables = #required_scope;
         }
+        #table_fields_impl
         impl #into_select_target for #struct_name {
             type Marker = #select_as<#struct_name>;
         }

@@ -36,22 +36,22 @@ impl SelectWhereAllowed for SelectJoinSet {}
 #[doc(hidden)]
 macro_rules! join_impl {
     () => {
-        join_impl!(@natural natural, Join::new().natural(), drizzle_core::AfterJoin);
-        join_impl!(@natural natural_left, Join::new().natural().left(), drizzle_core::AfterLeftJoin);
-        join_impl!(left, Join::new().left(), drizzle_core::AfterLeftJoin);
-        join_impl!(left_outer, Join::new().left().outer(), drizzle_core::AfterLeftJoin);
-        join_impl!(@natural natural_left_outer, Join::new().natural().left().outer(), drizzle_core::AfterLeftJoin);
-        join_impl!(@natural natural_right, Join::new().natural().right(), drizzle_core::AfterRightJoin);
-        join_impl!(right, Join::new().right(), drizzle_core::AfterRightJoin);
-        join_impl!(right_outer, Join::new().right().outer(), drizzle_core::AfterRightJoin);
-        join_impl!(@natural natural_right_outer, Join::new().natural().right().outer(), drizzle_core::AfterRightJoin);
-        join_impl!(@natural natural_full, Join::new().natural().full(), drizzle_core::AfterFullJoin);
-        join_impl!(full, Join::new().full(), drizzle_core::AfterFullJoin);
-        join_impl!(full_outer, Join::new().full().outer(), drizzle_core::AfterFullJoin);
-        join_impl!(@natural natural_full_outer, Join::new().natural().full().outer(), drizzle_core::AfterFullJoin);
-        join_impl!(inner, Join::new().inner(), drizzle_core::AfterJoin);
+        join_impl!(@natural natural, Join::new().natural(), drizzle_core::AfterJoin, drizzle_core::ScopePush);
+        join_impl!(@natural natural_left, Join::new().natural().left(), drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
+        join_impl!(left, Join::new().left(), drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
+        join_impl!(left_outer, Join::new().left().outer(), drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
+        join_impl!(@natural natural_left_outer, Join::new().natural().left().outer(), drizzle_core::AfterLeftJoin, drizzle_core::ScopePushLeft);
+        join_impl!(@natural natural_right, Join::new().natural().right(), drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
+        join_impl!(right, Join::new().right(), drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
+        join_impl!(right_outer, Join::new().right().outer(), drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
+        join_impl!(@natural natural_right_outer, Join::new().natural().right().outer(), drizzle_core::AfterRightJoin, drizzle_core::ScopePushRight);
+        join_impl!(@natural natural_full, Join::new().natural().full(), drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
+        join_impl!(full, Join::new().full(), drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
+        join_impl!(full_outer, Join::new().full().outer(), drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
+        join_impl!(@natural natural_full_outer, Join::new().natural().full().outer(), drizzle_core::AfterFullJoin, drizzle_core::ScopePushFull);
+        join_impl!(inner, Join::new().inner(), drizzle_core::AfterJoin, drizzle_core::ScopePush);
     };
-    (@natural $type:ident, $join_expr:expr, $join_trait:path) => {
+    (@natural $type:ident, $join_expr:expr, $join_trait:path, $scope_trait:path) => {
         paste! {
             /// Adds a NATURAL join. The database matches the columns both
             /// sides share by name, so it takes a source and no ON condition.
@@ -59,9 +59,9 @@ macro_rules! join_impl {
             pub fn [<$type _join>]<J: helpers::JoinSource<'a>>(
                 self,
                 source: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as $scope_trait<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>
             where
-                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+                M: $join_trait<R, J::JoinedTable> + $scope_trait<J::JoinedTable>,
             {
                 use drizzle_core::{Join, ToSQL};
                 SelectBuilder {
@@ -80,15 +80,15 @@ macro_rules! join_impl {
             }
         }
     };
-    ($type:ident, $join_expr:expr, $join_trait:path) => {
+    ($type:ident, $join_expr:expr, $join_trait:path, $scope_trait:path) => {
         paste! {
             #[allow(clippy::type_complexity)]
             pub fn [<$type _join>]<J: JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as $scope_trait<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>
             where
-                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+                M: $join_trait<R, J::JoinedTable> + $scope_trait<J::JoinedTable>,
             {
                 use drizzle_core::Join;
                 SelectBuilder {

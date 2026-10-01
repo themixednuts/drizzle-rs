@@ -111,14 +111,17 @@ pub use relation::{AssembleRel, CardWrap, Many, One, OptionalOne, RelationDef};
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
     AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
-    FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
+    FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget, JoinedStarRow,
     LeftLateralSelection, MarkerAggValidFor, MarkerColumnCountValid, MarkerScopeValidFor,
-    NullProbeRow, PkGroup, ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs,
-    SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables, SelectStar, SelectedExpressionList,
-    WrapNullable,
+    NullProbeRow, OuterJoined, PkGroup, ResolveRow, RowColumnList, SQLTypeToRust, ScopePush,
+    ScopePushFull, ScopePushLeft, ScopePushRight, Scoped, SelectAs, SelectAsFrom, SelectCols,
+    SelectExpr, SelectRequiredTables, SelectStar, SelectedExpressionList, WrapNullable,
 };
 #[doc(hidden)]
-pub use row::{ColumnScope, OpaqueScope, ProjectionInScope, ScopeContains};
+pub use row::{
+    ColumnScope, JoinNullable, OpaqueScope, ProjectionInScope, ScopeContains,
+    SelectProjectionInScope, SelectTableFields, TableFields,
+};
 pub use schema::{OrderBy, asc, desc};
 pub use sql::{
     ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,

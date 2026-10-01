@@ -242,7 +242,7 @@ where
 }
 
 macro_rules! join_on_method {
-    ($name:ident, $join:expr, $row_trait:ident) => {
+    ($name:ident, $join:expr, $row_trait:ident, $scope_trait:ident) => {
         #[doc = concat!("Adds a typed `", stringify!($name), "` join.")]
         #[allow(clippy::type_complexity)]
         pub fn $name<J: helpers::JoinArg<'a, T>>(
@@ -253,13 +253,13 @@ macro_rules! join_on_method {
             S,
             SelectJoinSet,
             J::JoinedTable,
-            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
+            <M as drizzle_core::$scope_trait<J::JoinedTable>>::Out,
             <M as drizzle_core::$row_trait<R, J::JoinedTable>>::NewRow,
             G,
         >
         where
             M: drizzle_core::$row_trait<R, J::JoinedTable>
-                + drizzle_core::ScopePush<J::JoinedTable>,
+                + drizzle_core::$scope_trait<J::JoinedTable>,
         {
             SelectBuilder::from_sql(self.sql.append(arg.into_join_sql($join)))
         }
@@ -270,23 +270,36 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::JoinAllowed,
 {
-    join_on_method!(join, drizzle_core::Join::new(), AfterJoin);
-    join_on_method!(inner_join, drizzle_core::Join::new().inner(), AfterJoin);
-    join_on_method!(left_join, drizzle_core::Join::new().left(), AfterLeftJoin);
+    join_on_method!(join, drizzle_core::Join::new(), AfterJoin, ScopePush);
+    join_on_method!(
+        inner_join,
+        drizzle_core::Join::new().inner(),
+        AfterJoin,
+        ScopePush
+    );
+    join_on_method!(
+        left_join,
+        drizzle_core::Join::new().left(),
+        AfterLeftJoin,
+        ScopePushLeft
+    );
     join_on_method!(
         left_outer_join,
         drizzle_core::Join::new().left().outer(),
-        AfterLeftJoin
+        AfterLeftJoin,
+        ScopePushLeft
     );
     join_on_method!(
         right_join,
         drizzle_core::Join::new().right(),
-        AfterRightJoin
+        AfterRightJoin,
+        ScopePushRight
     );
     join_on_method!(
         right_outer_join,
         drizzle_core::Join::new().right().outer(),
-        AfterRightJoin
+        AfterRightJoin,
+        ScopePushRight
     );
 
     /// Adds a cross join.
@@ -346,14 +359,14 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
+        <M as drizzle_core::ScopePushLeft<Arg::JoinedTable>>::Out,
         <M as drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>>::NewRow,
         G,
     >
     where
         Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
         M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
-            + drizzle_core::ScopePush<Arg::JoinedTable>
+            + drizzle_core::ScopePushLeft<Arg::JoinedTable>
             + drizzle_core::LeftLateralSelection<SelectionProof>,
     {
         SelectBuilder::from_sql(

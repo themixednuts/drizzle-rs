@@ -83,6 +83,63 @@ impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for C
 {
 }
 
+/// Scope entry for a source on the nullable side of an outer join.
+///
+/// `LEFT JOIN` wraps the joined source, `RIGHT JOIN` wraps every source
+/// already in scope, and `FULL JOIN` wraps both. Membership checks see
+/// through the wrapper, so the source stays in scope; decode checks read it
+/// to require `Option` for columns that can come back NULL.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OuterJoined<Table>(PhantomData<Table>);
+
+/// Type-level witness that a table is the head of a scope list on the
+/// nullable side of an outer join.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScopeOuter<Witness>(PhantomData<Witness>);
+
+// Only the head entry is unwrapped (`Cons<Inner, Nil>`), so every table keeps
+// exactly one witness and inference never sees two paths to the same entry.
+impl<Table, Inner, Tail, Witness> ScopeContains<Table, ScopeOuter<Witness>>
+    for Cons<OuterJoined<Inner>, Tail>
+where
+    Cons<Inner, Nil>: ScopeContains<Table, Witness>,
+{
+}
+
+/// Reads whether a scope witness passed through an outer-join entry.
+#[doc(hidden)]
+pub trait ScopeWitnessNullability {
+    /// [`Null`](crate::expr::Null) when the found source can be absent from a
+    /// result row, [`NonNull`](crate::expr::NonNull) otherwise.
+    type Nullable: crate::expr::Nullability;
+}
+
+impl ScopeWitnessNullability for ScopeHere {
+    type Nullable = crate::expr::NonNull;
+}
+
+impl<Witness: ScopeWitnessNullability> ScopeWitnessNullability for ScopeThere<Witness> {
+    type Nullable = Witness::Nullable;
+}
+
+impl<Witness> ScopeWitnessNullability for ScopeOuter<Witness> {
+    type Nullable = crate::expr::Null;
+}
+
+/// Wraps every entry of a scope list in [`OuterJoined`].
+#[doc(hidden)]
+pub trait OuterJoinScope {
+    type Out;
+}
+
+impl OuterJoinScope for Nil {
+    type Out = Self;
+}
+
+impl<Head, Tail: OuterJoinScope> OuterJoinScope for Cons<Head, Tail> {
+    type Out = Cons<OuterJoined<Head>, Tail::Out>;
+}
+
 /// Required-table list satisfaction.
 pub trait ScopeSatisfies<Required, Proof> {}
 
@@ -168,10 +225,249 @@ where
 /// ```
 pub trait MarkerScopeValidFor<Proof> {}
 
-impl<M, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<M, Scope>
+impl<Scope> MarkerScopeValidFor<()> for Scoped<SelectStar, Scope> {}
+
+impl<Scope> MarkerScopeValidFor<()> for Scoped<SelectExpr, Scope> {}
+
+impl<R, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectAs<R>, Scope>
 where
-    M: MarkerRequiredTables,
-    Scope: ScopeSatisfies<M::RequiredTables, Proof>,
+    R: SelectRequiredTables,
+    Scope: ScopeSatisfies<R::RequiredTables, Proof>,
+{
+}
+
+/// Explicit columns must come from a source in the FROM/JOIN scope.
+impl<Cols, Scope, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectCols<Cols>, Scope>
+where
+    Cols: SelectedExpressionList,
+    Cols::Expressions: SelectProjectionsInScope<Scope, Proof>,
+{
+}
+
+/// Validates one expression of a SELECT list against the query scope and
+/// yields the column type the decode check compares against.
+///
+/// Columns must belong to a source in scope. A column read from the nullable
+/// side of an outer join yields [`JoinNullable`] so the decode target has to
+/// use `Option`. Other typed expressions are opaque: their sources are not
+/// tracked, so they pass and keep their declared value type.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is selected from a table that is not in the query's FROM/JOIN scope",
+    label = "this column's table is missing from .from(...) / .join(...)",
+    note = "add the table with .from(...) or a .join(...) before selecting its columns"
+)]
+pub trait SelectProjectionInScope<Scope, Proof> {
+    /// Column-list entry used by the strict decode check.
+    type Value;
+}
+
+/// Marks a decoded column that an outer join can turn NULL.
+///
+/// `JoinNullable<T>` only matches `Option<T>` in a decode target (and
+/// `JoinNullable<Option<T>>` matches `Option<T>`), never a bare `T`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct JoinNullable<T>(PhantomData<T>);
+
+/// Applies outer-join nullability to a decoded value type.
+#[doc(hidden)]
+pub trait WidenJoinValue<T> {
+    type Out;
+}
+
+impl<T> WidenJoinValue<T> for crate::expr::NonNull {
+    type Out = T;
+}
+
+impl<T> WidenJoinValue<T> for crate::expr::Null {
+    type Out = JoinNullable<T>;
+}
+
+impl<E, Scope, Table, Witness> SelectProjectionInScope<Scope, ColumnScope<Table, Witness>> for E
+where
+    E: ProjectionInScope<Scope, ColumnScope<Table, Witness>> + ExprValueType,
+    Witness: ScopeWitnessNullability,
+    Witness::Nullable: WidenJoinValue<E::ValueType>,
+{
+    type Value = <Witness::Nullable as WidenJoinValue<E::ValueType>>::Out;
+}
+
+impl<V, T, N, A, Scope> SelectProjectionInScope<Scope, OpaqueScope>
+    for crate::expr::SQLExpr<'_, V, T, N, A>
+where
+    V: crate::SQLParam,
+    T: crate::types::DataType,
+    N: crate::expr::Nullability,
+    A: crate::expr::AggregateKind,
+    Self: ExprValueType,
+{
+    type Value = <Self as ExprValueType>::ValueType;
+}
+
+impl<V: crate::SQLParam, Scope> SelectProjectionInScope<Scope, OpaqueScope>
+    for crate::sql::SQL<'_, V>
+{
+    type Value = ();
+}
+
+impl<T, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>> for &T
+where
+    T: SelectProjectionInScope<Scope, Proof> + ?Sized,
+{
+    type Value = T::Value;
+}
+
+impl<E, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>>
+    for crate::expr::AliasedExpr<E>
+where
+    E: SelectProjectionInScope<Scope, Proof>,
+{
+    type Value = E::Value;
+}
+
+impl<E, Name, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>>
+    for crate::expr::NamedExpr<E, Name>
+where
+    E: SelectProjectionInScope<Scope, Proof>,
+{
+    type Value = E::Value;
+}
+
+// Arithmetic on columns: both operands must be in scope. The result keeps
+// its declared value type; outer-join nullability is not propagated through
+// operators.
+impl<Lhs, Rhs, Op, D, T, N, Scope, LeftProof, RightProof>
+    SelectProjectionInScope<Scope, BinaryScope<LeftProof, RightProof>>
+    for crate::expr::ColumnBinOp<Lhs, Rhs, Op, D, T, N>
+where
+    Lhs: SelectProjectionInScope<Scope, LeftProof>,
+    Rhs: SelectProjectionInScope<Scope, RightProof>,
+    Self: ExprValueType,
+{
+    type Value = <Self as ExprValueType>::ValueType;
+}
+
+impl<T, D, SQLType, Nullable, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>>
+    for crate::expr::ColumnNeg<T, D, SQLType, Nullable>
+where
+    T: SelectProjectionInScope<Scope, Proof>,
+    Self: ExprValueType,
+{
+    type Value = <Self as ExprValueType>::ValueType;
+}
+
+macro_rules! impl_select_projection_opaque {
+    ($($ty:ty),+ $(,)?) => {
+        // Literals only appear as operands (`users.age + 1`); they are never
+        // a decoded column, so their value entry is a placeholder.
+        $(impl<Scope> SelectProjectionInScope<Scope, OpaqueScope> for $ty {
+            type Value = ();
+        })+
+    };
+}
+
+impl_select_projection_opaque!(
+    bool,
+    i8,
+    i16,
+    i32,
+    i64,
+    i128,
+    isize,
+    u8,
+    u16,
+    u32,
+    u64,
+    u128,
+    usize,
+    f32,
+    f64,
+    String,
+    &str,
+    Vec<u8>,
+    &[u8]
+);
+
+impl<T, Scope, Proof> SelectProjectionInScope<Scope, WrappedScope<Proof>> for Option<T>
+where
+    T: SelectProjectionInScope<Scope, Proof>,
+{
+    type Value = Option<T::Value>;
+}
+
+/// Validates every expression of an explicit SELECT list against its scope.
+#[doc(hidden)]
+pub trait SelectProjectionsInScope<Scope, Proof> {
+    /// Decode-check column list, with outer-join nullability applied.
+    type Columns: crate::TypeSet;
+}
+
+impl<Scope> SelectProjectionsInScope<Scope, ()> for Nil {
+    type Columns = Self;
+}
+
+impl<Head, Tail, Scope, HeadProof, TailProof>
+    SelectProjectionsInScope<Scope, (HeadProof, TailProof)> for Cons<Head, Tail>
+where
+    Head: SelectProjectionInScope<Scope, HeadProof>,
+    Tail: SelectProjectionsInScope<Scope, TailProof>,
+{
+    type Columns = Cons<Head::Value, Tail::Columns>;
+}
+
+/// Per-table field types of a `FromRow` selector, in the same order as its
+/// [`SelectRequiredTables::RequiredTables`].
+///
+/// Generated by `#[derive(SQLiteFromRow)]`, `#[derive(PostgresFromRow)]` and
+/// `#[derive(MySQLFromRow)]`. Strict decode uses it to require `Option` on
+/// every field read from the nullable side of an outer join.
+#[doc(hidden)]
+pub trait SelectTableFields {
+    /// `Cons<TableFields<Table, Cons<Field, ...>>, ...>`.
+    type TableFields;
+}
+
+/// Field types a `FromRow` selector reads from `Table`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TableFields<Table, Fields>(PhantomData<(Table, Fields)>);
+
+/// Accepts a field list for a source with the given nullability.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "a field read from the nullable side of an outer join must be an `Option`",
+    label = "LEFT/RIGHT/FULL JOIN can return NULL for every column of this table",
+    note = "change the field type to `Option<_>`, or use an inner join"
+)]
+pub trait FieldsAcceptNullability<Nullable> {}
+
+impl<Fields> FieldsAcceptNullability<crate::expr::NonNull> for Fields {}
+
+impl FieldsAcceptNullability<crate::expr::Null> for Nil {}
+
+impl<T, Tail> FieldsAcceptNullability<crate::expr::Null> for Cons<Option<T>, Tail> where
+    Tail: FieldsAcceptNullability<crate::expr::Null>
+{
+}
+
+/// Checks a [`SelectTableFields`] list against the query scope.
+///
+/// The proof has the same shape as [`ScopeSatisfies`] over the selector's
+/// required tables, so it is shared with [`MarkerScopeValidFor`].
+#[doc(hidden)]
+pub trait TableFieldsNullabilityValid<Scope, Proof> {}
+
+impl<Scope> TableFieldsNullabilityValid<Scope, ()> for Nil {}
+
+impl<Table, Fields, Tail, Scope, HeadProof, TailProof>
+    TableFieldsNullabilityValid<Scope, (HeadProof, TailProof)>
+    for Cons<TableFields<Table, Fields>, Tail>
+where
+    Scope: ScopeContains<Table, HeadProof>,
+    HeadProof: ScopeWitnessNullability,
+    Fields: FieldsAcceptNullability<HeadProof::Nullable>,
+    Tail: TableFieldsNullabilityValid<Scope, TailProof>,
 {
 }
 
@@ -644,9 +940,20 @@ pub trait SelectedExpressionList {
 trait SameType<T> {}
 impl<T> SameType<T> for T {}
 
+#[diagnostic::on_unimplemented(
+    message = "selected column decodes as `{Expected}`, but the decode target uses `{Actual}`",
+    label = "the decode target does not match the selected columns",
+    note = "`JoinNullable<T>` marks a column from the nullable side of a LEFT/RIGHT/FULL JOIN: \
+            decode it as `Option<T>`"
+)]
 trait ColumnTypeCompatible<Row: ?Sized, Expected, Actual> {}
 
 impl<Row: ?Sized, T> ColumnTypeCompatible<Row, T, T> for () {}
+
+// A column from the nullable side of an outer join decodes only into `Option`.
+impl<Row: ?Sized, T> ColumnTypeCompatible<Row, JoinNullable<T>, Option<T>> for () {}
+
+impl<Row: ?Sized, T> ColumnTypeCompatible<Row, JoinNullable<Option<T>>, Option<T>> for () {}
 
 trait TypeListCompatible<Row: ?Sized, ActualList> {}
 
@@ -685,6 +992,28 @@ macro_rules! impl_sqlite_integer_decode_compat {
 
 impl_sqlite_integer_decode_compat!(
     i64 => i8, i16, i32, isize, u8, u16, u32, u64, usize, bool
+);
+
+macro_rules! impl_sqlite_join_nullable_integer_decode_compat {
+    ($($actual:ty),+ $(,)?) => {
+        $(
+            impl<Row> ColumnTypeCompatible<Row, JoinNullable<i64>, Option<$actual>> for ()
+            where
+                Row: SqliteDecodeRow,
+            {
+            }
+
+            impl<Row> ColumnTypeCompatible<Row, JoinNullable<Option<i64>>, Option<$actual>> for ()
+            where
+                Row: SqliteDecodeRow,
+            {
+            }
+        )+
+    };
+}
+
+impl_sqlite_join_nullable_integer_decode_compat!(
+    i8, i16, i32, isize, u8, u16, u32, u64, usize, bool
 );
 
 impl_sqlite_integer_decode_compat!(
@@ -960,7 +1289,11 @@ with_type_sizes_32!(impl_rcl_tuple);
     label = "this decode target is not type-compatible with .select(...) output",
     note = "use typed expressions or derive FromRow for explicit remapping when selecting custom expressions"
 )]
-pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual> {}
+///
+/// `Proof` is the same witness the terminal method infers for
+/// [`MarkerScopeValidFor`], so outer-join nullability found while checking
+/// scope also decides which decoded columns must be `Option`.
+pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual, Proof = ()> {}
 
 /// Marker-level guard for strict decode entry points.
 ///
@@ -979,10 +1312,13 @@ impl<Cols> StrictDecodeMarker for SelectCols<Cols> {}
 impl<R> StrictDecodeMarker for SelectAs<R> {}
 impl<M, Scope> StrictDecodeMarker for Scoped<M, Scope> where M: StrictDecodeMarker {}
 
-impl<Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual> for SelectStar {}
+impl<Row: ?Sized, Inferred, Actual, Proof> MarkerColumnCountValid<Row, Inferred, Actual, Proof>
+    for SelectStar
+{
+}
 
-impl<Row: ?Sized, Cols, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
-    for SelectCols<Cols>
+impl<Row: ?Sized, Cols, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for SelectCols<Cols>
 where
     Cols: SelectedColumnList,
     Actual: RowColumnList<Row>,
@@ -991,21 +1327,127 @@ where
 {
 }
 
-impl<Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual> for SelectExpr where
-    Inferred: SameType<Actual>
+impl<Row: ?Sized, Inferred, Actual, Proof> MarkerColumnCountValid<Row, Inferred, Actual, Proof>
+    for SelectExpr
+where
+    Inferred: SameType<Actual>,
 {
 }
 
-impl<Row: ?Sized, R, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
+impl<Row: ?Sized, R, Inferred, Actual, Proof> MarkerColumnCountValid<Row, Inferred, Actual, Proof>
     for SelectAs<R>
 {
 }
 
-impl<M, Scope, Row: ?Sized, Inferred, Actual> MarkerColumnCountValid<Row, Inferred, Actual>
-    for Scoped<M, Scope>
-where
-    M: MarkerColumnCountValid<Row, Inferred, Actual>,
+/// Single-source `SELECT *`: the table model may be decoded into any row type.
+impl<Row: ?Sized, Table, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectStar, Cons<Table, Nil>>
 {
+}
+
+impl<Row: ?Sized, Inferred, Actual, Proof> MarkerColumnCountValid<Row, Inferred, Actual, Proof>
+    for Scoped<SelectStar, Nil>
+{
+}
+
+/// Joined `SELECT *`: the decode target must keep the inferred row shape, with
+/// `Option` on every source that an outer join can leave NULL.
+impl<Row: ?Sized, First, Second, Rest, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof>
+    for Scoped<SelectStar, Cons<First, Cons<Second, Rest>>>
+where
+    Inferred: JoinedStarRow<Actual>,
+{
+}
+
+impl<Row: ?Sized, Cols, Scope, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectCols<Cols>, Scope>
+where
+    Cols: SelectedExpressionList,
+    Cols::Expressions: SelectProjectionsInScope<Scope, Proof>,
+    Actual: RowColumnList<Row>,
+    <Cols::Expressions as SelectProjectionsInScope<Scope, Proof>>::Columns:
+        TypeListCompatible<Row, <Actual as RowColumnList<Row>>::Columns>,
+{
+}
+
+impl<Row: ?Sized, Scope, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectExpr, Scope>
+where
+    Inferred: SameType<Actual>,
+{
+}
+
+impl<Row: ?Sized, R, Scope, Inferred, Actual, Proof>
+    MarkerColumnCountValid<Row, Inferred, Actual, Proof> for Scoped<SelectAs<R>, Scope>
+where
+    R: SelectTableFields,
+    R::TableFields: TableFieldsNullabilityValid<Scope, Proof>,
+{
+}
+
+/// Decode target for a joined `SELECT *` row.
+///
+/// Joins nest the inferred row as `(previous, joined)`. Each half must be
+/// decoded as its inferred type; a half may additionally be widened to
+/// `Option`, but a half the join already made `Option` cannot be narrowed.
+#[diagnostic::on_unimplemented(
+    message = "joined `SELECT *` rows decode as `{Self}`, not `{Actual}`",
+    label = "the decode target does not match the joined row type",
+    note = "LEFT/RIGHT/FULL JOIN sources can be NULL: decode them as `Option<_>`, \
+            e.g. `(SelectUsers, Option<SelectPosts>)` after `.left_join(posts)`"
+)]
+pub trait JoinedStarRow<Actual> {}
+
+impl<A, B, ActualA, ActualB> JoinedStarRow<(ActualA, ActualB)> for (A, B)
+where
+    A: JoinedStarPart<ActualA>,
+    B: JoinedStarPart<ActualB>,
+{
+}
+
+/// One half of a joined `SELECT *` row: exact, or widened to `Option`.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "this half of the joined `SELECT *` row decodes as `{Self}`, not `{Actual}`",
+    label = "the decode target does not match the joined row type",
+    note = "LEFT/RIGHT/FULL JOIN sources can be NULL: decode them as `Option<_>`"
+)]
+pub trait JoinedStarPart<Actual> {}
+
+impl<T> JoinedStarPart<T> for T {}
+
+impl<T> JoinedStarPart<Option<T>> for T {}
+
+/// Pushes an outer-joined table into the marker scope.
+///
+/// Implemented once per join kind: [`ScopePushLeft`] marks the joined source
+/// nullable, [`ScopePushRight`] marks every source already in scope nullable,
+/// and [`ScopePushFull`] does both.
+pub trait ScopePushLeft<Joined> {
+    type Out;
+}
+
+impl<M, Scope, Joined> ScopePushLeft<Joined> for Scoped<M, Scope> {
+    type Out = Scoped<M, Cons<OuterJoined<Joined>, Scope>>;
+}
+
+/// See [`ScopePushLeft`].
+pub trait ScopePushRight<Joined> {
+    type Out;
+}
+
+impl<M, Scope: OuterJoinScope, Joined> ScopePushRight<Joined> for Scoped<M, Scope> {
+    type Out = Scoped<M, Cons<Joined, Scope::Out>>;
+}
+
+/// See [`ScopePushLeft`].
+pub trait ScopePushFull<Joined> {
+    type Out;
+}
+
+impl<M, Scope: OuterJoinScope, Joined> ScopePushFull<Joined> for Scoped<M, Scope> {
+    type Out = Scoped<M, Cons<OuterJoined<Joined>, Scope::Out>>;
 }
 
 /// Pushes a joined table into the marker scope.

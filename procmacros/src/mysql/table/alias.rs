@@ -145,6 +145,13 @@ pub fn generate_aliased_table(ctx: &MacroContext) -> TokenStream {
             impl drizzle::core::ExprValueType for #aliased_field_type {
                 type ValueType = <#original_field_type as drizzle::core::ExprValueType>::ValueType;
             }
+            // Aliased columns carry no source table, so scope checks treat them
+            // as opaque expressions.
+            impl<Scope> drizzle::core::SelectProjectionInScope<Scope, drizzle::core::OpaqueScope>
+                for #aliased_field_type
+            {
+                type Value = <#original_field_type as drizzle::core::ExprValueType>::ValueType;
+            }
             impl drizzle::core::IntoSelectTarget for #aliased_field_type {
                 type Marker = drizzle::core::SelectCols<(#aliased_field_type,)>;
             }

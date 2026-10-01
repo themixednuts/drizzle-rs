@@ -59,7 +59,7 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
-            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
         initialize_session(connection)?;
@@ -84,7 +84,7 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
-            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
         initialize_session(connection)?;
@@ -125,7 +125,7 @@ impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Gro
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
-            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
         self.borrowed().all(connection, params)
@@ -145,7 +145,7 @@ impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Gro
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
-            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
         self.borrowed().get(connection, params)

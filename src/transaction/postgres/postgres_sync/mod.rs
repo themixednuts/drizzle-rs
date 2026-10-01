@@ -642,7 +642,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]
@@ -709,7 +709,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]

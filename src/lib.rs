@@ -135,8 +135,9 @@ pub mod core {
 
     #[doc(hidden)]
     pub use drizzle_core::{
-        ColumnScope, InsertColumn, InsertSelectAllColumns, InsertSelectTable, OpaqueScope,
-        ProjectionInScope, ScopeContains,
+        ColumnScope, InsertColumn, InsertSelectAllColumns, InsertSelectTable, JoinNullable,
+        OpaqueScope, ProjectionInScope, ScopeContains, SelectProjectionInScope, SelectTableFields,
+        TableFields,
     };
 
     /// Bind parameter type mapping trait.
@@ -185,9 +186,10 @@ pub mod core {
     pub use drizzle_core::row::{
         AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
         FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-        LeftLateralSelection, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup,
-        ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom,
-        SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+        JoinedStarRow, LeftLateralSelection, MarkerColumnCountValid, MarkerScopeValidFor,
+        NullProbeRow, OuterJoined, PkGroup, ResolveRow, RowColumnList, SQLTypeToRust, ScopePush,
+        ScopePushFull, ScopePushLeft, ScopePushRight, Scoped, SelectAs, SelectAsFrom, SelectCols,
+        SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
     };
 }
 

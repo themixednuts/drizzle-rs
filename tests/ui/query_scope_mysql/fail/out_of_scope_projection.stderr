@@ -1,0 +1,38 @@
+warning: unused import: `drizzle::core::expr::eq`
+ --> tests/ui/query_scope_mysql/fail/out_of_scope_projection.rs:1:5
+  |
+1 | use drizzle::core::expr::eq;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0277]: the trait bound `posts::Title: drizzle::core::ProjectionInScope<Cons<Users, Nil>, drizzle::core::ColumnScope<_, _>>` is not satisfied
+  --> tests/ui/query_scope_mysql/fail/out_of_scope_projection.rs:35:58
+   |
+35 |         db.select((users.name, posts.title)).from(users).all();
+   |                                                          ^^^ unsatisfied trait bound
+   |
+help: the trait `drizzle::core::ProjectionInScope<Cons<Users, Nil>, drizzle::core::ColumnScope<_, _>>` is not implemented for `posts::Title`
+  --> tests/ui/query_scope_mysql/fail/out_of_scope_projection.rs:15:1
+   |
+15 | #[MySQLTable]
+   | ^^^^^^^^^^^^^
+help: `posts::Title` implements trait `drizzle::core::ProjectionInScope<Scope, Proof>`
+  --> tests/ui/query_scope_mysql/fail/out_of_scope_projection.rs:15:1
+   |
+15 | #[MySQLTable]
+   | ^^^^^^^^^^^^^
+   | |
+   | `drizzle::core::ProjectionInScope<Scope, drizzle::core::ColumnScope<&Posts, Witness>>`
+   | `drizzle::core::ProjectionInScope<Scope, drizzle::core::ColumnScope<Posts, Witness>>`
+   = note: required for `posts::Title` to implement `drizzle::core::SelectProjectionInScope<Cons<Users, Nil>, drizzle::core::ColumnScope<_, _>>`
+   = note: required for `Scoped<SelectCols<(Name, posts::Title)>, Cons<Users, Nil>>` to implement `for<'row> MarkerColumnCountValid<MySQLRow<'row, Row>, (std::string::String, std::string::String), _, (drizzle::core::ColumnScope<Users, drizzle_core::row::ScopeHere>, (drizzle::core::ColumnScope<_, _>, ()))>`
+note: required by a bound in `drizzle::builder::mysql::mysql_sync::<impl drizzle::builder::mysql::common::DrizzleBuilder<'db, &'db mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/mysql/mysql_sync/mod.rs
+   |
+   |     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + MarkerColumnCountValid<MySQLRow<'row, Row>, Rw, R, ScopeProof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::mysql::mysql_sync::<impl DrizzleBuilder<'db, &mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+   = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)

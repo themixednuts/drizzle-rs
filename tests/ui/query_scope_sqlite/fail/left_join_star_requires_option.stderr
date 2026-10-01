@@ -1,0 +1,25 @@
+error[E0277]: this half of the joined `SELECT *` row decodes as `std::option::Option<SelectPosts>`, not `SelectPosts`
+  --> tests/ui/query_scope_sqlite/fail/left_join_star_requires_option.rs:35:52
+   |
+35 |         db.select(()).from(users).left_join(posts).all();
+   |                                                    ^^^ the decode target does not match the joined row type
+   |
+   = help: the trait `drizzle_core::row::JoinedStarPart<SelectPosts>` is not implemented for `std::option::Option<SelectPosts>`
+   = note: LEFT/RIGHT/FULL JOIN sources can be NULL: decode them as `Option<_>`
+   = help: the following other types implement trait `MarkerColumnCountValid<Row, Inferred, Actual, Proof>`:
+             Scoped<SelectAs<R>, Scope>
+             Scoped<SelectCols<Cols>, Scope>
+             Scoped<SelectExpr, Scope>
+             Scoped<SelectStar, Cons<First, Cons<Second, Rest>>>
+             Scoped<SelectStar, Cons<Table, Nil>>
+             Scoped<SelectStar, Nil>
+   = note: required for `(SelectUsers, std::option::Option<SelectPosts>)` to implement `JoinedStarRow<(SelectUsers, SelectPosts)>`
+   = note: required for `Scoped<SelectStar, Cons<OuterJoined<Posts>, Cons<Users, Nil>>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (SelectUsers, std::option::Option<SelectPosts>), (SelectUsers, SelectPosts)>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/sqlite/rusqlite/mod.rs
+   |
+   |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

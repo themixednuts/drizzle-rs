@@ -543,7 +543,7 @@ where
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
-            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
         self.runner
@@ -577,7 +577,7 @@ where
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
-            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R>,
+            + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
         self.runner
