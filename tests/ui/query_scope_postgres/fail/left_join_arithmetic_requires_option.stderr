@@ -1,0 +1,43 @@
+error[E0277]: selected column decodes as `drizzle::core::MaybeNull<i32>`, but the decode target uses `i32`
+  --> tests/ui/query_scope_postgres/fail/left_join_arithmetic_requires_option.rs:36:10
+   |
+36 |         .all();
+   |          ^^^ the decode target does not match the selected columns
+   |
+   = help: the trait `drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::MaybeNull<i32>, i32>` is not implemented for `()`
+   = note: a selected `MaybeNull<T>` can be NULL (an outer join or a nullable operand) and must be decoded as `Option<T>`
+   = help: `()` implements trait `drizzle_core::row::ColumnTypeCompatible<Row, Expected, Actual>`:
+             drizzle_core::row::ColumnTypeCompatible<Row, T, T>
+             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::MaybeNull<Expected>, std::option::Option<Actual>>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, bool>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, isize>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u64>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, usize>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<bool>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<isize>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u64>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<usize>>
+   = note: required for `Cons<drizzle::core::MaybeNull<i32>, Nil>` to implement `drizzle_core::row::TypeListCompatible<Row, Cons<i32, Nil>>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Cons<i32, Cons<drizzle::core::MaybeNull<i32>, Nil>>` to implement `drizzle_core::row::TypeListCompatible<Row, Cons<i32, Cons<i32, Nil>>>`
+   = note: required for `Scoped<SelectCols<(users::Id, ColumnBinOp<posts::Id, i32, drizzle::core::types::AddOp, PostgresDialect, Int4, drizzle::core::expr::NonNull>)>, Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (((), ()), At<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, ((drizzle::core::expr::NonNull, Src<Posts>), (drizzle::core::expr::NonNull, Src<Users>))>)>` to implement `MarkerColumnCountValid<Row, (i32, i32), (i32, i32), ((((), ()), (((), ScopeFound), ((), ScopeFound))), (ScopeFound, ((ScopeFound, ()), ())))>`
+note: required by a bound in `drizzle::builder::postgres::postgres_sync::<impl drizzle::builder::postgres::common::DrizzleBuilder<'_, &mut Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/postgres/postgres_sync/mod.rs
+   |
+   |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R, Proof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::postgres::postgres_sync::<impl DrizzleBuilder<'_, &mut Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

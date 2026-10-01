@@ -12,16 +12,16 @@ help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<sources::Name, Nil>
  3 | #[MySQLTable]
    | ^^^^^^^^^^^^^
    = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
-             `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
-             `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
-             `Scoped<SelectCols<Cols>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>, Proof>`
-             `Scoped<SelectCols<Cols>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>, Proof>`
-             `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
-             `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
-             `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
-             `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
-   = note: required for `(sources::Id, sources::Name)` to implement `drizzle_core::row::ScalarColumnsIn<Cons<sources::Name, Nil>, (_, drizzle_core::row::ScalarCheck<drizzle_core::row::ScopeHere>)>`
-   = note: required for `Scoped<SelectCols<(sources::Id, sources::Name)>, Cons<Sources, Nil>>` to implement `drizzle_core::row::MarkerAggValidFor<Cons<sources::Name, Nil>, (_, drizzle_core::row::ScalarCheck<drizzle_core::row::ScopeHere>)>`
+             `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+             `Scoped<SelectCols<Cols>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>, Proof>`
+             `Scoped<SelectCols<Cols>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>, Proof>`
+             `Scoped<SelectExpr, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectExpr, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+             `Scoped<SelectStar, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectStar, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+   = note: required for `(sources::Id, sources::Name)` to implement `drizzle_core::row::ScalarColumnsIn<Cons<sources::Name, Nil>, (_, drizzle_core::row::ScalarCheck<ScopeHere>)>`
+   = note: required for `Scoped<SelectCols<(sources::Id, sources::Name)>, Cons<Sources, Nil>, ((), At<Cons<Sources, Nil>, Src<Sources>>)>` to implement `drizzle_core::row::MarkerAggValidFor<Cons<sources::Name, Nil>, (_, drizzle_core::row::ScalarCheck<ScopeHere>)>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |

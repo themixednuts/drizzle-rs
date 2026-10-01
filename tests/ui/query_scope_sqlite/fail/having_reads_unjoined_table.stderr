@@ -16,8 +16,10 @@ help: the trait `drizzle::core::scope::FindTable<Table>` is implemented for `Con
    | |     <Head::Key as IsTable<Table>>::Out: FoundOr<Head::Nullable, Tail, Table>,
    | |_____________________________________________________________________________^
    = note: required for `False` to implement `drizzle::core::scope::FoundOr<drizzle::core::expr::NonNull, Nil, Posts>`
-   = note: required for `Coalesce<Src<Posts>, drizzle::core::expr::NonNull>` to implement `SourcesIn<Cons<Users, Nil>, (ScopeFound, ())>`
-   = note: 4 redundant requirements hidden
+   = note: required for `Cons<Users, Nil>` to implement `drizzle::core::scope::FindTable<Posts>`
+   = note: required for `Cons<Users, Nil>` to implement `ScopeContains<TableKey<Cons<drizzle::core::scope::name::H7, Cons<drizzle::core::scope::name::H0, Cons<drizzle::core::scope::name::H6, Cons<drizzle::core::scope::name::HF, Cons<drizzle::core::scope::name::H7, Cons<drizzle::core::scope::name::H3, Cons<drizzle::core::scope::name::H7, Cons<drizzle::core::scope::name::H4, Cons<drizzle::core::scope::name::H7, Cons<drizzle::core::scope::name::H3, Nil>>>>>>>>>>, Posts>, ScopeFound>`
+   = note: required for `Src<Posts>` to implement `SourcesIn<Cons<Users, Nil>, ScopeFound>`
+   = note: 5 redundant requirements hidden
    = note: required for `(((), At<Cons<Users, Nil>, Src<Users>>), At<Cons<Users, Nil>, ((drizzle::core::expr::NonNull, Coalesce<Src<Posts>, drizzle::core::expr::NonNull>), (_, _))>)` to implement `SourcesIn<Nil, (((), ScopeFound), (((), (ScopeFound, ())), (_, _)))>`
    = note: required for `Scoped<SelectCols<(users::Id,)>, Cons<Users, Nil>, (((), At<Cons<Users, Nil>, Src<Users>>), At<Cons<Users, Nil>, ((drizzle::core::expr::NonNull, Coalesce<Src<Posts>, drizzle::core::expr::NonNull>), (_, _))>)>` to implement `MarkerScopeValidFor<((((), ScopeFound), (((), (ScopeFound, ())), (_, _))), (ScopeFound, ()))>`
 note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

@@ -8,28 +8,28 @@ error[E0277]: the trait bound `Scoped<SelectStar, Cons<Posts, Cons<Users, Nil>>>
 help: the following other types implement trait `drizzle_core::DerivedSelection<'a, V, Schema, Table>`
   --> core/src/derived.rs
    |
-   | / impl<'a, V, Schema, Table> DerivedSelection<'a, V, Schema, Table>
-   | |     for Scoped<SelectStar, Cons<Table, Nil>>
+   | / impl<'a, V, Schema, Table, Used> DerivedSelection<'a, V, Schema, Table>
+   | |     for Scoped<SelectStar, Cons<Table, Nil>, Used>
    | | where
    | |     V: SQLParam + 'a,
    | |     Schema: SQLSchemaType,
    | |     Table: SQLTable<'a, Schema, V>,
-   | |___________________________________^ `Scoped<SelectStar, Cons<Table, Nil>>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Table>`
+   | |___________________________________^ `Scoped<SelectStar, Cons<Table, Nil>, Used>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Table>`
 ...
-   | / impl<'a, V, Schema, Name, Projection, Query>
+   | / impl<'a, V, Schema, Name, Projection, Query, Used>
    | |     DerivedSelection<'a, V, Schema, Derived<'a, V, Name, Projection, Query>>
-   | |     for Scoped<SelectStar, Cons<Derived<'a, V, Name, Projection, Query>, Nil>>
+   | |     for Scoped<SelectStar, Cons<Derived<'a, V, Name, Projection, Query>, Nil>, Used>
    | | where
    | |     V: SQLParam,
    | |     Name: Tag,
    | |     Projection: DerivedProjection<Name>,
-   | |________________________________________^ `Scoped<SelectStar, Cons<Derived<'_, V, Name, Projection, Query>, Nil>>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Derived<'_, V, Name, Projection, Query>>`
+   | |________________________________________^ `Scoped<SelectStar, Cons<Derived<'_, V, Name, Projection, Query>, Nil>, Used>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Derived<'_, V, Name, Projection, Query>>`
 ...
-   | / impl<'a, V, Schema, Table, Columns, Scope> DerivedSelection<'a, V, Schema, Table>
-   | |     for Scoped<SelectCols<Columns>, Scope>
+   | / impl<'a, V, Schema, Table, Columns, Scope, Used> DerivedSelection<'a, V, Schema, Table>
+   | |     for Scoped<SelectCols<Columns>, Scope, Used>
    | | where
    | |     V: SQLParam,
-   | |________________^ `Scoped<SelectCols<Columns>, Scope>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Table>`
+   | |________________^ `Scoped<SelectCols<Columns>, Scope, Used>` implements `drizzle_core::DerivedSelection<'_, V, Schema, Table>`
 note: required by a bound in `require_derived_selection`
   --> tests/ui/derived_tables/fail/alias_joined_select_star.rs:22:16
    |

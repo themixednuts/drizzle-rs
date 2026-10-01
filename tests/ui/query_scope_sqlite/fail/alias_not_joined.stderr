@@ -1,0 +1,31 @@
+error[E0277]: `AliasKey<Peer>` is not in this query's FROM/JOIN scope
+  --> tests/ui/query_scope_sqlite/fail/alias_not_joined.rs:39:10
+   |
+39 |         .all();
+   |          ^^^ this expression reads a source that the query never joins
+   |
+   = help: the trait `ScopeContains<AliasKey<Peer>, _>` is not implemented for `Cons<UsersAlias<Manager>, Cons<Users, Nil>>`
+   = note: add the source with .from(...) or a .join(...) before using its columns
+help: `Cons<Head, Tail>` implements trait `ScopeContains<Key, Witness>`
+  --> core/src/scope.rs
+   |
+   | / impl<Tag, Head, Tail> ScopeContains<AliasKey<Tag>, ScopeHere> for Cons<Head, Tail>
+   | | where
+   | |     Head: ScopeEntry<Key = AliasKey<Tag>>,
+   | |__________________________________________^ `ScopeContains<AliasKey<Tag>, ScopeHere>`
+...
+   | / impl<Tag, Head, Tail, Witness> ScopeContains<AliasKey<Tag>, ScopeThere<Witness>>
+   | |     for Cons<Head, Tail>
+   | | where
+   | |     Tail: ScopeContains<AliasKey<Tag>, Witness>,
+   | |________________________________________________^ `ScopeContains<AliasKey<Tag>, ScopeThere<Witness>>`
+   = note: required for `Src<AliasKey<Peer>>` to implement `SourcesIn<Cons<UsersAlias<Manager>, Cons<Users, Nil>>, _>`
+   = note: required for `Scoped<SelectCols<(AliasedName<Manager>, AliasedName<Peer>)>, Cons<UsersAlias<Manager>, Cons<Users, Nil>>, (((), ()), At<Cons<UsersAlias<Manager>, Cons<Users, Nil>>, ((drizzle::core::expr::Null, Src<Users>), (drizzle::core::expr::NonNull, Src<AliasKey<Manager>>))>)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (std::string::String, std::string::String), _, ((((), ()), (((), ScopeFound), ((), ScopeHere))), (ScopeHere, (_, ())))>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/sqlite/rusqlite/mod.rs
+   |
+   |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

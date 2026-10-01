@@ -1,0 +1,43 @@
+error[E0277]: selected column decodes as `drizzle::core::MaybeNull<u64>`, but the decode target uses `u64`
+  --> tests/ui/query_scope_mysql/fail/left_join_arithmetic_requires_option.rs:38:10
+   |
+38 |         .all();
+   |          ^^^ the decode target does not match the selected columns
+   |
+   = help: the trait `for<'row> drizzle_core::row::ColumnTypeCompatible<MySQLRow<'row, Row>, drizzle::core::MaybeNull<u64>, u64>` is not implemented for `()`
+   = note: a selected `MaybeNull<T>` can be NULL (an outer join or a nullable operand) and must be decoded as `Option<T>`
+   = help: `()` implements trait `drizzle_core::row::ColumnTypeCompatible<Row, Expected, Actual>`:
+             drizzle_core::row::ColumnTypeCompatible<Row, T, T>
+             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::MaybeNull<Expected>, std::option::Option<Actual>>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, bool>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, isize>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u64>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, usize>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<bool>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<isize>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u64>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<usize>>
+   = note: required for `Cons<drizzle::core::MaybeNull<u64>, Nil>` to implement `for<'row> drizzle_core::row::TypeListCompatible<MySQLRow<'row, Row>, Cons<u64, Nil>>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Cons<u64, Cons<drizzle::core::MaybeNull<u64>, Nil>>` to implement `for<'row> drizzle_core::row::TypeListCompatible<MySQLRow<'row, Row>, Cons<u64, Cons<u64, Nil>>>`
+   = note: required for `Scoped<SelectCols<(users::Id, ColumnBinOp<posts::Id, u64, drizzle::core::types::AddOp, MySQLDialect, drizzle::mysql::types::BigIntUnsigned, drizzle::core::expr::NonNull>)>, Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (((), ()), At<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, ((drizzle::core::expr::NonNull, Src<Posts>), (drizzle::core::expr::NonNull, Src<Users>))>)>` to implement `for<'row> MarkerColumnCountValid<MySQLRow<'row, Row>, (u64, u64), (u64, u64), ((((), ()), (((), ScopeFound), ((), ScopeFound))), (ScopeFound, ((ScopeFound, ()), ())))>`
+note: required by a bound in `drizzle::builder::mysql::mysql_sync::<impl drizzle::builder::mysql::common::DrizzleBuilder<'db, &'db mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/mysql/mysql_sync/mod.rs
+   |
+   |     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + MarkerColumnCountValid<MySQLRow<'row, Row>, Rw, R, ScopeProof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::mysql::mysql_sync::<impl DrizzleBuilder<'db, &mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

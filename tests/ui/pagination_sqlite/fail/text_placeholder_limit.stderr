@@ -32,7 +32,7 @@ note: required by a bound in `drizzle::builder::sqlite::common::DrizzleBuilder::
    | |     SelectJoinSet  => [r#where, group_by, order_by, join],
    | |     SelectWhereSet => [group_by, order_by, limit],
 ...  |
-   | |     SelectSetOpSet => [order_by, limit, offset],
+   | |     SelectSetOpSet => [set_order_by, limit, offset],
    | | }
    | |_- in this macro invocation
    = note: this error originates in the macro `impl_select_methods` (in Nightly builds, run with -Z macro-backtrace for more info)

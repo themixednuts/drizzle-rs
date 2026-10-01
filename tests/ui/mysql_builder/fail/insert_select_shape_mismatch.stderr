@@ -15,7 +15,7 @@ help: the trait `InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Nil>` i
    | | where
    | |     V: SQLParam,
 ...  |
-   | |     TargetExpr::Nullable: NullAnd<SourceExpr::Nullable, Output = SourceExpr::Nullable>,
+   | |     TargetExpr::Nullable: crate::expr::AcceptsNullability<SourceExpr::Nullable>,
    | |     TargetTail: InsertSelectColumns<'a, V, SourceTail>,
    | |_______________________________________________________^
    = help: for that trait implementation, expected `Cons<_, Nil>`, found `Nil`

@@ -10,11 +10,12 @@ error[E0277]: the trait bound `(): drizzle_core::builder::insert_select::InsertS
 help: the following other types implement trait `drizzle_core::builder::insert_select::InsertSelectCompatible<'a, V, Target, Row>`
   --> core/src/builder/insert_select.rs
    |
-   | / impl<'a, V, M, Scope, Target, Row> InsertSelectCompatible<'a, V, Target, Row> for Scoped<M, Scope>
+   | / impl<'a, V, M, Scope, Used, Target, Row> InsertSelectCompatible<'a, V, Target, Row>
+   | |     for Scoped<M, Scope, Used>
    | | where
    | |     V: SQLParam,
    | |     M: InsertSelectCompatible<'a, V, Target, Row>,
-   | |__________________________________________________^ `Scoped<M, Scope>`
+   | |__________________________________________________^ `Scoped<M, Scope, Used>`
 ...
    | / impl<'a, V, Target, Row> InsertSelectCompatible<'a, V, Target, Row> for SelectStar
    | | where
@@ -47,49 +48,61 @@ note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Tabl
    |         Q::Marker: InsertSelectCompatible<'a, MySQLValue<'a>, Table, R>
    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
 
-error[E0277]: the trait bound `(): drizzle_core::builder::insert_select::InsertSourceInScope<_>` is not satisfied
+error[E0277]: the trait bound `(): MarkerScopeValidFor<_>` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
    |
 20 |     let _ = builder.insert(users).select(delete);
-   |                                   ------ ^^^^^^ the trait `drizzle_core::builder::insert_select::InsertSourceInScope<_>` is not implemented for `()`
+   |                                   ------ ^^^^^^ the trait `MarkerScopeValidFor<_>` is not implemented for `()`
    |                                   |
    |                                   required by a bound introduced by this call
    |
-help: the following other types implement trait `drizzle_core::builder::insert_select::InsertSourceInScope<Proof>`
-  --> core/src/builder/insert_select.rs
+help: the following other types implement trait `MarkerScopeValidFor<Proof>`
+  --> core/src/row/mod.rs
    |
-   |   impl<Scope> InsertSourceInScope<()> for Scoped<SelectStar, Scope> {}
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Scoped<SelectStar, Scope>` implements `drizzle_core::builder::insert_select::InsertSourceInScope<()>`
-   |
-   | / impl<Row, Scope, Proof> InsertSourceInScope<Proof> for Scoped<SelectAs<Row>, Scope>
-   | | where
-   | |     Row: SelectRequiredTables,
-   | |     Scope: ScopeSatisfies<Row::RequiredTables, Proof>,
-   | |______________________________________________________^ `Scoped<SelectAs<Row>, Scope>` implements `drizzle_core::builder::insert_select::InsertSourceInScope<Proof>`
+   | / impl<Scope, Used, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectStar, Scope, Used> where
+   | |     Used: SourcesIn<Nil, Proof>
+   | |_______________________________^ `Scoped<SelectStar, Scope, Used>` implements `MarkerScopeValidFor<Proof>`
 ...
-   | / impl<Selected, Scope, Proof> InsertSourceInScope<Proof> for Scoped<SelectCols<Selected>, Scope>
+   | / impl<Scope, Used, Proof> MarkerScopeValidFor<Proof> for Scoped<SelectExpr, Scope, Used> where
+   | |     Used: SourcesIn<Nil, Proof>
+   | |_______________________________^ `Scoped<SelectExpr, Scope, Used>` implements `MarkerScopeValidFor<Proof>`
+...
+   | / impl<R, Scope, Used, UsedProof, FieldsProof> MarkerScopeValidFor<(UsedProof, FieldsProof)>
+   | |     for Scoped<SelectAs<R>, Scope, Used>
    | | where
-   | |     Selected: SelectedExpressionList,
-   | |     Selected::Expressions: ProjectionsInScope<Scope, Proof>,
-   | |____________________________________________________________^ `Scoped<SelectCols<Selected>, Scope>` implements `drizzle_core::builder::insert_select::InsertSourceInScope<Proof>`
+   | |     Used: SourcesIn<Nil, UsedProof>,
+   | |     R: SelectTableFields,
+   | |     R::TableFields: TableFieldsIn<Scope, FieldsProof>,
+   | |______________________________________________________^ `Scoped<SelectAs<R>, Scope, Used>` implements `MarkerScopeValidFor<(UsedProof, FieldsProof)>`
+...
+   | / impl<Cols, Scope, Used, UsedProof, ColsProof> MarkerScopeValidFor<(UsedProof, ColsProof)>
+   | |     for Scoped<SelectCols<Cols>, Scope, Used>
+   | | where
+   | |     Used: SourcesIn<Nil, UsedProof>,
+   | |     Cols: SelectedExpressionList,
+   | |     Cols::Expressions: ProjectionIn<Scope, ColsProof>,
+   | |______________________________________________________^ `Scoped<SelectCols<Cols>, Scope, Used>` implements `MarkerScopeValidFor<(UsedProof, ColsProof)>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
    |     pub fn select<Q, R, ScopeProof, AggProof>(
    |            ------ required by a bound in this associated function
 ...
-   |             + drizzle_core::InsertSourceInScope<ScopeProof>
+   |             + drizzle_core::MarkerScopeValidFor<ScopeProof>
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
 
-error[E0277]: the trait bound `DeleteWhereSet: select::private::Completed` is not satisfied
+error[E0277]: builder state `DeleteWhereSet` does not allow `drizzle_core::builder::clause::Compound`
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
    |
 20 |     let _ = builder.insert(users).select(delete);
-   |                                   ------ ^^^^^^ the trait `select::private::Completed` is not implemented for `DeleteWhereSet`
+   |                                   ------ ^^^^^^ not available at this point of the query
    |                                   |
    |                                   required by a bound introduced by this call
    |
-   = help: the following other types implement trait `select::private::Completed`:
+   = help: the trait `drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Compound>` is not implemented for `DeleteWhereSet`
+   = note: SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+   = note: only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source
+   = help: the following other types implement trait `drizzle_core::builder::ClauseAllowed<Clause>`:
              SelectFromSet
              SelectGroupSet
              SelectHavingSet

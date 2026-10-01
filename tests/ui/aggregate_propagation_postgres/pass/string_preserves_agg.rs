@@ -12,7 +12,7 @@ fn main() {
     let item = Item::default();
 
     // upper(max(name)) preserves Agg
-    let _: SQLExpr<'_, PostgresValue, drizzle::postgres::types::Text, Null, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, drizzle::postgres::types::Text, Null, Scalar, _> =
         upper(max(item.name)).over(window());
 
     // length(max(name)) preserves Agg

@@ -12,7 +12,7 @@ fn main() {
     let item = Item::default();
 
     // upper(max(name)) preserves Agg — max returns Agg, upper wraps it
-    let _: SQLExpr<'_, SQLiteValue, drizzle::sqlite::types::Text, Null, Scalar> =
+    let _: SQLExpr<'_, SQLiteValue, drizzle::sqlite::types::Text, Null, Scalar, _> =
         upper(max(item.name)).over(window());
 
     // length(max(name)) preserves Agg

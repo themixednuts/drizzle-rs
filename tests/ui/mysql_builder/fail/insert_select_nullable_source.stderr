@@ -1,11 +1,19 @@
-error[E0271]: type mismatch resolving `<NonNull as NullAnd<Null>>::Output == Null`
+error[E0277]: a nullable expression cannot be assigned to a non-null column
   --> tests/ui/mysql_builder/fail/insert_select_nullable_source.rs:32:42
    |
 32 |     let _ = builder.insert(users).select(nullable);
-   |                                   ------ ^^^^^^^^ expected `Null`, found `NonNull`
+   |                                   ------ ^^^^^^^^ this assignment could produce NULL
    |                                   |
    |                                   required by a bound introduced by this call
    |
+   = note: handle the NULL case in the expression or make the target column nullable
+help: the trait `AcceptsNullability<drizzle::core::expr::Null>` is not implemented for `drizzle::core::expr::NonNull`
+      but trait `AcceptsNullability<drizzle::core::expr::NonNull>` is implemented for it
+  --> core/src/expr/mod.rs
+   |
+   | impl AcceptsNullability<NonNull> for NonNull {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `drizzle::core::expr::NonNull`, found `drizzle::core::expr::Null`
    = note: required for `Cons<users::Name, Nil>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<imported_users::Name, Nil>>`
    = note: 1 redundant requirement hidden
    = note: required for `Cons<users::Id, Cons<users::Name, Nil>>` to implement `drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<imported_users::Id, Cons<imported_users::Name, Nil>>>`

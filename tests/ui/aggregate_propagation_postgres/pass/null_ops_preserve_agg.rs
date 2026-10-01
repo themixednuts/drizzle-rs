@@ -12,7 +12,7 @@ fn main() {
     let item = Item::default();
 
     // is_null(sum(price)) preserves Agg
-    let _: SQLExpr<'_, PostgresValue, drizzle::postgres::types::Boolean, NonNull, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, drizzle::postgres::types::Boolean, NonNull, Scalar, _> =
         is_null(sum(item.price)).over(window());
 
     // is_not_null(count(())) preserves Agg

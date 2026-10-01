@@ -12,7 +12,7 @@ fn main() {
     let item = Item::default();
 
     // sum(price).over(window()) converts Agg → Scalar
-    let windowed: SQLExpr<'_, SQLiteValue, _, _, Scalar> = sum(item.price).over(window());
+    let windowed: SQLExpr<'_, SQLiteValue, _, _, Scalar, _> = sum(item.price).over(window());
 
     // A Scalar windowed result can participate in arithmetic with other scalars
     let _ = windowed + item.price;

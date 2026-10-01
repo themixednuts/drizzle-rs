@@ -12,6 +12,6 @@ fn main() {
     let item = Item::default();
 
     // between(sum(price), 0, 100) — aggregate operand propagates Agg
-    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar, _> =
         between(sum(item.price), 0, 100).over(window());
 }

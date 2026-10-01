@@ -20,7 +20,7 @@ error[E0277]: `Int4` is not a text SQL type
 note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
-   | pub fn ilike<'a, E, P>(
+   | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
    |        ----- required by a bound in this function
 ...
    |     E::SQLType: Compatible<P::SQLType> + Textual,
@@ -48,7 +48,7 @@ error[E0277]: SQL type `Int4` is not compatible with `drizzle::postgres::types::
 note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
-   | pub fn ilike<'a, E, P>(
+   | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
    |        ----- required by a bound in this function
 ...
    |     E::SQLType: Compatible<P::SQLType> + Textual,
@@ -77,7 +77,7 @@ error[E0277]: SQL type `Int4` is not compatible with `drizzle::postgres::types::
 note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
-   | pub fn ilike<'a, E, P>(
+   | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
    |        ----- required by a bound in this function
 ...
    |     P: ComparisonOperand<'a, PostgresValue<'a>, E>,
@@ -107,7 +107,7 @@ error[E0277]: SQL type `drizzle::postgres::types::Text` is not compatible with `
 note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
-   | pub fn ilike<'a, E, P>(
+   | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
    |        ----- required by a bound in this function
 ...
    |     E::SQLType: Compatible<P::SQLType> + Textual,
@@ -135,7 +135,7 @@ error[E0277]: `Int4` is not a text SQL type
 note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
-   | pub fn ilike<'a, E, P>(
+   | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
    |        ----- required by a bound in this function
 ...
    |     P::SQLType: Textual,
@@ -166,7 +166,7 @@ error[E0277]: SQL type `drizzle::postgres::types::Text` is not compatible with `
 note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
-   | pub fn ilike<'a, E, P>(
+   | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
    |        ----- required by a bound in this function
 ...
    |     P: ComparisonOperand<'a, PostgresValue<'a>, E>,

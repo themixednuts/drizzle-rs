@@ -21,9 +21,9 @@ help: the following other types implement trait `SelectQuery`
    |
   ::: sqlite/src/builder/select.rs
    |
-   | / impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G> drizzle_core::expr::SelectQuery
-   | |     for SelectBuilder<'_, S, State, T, M, R, G>
-   | |_______________________________________________^ `QueryBuilder<'_, S, State, T, M, R, G>`
+   | / impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>
+   | |     drizzle_core::expr::SelectQuery for SelectBuilder<'_, S, State, T, M, R, G>
+   | |_______________________________________________________________________________^ `QueryBuilder<'_, S, State, T, M, R, G>`
    |
   ::: src/builder/sqlite/common.rs
    |

@@ -7,7 +7,8 @@ error[E0599]: the method `union` exists for struct `QueryBuilder<'_, Schema, Del
   ::: core/src/builder/states.rs
    |
    | pub struct DeleteWhereSet;
-   | ------------------------- doesn't satisfy `_: SetOperationAllowed`
+   | ------------------------- doesn't satisfy `_: ClauseAllowed<Compound>`
    |
    = note: the following trait bounds were not satisfied:
-           `DeleteWhereSet: drizzle::mysql::builder::select::SetOperationAllowed`
+           `(): SetOperand<_>`
+           `DeleteWhereSet: drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Compound>`

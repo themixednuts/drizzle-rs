@@ -31,8 +31,8 @@ help: `Int8` implements trait `Assignable<Rhs>`
 ...
    |   assign_to!(crate::postgres::types::Int8; crate::postgres::types::Int2, crate::postgres::types::Int4);
    |   ---------------------------------------------------------------------------------------------------- in this macro invocation
-   = note: required for `PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>` to implement `From<SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text>>`
-   = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text>` to implement `Into<PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>>`
+   = note: required for `PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>` to implement `From<SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text, drizzle::core::expr::NonNull, Scalar, Src<Users>>>`
+   = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text, drizzle::core::expr::NonNull, Scalar, Src<Users>>` to implement `Into<PostgresUpdateValue<'_, drizzle::postgres::prelude::PostgresValue<'_>, i64, Int8, drizzle::core::expr::NonNull>>`
 note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
   --> tests/ui/update_assignments/postgres/fail/expression_type.rs:6:1
    |

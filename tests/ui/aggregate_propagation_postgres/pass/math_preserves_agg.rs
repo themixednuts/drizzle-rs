@@ -12,14 +12,14 @@ fn main() {
     let item = Item::default();
 
     // abs(sum(price)) preserves Agg
-    let _: SQLExpr<'_, PostgresValue, _, _, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, _, _, Scalar, _> =
         abs(sum(item.price)).over(window());
 
     // round(count(())) preserves Agg
-    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar, _> =
         round(count(())).over(window());
 
     // Negation: -sum(price) preserves Agg
-    let _: SQLExpr<'_, PostgresValue, _, Null, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, _, Null, Scalar, _> =
         (-sum(item.price)).over(window());
 }
