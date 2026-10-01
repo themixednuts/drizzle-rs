@@ -426,42 +426,48 @@ let counts: Vec<(String, i64)> = db
 }, { chapter: "Which one?" });
 
 // ─────────────────────────────────────────────────────────────── 10. type safety
+// rustc output: plain text; **bold** marks the error parts, "= note" lines are dimmed.
+const errHTML = (txt) =>
+  txt
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/^(\s*= note[\s\S]*)$/m, '<span class="note">$1</span>');
 const BEATS = [
   {
     code: `let rows: Vec<SelectUsers> = db.select(()).from(users)\n    .r#where(eq(users.age, ‹"thirty"›))\n    .all()?;`,
-    err: `<b>error[E0277]</b>: SQL type \`drizzle::sqlite::types::Integer\` is not compatible with \`drizzle::sqlite::types::Text\`
+    err: `**error[E0277]**: SQL type \`drizzle::sqlite::types::Integer\` is not compatible with \`drizzle::sqlite::types::Text\`
    |
    |     .r#where(eq(users.age, "thirty"))
-   |              --            <b>^^^^^^^^ these SQL types cannot be compared or coerced</b>
+   |              --            **^^^^^^^^ these SQL types cannot be compared or coerced**
    |
-   <span class="note">= note: compatible types include: integers with integers/floats,
-           text with text/varchar, and any type with itself</span>`,
+   = note: compatible types include: integers with integers/floats,
+           text with text/varchar, and any type with itself`,
     say: "Compare a number to a string? Caught at compile time.",
   },
   {
     code: `let rows: Vec<(String, ‹String›)> = db\n    .select((users.name, users.email))\n    .from(users)\n    .all()?;`,
-    err: `<b>error[E0271]</b>: type mismatch resolving \`<(String, ...) as RowColumnList<...>>::Columns == Cons<String, ...>\`
+    err: `**error[E0271]**: type mismatch resolving \`<(String, ...) as RowColumnList<...>>::Columns == Cons<String, ...>\`
    |
    |     .all()?;
-   |      <b>^^^ expected \`Cons<String, Cons<Option<String>, Nil>>\`,</b>
-   |          <b>found \`Cons<String, Cons<String, Nil>>\`</b>`,
+   |      **^^^ expected \`Cons<String, Cons<Option<String>, Nil>>\`,**
+   |          **found \`Cons<String, Cons<String, Nil>>\`**`,
     say: "Forget that <code>email</code> is nullable? It won't compile.",
   },
   {
     code: `db.update(users)\n    .set(‹UpdateUsers::default()›)\n    .r#where(eq(users.id, 1))\n    .execute()?;`,
-    err: `<b>error[E0308]</b>: mismatched types
+    err: `**error[E0308]**: mismatched types
    |
    |     .set(UpdateUsers::default())
-   |      ---  <b>^^^^^^^^^^^^^^^^^^^^^^ expected \`UpdateUsers<'_, NonEmpty>\`,</b>
-   |                                    <b>found \`UpdateUsers<'_>\`</b>`,
+   |      --- **^^^^^^^^^^^^^^^^^^^^^^ expected \`UpdateUsers<'_, NonEmpty>\`,**
+   |                                 **found \`UpdateUsers<'_>\`**`,
     say: "An <code>UPDATE</code> that sets nothing? Not representable.",
   },
   {
     code: `let name = users.name.placeholder("name");\nlet find = db.select(()).from(users).r#where(eq(users.name, name)).prepare();\nfind.all(db.conn(), [name.bind(‹42›)])?;`,
-    err: `<b>error[E0271]</b>: type mismatch resolving \`<i32 as ValueTypeForDialect<SQLiteDialect>>::SQLType == Text\`
+    err: `**error[E0271]**: type mismatch resolving \`<i32 as ValueTypeForDialect<SQLiteDialect>>::SQLType == Text\`
    |
    | find.all(db.conn(), [name.bind(42)])?;
-   |                           ---- <b>^^ expected \`Text\`, found \`Integer\`</b>`,
+   |                           ---- **^^ expected \`Text\`, found \`Integer\`**`,
     say: "Prepared statements too: placeholders carry their column's type.",
   },
 ];
@@ -471,14 +477,14 @@ tl.scene(21, (el, len) => {
   const beats = BEATS.map((b, i) => {
     const a = t0 + i * step;
     const w = codeWindow(el, 110, 270, { title: "cargo check", width: 1700, size: 26, height: 215, states: [{ at: 0, code: b.code.replace(/[‹›]/g, "") }, { at: 1.1, code: b.code }] });
-    const err = at(el, 110, 560, h("div", { class: "err", html: b.err }), { position: "absolute" });
-    const say = at(el, 110, 820, h("div", { class: "caption", html: b.say }));
+    const err = at(el, 110, 560, h("div", { class: "err", html: errHTML(b.err) }), { position: "absolute" });
+    const say = at(el, 110, 860, h("div", { class: "caption", html: b.say }));
     return { a, w, err, say };
   });
   const list = at(el, 110, 300, h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "22px 40px", width: "1700px" } },
     ["Column types in comparisons", "Nullability, as Option<T>", "Result rows match the selection", "Required fields on insert", "Non-empty updates", "Typed placeholders"].map((t) =>
       h("div", { class: "card", style: { display: "flex", gap: "20px", alignItems: "center", fontSize: "32px", fontWeight: 600 } }, h("span", { class: "tag ok" }, "compile time"), t))));
-  const fin = at(el, 110, 820, h("div", { class: "caption", html: "If it compiles, the SQL is well-typed against your schema." }));
+  const fin = at(el, 110, 860, h("div", { class: "caption", html: "If it compiles, the SQL is well-typed against your schema." }));
   return (lt) => {
     head(lt, len);
     for (const b of beats) {
