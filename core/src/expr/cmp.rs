@@ -26,7 +26,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{Compatible, DataType, Textual};
 
-use super::{AggOr, AggregateKind, Expr, ExprSources, NonNull, Nullability, SQLExpr};
+use super::{AggregateKind, Expr, ExprSources, NonNull, Nullability, SQLExpr};
 use crate::scope::{Arg, ScopeOnly};
 
 /// Sources of a NULL-propagating comparison: NULL when either operand is.
@@ -155,7 +155,7 @@ pub fn eq<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -163,7 +163,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::EQ, right))
 }
@@ -180,7 +179,7 @@ pub fn ne<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -188,7 +187,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::NE, right))
 }
@@ -205,7 +203,7 @@ pub fn neq<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -213,7 +211,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     ne(left, right)
 }
@@ -234,7 +231,7 @@ pub fn gt<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -242,7 +239,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::GT, right))
 }
@@ -259,7 +255,7 @@ pub fn gte<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -267,7 +263,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::GE, right))
 }
@@ -284,7 +279,7 @@ pub fn lt<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -292,7 +287,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::LT, right))
 }
@@ -309,7 +303,7 @@ pub fn lte<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -317,7 +311,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(binary_op(left, Token::LE, right))
 }
@@ -350,7 +343,7 @@ pub fn like<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -360,7 +353,6 @@ where
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
     L::SQLType: Textual,
     <R as ComparisonOperand<'a, V, L>>::SQLType: Textual,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(
         operand_sql(left)
@@ -381,7 +373,7 @@ pub fn not_like<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     CmpSources<'a, V, L, R>,
 >
 where
@@ -391,7 +383,6 @@ where
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
     L::SQLType: Textual,
     <R as ComparisonOperand<'a, V, L>>::SQLType: Textual,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     SQLExpr::new(
         operand_sql(left)
@@ -419,9 +410,7 @@ pub fn between<'a, V, E, L, H>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <<E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>>::Output as AggOr<
-        <H as ComparisonOperand<'a, V, E>>::Aggregate,
-    >>::Output,
+    <<E::Aggregate as AggregateKind>::Or<<L as ComparisonOperand<'a, V, E>>::Aggregate> as AggregateKind>::Or<<H as ComparisonOperand<'a, V, E>>::Aggregate,>,
     BetweenSources<'a, V, E, L, H>,
 >
 where
@@ -431,9 +420,6 @@ where
     H: ComparisonOperand<'a, V, E>,
     E::SQLType: Compatible<<L as ComparisonOperand<'a, V, E>>::SQLType>,
     E::SQLType: Compatible<<H as ComparisonOperand<'a, V, E>>::SQLType>,
-    E::Aggregate: AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>,
-    <E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>>::Output:
-        AggOr<<H as ComparisonOperand<'a, V, E>>::Aggregate>,
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
@@ -459,9 +445,7 @@ pub fn not_between<'a, V, E, L, H>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <<E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>>::Output as AggOr<
-        <H as ComparisonOperand<'a, V, E>>::Aggregate,
-    >>::Output,
+    <<E::Aggregate as AggregateKind>::Or<<L as ComparisonOperand<'a, V, E>>::Aggregate> as AggregateKind>::Or<<H as ComparisonOperand<'a, V, E>>::Aggregate,>,
     BetweenSources<'a, V, E, L, H>,
 >
 where
@@ -471,9 +455,6 @@ where
     H: ComparisonOperand<'a, V, E>,
     E::SQLType: Compatible<<L as ComparisonOperand<'a, V, E>>::SQLType>,
     E::SQLType: Compatible<<H as ComparisonOperand<'a, V, E>>::SQLType>,
-    E::Aggregate: AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>,
-    <E::Aggregate as AggOr<<L as ComparisonOperand<'a, V, E>>::Aggregate>>::Output:
-        AggOr<<H as ComparisonOperand<'a, V, E>>::Aggregate>,
 {
     SQLExpr::new(
         SQL::from(Token::LPAREN)
@@ -560,7 +541,7 @@ pub fn is_distinct_from<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     NullSafeCmpSources<'a, V, L, R>,
 >
 where
@@ -568,7 +549,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     let left = operand_sql(left);
     let right = ComparisonOperand::into_comparison_sql(right);
@@ -605,7 +585,7 @@ pub fn is_not_distinct_from<'a, V, L, R>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <L::Aggregate as AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
     NullSafeCmpSources<'a, V, L, R>,
 >
 where
@@ -613,7 +593,6 @@ where
     L: Expr<'a, V>,
     R: ComparisonOperand<'a, V, L>,
     L::SQLType: Compatible<<R as ComparisonOperand<'a, V, L>>::SQLType>,
-    L::Aggregate: AggOr<<R as ComparisonOperand<'a, V, L>>::Aggregate>,
 {
     let left = operand_sql(left);
     let right = ComparisonOperand::into_comparison_sql(right);
@@ -715,13 +694,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         eq(self, other)
     }
@@ -742,13 +720,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         ne(self, other)
     }
@@ -769,13 +746,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         gt(self, other)
     }
@@ -796,13 +772,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         gte(self, other)
     }
@@ -823,13 +798,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         lt(self, other)
     }
@@ -850,13 +824,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         lte(self, other)
     }
@@ -877,7 +850,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
@@ -885,7 +858,6 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
         Self::SQLType: Textual,
         <R as ComparisonOperand<'a, V, Self>>::SQLType: Textual,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         like(self, pattern)
     }
@@ -906,7 +878,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         CmpSources<'a, V, Self, R>,
     >
     where
@@ -914,7 +886,6 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
         Self::SQLType: Textual,
         <R as ComparisonOperand<'a, V, Self>>::SQLType: Textual,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         not_like(self, pattern)
     }
@@ -980,11 +951,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <<Self::Aggregate as AggOr<
-            <L as ComparisonOperand<'a, V, Self>>::Aggregate,
-        >>::Output as AggOr<
-            <H as ComparisonOperand<'a, V, Self>>::Aggregate,
-        >>::Output,
+        <<Self::Aggregate as AggregateKind>::Or<<L as ComparisonOperand<'a, V, Self>>::Aggregate,> as AggregateKind>::Or<<H as ComparisonOperand<'a, V, Self>>::Aggregate,>,
         BetweenSources<'a, V, Self, L, H>,
     >
     where
@@ -992,12 +959,6 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         H: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<L as ComparisonOperand<'a, V, Self>>::SQLType>,
         Self::SQLType: Compatible<<H as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate:
-            AggOr<<L as ComparisonOperand<'a, V, Self>>::Aggregate>,
-        <Self::Aggregate as AggOr<
-            <L as ComparisonOperand<'a, V, Self>>::Aggregate,
-        >>::Output:
-            AggOr<<H as ComparisonOperand<'a, V, Self>>::Aggregate>,
 {
         between(self, low, high)
     }
@@ -1021,11 +982,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <<Self::Aggregate as AggOr<
-            <L as ComparisonOperand<'a, V, Self>>::Aggregate,
-        >>::Output as AggOr<
-            <H as ComparisonOperand<'a, V, Self>>::Aggregate,
-        >>::Output,
+        <<Self::Aggregate as AggregateKind>::Or<<L as ComparisonOperand<'a, V, Self>>::Aggregate,> as AggregateKind>::Or<<H as ComparisonOperand<'a, V, Self>>::Aggregate,>,
         BetweenSources<'a, V, Self, L, H>,
     >
     where
@@ -1033,12 +990,6 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         H: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<L as ComparisonOperand<'a, V, Self>>::SQLType>,
         Self::SQLType: Compatible<<H as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate:
-            AggOr<<L as ComparisonOperand<'a, V, Self>>::Aggregate>,
-        <Self::Aggregate as AggOr<
-            <L as ComparisonOperand<'a, V, Self>>::Aggregate,
-        >>::Output:
-            AggOr<<H as ComparisonOperand<'a, V, Self>>::Aggregate>,
 {
         not_between(self, low, high)
     }
@@ -1172,13 +1123,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         NullSafeCmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         is_distinct_from(self, other)
     }
@@ -1200,13 +1150,12 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         V,
         <V::DialectMarker as DialectTypes>::Bool,
         NonNull,
-        <Self::Aggregate as AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
         NullSafeCmpSources<'a, V, Self, R>,
     >
     where
         R: ComparisonOperand<'a, V, Self>,
         Self::SQLType: Compatible<<R as ComparisonOperand<'a, V, Self>>::SQLType>,
-        Self::Aggregate: AggOr<<R as ComparisonOperand<'a, V, Self>>::Aggregate>,
     {
         is_not_distinct_from(self, other)
     }

@@ -2,10 +2,8 @@ use core::marker::PhantomData;
 
 use crate::{
     Cons, HasSelectModel, IntoSelectTarget, Nil, SQL, SQLChunk, SQLColumnInfo, SQLParam, Scoped,
-    SelectAs, SelectCols, SelectStar, SelectedExpressionList, Token, TypeEq, TypeSet,
-    expr::{Expr, NullAnd},
-    scope::ListIncludes,
-    types::Assignable,
+    SelectAs, SelectCols, SelectStar, SelectedExpressionList, Token, TypeEq, TypeSet, expr::Expr,
+    scope::ListIncludes, types::Assignable,
 };
 
 /// An INSERT state with an explicit target-column list awaiting its SELECT source.
@@ -78,7 +76,7 @@ where
     TargetExpr: Expr<'a, V>,
     SourceExpr: Expr<'a, V>,
     TargetExpr::SQLType: Assignable<SourceExpr::SQLType>,
-    TargetExpr::Nullable: NullAnd<SourceExpr::Nullable, Output = SourceExpr::Nullable>,
+    TargetExpr::Nullable: crate::expr::AcceptsNullability<SourceExpr::Nullable>,
     TargetTail: InsertSelectColumns<'a, V, SourceTail>,
 {
 }

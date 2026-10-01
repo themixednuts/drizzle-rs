@@ -512,8 +512,7 @@ pub mod mysql {
         };
         pub use drizzle_mysql::{AccessMode, IsolationLevel, TransactionConfig};
         pub use drizzle_mysql::{
-            IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata,
-            MySQLIndexMethod,
+            IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMethod,
         };
         pub use drizzle_mysql::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
     }

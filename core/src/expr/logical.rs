@@ -30,7 +30,7 @@ use crate::sql::{SQL, SQLChunk, Token};
 use crate::traits::SQLParam;
 use crate::types::BooleanLike;
 
-use super::{AggOr, AggregateKind, Expr, NullOr, Nullability, SQLExpr};
+use super::{AggregateKind, Expr, Nullability, SQLExpr};
 
 #[inline]
 fn operand_sql<'a, V, E>(value: E) -> SQL<'a, V>
@@ -113,16 +113,14 @@ pub fn and<'a, V, L, R>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Bool,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Nullable as Nullability>::Or<R::Nullable>,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
-    L::Nullable: NullOr<R::Nullable>,
-    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
     R::Nullable: Nullability,
@@ -151,16 +149,14 @@ pub fn or<'a, V, L, R>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Bool,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Nullable as Nullability>::Or<R::Nullable>,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
-    L::Nullable: NullOr<R::Nullable>,
-    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
     R::Nullable: Nullability,
@@ -210,8 +206,8 @@ impl<'a, V, T, N, A, S, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
-    N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggOr<Rhs::Aggregate>,
+    N: Nullability,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
     Rhs::Nullable: Nullability,
@@ -220,8 +216,8 @@ where
         'a,
         V,
         <V::DialectMarker as DialectTypes>::Bool,
-        <N as NullOr<Rhs::Nullable>>::Output,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <N as Nullability>::Or<Rhs::Nullable>,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
         (S, Rhs::Sources),
     >;
 
@@ -244,8 +240,8 @@ impl<'a, V, T, N, A, S, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
-    N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggOr<Rhs::Aggregate>,
+    N: Nullability,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
     Rhs::Nullable: Nullability,
@@ -254,8 +250,8 @@ where
         'a,
         V,
         <V::DialectMarker as DialectTypes>::Bool,
-        <N as NullOr<Rhs::Nullable>>::Output,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <N as Nullability>::Or<Rhs::Nullable>,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
         (S, Rhs::Sources),
     >;
 

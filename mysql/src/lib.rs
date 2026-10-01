@@ -56,9 +56,6 @@ pub use common::MySQLViewInfo;
 pub use driver::{MySQLRow, MySQLRowAccess};
 pub use drizzle_core::{MySQLDialect, ParamBind};
 pub use drizzle_types::mysql::ddl::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
-pub use index::{
-    IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata,
-    MySQLIndexMethod,
-};
+pub use index::{IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMethod};
 pub use result::MySQLMutationResult;
 pub use transaction::{AccessMode, IsolationLevel, TransactionConfig};

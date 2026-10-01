@@ -13,7 +13,7 @@ use crate::traits::SQLParam;
 use crate::types::Compatible;
 use crate::{MySQLDialect, PostgresDialect};
 
-use super::{AggOr, AggregateKind, Expr, ExprSources, NonNull, Null, Nullability, SQLExpr};
+use super::{AggregateKind, Expr, ExprSources, Null, Nullability, SQLExpr};
 use crate::scope::{Arg, Coalesce};
 
 /// Sources of a NULL-absorbing pair (`COALESCE(a, b)`): NULL only when both are.
@@ -21,62 +21,6 @@ type FallbackSources<'a, V, A, B> = Coalesce<
     Arg<<A as Expr<'a, V>>::Nullable, <A as ExprSources>::Sources>,
     Arg<<B as Expr<'a, V>>::Nullable, <B as ExprSources>::Sources>,
 >;
-
-// =============================================================================
-// Nullability Combination
-// =============================================================================
-
-/// Combine nullability: if either input is nullable, output is nullable.
-///
-/// This follows SQL's NULL propagation semantics where operations on
-/// NULL values produce NULL results.
-///
-/// # Truth Table
-///
-/// | Left | Right | Output |
-/// |------|-------|--------|
-/// | NonNull | NonNull | NonNull |
-/// | NonNull | Null | Null |
-/// | Null | NonNull | Null |
-/// | Null | Null | Null |
-pub trait NullOr<Rhs: Nullability>: Nullability {
-    /// The resulting nullability.
-    type Output: Nullability;
-}
-
-impl NullOr<Self> for NonNull {
-    type Output = Self;
-}
-impl NullOr<Null> for NonNull {
-    type Output = Null;
-}
-impl NullOr<NonNull> for Null {
-    type Output = Self;
-}
-impl NullOr<Self> for Null {
-    type Output = Self;
-}
-
-/// Combine nullability for COALESCE-style fallback behavior.
-///
-/// Result is nullable only when both inputs are nullable.
-pub trait NullAnd<Rhs: Nullability>: Nullability {
-    /// The resulting nullability.
-    type Output: Nullability;
-}
-
-impl NullAnd<Self> for NonNull {
-    type Output = Self;
-}
-impl NullAnd<Null> for NonNull {
-    type Output = Self;
-}
-impl NullAnd<NonNull> for Null {
-    type Output = NonNull;
-}
-impl NullAnd<Self> for Null {
-    type Output = Self;
-}
 
 // =============================================================================
 // COALESCE Function
@@ -101,26 +45,23 @@ impl NullAnd<Self> for Null {
 /// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
-pub fn coalesce<'a, V, E, D, N>(
+pub fn coalesce<'a, V, E, D>(
     expr: E,
     default: D,
 ) -> SQLExpr<
     'a,
     V,
     E::SQLType,
-    N,
-    <E::Aggregate as AggOr<D::Aggregate>>::Output,
+    <E::Nullable as Nullability>::And<D::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<D::Aggregate>,
     FallbackSources<'a, V, E, D>,
 >
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     D: Expr<'a, V>,
-    N: Nullability,
     E::SQLType: Compatible<D::SQLType>,
-    E::Nullable: NullAnd<D::Nullable, Output = N>,
     D::Nullable: Nullability,
-    E::Aggregate: AggOr<D::Aggregate>,
     D::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
@@ -147,27 +88,24 @@ where
 /// # "####;
 /// ```
 #[allow(clippy::type_complexity)]
-pub fn coalesce_many<'a, V, E, I, N>(
+pub fn coalesce_many<'a, V, E, I>(
     first: E,
     rest: I,
 ) -> SQLExpr<
     'a,
     V,
     E::SQLType,
-    N,
-    <E::Aggregate as AggOr<<I::Item as Expr<'a, V>>::Aggregate>>::Output,
+    <E::Nullable as Nullability>::And<<I::Item as Expr<'a, V>>::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<<I::Item as Expr<'a, V>>::Aggregate>,
     FallbackSources<'a, V, E, I::Item>,
 >
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
-    N: Nullability,
     I: IntoIterator,
     I::Item: Expr<'a, V>,
     E::SQLType: Compatible<<I::Item as Expr<'a, V>>::SQLType>,
-    E::Nullable: NullAnd<<I::Item as Expr<'a, V>>::Nullable, Output = N>,
     <I::Item as Expr<'a, V>>::Nullable: Nullability,
-    E::Aggregate: AggOr<<I::Item as Expr<'a, V>>::Aggregate>,
     <I::Item as Expr<'a, V>>::Aggregate: AggregateKind,
 {
     let mut sql = first.into_expr_sql();
@@ -205,7 +143,7 @@ pub fn nullif<'a, V, E1, E2>(
     V,
     E1::SQLType,
     Null,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
     (E1::Sources, E2::Sources),
 >
 where
@@ -213,7 +151,6 @@ where
     E1: Expr<'a, V>,
     E2: Expr<'a, V>,
     E1::SQLType: Compatible<E2::SQLType>,
-    E1::Aggregate: AggOr<E2::Aggregate>,
     E2::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
@@ -234,26 +171,23 @@ where
 /// Requires compatible types between the expression and default.
 /// Returns the first argument if not NULL, otherwise returns the second.
 #[allow(clippy::type_complexity)]
-pub fn ifnull<'a, V, E, D, N>(
+pub fn ifnull<'a, V, E, D>(
     expr: E,
     default: D,
 ) -> SQLExpr<
     'a,
     V,
     E::SQLType,
-    N,
-    <E::Aggregate as AggOr<D::Aggregate>>::Output,
+    <E::Nullable as Nullability>::And<D::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<D::Aggregate>,
     FallbackSources<'a, V, E, D>,
 >
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     D: Expr<'a, V>,
-    N: Nullability,
     E::SQLType: Compatible<D::SQLType>,
-    E::Nullable: NullAnd<D::Nullable, Output = N>,
     D::Nullable: Nullability,
-    E::Aggregate: AggOr<D::Aggregate>,
     D::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
@@ -284,19 +218,19 @@ pub trait GreatestLeastPolicy<L: Nullability, R: Nullability> {
 
 impl<L, R> GreatestLeastPolicy<L, R> for PostgresDialect
 where
-    L: NullAnd<R>,
+    L: Nullability,
     R: Nullability,
 {
-    type Nullable = <L as NullAnd<R>>::Output;
+    type Nullable = <L as Nullability>::And<R>;
     type Sources<A, B> = Coalesce<A, B>;
 }
 
 impl<L, R> GreatestLeastPolicy<L, R> for MySQLDialect
 where
-    L: NullOr<R>,
+    L: Nullability,
     R: Nullability,
 {
-    type Nullable = <L as NullOr<R>>::Output;
+    type Nullable = <L as Nullability>::Or<R>;
     type Sources<A, B> = (A, B);
 }
 
@@ -325,7 +259,7 @@ pub fn greatest<'a, V, L, R>(
     V,
     L::SQLType,
     <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Nullable,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Sources<
         Arg<L::Nullable, L::Sources>,
         Arg<R::Nullable, R::Sources>,
@@ -338,7 +272,6 @@ where
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
     R::Nullable: Nullability,
-    L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(
@@ -374,7 +307,7 @@ pub fn least<'a, V, L, R>(
     V,
     L::SQLType,
     <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Nullable,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     <V::DialectMarker as GreatestLeastPolicy<L::Nullable, R::Nullable>>::Sources<
         Arg<L::Nullable, L::Sources>,
         Arg<R::Nullable, R::Sources>,
@@ -387,7 +320,6 @@ where
     R: Expr<'a, V>,
     L::SQLType: Compatible<R::SQLType>,
     R::Nullable: Nullability,
-    L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(

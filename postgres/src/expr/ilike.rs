@@ -1,7 +1,7 @@
 //! `PostgreSQL` ILIKE operators.
 
 use crate::values::PostgresValue;
-use drizzle_core::expr::{AggOr, ComparisonOperand, Expr, NonNull, SQLExpr};
+use drizzle_core::expr::{AggregateKind, ComparisonOperand, Expr, NonNull, SQLExpr};
 use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQLChunk, Token};
 use drizzle_types::postgres::types::Boolean;
@@ -13,9 +13,9 @@ type IlikeExpr<'a, E, P> = SQLExpr<
     PostgresValue<'a>,
     Boolean,
     NonNull,
-    <<E as Expr<'a, PostgresValue<'a>>>::Aggregate as AggOr<
+    <<E as Expr<'a, PostgresValue<'a>>>::Aggregate as AggregateKind>::Or<
         <P as ComparisonOperand<'a, PostgresValue<'a>, E>>::Aggregate,
-    >>::Output,
+    >,
     (
         Arg<
             <E as Expr<'a, PostgresValue<'a>>>::Nullable,
@@ -49,7 +49,6 @@ where
     P: ComparisonOperand<'a, PostgresValue<'a>, E>,
     E::SQLType: Compatible<P::SQLType> + Textual,
     P::SQLType: Textual,
-    E::Aggregate: AggOr<P::Aggregate>,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -76,7 +75,6 @@ where
     P: ComparisonOperand<'a, PostgresValue<'a>, E>,
     E::SQLType: Compatible<P::SQLType> + Textual,
     P::SQLType: Textual,
-    E::Aggregate: AggOr<P::Aggregate>,
 {
     SQLExpr::new(
         expr.to_sql()

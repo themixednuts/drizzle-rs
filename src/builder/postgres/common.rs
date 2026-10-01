@@ -82,11 +82,8 @@ impl<Driver, T, Rels, Cols> core::fmt::Display for DrizzlePreparedQuery<'_, Driv
     }
 }
 
-/// Maps a relational query runner to the detached prepared-query driver marker.
 #[cfg(feature = "query")]
-pub trait RelationalPreparedDriver {
-    type PreparedDriver;
-}
+pub use crate::builder::RelationalPreparedDriver;
 
 #[cfg(feature = "query")]
 impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
@@ -1097,7 +1094,7 @@ where
     /// # Panics
     ///
     /// Panics when the projection contains duplicate output names. Name a
-    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to
     /// make each output unique.
     #[inline]
     #[must_use]

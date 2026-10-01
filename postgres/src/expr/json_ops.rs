@@ -11,7 +11,7 @@
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
 use crate::values::PostgresValue;
-use drizzle_core::expr::{AggOr, Expr, NonNull, Null, SQLExpr};
+use drizzle_core::expr::{AggregateKind, Expr, NonNull, Null, SQLExpr};
 use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk, Token};
 
@@ -269,12 +269,11 @@ pub fn jsonb_contains<'a, L, R>(
     PostgresValue<'a>,
     Boolean,
     NonNull,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
 >
 where
     L: Expr<'a, PostgresValue<'a>>,
-    L::Aggregate: AggOr<R::Aggregate>,
     L::SQLType: JsonbType,
     R: Expr<'a, PostgresValue<'a>>,
     R::SQLType: JsonbOperand,
@@ -306,12 +305,11 @@ pub fn jsonb_contained<'a, L, R>(
     PostgresValue<'a>,
     Boolean,
     NonNull,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
 >
 where
     L: Expr<'a, PostgresValue<'a>>,
-    L::Aggregate: AggOr<R::Aggregate>,
     L::SQLType: JsonbType,
     R: Expr<'a, PostgresValue<'a>>,
     R::SQLType: JsonbOperand,
@@ -510,14 +508,13 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         PostgresValue<'a>,
         Boolean,
         NonNull,
-        <Self::Aggregate as AggOr<R::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
         (
             Arg<Self::Nullable, Self::Sources>,
             Arg<R::Nullable, R::Sources>,
         ),
     >
     where
-        Self::Aggregate: AggOr<R::Aggregate>,
         Self::SQLType: JsonbType,
         R: Expr<'a, PostgresValue<'a>>,
         R::SQLType: JsonbOperand,
@@ -534,14 +531,13 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         PostgresValue<'a>,
         Boolean,
         NonNull,
-        <Self::Aggregate as AggOr<R::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
         (
             Arg<Self::Nullable, Self::Sources>,
             Arg<R::Nullable, R::Sources>,
         ),
     >
     where
-        Self::Aggregate: AggOr<R::Aggregate>,
         Self::SQLType: JsonbType,
         R: Expr<'a, PostgresValue<'a>>,
         R::SQLType: JsonbOperand,

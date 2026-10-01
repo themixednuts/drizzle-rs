@@ -21,7 +21,7 @@ use drizzle_types::postgres::types::{
 use drizzle_types::sqlite::types::{Integer as SqliteInteger, Text as SqliteText};
 
 use super::ExprSources;
-use super::{AggOr, AggregateKind, Expr, NonNull, NullOr, Nullability, SQLExpr};
+use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr};
 use crate::scope::Arg;
 
 #[diagnostic::on_unimplemented(
@@ -325,8 +325,8 @@ pub fn substr<'a, V, E, S, L>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <<E::Nullable as NullOr<S::Nullable>>::Output as NullOr<L::Nullable>>::Output,
-    <<E::Aggregate as AggOr<S::Aggregate>>::Output as AggOr<L::Aggregate>>::Output,
+    <<E::Nullable as Nullability>::Or<S::Nullable> as Nullability>::Or<L::Nullable>,
+    <<E::Aggregate as AggregateKind>::Or<S::Aggregate> as AggregateKind>::Or<L::Aggregate>,
     (E::Sources, (S::Sources, L::Sources)),
 >
 where
@@ -341,10 +341,6 @@ where
     L::SQLType: Integral,
     L::Nullable: Nullability,
     L::Aggregate: AggregateKind,
-    E::Nullable: NullOr<S::Nullable>,
-    <E::Nullable as NullOr<S::Nullable>>::Output: NullOr<L::Nullable>,
-    E::Aggregate: AggOr<S::Aggregate>,
-    <E::Aggregate as AggOr<S::Aggregate>>::Output: AggOr<L::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "SUBSTR",
@@ -384,8 +380,8 @@ pub fn replace<'a, V, E, F, T>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <<E::Nullable as NullOr<F::Nullable>>::Output as NullOr<T::Nullable>>::Output,
-    <<E::Aggregate as AggOr<F::Aggregate>>::Output as AggOr<T::Aggregate>>::Output,
+    <<E::Nullable as Nullability>::Or<F::Nullable> as Nullability>::Or<T::Nullable>,
+    <<E::Aggregate as AggregateKind>::Or<F::Aggregate> as AggregateKind>::Or<T::Aggregate>,
     (E::Sources, (F::Sources, T::Sources)),
 >
 where
@@ -400,10 +396,6 @@ where
     T::SQLType: Textual,
     T::Nullable: Nullability,
     T::Aggregate: AggregateKind,
-    E::Nullable: NullOr<F::Nullable>,
-    <E::Nullable as NullOr<F::Nullable>>::Output: NullOr<T::Nullable>,
-    E::Aggregate: AggOr<F::Aggregate>,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output: AggOr<T::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "REPLACE",
@@ -443,8 +435,8 @@ pub fn instr<'a, V, E, S>(
     'a,
     V,
     <V::DialectMarker as InstrPolicy>::Output,
-    <E::Nullable as NullOr<S::Nullable>>::Output,
-    <E::Aggregate as AggOr<S::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<S::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<S::Aggregate>,
     (E::Sources, S::Sources),
 >
 where
@@ -455,9 +447,7 @@ where
     S: Expr<'a, V>,
     S::SQLType: Textual,
     S::Nullable: Nullability,
-    E::Nullable: NullOr<S::Nullable>,
     S::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<S::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "INSTR",
@@ -474,8 +464,8 @@ pub fn strpos<'a, V, E, S>(
     'a,
     V,
     drizzle_types::postgres::types::Int4,
-    <E::Nullable as NullOr<S::Nullable>>::Output,
-    <E::Aggregate as AggOr<S::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<S::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<S::Aggregate>,
     (E::Sources, S::Sources),
 >
 where
@@ -486,9 +476,7 @@ where
     S: Expr<'a, V>,
     S::SQLType: Textual,
     S::Nullable: Nullability,
-    E::Nullable: NullOr<S::Nullable>,
     S::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<S::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "STRPOS",
@@ -540,8 +528,8 @@ pub fn concat<'a, V, E1, E2>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
     (E1::Sources, E2::Sources),
 >
 where
@@ -550,10 +538,8 @@ where
     E1::SQLType: Textual,
     E2: Expr<'a, V>,
     E2::SQLType: Textual,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
     E2::Aggregate: AggregateKind,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     let left = expr1.into_sql();
     let right = expr2.into_sql();
@@ -596,7 +582,7 @@ pub fn concat_ws<'a, V, S, I>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     S::Nullable,
-    <S::Aggregate as AggOr<<I::Item as Expr<'a, V>>::Aggregate>>::Output,
+    <S::Aggregate as AggregateKind>::Or<<I::Item as Expr<'a, V>>::Aggregate>,
     (S::Sources, <I::Item as ExprSources>::Sources),
 >
 where
@@ -606,7 +592,6 @@ where
     I: IntoIterator,
     I::Item: Expr<'a, V>,
     <I::Item as Expr<'a, V>>::SQLType: Textual,
-    S::Aggregate: AggOr<<I::Item as Expr<'a, V>>::Aggregate>,
     <I::Item as Expr<'a, V>>::Aggregate: AggregateKind,
 {
     let mut sql = sep.into_sql();
@@ -642,8 +627,8 @@ pub fn left<'a, V, E, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <E::Nullable as NullOr<N::Nullable>>::Output,
-    <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<N::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<N::Aggregate>,
     (E::Sources, N::Sources),
 >
 where
@@ -654,9 +639,7 @@ where
     N: Expr<'a, V>,
     N::SQLType: Integral,
     N::Nullable: Nullability,
-    E::Nullable: NullOr<N::Nullable>,
     N::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<N::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "LEFT",
@@ -686,8 +669,8 @@ pub fn right<'a, V, E, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <E::Nullable as NullOr<N::Nullable>>::Output,
-    <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<N::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<N::Aggregate>,
     (E::Sources, N::Sources),
 >
 where
@@ -698,9 +681,7 @@ where
     N: Expr<'a, V>,
     N::SQLType: Integral,
     N::Nullable: Nullability,
-    E::Nullable: NullOr<N::Nullable>,
     N::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<N::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "RIGHT",
@@ -731,8 +712,8 @@ pub fn split_part<'a, V, E, D, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <<E::Nullable as NullOr<D::Nullable>>::Output as NullOr<N::Nullable>>::Output,
-    <<E::Aggregate as AggOr<D::Aggregate>>::Output as AggOr<N::Aggregate>>::Output,
+    <<E::Nullable as Nullability>::Or<D::Nullable> as Nullability>::Or<N::Nullable>,
+    <<E::Aggregate as AggregateKind>::Or<D::Aggregate> as AggregateKind>::Or<N::Aggregate>,
     (E::Sources, (D::Sources, N::Sources)),
 >
 where
@@ -748,10 +729,6 @@ where
     N::SQLType: Integral,
     N::Nullable: Nullability,
     N::Aggregate: AggregateKind,
-    E::Nullable: NullOr<D::Nullable>,
-    <E::Nullable as NullOr<D::Nullable>>::Output: NullOr<N::Nullable>,
-    E::Aggregate: AggOr<D::Aggregate>,
-    <E::Aggregate as AggOr<D::Aggregate>>::Output: AggOr<N::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "SPLIT_PART",
@@ -784,8 +761,8 @@ pub fn lpad<'a, V, E, L, F>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <<E::Nullable as NullOr<L::Nullable>>::Output as NullOr<F::Nullable>>::Output,
-    <<E::Aggregate as AggOr<L::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
+    <<E::Nullable as Nullability>::Or<L::Nullable> as Nullability>::Or<F::Nullable>,
+    <<E::Aggregate as AggregateKind>::Or<L::Aggregate> as AggregateKind>::Or<F::Aggregate>,
     (E::Sources, (L::Sources, F::Sources)),
 >
 where
@@ -800,11 +777,7 @@ where
     F: Expr<'a, V>,
     F::SQLType: Textual,
     F::Nullable: Nullability,
-    E::Nullable: NullOr<L::Nullable>,
-    <E::Nullable as NullOr<L::Nullable>>::Output: NullOr<F::Nullable>,
     F::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<L::Aggregate>,
-    <E::Aggregate as AggOr<L::Aggregate>>::Output: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "LPAD",
@@ -837,8 +810,8 @@ pub fn rpad<'a, V, E, L, F>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <<E::Nullable as NullOr<L::Nullable>>::Output as NullOr<F::Nullable>>::Output,
-    <<E::Aggregate as AggOr<L::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
+    <<E::Nullable as Nullability>::Or<L::Nullable> as Nullability>::Or<F::Nullable>,
+    <<E::Aggregate as AggregateKind>::Or<L::Aggregate> as AggregateKind>::Or<F::Aggregate>,
     (E::Sources, (L::Sources, F::Sources)),
 >
 where
@@ -853,11 +826,7 @@ where
     F: Expr<'a, V>,
     F::SQLType: Textual,
     F::Nullable: Nullability,
-    E::Nullable: NullOr<L::Nullable>,
-    <E::Nullable as NullOr<L::Nullable>>::Output: NullOr<F::Nullable>,
     F::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<L::Aggregate>,
-    <E::Aggregate as AggOr<L::Aggregate>>::Output: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "RPAD",
@@ -919,8 +888,8 @@ pub fn repeat<'a, V, E, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <E::Nullable as NullOr<N::Nullable>>::Output,
-    <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<N::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<N::Aggregate>,
     (E::Sources, N::Sources),
 >
 where
@@ -931,9 +900,7 @@ where
     N: Expr<'a, V>,
     N::SQLType: Integral,
     N::Nullable: Nullability,
-    E::Nullable: NullOr<N::Nullable>,
     N::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<N::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "REPEAT",
@@ -965,7 +932,7 @@ pub fn starts_with<'a, V, E, P>(
     V,
     <V::DialectMarker as DialectTypes>::Bool,
     NonNull,
-    <E::Aggregate as AggOr<P::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<P::Aggregate>,
     (Arg<E::Nullable, E::Sources>, Arg<P::Nullable, P::Sources>),
 >
 where
@@ -976,7 +943,6 @@ where
     P: Expr<'a, V>,
     P::SQLType: Textual,
     P::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<P::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "STARTS_WITH",
@@ -1088,7 +1054,7 @@ pub fn translate<'a, V, E, F, T>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
-    <<E::Aggregate as AggOr<F::Aggregate>>::Output as AggOr<T::Aggregate>>::Output,
+    <<E::Aggregate as AggregateKind>::Or<F::Aggregate> as AggregateKind>::Or<T::Aggregate>,
     (E::Sources, (F::Sources, T::Sources)),
 >
 where
@@ -1102,8 +1068,6 @@ where
     T: Expr<'a, V>,
     T::SQLType: Textual,
     T::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<F::Aggregate>,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output: AggOr<T::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TRANSLATE",
@@ -1144,7 +1108,7 @@ pub fn regexp_replace<'a, V, E, P, R>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
-    <<E::Aggregate as AggOr<P::Aggregate>>::Output as AggOr<R::Aggregate>>::Output,
+    <<E::Aggregate as AggregateKind>::Or<P::Aggregate> as AggregateKind>::Or<R::Aggregate>,
     (E::Sources, (P::Sources, R::Sources)),
 >
 where
@@ -1158,8 +1122,6 @@ where
     R: Expr<'a, V>,
     R::SQLType: Textual,
     R::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<P::Aggregate>,
-    <E::Aggregate as AggOr<P::Aggregate>>::Output: AggOr<R::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "REGEXP_REPLACE",
@@ -1196,9 +1158,7 @@ pub fn regexp_replace_flags<'a, V, E, P, R, F>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
-    <<<E::Aggregate as AggOr<P::Aggregate>>::Output as AggOr<R::Aggregate>>::Output as AggOr<
-        F::Aggregate,
-    >>::Output,
+    <<<E::Aggregate as AggregateKind>::Or<P::Aggregate> as AggregateKind>::Or<R::Aggregate> as AggregateKind>::Or<F::Aggregate,>,
     (E::Sources, (P::Sources, (R::Sources, F::Sources))),
 >
 where
@@ -1215,10 +1175,6 @@ where
     F: Expr<'a, V>,
     F::SQLType: Textual,
     F::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<P::Aggregate>,
-    <E::Aggregate as AggOr<P::Aggregate>>::Output: AggOr<R::Aggregate>,
-    <<E::Aggregate as AggOr<P::Aggregate>>::Output as AggOr<R::Aggregate>>::Output:
-        AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "REGEXP_REPLACE",
@@ -1256,7 +1212,7 @@ pub fn regexp_match<'a, V, E, P>(
     V,
     crate::types::Array<<V::DialectMarker as DialectTypes>::Text>,
     super::Null,
-    <E::Aggregate as AggOr<P::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<P::Aggregate>,
     (E::Sources, P::Sources),
 >
 where
@@ -1267,7 +1223,6 @@ where
     P: Expr<'a, V>,
     P::SQLType: Textual,
     P::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<P::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "REGEXP_MATCH",
@@ -1301,7 +1256,7 @@ pub fn regexp_match_flags<'a, V, E, P, F>(
     V,
     crate::types::Array<<V::DialectMarker as DialectTypes>::Text>,
     super::Null,
-    <<E::Aggregate as AggOr<P::Aggregate>>::Output as AggOr<F::Aggregate>>::Output,
+    <<E::Aggregate as AggregateKind>::Or<P::Aggregate> as AggregateKind>::Or<F::Aggregate>,
     (E::Sources, (P::Sources, F::Sources)),
 >
 where
@@ -1315,8 +1270,6 @@ where
     F: Expr<'a, V>,
     F::SQLType: Textual,
     F::Aggregate: AggregateKind,
-    E::Aggregate: AggOr<P::Aggregate>,
-    <E::Aggregate as AggOr<P::Aggregate>>::Output: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "REGEXP_MATCH",

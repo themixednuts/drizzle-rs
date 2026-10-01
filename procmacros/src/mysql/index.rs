@@ -458,13 +458,6 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
             }
         }
 
-        impl drizzle::mysql::index::MySQLIndexMetadata for #struct_ident {
-            const KEY_PARTS: &'static [drizzle::mysql::index::IndexKeyPart] = Self::KEY_PARTS;
-            const METHOD: ::core::option::Option<drizzle::mysql::index::MySQLIndexMethod> = Self::METHOD;
-            const ALGORITHM: ::core::option::Option<drizzle::mysql::index::MySQLIndexAlgorithm> = Self::ALGORITHM;
-            const LOCK: ::core::option::Option<drizzle::mysql::index::MySQLIndexLock> = Self::LOCK;
-        }
-
         impl drizzle::mysql::index::__private::MySQLSchemaItemSealed for #struct_ident {}
 
         impl drizzle::mysql::index::MySQLSchemaItemMetadata for #struct_ident {

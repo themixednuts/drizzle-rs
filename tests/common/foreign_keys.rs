@@ -202,13 +202,11 @@ macro_rules! shared_foreign_key_suite {
 
             #[test]
             fn constraint_and_relation_markers() {
-                fn assert_has_pk<T: HasPrimaryKey>() {}
                 fn assert_has_fk<T: HasConstraint<ForeignKeyK>>() {}
                 fn assert_has_pk_constraint<T: HasConstraint<PrimaryKeyK>>() {}
                 fn assert_joinable<A: Joinable<B>, B>() {}
                 fn assert_relation<Child: Relation<Parent>, Parent>() {}
 
-                assert_has_pk::<CompositeFkParent>();
                 assert_has_pk_constraint::<CompositeFkParent>();
                 assert_has_fk::<FkCascade>();
                 assert_joinable::<FkCascade, FkParent>();

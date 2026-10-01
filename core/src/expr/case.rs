@@ -29,8 +29,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{BooleanLike, Compatible, DataType};
 
-use super::null::NullOr;
-use super::{AggOr, AggregateKind, Expr, Null, Nullability, SQLExpr};
+use super::{AggregateKind, Expr, Null, Nullability, SQLExpr};
 use crate::scope::ScopeOnly;
 
 // =============================================================================
@@ -80,14 +79,13 @@ impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
         V,
         R::SQLType,
         R::Nullable,
-        <C::Aggregate as AggOr<R::Aggregate>>::Output,
+        <C::Aggregate as AggregateKind>::Or<R::Aggregate>,
         (ScopeOnly<C::Sources>, R::Sources),
     >
     where
         C: Expr<'a, V>,
         R: Expr<'a, V>,
         C::SQLType: BooleanLike,
-        C::Aggregate: AggOr<R::Aggregate>,
     {
         let sql = self
             .sql
@@ -127,7 +125,7 @@ where
     /// Add another WHEN branch.
     ///
     /// The result type must be compatible with the type established by the
-    /// first branch. Nullability is accumulated via `NullOr`.
+    /// first branch. Nullability is accumulated via [`Nullability::Or`].
     #[allow(clippy::type_complexity)]
     pub fn when<C, R>(
         self,
@@ -137,8 +135,8 @@ where
         'a,
         V,
         T,
-        <N as NullOr<R::Nullable>>::Output,
-        <<A as AggOr<C::Aggregate>>::Output as AggOr<R::Aggregate>>::Output,
+        <N as Nullability>::Or<R::Nullable>,
+        <<A as AggregateKind>::Or<C::Aggregate> as AggregateKind>::Or<R::Aggregate>,
         (S, (ScopeOnly<C::Sources>, R::Sources)),
     >
     where
@@ -146,10 +144,9 @@ where
         R: Expr<'a, V>,
         C::SQLType: BooleanLike,
         T: Compatible<R::SQLType>,
-        N: NullOr<R::Nullable>,
+        N: Nullability,
         R::Nullable: Nullability,
-        A: AggOr<C::Aggregate>,
-        <A as AggOr<C::Aggregate>>::Output: AggOr<R::Aggregate>,
+        A: AggregateKind,
         C::Aggregate: AggregateKind,
         R::Aggregate: AggregateKind,
     {
@@ -187,16 +184,16 @@ where
         'a,
         V,
         T,
-        <N as NullOr<D::Nullable>>::Output,
-        <A as AggOr<D::Aggregate>>::Output,
+        <N as Nullability>::Or<D::Nullable>,
+        <A as AggregateKind>::Or<D::Aggregate>,
         (S, D::Sources),
     >
     where
         D: Expr<'a, V>,
         T: Compatible<D::SQLType>,
-        N: NullOr<D::Nullable>,
+        N: Nullability,
         D::Nullable: Nullability,
-        A: AggOr<D::Aggregate>,
+        A: AggregateKind,
         D::Aggregate: AggregateKind,
     {
         let sql = self

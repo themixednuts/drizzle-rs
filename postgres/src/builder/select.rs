@@ -714,7 +714,7 @@ where
     /// # Panics
     ///
     /// Panics when the projection contains duplicate output names. Name a
-    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to
     /// make each output unique.
     #[inline]
     #[must_use]

@@ -3,7 +3,7 @@ macro_rules! shared_derived_table_suite {
     ($dialect:ident, $table:ident, $schema:ident) => {
         mod shared_derived_tables {
             use super::*;
-            use drizzle::core::expr::{NamedExt as _, count, eq};
+            use drizzle::core::expr::{AliasExt as _, count, eq};
 
             tag!(SharedDerivedCount, "post_count");
             tag!(SharedDerivedNames, "shared_derived_names");

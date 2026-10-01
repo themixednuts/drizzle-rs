@@ -19,7 +19,7 @@ use crate::types::{DataType, Numeric, Temporal, Textual};
 use crate::{PostgresDialect, SQLiteDialect};
 use drizzle_types::postgres::types::{Timestamp as PgTimestamp, Timestamptz as PgTimestamptz};
 
-use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggregateKind, Expr, Nullability, SQLExpr, Scalar};
 
 #[diagnostic::on_unimplemented(
     message = "DATE_TRUNC output type is not defined for `{Self}` on this dialect",
@@ -239,7 +239,7 @@ pub fn strftime<'a, V, F, E>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
-    <F::Aggregate as AggOr<E::Aggregate>>::Output,
+    <F::Aggregate as AggregateKind>::Or<E::Aggregate>,
     (F::Sources, E::Sources),
 >
 where
@@ -249,7 +249,6 @@ where
     F::SQLType: Textual,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
-    F::Aggregate: AggOr<E::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "STRFTIME",
@@ -362,7 +361,7 @@ pub fn date_trunc<'a, V, P, E>(
     V,
     <E::SQLType as DateTruncPolicy<V::DialectMarker>>::Output,
     E::Nullable,
-    <P::Aggregate as AggOr<E::Aggregate>>::Output,
+    <P::Aggregate as AggregateKind>::Or<E::Aggregate>,
     (P::Sources, E::Sources),
 >
 where
@@ -372,7 +371,6 @@ where
     P::SQLType: Textual,
     E: Expr<'a, V>,
     E::SQLType: DateTruncPolicy<V::DialectMarker>,
-    P::Aggregate: AggOr<E::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "DATE_TRUNC",
@@ -449,8 +447,8 @@ pub fn age<'a, V, E1, E2>(
     'a,
     V,
     drizzle_types::postgres::types::Interval,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
     (E1::Sources, E2::Sources),
 >
 where
@@ -460,9 +458,7 @@ where
     E1::SQLType: Temporal,
     E2: Expr<'a, V>,
     E2::SQLType: Temporal,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "AGE",
@@ -507,7 +503,7 @@ pub fn to_char<'a, V, E, F>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<F::Aggregate>,
     (E::Sources, F::Sources),
 >
 where
@@ -517,7 +513,6 @@ where
     E::SQLType: Temporal,
     F: Expr<'a, V>,
     F::SQLType: Textual,
-    E::Aggregate: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TO_CHAR",
@@ -578,7 +573,7 @@ pub fn to_date<'a, V, E, F>(
     V,
     <V::DialectMarker as DialectTypes>::Date,
     E::Nullable,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<F::Aggregate>,
     (E::Sources, F::Sources),
 >
 where
@@ -588,7 +583,6 @@ where
     E::SQLType: Textual,
     F: Expr<'a, V>,
     F::SQLType: Textual,
-    E::Aggregate: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TO_DATE",
@@ -619,7 +613,7 @@ pub fn to_number<'a, V, E, F>(
     V,
     drizzle_types::postgres::types::Numeric,
     E::Nullable,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<F::Aggregate>,
     (E::Sources, F::Sources),
 >
 where
@@ -629,7 +623,6 @@ where
     E::SQLType: Textual,
     F: Expr<'a, V>,
     F::SQLType: Textual,
-    E::Aggregate: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TO_NUMBER",
@@ -665,8 +658,8 @@ pub fn date_bin<'a, V, S, E, O>(
     'a,
     V,
     E::SQLType,
-    <<S::Nullable as NullOr<E::Nullable>>::Output as NullOr<O::Nullable>>::Output,
-    <<S::Aggregate as AggOr<E::Aggregate>>::Output as AggOr<O::Aggregate>>::Output,
+    <<S::Nullable as Nullability>::Or<E::Nullable> as Nullability>::Or<O::Nullable>,
+    <<S::Aggregate as AggregateKind>::Or<E::Aggregate> as AggregateKind>::Or<O::Aggregate>,
     (S::Sources, (E::Sources, O::Sources)),
 >
 where
@@ -677,12 +670,8 @@ where
     E::SQLType: Temporal,
     O: Expr<'a, V>,
     O::SQLType: Temporal,
-    S::Nullable: NullOr<E::Nullable>,
     E::Nullable: Nullability,
-    <S::Nullable as NullOr<E::Nullable>>::Output: NullOr<O::Nullable>,
     O::Nullable: Nullability,
-    S::Aggregate: AggOr<E::Aggregate>,
-    <S::Aggregate as AggOr<E::Aggregate>>::Output: AggOr<O::Aggregate>,
     O::Aggregate: super::AggregateKind,
 {
     // The stride parameter binds as text; PostgreSQL resolves the overload at
@@ -722,8 +711,8 @@ pub fn make_date<'a, V, Y, M, D>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Date,
-    <<Y::Nullable as NullOr<M::Nullable>>::Output as NullOr<D::Nullable>>::Output,
-    <<Y::Aggregate as AggOr<M::Aggregate>>::Output as AggOr<D::Aggregate>>::Output,
+    <<Y::Nullable as Nullability>::Or<M::Nullable> as Nullability>::Or<D::Nullable>,
+    <<Y::Aggregate as AggregateKind>::Or<M::Aggregate> as AggregateKind>::Or<D::Aggregate>,
     (Y::Sources, (M::Sources, D::Sources)),
 >
 where
@@ -735,12 +724,8 @@ where
     M::SQLType: Numeric,
     D: Expr<'a, V>,
     D::SQLType: Numeric,
-    Y::Nullable: NullOr<M::Nullable>,
     M::Nullable: Nullability,
-    <Y::Nullable as NullOr<M::Nullable>>::Output: NullOr<D::Nullable>,
     D::Nullable: Nullability,
-    Y::Aggregate: AggOr<M::Aggregate>,
-    <Y::Aggregate as AggOr<M::Aggregate>>::Output: AggOr<D::Aggregate>,
     D::Aggregate: super::AggregateKind,
 {
     SQLExpr::new(SQL::func(
@@ -777,12 +762,8 @@ pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Timestamp,
-    <<<<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output as NullOr<
-        H::Nullable,
-    >>::Output as NullOr<<Mi::Nullable as NullOr<S::Nullable>>::Output>>::Output,
-    <<<<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output as AggOr<
-        H::Aggregate,
-    >>::Output as AggOr<<Mi::Aggregate as AggOr<S::Aggregate>>::Output>>::Output,
+    <<<<Y::Nullable as Nullability>::Or<Mo::Nullable> as Nullability>::Or<D::Nullable> as Nullability>::Or<H::Nullable,> as Nullability>::Or<<Mi::Nullable as Nullability>::Or<S::Nullable>>,
+    <<<<Y::Aggregate as AggregateKind>::Or<Mo::Aggregate> as AggregateKind>::Or<D::Aggregate> as AggregateKind>::Or<H::Aggregate,> as AggregateKind>::Or<<Mi::Aggregate as AggregateKind>::Or<S::Aggregate>>,
     (
         Y::Sources,
         (
@@ -806,26 +787,10 @@ where
     Mi::SQLType: Numeric,
     S: Expr<'a, V>,
     S::SQLType: Numeric,
-    Y::Nullable: NullOr<Mo::Nullable>,
-    <Y::Nullable as NullOr<Mo::Nullable>>::Output: NullOr<D::Nullable>,
-    <<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output:
-        NullOr<H::Nullable>,
-    Mi::Nullable: NullOr<S::Nullable>,
-    <<<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output as NullOr<
-        H::Nullable,
-    >>::Output: NullOr<<Mi::Nullable as NullOr<S::Nullable>>::Output>,
     H::Nullable: Nullability,
     D::Nullable: Nullability,
     Mo::Nullable: Nullability,
     S::Nullable: Nullability,
-    Y::Aggregate: AggOr<Mo::Aggregate>,
-    <Y::Aggregate as AggOr<Mo::Aggregate>>::Output: AggOr<D::Aggregate>,
-    <<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output:
-        AggOr<H::Aggregate>,
-    Mi::Aggregate: AggOr<S::Aggregate>,
-    <<<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output as AggOr<
-        H::Aggregate,
-    >>::Output: AggOr<<Mi::Aggregate as AggOr<S::Aggregate>>::Output>,
     H::Aggregate: super::AggregateKind,
     D::Aggregate: super::AggregateKind,
     S::Aggregate: super::AggregateKind,
@@ -942,8 +907,8 @@ pub fn timediff<'a, V, E1, E2>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
     (E1::Sources, E2::Sources),
 >
 where
@@ -953,9 +918,7 @@ where
     E1::SQLType: Temporal,
     E2: Expr<'a, V>,
     E2::SQLType: Temporal,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TIMEDIFF",

@@ -20,7 +20,7 @@
 use crate::prelude::*;
 use crate::values::PostgresValue;
 use drizzle_core::ToSQL;
-use drizzle_core::expr::{AggOr, Expr, ExprSources, NonNull, SQLExpr, Scalar};
+use drizzle_core::expr::{AggregateKind, Expr, ExprSources, NonNull, SQLExpr, Scalar};
 use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_types::postgres::types::{Any, Boolean};
@@ -106,12 +106,11 @@ pub fn array_contains<'a, L, R>(
     PostgresValue<'a>,
     Boolean,
     NonNull,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
 >
 where
     L: Expr<'a, PostgresValue<'a>>,
-    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, PostgresValue<'a>>,
     L::SQLType: ArrayOperand<R::SQLType>,
 {
@@ -146,12 +145,11 @@ pub fn array_contained<'a, L, R>(
     PostgresValue<'a>,
     Boolean,
     NonNull,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
 >
 where
     L: Expr<'a, PostgresValue<'a>>,
-    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, PostgresValue<'a>>,
     L::SQLType: ArrayOperand<R::SQLType>,
 {
@@ -185,12 +183,11 @@ pub fn array_overlaps<'a, L, R>(
     PostgresValue<'a>,
     Boolean,
     NonNull,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
 >
 where
     L: Expr<'a, PostgresValue<'a>>,
-    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, PostgresValue<'a>>,
     L::SQLType: ArrayOperand<R::SQLType>,
 {
@@ -228,14 +225,13 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         PostgresValue<'a>,
         Boolean,
         NonNull,
-        <Self::Aggregate as AggOr<R::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
         (
             Arg<Self::Nullable, Self::Sources>,
             Arg<R::Nullable, R::Sources>,
         ),
     >
     where
-        Self::Aggregate: AggOr<R::Aggregate>,
         R: Expr<'a, PostgresValue<'a>>,
         Self::SQLType: ArrayOperand<R::SQLType>,
     {
@@ -253,14 +249,13 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         PostgresValue<'a>,
         Boolean,
         NonNull,
-        <Self::Aggregate as AggOr<R::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
         (
             Arg<Self::Nullable, Self::Sources>,
             Arg<R::Nullable, R::Sources>,
         ),
     >
     where
-        Self::Aggregate: AggOr<R::Aggregate>,
         R: Expr<'a, PostgresValue<'a>>,
         Self::SQLType: ArrayOperand<R::SQLType>,
     {
@@ -278,14 +273,13 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         PostgresValue<'a>,
         Boolean,
         NonNull,
-        <Self::Aggregate as AggOr<R::Aggregate>>::Output,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
         (
             Arg<Self::Nullable, Self::Sources>,
             Arg<R::Nullable, R::Sources>,
         ),
     >
     where
-        Self::Aggregate: AggOr<R::Aggregate>,
         R: Expr<'a, PostgresValue<'a>>,
         Self::SQLType: ArrayOperand<R::SQLType>,
     {

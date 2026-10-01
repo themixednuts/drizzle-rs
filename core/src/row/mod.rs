@@ -68,52 +68,55 @@ pub use crate::scope::{
 ///
 /// ```
 /// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectTableFields, TableFields};
-/// use drizzle_core::scope::{ScopeEntry, ScopeHere};
+/// use drizzle_core::scope::{ScopeEntry, TableKey, name::{H1, H2}};
 /// use drizzle_core::expr::NonNull;
 /// use drizzle_core::row::MarkerScopeValidFor;
 ///
 /// struct Users;
 /// impl ScopeEntry for Users {
-///     type Key = Users;
+///     type Key = TableKey<Cons<H1, Nil>, Users>;
 ///     type Nullable = NonNull;
+///     type Sources = ();
 /// }
 /// struct Model;
 /// impl SelectTableFields for Model {
 ///     type TableFields = Cons<TableFields<Users, Cons<i32, Nil>>, Nil>;
 /// }
 ///
-/// fn needs_valid<M: MarkerScopeValidFor<((), (ScopeHere, ()))>>() {}
+/// fn needs_valid<M: MarkerScopeValidFor<P>, P>() {}
 ///
 /// fn main() {
-///     needs_valid::<Scoped<SelectAs<Model>, Cons<Users, Nil>>>();
+///     needs_valid::<Scoped<SelectAs<Model>, Cons<Users, Nil>>, _>();
 /// }
 /// ```
 ///
 /// ```compile_fail
 /// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectTableFields, TableFields};
-/// use drizzle_core::scope::{ScopeEntry, ScopeHere};
+/// use drizzle_core::scope::{ScopeEntry, TableKey, name::{H1, H2}};
 /// use drizzle_core::expr::NonNull;
 /// use drizzle_core::row::MarkerScopeValidFor;
 ///
 /// struct Users;
 /// struct Posts;
 /// impl ScopeEntry for Users {
-///     type Key = Users;
+///     type Key = TableKey<Cons<H1, Nil>, Users>;
 ///     type Nullable = NonNull;
+///     type Sources = ();
 /// }
 /// impl ScopeEntry for Posts {
-///     type Key = Posts;
+///     type Key = TableKey<Cons<H2, Nil>, Posts>;
 ///     type Nullable = NonNull;
+///     type Sources = ();
 /// }
 /// struct Model;
 /// impl SelectTableFields for Model {
 ///     type TableFields = Cons<TableFields<Users, Cons<i32, Nil>>, Nil>;
 /// }
 ///
-/// fn needs_valid<M: MarkerScopeValidFor<((), (ScopeHere, ()))>>() {}
+/// fn needs_valid<M: MarkerScopeValidFor<P>, P>() {}
 ///
 /// fn main() {
-///     needs_valid::<Scoped<SelectAs<Model>, Cons<Posts, Nil>>>();
+///     needs_valid::<Scoped<SelectAs<Model>, Cons<Posts, Nil>>, _>();
 /// }
 /// ```
 pub trait MarkerScopeValidFor<Proof> {}

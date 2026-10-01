@@ -517,18 +517,8 @@ pub(crate) mod private {
     pub trait Sealed {}
 }
 
-/// Maps a relational query runner to the detached prepared-query driver marker.
-///
-/// Implemented for `&Drizzle<Conn, _>` (mapping to `Conn`) and for each
-/// driver's transaction reference (mapping to that driver's connection type),
-/// so a query prepared inside a transaction produces the same
-/// [`DrizzlePreparedQuery`] — and therefore the same SQL shape and executors —
-/// as one prepared on the database handle.
-#[cfg(all(feature = "sqlite", feature = "query"))]
-pub trait RelationalPreparedDriver {
-    /// Connection type the prepared query will execute against.
-    type PreparedDriver;
-}
+#[cfg(feature = "query")]
+pub use crate::builder::RelationalPreparedDriver;
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
 impl<Conn, Schema> RelationalPreparedDriver for &Drizzle<Conn, Schema> {
@@ -1389,7 +1379,7 @@ where
     /// # Panics
     ///
     /// Panics when the projection contains duplicate output names. Name a
-    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to
     /// make each output unique.
     #[inline]
     #[must_use]

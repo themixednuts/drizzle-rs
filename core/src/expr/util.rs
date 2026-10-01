@@ -6,7 +6,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{Compatible, DataType, Textual};
 
-use super::{AggOr, AggregateKind, Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
 use crate::scope::ScopeOnly;
 
 // =============================================================================
@@ -75,21 +75,28 @@ where
     type Marker = crate::row::SelectCols<(Self,)>;
 }
 
-/// Extension trait providing `.alias()` method syntax on any expression.
-///
-/// This is a blanket impl on all `Sized` types. The `AliasedExpr` it creates
-/// is only useful when the inner type implements `ToSQL`/`Expr`/`ExprValueType`,
-/// so calling `.alias()` on non-SQL types is harmless but useless.
+/// Extension trait naming a selected expression: `.alias("name")` for a
+/// runtime name, `.named::<Tag>()` for a type-level name that derived tables
+/// can reference.
 ///
 /// For `SQL<'a, V>` values, the inherent `SQL::alias()` method takes
 /// precedence and returns `SQL<'a, V>` (no type preservation needed for raw SQL).
 pub trait AliasExt: Sized {
+    /// Renders this expression as `expr AS name`.
     fn alias(self, name: &'static str) -> AliasedExpr<Self> {
         AliasedExpr { expr: self, name }
     }
+
+    /// Names this expression with a type-level [`crate::Tag`].
+    fn named<Name: crate::Tag>(self) -> NamedExpr<Self, Name> {
+        NamedExpr {
+            expr: self,
+            name: core::marker::PhantomData,
+        }
+    }
 }
 
-impl<T: Sized> AliasExt for T {}
+impl<T: crate::row::ExprValueType> AliasExt for T {}
 
 /// Create an aliased expression.
 ///
@@ -194,19 +201,6 @@ where
 {
     type Identity = E::Identity;
 }
-
-/// Extension trait providing a static output name for derived projections.
-pub trait NamedExt: Sized {
-    /// Names this expression with a type-level [`crate::Tag`].
-    fn named<Name: crate::Tag>(self) -> NamedExpr<Self, Name> {
-        NamedExpr {
-            expr: self,
-            name: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<T: crate::row::ExprValueType> NamedExt for T {}
 
 // =============================================================================
 // TYPEOF
@@ -629,8 +623,8 @@ pub fn string_concat<'a, V, L, R>(
     'a,
     V,
     <V::DialectMarker as crate::dialect::DialectTypes>::Text,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Nullable as Nullability>::Or<R::Nullable>,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
     (L::Sources, R::Sources),
 >
 where
@@ -639,9 +633,7 @@ where
     R: Expr<'a, V>,
     L::SQLType: Textual,
     R::SQLType: Textual,
-    L::Nullable: NullOr<R::Nullable>,
     R::Nullable: Nullability,
-    L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,
 {
     super::concat(left, right)

@@ -8,7 +8,7 @@ use crate::sql::SQL;
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::DataType;
 
-use super::{Agg, AggToStatus, AggregateKind, Expr, NonNull, Null, Nullability, Scalar};
+use super::{Agg, AggregateKind, Expr, NonNull, Null, Nullability, Scalar};
 
 /// A SQL expression that carries type information.
 ///
@@ -216,7 +216,7 @@ where
     V: SQLParam,
     T: DataType,
     N: Nullability,
-    A: AggToStatus,
+    A: AggregateKind,
 {
     type Status = A::Status;
 }

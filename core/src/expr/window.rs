@@ -30,7 +30,6 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{BooleanLike, Compatible, DataType};
 
-use super::null::NullOr;
 use super::{Agg, Expr, ExprSources, NonNull, Null, Nullability, SQLExpr, Scalar};
 use crate::dialect::DialectTypes;
 use crate::scope::ScopeOnly;
@@ -390,7 +389,7 @@ pub fn lag_with_default<'a, V, E, D>(
     'a,
     V,
     E::SQLType,
-    <E::Nullable as NullOr<D::Nullable>>::Output,
+    <E::Nullable as Nullability>::Or<D::Nullable>,
     (E::Sources, D::Sources),
 >
 where
@@ -398,7 +397,6 @@ where
     E: Expr<'a, V>,
     D: Expr<'a, V>,
     E::SQLType: Compatible<D::SQLType>,
-    E::Nullable: NullOr<D::Nullable>,
     D::Nullable: Nullability,
 {
     let args = expr
@@ -433,7 +431,7 @@ pub fn lead_with_default<'a, V, E, D>(
     'a,
     V,
     E::SQLType,
-    <E::Nullable as NullOr<D::Nullable>>::Output,
+    <E::Nullable as Nullability>::Or<D::Nullable>,
     (E::Sources, D::Sources),
 >
 where
@@ -441,7 +439,6 @@ where
     E: Expr<'a, V>,
     D: Expr<'a, V>,
     E::SQLType: Compatible<D::SQLType>,
-    E::Nullable: NullOr<D::Nullable>,
     D::Nullable: Nullability,
 {
     let args = expr

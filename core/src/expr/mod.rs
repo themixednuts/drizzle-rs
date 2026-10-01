@@ -83,6 +83,18 @@ pub trait Nullability: private::Sealed + Copy + Default + 'static {
     /// A decoded value of type `T` under this nullability: `T` for
     /// [`NonNull`], [`MaybeNull<T>`](crate::row::MaybeNull) for [`Null`].
     type Decoded<T>;
+
+    /// NULL propagation: nullable when either side is (`a + b`, `f(a, b)`).
+    ///
+    /// | Self | Rhs | Or |
+    /// |------|-----|----|
+    /// | NonNull | NonNull | NonNull |
+    /// | NonNull | Null | Null |
+    /// | Null | _ | Null |
+    type Or<Rhs: Nullability>: Nullability;
+
+    /// NULL absorption: nullable only when both sides are (`COALESCE(a, b)`).
+    type And<Rhs: Nullability>: Nullability;
 }
 
 /// Marker indicating an expression cannot be NULL.
@@ -97,9 +109,13 @@ impl private::Sealed for NonNull {}
 impl private::Sealed for Null {}
 impl Nullability for NonNull {
     type Decoded<T> = T;
+    type Or<Rhs: Nullability> = Rhs;
+    type And<Rhs: Nullability> = Self;
 }
 impl Nullability for Null {
     type Decoded<T> = crate::row::MaybeNull<T>;
+    type Or<Rhs: Nullability> = Self;
+    type And<Rhs: Nullability> = Rhs;
 }
 
 /// Compile-time relation between a column's nullability and an assigned value.
@@ -127,7 +143,20 @@ impl AcceptsNullability<Null> for Null {}
     message = "`{Self}` is not a valid aggregate marker",
     label = "expected `Scalar` or `Agg`"
 )]
-pub trait AggregateKind: private::Sealed + Copy + Default + 'static {}
+pub trait AggregateKind: private::Sealed + Copy + Default + 'static {
+    /// Aggregate propagation: an expression over any aggregate is itself
+    /// aggregate (`SUM(x) + 5`).
+    ///
+    /// | Self | Rhs | Or |
+    /// |------|-----|----|
+    /// | Scalar | Scalar | Scalar |
+    /// | Scalar | Agg | Agg |
+    /// | Agg | _ | Agg |
+    type Or<Rhs: AggregateKind>: AggregateKind;
+
+    /// The SELECT-list status this kind starts from.
+    type Status;
+}
 
 /// Marker indicating a scalar (non-aggregate) expression.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -139,39 +168,13 @@ pub struct Agg;
 
 impl private::Sealed for Scalar {}
 impl private::Sealed for Agg {}
-impl AggregateKind for Scalar {}
-impl AggregateKind for Agg {}
-
-/// Combine aggregate kinds: if either input is Agg, output is Agg.
-///
-/// This follows SQL's aggregate propagation semantics: an expression
-/// derived from any aggregate sub-expression is itself aggregate
-/// (e.g. `SUM(x) + 5` is aggregate, not scalar).
-///
-/// # Truth Table
-///
-/// | Left | Right | Output |
-/// |------|-------|--------|
-/// | Scalar | Scalar | Scalar |
-/// | Scalar | Agg | Agg |
-/// | Agg | Scalar | Agg |
-/// | Agg | Agg | Agg |
-pub trait AggOr<Rhs: AggregateKind>: AggregateKind {
-    /// The resulting aggregate kind.
-    type Output: AggregateKind;
+impl AggregateKind for Scalar {
+    type Or<Rhs: AggregateKind> = Rhs;
+    type Status = AllScalar;
 }
-
-impl AggOr<Self> for Scalar {
-    type Output = Self;
-}
-impl AggOr<Agg> for Scalar {
-    type Output = Agg;
-}
-impl AggOr<Scalar> for Agg {
-    type Output = Self;
-}
-impl AggOr<Self> for Agg {
-    type Output = Self;
+impl AggregateKind for Agg {
+    type Or<Rhs: AggregateKind> = Self;
+    type Status = AllAgg;
 }
 
 // =============================================================================
@@ -189,19 +192,6 @@ pub struct AllAgg;
 /// Status indicating a mix of scalar and aggregate expressions.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MixedAgg;
-
-/// Convert an `AggregateKind` to an initial `AggStatus`.
-pub trait AggToStatus: AggregateKind {
-    type Status;
-}
-
-impl AggToStatus for Scalar {
-    type Status = AllScalar;
-}
-
-impl AggToStatus for Agg {
-    type Status = AllAgg;
-}
 
 /// Combine two aggregate statuses.
 ///

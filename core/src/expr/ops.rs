@@ -10,7 +10,7 @@ use crate::sql::{SQL, SQLChunk, Token};
 use crate::traits::SQLParam;
 use crate::types::{AddOp, ArithmeticOutput, DivOp, MulOp, NegOutput, Numeric, RemOp, SubOp};
 
-use super::{AggOr, AggregateKind, Expr, Nullability, ResolveArithmeticNullability, SQLExpr};
+use super::{AggregateKind, Expr, Nullability, ResolveArithmeticNullability, SQLExpr};
 
 type ArithmeticNullable<'a, V, T, N, Rhs, Op> = <<T as ArithmeticOutput<
     <Rhs as Expr<'a, V>>::SQLType,
@@ -252,7 +252,7 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, AddOp>,
     N: Nullability,
-    A: AggOr<Rhs::Aggregate>,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
@@ -264,7 +264,7 @@ where
         V,
         <T as ArithmeticOutput<Rhs::SQLType, AddOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, AddOp>,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
         (S, Rhs::Sources),
     >;
 
@@ -282,7 +282,7 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, SubOp>,
     N: Nullability,
-    A: AggOr<Rhs::Aggregate>,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
@@ -294,7 +294,7 @@ where
         V,
         <T as ArithmeticOutput<Rhs::SQLType, SubOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, SubOp>,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
         (S, Rhs::Sources),
     >;
 
@@ -312,7 +312,7 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, MulOp>,
     N: Nullability,
-    A: AggOr<Rhs::Aggregate>,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
@@ -324,7 +324,7 @@ where
         V,
         <T as ArithmeticOutput<Rhs::SQLType, MulOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, MulOp>,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
         (S, Rhs::Sources),
     >;
 
@@ -342,7 +342,7 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, DivOp>,
     N: Nullability,
-    A: AggOr<Rhs::Aggregate>,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
@@ -354,7 +354,7 @@ where
         V,
         <T as ArithmeticOutput<Rhs::SQLType, DivOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, DivOp>,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
         (S, Rhs::Sources),
     >;
 
@@ -372,7 +372,7 @@ where
     V: SQLParam + 'a,
     T: ArithmeticOutput<Rhs::SQLType, RemOp>,
     N: Nullability,
-    A: AggOr<Rhs::Aggregate>,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
@@ -384,7 +384,7 @@ where
         V,
         <T as ArithmeticOutput<Rhs::SQLType, RemOp>>::Output,
         ArithmeticNullable<'a, V, T, N, Rhs, RemOp>,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
         (S, Rhs::Sources),
     >;
 

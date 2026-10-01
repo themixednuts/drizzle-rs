@@ -32,7 +32,7 @@
 
 use core::marker::PhantomData;
 
-use crate::expr::{NonNull, Null, NullAnd, NullOr, Nullability};
+use crate::expr::{NonNull, Null, Nullability};
 use crate::{Cons, Nil};
 
 /// Bound-free `Clone`/`Copy`/`Default`/`Debug` for type-level markers, so user
@@ -421,18 +421,16 @@ impl<Scope, A, B, ProofA, ProofB> SourcesIn<Scope, (ProofA, ProofB)> for (A, B)
 where
     A: SourcesIn<Scope, ProofA>,
     B: SourcesIn<Scope, ProofB>,
-    A::Nullable: NullOr<B::Nullable>,
 {
-    type Nullable = <A::Nullable as NullOr<B::Nullable>>::Output;
+    type Nullable = <A::Nullable as Nullability>::Or<B::Nullable>;
 }
 
 impl<Scope, A, B, ProofA, ProofB> SourcesIn<Scope, (ProofA, ProofB)> for Coalesce<A, B>
 where
     A: SourcesIn<Scope, ProofA>,
     B: SourcesIn<Scope, ProofB>,
-    A::Nullable: NullAnd<B::Nullable>,
 {
-    type Nullable = <A::Nullable as NullAnd<B::Nullable>>::Output;
+    type Nullable = <A::Nullable as Nullability>::And<B::Nullable>;
 }
 
 /// Sources read by a clause of another query (or an earlier join step),

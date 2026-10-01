@@ -8,7 +8,7 @@ use crate::sql::SQL;
 use crate::traits::SQLParam;
 use crate::types::Textual;
 
-use super::{AggOr, AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
+use super::{AggregateKind, Expr, NonNull, Nullability, SQLExpr, Scalar};
 use crate::scope::ScopeOnly;
 
 use crate::PostgresDialect;
@@ -101,8 +101,8 @@ pub fn setval<'a, V, E, N>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::BigInt,
-    <E::Nullable as super::NullOr<N::Nullable>>::Output,
-    <E::Aggregate as AggOr<N::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<N::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<N::Aggregate>,
     (E::Sources, N::Sources),
 >
 where
@@ -112,9 +112,7 @@ where
     E::SQLType: Textual,
     N: Expr<'a, V>,
     N::SQLType: crate::types::Integral,
-    E::Nullable: super::NullOr<N::Nullable>,
     N::Nullable: Nullability,
-    E::Aggregate: AggOr<N::Aggregate>,
     N::Aggregate: AggregateKind,
 {
     SQLExpr::new(SQL::func(

@@ -26,7 +26,7 @@ use drizzle_types::sqlite::types::{
     Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
 };
 
-use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggregateKind, Expr, Nullability, SQLExpr, Scalar};
 
 /// Math functions that are optional on SQLite.
 ///
@@ -278,8 +278,8 @@ pub fn round_to<'a, V, E, P>(
     'a,
     V,
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
-    <E::Nullable as NullOr<P::Nullable>>::Output,
-    <E::Aggregate as AggOr<P::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<P::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<P::Aggregate>,
     (E::Sources, P::Sources),
 >
 where
@@ -288,9 +288,7 @@ where
     E::SQLType: RoundingPolicy<V::DialectMarker>,
     P: Expr<'a, V>,
     P::SQLType: Integral,
-    E::Nullable: NullOr<P::Nullable>,
     P::Nullable: Nullability,
-    E::Aggregate: AggOr<P::Aggregate>,
 {
     SQLExpr::new(
         <E::SQLType as RoundingPolicy<V::DialectMarker>>::coerce_result(SQL::func(
@@ -480,8 +478,8 @@ pub fn power<'a, V, E1, E2>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Double,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
     (E1::Sources, E2::Sources),
 >
 where
@@ -491,9 +489,7 @@ where
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
     E2::SQLType: Numeric,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(pg_double(SQL::func(
         "POWER",
@@ -626,9 +622,9 @@ pub fn log<'a, V, E1, E2>(
     V,
     <V::DialectMarker as DialectTypes>::Double,
     <V::DialectMarker as DialectTypes>::DomainNullable<
-        <E1::Nullable as NullOr<E2::Nullable>>::Output,
+        <E1::Nullable as Nullability>::Or<E2::Nullable>,
     >,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
     (E1::Sources, E2::Sources),
 >
 where
@@ -638,9 +634,7 @@ where
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
     E2::SQLType: Numeric,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     let (base, value) = (base.into_sql(), value.into_sql());
     // PostgreSQL only defines the two-argument LOG for NUMERIC operands.
@@ -709,8 +703,8 @@ pub fn mod_<'a, V, E1, E2>(
     'a,
     V,
     E1::SQLType,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
     (E1::Sources, E2::Sources),
 >
 where
@@ -719,9 +713,7 @@ where
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
     E2::SQLType: Numeric,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(super::ops::binary_operator_sql(
         dividend.into_expr_sql(),

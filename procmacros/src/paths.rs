@@ -121,14 +121,6 @@ pub mod core {
         quote!(drizzle::core::NoForeignKey)
     }
 
-    pub fn sql_primary_key() -> TokenStream {
-        quote!(drizzle::core::SQLPrimaryKey)
-    }
-
-    pub fn no_primary_key() -> TokenStream {
-        quote!(drizzle::core::NoPrimaryKey)
-    }
-
     pub fn sql_constraint() -> TokenStream {
         quote!(drizzle::core::SQLConstraint)
     }
@@ -155,10 +147,6 @@ pub mod core {
 
     pub fn check_kind() -> TokenStream {
         quote!(drizzle::core::CheckK)
-    }
-
-    pub fn has_primary_key() -> TokenStream {
-        quote!(drizzle::core::HasPrimaryKey)
     }
 
     pub fn has_constraint() -> TokenStream {

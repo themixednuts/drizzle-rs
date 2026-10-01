@@ -81,16 +81,8 @@ impl<Driver, Table, Relations, Columns> core::fmt::Display
     }
 }
 
-/// Maps an attached MySQL runner to the adapter that executes detached queries.
-///
-/// Transaction references intentionally map to the same adapter marker as the
-/// database handle. Preparing only renders and detaches the query; execution
-/// later receives an upstream connection explicitly, matching the established
-/// SQLite and PostgreSQL prepared-query lifecycle.
 #[cfg(feature = "query")]
-pub trait RelationalPreparedDriver {
-    type PreparedDriver;
-}
+pub use crate::builder::RelationalPreparedDriver;
 
 #[cfg(feature = "query")]
 pub(crate) fn render_relational_all<'q, Table, Relations, Clauses>(
@@ -1534,7 +1526,7 @@ where
     /// # Panics
     ///
     /// Panics when the projection contains duplicate output names. Name a
-    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to
     /// make each output unique.
     #[must_use]
     pub fn alias<Tag, AggProof>(

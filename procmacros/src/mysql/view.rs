@@ -328,7 +328,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     let sql_schema = core_paths::sql_schema();
     let sql_view = core_paths::sql_view();
     let sql_view_info = core_paths::sql_view_info();
-    let no_primary_key = core_paths::no_primary_key();
+    let no_primary_key = core_paths::no_constraint();
     let no_constraint = core_paths::no_constraint();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();

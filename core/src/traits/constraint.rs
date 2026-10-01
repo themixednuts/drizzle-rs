@@ -24,21 +24,21 @@ impl SQLConstraint for NoConstraint {
     type Columns = ();
 }
 
+/// Constraint kind: primary key (`#[column(primary)]` or a composite key).
 pub struct PrimaryKeyK;
+/// Constraint kind: foreign key (`#[column(references = ...)]`).
 pub struct ForeignKeyK;
+/// Constraint kind: unique (`#[column(unique)]` or a unique constraint).
 pub struct UniqueK;
+/// Constraint kind: check constraint.
 pub struct CheckK;
 
-#[diagnostic::on_unimplemented(
-    message = "table `{Self}` does not have a primary key",
-    label = "add `#[column(primary)]` to a column in this table",
-    note = "tables used in this context must have a primary key defined"
-)]
-pub trait HasPrimaryKey {}
-
+/// Table `Self` declares a constraint of kind `Kind` ([`PrimaryKeyK`],
+/// [`ForeignKeyK`], [`UniqueK`], [`CheckK`]).
 #[diagnostic::on_unimplemented(
     message = "table `{Self}` does not have a `{Kind}` constraint",
-    label = "this table is missing the required constraint"
+    label = "this table is missing the required constraint",
+    note = "declare it on the table, e.g. `#[column(primary)]` for `PrimaryKeyK`"
 )]
 pub trait HasConstraint<Kind> {}
 
