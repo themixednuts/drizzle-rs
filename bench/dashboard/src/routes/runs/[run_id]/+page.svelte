@@ -280,9 +280,7 @@
 
 			<div class="mt-6 grid gap-7 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
 				<div>
-					<div class="text-micro text-muted-foreground mb-2 font-mono">
-						latency distribution
-					</div>
+					<div class="text-micro text-muted-foreground mb-2 font-mono">latency distribution</div>
 					<LatencyBars latency={p.latency} />
 				</div>
 

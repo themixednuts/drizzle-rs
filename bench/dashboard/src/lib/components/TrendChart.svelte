@@ -28,9 +28,7 @@
 
 <figure class="mb-6">
 	<!-- Direct label on every chart: hue reinforces which metric this is, it never carries it alone. -->
-	<figcaption
-		class="text-label text-muted-foreground mb-2 flex items-baseline gap-2 font-mono"
-	>
+	<figcaption class="text-label text-muted-foreground mb-2 flex items-baseline gap-2 font-mono">
 		<span class="size-2 shrink-0 rounded-full" style="background: var(--metric-{metric})"></span>
 		{label}
 	</figcaption>

@@ -36,9 +36,7 @@
 {/snippet}
 
 <div class="mt-1">
-	<div
-		class="text-micro text-muted-foreground flex justify-between gap-3 font-mono"
-	>
+	<div class="text-micro text-muted-foreground flex justify-between gap-3 font-mono">
 		<span>{chart.label}</span>
 		<span>latest {chart.valueText} / {chart.sampleText}</span>
 	</div>

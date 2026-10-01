@@ -7,7 +7,7 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "vp dev",
 		"build": "vp build",
 		"preview": "vp preview",
 		"check": "vp check && svelte-check --tsconfig ./tsconfig.json",
@@ -19,8 +19,8 @@
 		"api:types": "openapi-typescript ../../docs/benchmark-spec/openapi/bench-api.v1.yaml -o src/lib/api-types.d.ts"
 	},
 	"dependencies": {
-		"effect": "^4.0.0-beta.102",
-		"valibot": "^1.4.2"
+		"effect": "^4.0.0",
+		"valibot": "^1.5.0"
 	},
 	"devDependencies": {
 		"@fontsource-variable/archivo": "^5.3.0",
@@ -29,31 +29,34 @@
 		"@fontsource-variable/oxanium": "^5.3.0",
 		"@fontsource-variable/source-serif-4": "^5.3.0",
 		"@fontsource-variable/spline-sans-mono": "^5.3.0",
-		"@internationalized/date": "^3.12.0",
-		"@lucide/svelte": "^1.28.0",
+		"@internationalized/date": "^3.12.4",
+		"@lucide/svelte": "^1.49.0",
 		"@opentelemetry/api": "^1.9.1",
-		"@sveltejs/adapter-cloudflare": "8.0.0-next.6",
-		"@sveltejs/kit": "3.0.0-next.23",
-		"@sveltejs/vite-plugin-svelte": "^7.3.0",
+		"@sveltejs/adapter-cloudflare": "8.0.0-next.8",
+		"@sveltejs/kit": "3.0.0-next.31",
+		"@sveltejs/vite-plugin-svelte": "^7.3.1",
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/d3-scale": "^4.0.9",
-		"@types/d3-shape": "^3.1.8",
-		"@types/node": "^26.1.2",
-		"bits-ui": "^2.16.3",
+		"@types/d3-shape": "^3.2.0",
+		"@types/node": "^26.6.3",
+		"bits-ui": "^2.19.4",
 		"clsx": "^2.1.1",
-		"layerchart": "^2.0.0",
+		"layerchart": "^2.5.0",
 		"openapi-typescript": "^7.13.0",
-		"shadcn-svelte": "^1.4.2",
-		"svelte": "^5.56.9",
-		"svelte-check": "^4.7.4",
-		"tailwind-merge": "^3.6.0",
-		"tailwind-variants": "^3.3.0",
+		"shadcn-svelte": "^1.7.0",
+		"svelte": "^5.57.1",
+		"svelte-check": "^4.7.6",
+		"tailwind-merge": "^3.7.0",
+		"tailwind-variants": "^3.3.1",
 		"tailwindcss": "^4.3.3",
 		"tw-animate-css": "^1.4.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.2.0",
-		"vite-plus": "^0.2.6",
-		"wrangler": "^4.116.0"
+		"vite": "npm:@voidzero-dev/vite-plus-core@^1.0.0",
+		"vite-plus": "^1.0.0",
+		"wrangler": "^4.145.0"
+	},
+	"overrides": {
+		"vite": "npm:@voidzero-dev/vite-plus-core@^1.0.0"
 	},
 	"packageManager": "bun@1.3.9"
 }

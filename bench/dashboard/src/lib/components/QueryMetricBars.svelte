@@ -16,9 +16,7 @@
 
 <div class="mt-3">
 	<Separator />
-	<div
-		class="text-micro text-muted-foreground mt-3 mb-2 flex justify-between gap-3 font-mono"
-	>
+	<div class="text-micro text-muted-foreground mt-3 mb-2 flex justify-between gap-3 font-mono">
 		<span>{heading}</span>
 		<span>{chart.sampleText}</span>
 	</div>

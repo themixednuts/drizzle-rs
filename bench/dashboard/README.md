@@ -60,16 +60,18 @@ Four rough edges worth knowing:
   active nav. The SSR HTML is correct, so nothing looks wrong until you click something.
   `vite.config.ts` prints a warning naming the correct path. Production builds are unaffected —
   everything is bundled into one entry.
-- **`bun run dev` uses plain `vite`, not `vp`.** Kit 3's dev server asserts
-  `vite.isRunnableDevEnvironment(server.environments.ssr)` against the standalone `vite` package,
-  while Vite+ builds that environment from its own bundled copy — two module instances, so the
-  check always fails with "The configured Vite SSR environment must be a RunnableDevEnvironment".
-  `vp` still runs fmt, lint, typecheck and build. This is also why the config cannot simply set
-  `root` to the corrected casing: overriding `root` makes that same assertion fail.
+- **`vite` is overridden to Vite+'s core.** `package.json` maps `vite` (both the devDependency and
+  an `overrides` entry) to `npm:@voidzero-dev/vite-plus-core`, so Kit, the Svelte plugin, Tailwind
+  and Vite+ all load one copy of Vite. With two copies, Kit 3's dev server asserts
+  `vite.isRunnableDevEnvironment(server.environments.ssr)` against the standalone package while
+  Vite+ builds that environment from its own — the check always fails with "The configured Vite
+  SSR environment must be a RunnableDevEnvironment" — and from Vite+ 1.0 `vite.config.ts` no longer
+  typechecks either (plugin types from the two copies blow TypeScript's stack depth). With the
+  override `bun run dev` is `vp dev`, and there is no standalone `vite` binary any more.
 - **`#lib` needs the `alias` option, deprecated as it is.** Kit derived the generated tsconfig's
-  `paths` from `package.json`'s `imports` field up to `3.0.0-next.13`; by `next.23` `get_paths`
-  reads only `alias`. Without it `svelte-check` cannot resolve a single `#lib/...` import, while
-  Vite and Node resolve them fine. Kit warns that `alias` is deprecated in favour of the subpath
+  `paths` from `package.json`'s `imports` field up to `3.0.0-next.13`; from `next.23` (still true
+  at `next.31`) `get_paths` reads only `alias`. Without it `svelte-check` cannot resolve a single
+  `#lib/...` import, while Vite and Node resolve them fine. Kit warns that `alias` is deprecated in favour of the subpath
   imports we already declare; the two directions disagree today and this is the side that
   typechecks. Retry dropping it on a later `next.*`.
 - **`svelte-kit sync` warns `"paths" was overwritten. Imports from "#lib" may not typecheck`.** It
