@@ -422,7 +422,7 @@ impl ServerHandle {
                 }
             }
         }
-        for jh in self.workers {
+        for jh in std::mem::take(&mut self.workers) {
             let res = tokio::task::spawn_blocking(|| jh.join())
                 .await
                 .map_err(|err| Fail::new(Code::RunFail, format!("worker join panicked: {err}")))?;
@@ -434,6 +434,18 @@ impl ServerHandle {
         }
         self.temp_dirs.clear();
         Ok(())
+    }
+}
+
+/// An external target still attached here was never shut down: a health check,
+/// parity panic or other early `?` returned past `shutdown()`. The child runs in
+/// its own process group and outlives a dropped `Child`, so without this it kept
+/// its cores and database connections while the next family was measured.
+impl Drop for ServerHandle {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.external_child.take() {
+            crate::proc::kill_tree(&mut child);
+        }
     }
 }
 
