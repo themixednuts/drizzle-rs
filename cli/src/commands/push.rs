@@ -1,8 +1,6 @@
-//! Push command implementation
+//! `drizzle push`: applies schema changes directly, without migration files.
 //!
-//! Pushes schema changes directly to the database without creating migration files.
-//! Note: This command requires database connectivity which depends on
-//! driver-specific features being enabled.
+//! Needs a database driver feature enabled at build time.
 
 use crate::commands::overrides::{self, ConnectionOverrides, FilterArgs};
 use crate::config::{Casing, Config, Dialect};

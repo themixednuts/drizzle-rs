@@ -24,7 +24,7 @@ pub use drizzle_core::builder::{
 // OnConflictBuilder
 //------------------------------------------------------------------------------
 
-/// Intermediate builder for typed ON CONFLICT clause construction (`PostgreSQL`).
+/// The `ON CONFLICT` target of an `INSERT`, waiting for its action.
 ///
 /// Created by [`InsertBuilder::on_conflict()`] or
 /// [`InsertBuilder::on_conflict_on_constraint()`].
@@ -76,16 +76,88 @@ impl<'a, S, T> OnConflictOutput<'a, PostgresValue<'a>, S, T> for PostgresOnConfl
 // InsertBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds an INSERT query specifically for `PostgreSQL`.
+/// A `PostgreSQL` `INSERT` being built: a [`QueryBuilder`](super::QueryBuilder)
+/// in one of the `Insert*` states.
 ///
-/// Provides a type-safe, fluent API for constructing INSERT statements
-/// with support for typed conflict resolution, batch inserts, and returning clauses.
+/// Rows come from `.values(...)` (the table's generated `Insert*` model) or
+/// from `.select(...)`. Then add `ON CONFLICT` handling and `RETURNING` as
+/// needed. `State` allows only these steps, in this order.
 ///
-/// ## Type Parameters
+/// # Examples
 ///
-/// - `Schema`: The database schema type, ensuring only valid tables can be referenced
-/// - `State`: The current builder state, enforcing proper query construction order
-/// - `Table`: The table being inserted into
+/// ```rust
+/// # extern crate self as drizzle;
+/// # mod _drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod postgres {
+/// #         pub mod values { pub use drizzle_postgres::values::*; }
+/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+/// #         pub mod common { pub use drizzle_postgres::common::*; }
+/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+/// #         pub mod types { pub use drizzle_postgres::types::*; }
+/// #         #[cfg(feature = "aws-data-api")]
+/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
+/// #         pub struct Row;
+/// #         impl Row {
+/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #         }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+/// #             pub use drizzle_postgres::attrs::*;
+/// #             pub use drizzle_postgres::common::PostgresSchemaType;
+/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// # pub use _drizzle::*;
+/// # pub use const_format;
+/// # fn main() {
+/// # use drizzle::postgres::prelude::*;
+/// # use drizzle::postgres::builder::QueryBuilder;
+/// # #[PostgresTable(name = "users")]
+/// # struct User {
+/// #     #[column(serial, primary)]
+/// #     id: i32,
+/// #     name: String,
+/// #     email: Option<String>,
+/// # }
+/// # #[PostgresTable(name = "posts")]
+/// # struct Post {
+/// #     #[column(serial, primary)]
+/// #     id: i32,
+/// #     #[column(references = User::id)]
+/// #     author_id: i32,
+/// #     title: String,
+/// # }
+/// # #[derive(PostgresSchema)]
+/// # struct Schema {
+/// #     user: User,
+/// #     post: Post,
+/// # }
+/// # let db = QueryBuilder::new::<Schema>();
+/// # let Schema { user, post } = Schema::new();
+/// let query = db
+///     .insert(user)
+///     .values([InsertUser::new("Alice"), InsertUser::new("Bob")])
+///     .on_conflict_do_nothing()
+///     .returning(user.id);
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"INSERT INTO "users" ("name") VALUES ($1), ($2) ON CONFLICT DO NOTHING RETURNING "users"."id""#
+/// );
+/// # }
+/// ```
 pub type InsertBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
 
@@ -114,7 +186,76 @@ impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
 where
     Table: PostgresTable<'a>,
 {
-    /// Specifies a single row to insert. Shorthand for `.values([row])`.
+    /// Inserts one row. Shorthand for `.values([row])`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate self as drizzle;
+    /// # mod _drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod postgres {
+    /// #         pub mod values { pub use drizzle_postgres::values::*; }
+    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+    /// #         pub mod common { pub use drizzle_postgres::common::*; }
+    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+    /// #         pub mod types { pub use drizzle_postgres::types::*; }
+    /// #         #[cfg(feature = "aws-data-api")]
+    /// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
+    /// #         pub struct Row;
+    /// #         impl Row {
+    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #         }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+    /// #             pub use drizzle_postgres::attrs::*;
+    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # pub use _drizzle::*;
+    /// # pub use const_format;
+    /// # fn main() {
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::builder::QueryBuilder;
+    /// # #[PostgresTable(name = "users")]
+    /// # struct User {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// #     email: Option<String>,
+    /// # }
+    /// # #[PostgresTable(name = "posts")]
+    /// # struct Post {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     #[column(references = User::id)]
+    /// #     author_id: i32,
+    /// #     title: String,
+    /// # }
+    /// # #[derive(PostgresSchema)]
+    /// # struct Schema {
+    /// #     user: User,
+    /// #     post: Post,
+    /// # }
+    /// # let db = QueryBuilder::new::<Schema>();
+    /// # let Schema { user, post } = Schema::new();
+    /// let query = db.insert(user).value(InsertUser::new("Alice"));
+    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES ($1)"#);
+    /// # }
+    /// ```
     #[inline]
     pub fn value<T>(
         self,
@@ -123,7 +264,84 @@ where
         self.values([value])
     }
 
-    /// Specifies multiple rows to insert.
+    /// Inserts the given rows, built with the table's `Insert*` model.
+    ///
+    /// All rows must set the same columns, so they have the same model type.
+    /// Columns not set use their database default.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate self as drizzle;
+    /// # mod _drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod postgres {
+    /// #         pub mod values { pub use drizzle_postgres::values::*; }
+    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+    /// #         pub mod common { pub use drizzle_postgres::common::*; }
+    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+    /// #         pub mod types { pub use drizzle_postgres::types::*; }
+    /// #         #[cfg(feature = "aws-data-api")]
+    /// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
+    /// #         pub struct Row;
+    /// #         impl Row {
+    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #         }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+    /// #             pub use drizzle_postgres::attrs::*;
+    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # pub use _drizzle::*;
+    /// # pub use const_format;
+    /// # fn main() {
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::builder::QueryBuilder;
+    /// # #[PostgresTable(name = "users")]
+    /// # struct User {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// #     email: Option<String>,
+    /// # }
+    /// # #[PostgresTable(name = "posts")]
+    /// # struct Post {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     #[column(references = User::id)]
+    /// #     author_id: i32,
+    /// #     title: String,
+    /// # }
+    /// # #[derive(PostgresSchema)]
+    /// # struct Schema {
+    /// #     user: User,
+    /// #     post: Post,
+    /// # }
+    /// # let db = QueryBuilder::new::<Schema>();
+    /// # let Schema { user, post } = Schema::new();
+    /// let query = db
+    ///     .insert(user)
+    ///     .values([InsertUser::new("Alice"), InsertUser::new("Bob")]);
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "users" ("name") VALUES ($1), ($2)"#
+    /// );
+    /// # }
+    /// ```
     #[inline]
     pub fn values<I, T>(self, values: I) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where
@@ -141,7 +359,86 @@ where
         }
     }
 
-    /// Chooses an explicit ordered target-column list for an INSERT SELECT.
+    /// Sets the target columns, in order, for `INSERT ... SELECT`.
+    ///
+    /// The list must include every required column (non-null without a
+    /// default). Continue with [`select`](Self::select), whose columns must
+    /// match these in number, order and type.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate self as drizzle;
+    /// # mod _drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod postgres {
+    /// #         pub mod values { pub use drizzle_postgres::values::*; }
+    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+    /// #         pub mod common { pub use drizzle_postgres::common::*; }
+    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+    /// #         pub mod types { pub use drizzle_postgres::types::*; }
+    /// #         #[cfg(feature = "aws-data-api")]
+    /// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
+    /// #         pub struct Row;
+    /// #         impl Row {
+    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #         }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+    /// #             pub use drizzle_postgres::attrs::*;
+    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # pub use _drizzle::*;
+    /// # pub use const_format;
+    /// # fn main() {
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::builder::QueryBuilder;
+    /// # #[PostgresTable(name = "users")]
+    /// # struct User {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// #     email: Option<String>,
+    /// # }
+    /// # #[PostgresTable(name = "posts")]
+    /// # struct Post {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     #[column(references = User::id)]
+    /// #     author_id: i32,
+    /// #     title: String,
+    /// # }
+    /// # #[derive(PostgresSchema)]
+    /// # struct Schema {
+    /// #     user: User,
+    /// #     post: Post,
+    /// # }
+    /// # let db = QueryBuilder::new::<Schema>();
+    /// # let Schema { user, post } = Schema::new();
+    /// let query = db
+    ///     .insert(post)
+    ///     .columns((post.author_id, post.title))
+    ///     .select(db.select((user.id, user.name)).from(user));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "posts" ("author_id", "title") SELECT "users"."id", "users"."name" FROM "users""#
+    /// );
+    /// # }
+    /// ```
     #[inline]
     pub fn columns<Columns>(
         self,
@@ -161,7 +458,11 @@ where
         }
     }
 
-    /// Inserts a checked SELECT into every insertable table column.
+    /// Inserts the rows of a `SELECT` into every insertable column of the table.
+    ///
+    /// The query's columns must match the table's insertable columns in
+    /// number, order, type and nullability; this is checked at compile time.
+    /// To fill only some columns, call [`columns`](Self::columns) first.
     #[inline]
     pub fn select<Q, R, ScopeProof, AggProof>(
         self,
@@ -189,10 +490,10 @@ where
         }
     }
 
-    /// Inserts an unchecked raw SELECT without a target list.
+    /// Inserts the rows of a raw `SELECT`, with no target column list.
     ///
-    /// This opts out of projection shape, type, nullability, source-scope, and
-    /// aggregate validation.
+    /// Nothing about the query is checked: not its column count, types,
+    /// nullability, sources or aggregates. Prefer [`select`](Self::select).
     #[inline]
     pub fn select_raw<Q>(self, query: Q) -> InsertBuilder<'a, Schema, InsertValuesSet, Table>
     where
@@ -214,7 +515,10 @@ impl<'a, Schema, Table, Targets> InsertBuilder<'a, Schema, InsertColumnsSet<Targ
 where
     Table: PostgresTable<'a> + InsertSelectTable,
 {
-    /// Inserts a checked SELECT into the chosen target columns.
+    /// Inserts the rows of a `SELECT` into the columns chosen with `.columns(...)`.
+    ///
+    /// The query's columns must match the target columns in number, order,
+    /// type and nullability; this is checked at compile time.
     #[inline]
     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
         self,
@@ -239,10 +543,10 @@ where
         }
     }
 
-    /// Inserts an unchecked raw SELECT into the chosen target columns.
+    /// Inserts the rows of a raw `SELECT` into the chosen target columns.
     ///
-    /// This opts out of projection shape, type, nullability, source-scope, and
-    /// aggregate validation.
+    /// Only the target list is checked (it must include every required
+    /// column); the query itself is not. Prefer [`select`](Self::select).
     #[inline]
     pub fn select_raw<Q, RequiredProof>(
         self,
@@ -269,12 +573,12 @@ where
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
-    /// Begins a typed ON CONFLICT clause targeting specific columns.
+    /// Starts `ON CONFLICT (columns)`, handling rows that would violate a
+    /// unique constraint on the target.
     ///
-    /// The target must implement `ConflictTarget<T>`, which is auto-generated for
-    /// primary key columns, unique columns, and unique indexes.
-    ///
-    /// Returns an [`OnConflictBuilder`] to specify `do_nothing()` or `do_update()`.
+    /// The target is a primary-key column, a unique column, or a unique
+    /// index (anything implementing `ConflictTarget<T>`, which the macros
+    /// generate). Finish with `.do_nothing()` or `.do_update(update_model)`.
     ///
     /// # Examples
     ///
@@ -345,9 +649,13 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// builder.insert(user).values([InsertUser::new("Alice")])
     ///     .on_conflict(user.id).do_nothing();
     ///
-    /// // Target with DO UPDATE using EXCLUDED
-    /// builder.insert(user).values([InsertUser::new("Alice")])
+    /// // DO UPDATE with new values
+    /// let query = builder.insert(user).values([InsertUser::new("Alice")])
     ///     .on_conflict(user.email).do_update(UpdateUser::default().with_name("updated"));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "users" ("name") VALUES ($1) ON CONFLICT ("email") DO UPDATE SET "name" = $2"#
+    /// );
     ///
     /// // Target a unique index
     /// builder.insert(user).values([InsertUser::new("Alice")])
@@ -362,14 +670,14 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
             .with_target_where_sql(target_where)
     }
 
-    /// Begins a typed ON CONFLICT ON CONSTRAINT clause (PostgreSQL-only).
+    /// Starts `ON CONFLICT ON CONSTRAINT name`, naming the unique constraint
+    /// to handle.
     ///
-    /// The target must implement `NamedConstraint<T>`, which is auto-generated
-    /// for unique columns and named unique constraints. Standalone indexes are
-    /// conflict targets, but PostgreSQL does not accept them after
-    /// `ON CONFLICT ON CONSTRAINT`.
-    ///
-    /// Returns an [`OnConflictBuilder`] to specify `do_nothing()` or `do_update()`.
+    /// The target is a unique column or a named unique constraint (anything
+    /// implementing `NamedConstraint<T>`, which the macros generate). A
+    /// standalone unique index is not a constraint, so `PostgreSQL` rejects it
+    /// here; use [`on_conflict`](Self::on_conflict) for indexes. Finish with
+    /// `.do_nothing()` or `.do_update(update_model)`.
     ///
     /// # Examples
     ///
@@ -446,9 +754,8 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         )
     }
 
-    /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
-    ///
-    /// This matches any constraint violation.
+    /// Adds `ON CONFLICT DO NOTHING` with no target: rows that violate any
+    /// unique or exclusion constraint are skipped.
     #[must_use]
     pub fn on_conflict_do_nothing(self) -> InsertBuilder<'a, S, InsertOnConflictSet, T> {
         let conflict_sql = SQL::from_iter([Token::ON, Token::CONFLICT, Token::DO, Token::NOTHING]);
@@ -463,7 +770,85 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
         }
     }
 
-    /// Adds a RETURNING clause and transitions to `ReturningSet` state
+    /// Adds `RETURNING columns`, so the statement returns the inserted rows.
+    ///
+    /// Pass a column, a tuple of columns, or `()` for all columns. Only
+    /// columns of the target table are allowed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # extern crate self as drizzle;
+    /// # mod _drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod postgres {
+    /// #         pub mod values { pub use drizzle_postgres::values::*; }
+    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
+    /// #         pub mod common { pub use drizzle_postgres::common::*; }
+    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
+    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
+    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
+    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
+    /// #         pub mod types { pub use drizzle_postgres::types::*; }
+    /// #         #[cfg(feature = "aws-data-api")]
+    /// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
+    /// #         pub struct Row;
+    /// #         impl Row {
+    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
+    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #         }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
+    /// #             pub use drizzle_postgres::attrs::*;
+    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
+    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
+    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # pub use _drizzle::*;
+    /// # pub use const_format;
+    /// # fn main() {
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::builder::QueryBuilder;
+    /// # #[PostgresTable(name = "users")]
+    /// # struct User {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     name: String,
+    /// #     email: Option<String>,
+    /// # }
+    /// # #[PostgresTable(name = "posts")]
+    /// # struct Post {
+    /// #     #[column(serial, primary)]
+    /// #     id: i32,
+    /// #     #[column(references = User::id)]
+    /// #     author_id: i32,
+    /// #     title: String,
+    /// # }
+    /// # #[derive(PostgresSchema)]
+    /// # struct Schema {
+    /// #     user: User,
+    /// #     post: Post,
+    /// # }
+    /// # let db = QueryBuilder::new::<Schema>();
+    /// # let Schema { user, post } = Schema::new();
+    /// let query = db
+    ///     .insert(user)
+    ///     .values([InsertUser::new("Alice")])
+    ///     .returning((user.id, user.name));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "users" ("name") VALUES ($1) RETURNING "users"."id", "users"."name""#
+    /// );
+    /// # }
+    /// ```
     #[inline]
     pub fn returning<Columns, ScopeProof>(
         self,
@@ -494,7 +879,9 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
-    /// Adds a RETURNING clause after ON CONFLICT
+    /// Adds `RETURNING columns` after the `ON CONFLICT` clause.
+    ///
+    /// Rows skipped by `DO NOTHING` are not returned.
     #[inline]
     pub fn returning<Columns, ScopeProof>(
         self,
@@ -525,9 +912,11 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
-    /// Adds a WHERE clause to the DO UPDATE SET clause.
+    /// Adds a `WHERE` condition to `DO UPDATE`: conflicting rows are updated
+    /// only when it holds.
     ///
-    /// Generates: `ON CONFLICT (col) DO UPDATE SET ... WHERE condition`
+    /// Renders `ON CONFLICT (...) DO UPDATE SET ... WHERE condition`. The
+    /// condition may only use columns of the target table.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -554,7 +943,7 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
         }
     }
 
-    /// Adds a RETURNING clause after DO UPDATE SET
+    /// Adds `RETURNING columns` after `DO UPDATE SET`.
     #[inline]
     pub fn returning<Columns, ScopeProof>(
         self,

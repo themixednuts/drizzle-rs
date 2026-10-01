@@ -1,3 +1,5 @@
+//! Prepared `PostgreSQL` statements: SQL split around its parameter slots.
+
 use crate::prelude::*;
 
 use drizzle_core::{
@@ -10,105 +12,22 @@ use drizzle_core::{
 
 use crate::values::{OwnedPostgresValue, PostgresValue};
 
-/// PostgreSQL-specific prepared statement wrapper.
+/// A `PostgreSQL` statement rendered once, with its parameter slots, for reuse.
 ///
-/// A prepared statement represents a compiled SQL query with placeholder parameters
-/// that can be executed multiple times with different parameter values. This wrapper
-/// provides PostgreSQL-specific functionality while maintaining compatibility with the
-/// core Drizzle prepared statement infrastructure.
+/// The SQL text uses `$1`, `$2`, ... placeholders. Each slot holds either a
+/// bound value or a named [`Placeholder`](drizzle_core::Placeholder) to fill
+/// at execution time. Values are borrowed for `'a`; convert with
+/// [`into_owned`](Self::into_owned) to keep the statement longer.
 ///
-/// ## Features
-///
-/// - **Parameter Binding**: Safely bind values to SQL placeholders using `$1`, `$2`, etc.
-/// - **Reusable Execution**: Execute the same query multiple times efficiently
-/// - **Memory Management**: Automatic handling of borrowed/owned lifetimes
-/// - **Type Safety**: Compile-time verification of parameter types
-///
-/// ## Basic Usage
-///
-/// ```rust
-/// # mod drizzle {
-/// #     pub mod core { pub use drizzle_core::*; }
-/// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod types { pub use drizzle_types::*; }
-/// #     pub mod migrations { pub use drizzle_migrations::*; }
-/// #     pub use drizzle_types::Dialect;
-/// #     pub use drizzle_types as ddl;
-/// #     pub mod postgres {
-/// #         pub mod values { pub use drizzle_postgres::values::*; }
-/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #         pub mod common { pub use drizzle_postgres::common::*; }
-/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #         pub mod types { pub use drizzle_postgres::types::*; }
-/// #         #[cfg(feature = "aws-data-api")]
-/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #         pub struct Row;
-/// #         impl Row {
-/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #         }
-/// #         pub mod prelude {
-/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
-/// #             pub use drizzle_postgres::attrs::*;
-/// #             pub use drizzle_postgres::common::PostgresSchemaType;
-/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #             pub use drizzle_core::*;
-/// #         }
-/// #     }
-/// # }
-/// # use drizzle::postgres::prelude::*;
-/// # use drizzle::postgres::builder::QueryBuilder;
-/// # use drizzle::core::expr::eq;
-/// #
-/// # #[PostgresTable(name = "users")]
-/// # struct User {
-/// #     #[column(serial, primary)]
-/// #     id: i32,
-/// #     name: String,
-/// # }
-/// #
-/// # #[derive(PostgresSchema)]
-/// # struct Schema {
-/// #     user: User,
-/// # }
-/// #
-/// # let builder = QueryBuilder::new::<Schema>();
-/// # let Schema { user } = Schema::new();
-/// // Build query with a placeholder
-/// let query = builder
-///     .select(user.name)
-///     .from(user)
-///     .r#where(eq(user.id, Placeholder::anonymous()));
-///
-/// // Convert to SQL
-/// let sql = query.to_sql();
-/// println!("SQL: {}", sql.sql());
-/// ```
-///
-/// ## Lifetime Management
-///
-/// The prepared statement can be converted between borrowed and owned forms:
-///
-/// - `PreparedStatement<'a>` - Borrows data with lifetime 'a
-/// - `OwnedPreparedStatement` - Owns all data, no lifetime constraints
-///
-/// This allows for flexible usage patterns depending on whether you need to
-/// store the prepared statement long-term or use it immediately.
+/// `Display` prints the SQL text.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
     pub(crate) inner: CorePreparedStatement<'a, PostgresValue<'a>>,
 }
 
 impl PreparedStatement<'_> {
-    /// Converts this borrowed prepared statement into an owned one.
-    ///
-    /// This method clones all the internal data to create an `OwnedPreparedStatement`
-    /// that doesn't have any lifetime constraints. This is useful when you need to
-    /// store the prepared statement beyond the lifetime of the original query builder.
+    /// Copies this statement into an [`OwnedPreparedStatement`] with no
+    /// borrowed data.
     ///
     /// # Examples
     ///
@@ -147,10 +66,8 @@ impl PreparedStatement<'_> {
     /// #     }
     /// # }
     /// # fn example(prepared: drizzle::postgres::builder::prepared::PreparedStatement<'_>) {
-    /// // Convert borrowed to owned for long-term storage
     /// let owned = prepared.into_owned();
-    ///
-    /// // Now `owned` can be stored without lifetime constraints
+    /// // `owned` has no lifetime, so it can be cached or sent to another thread.
     /// # }
     /// ```
     #[must_use]
@@ -173,87 +90,10 @@ impl PreparedStatement<'_> {
     }
 }
 
-/// Owned `PostgreSQL` prepared statement wrapper.
+/// A [`PreparedStatement`] that owns all its values, so it has no lifetime.
 ///
-/// This is the owned counterpart to [`PreparedStatement`] that doesn't have any lifetime
-/// constraints. All data is owned by this struct, making it suitable for long-term storage,
-/// caching, or passing across thread boundaries.
-///
-/// ## Use Cases
-///
-/// - **Caching**: Store prepared statements in a cache for reuse
-/// - **Multi-threading**: Pass prepared statements between threads (with tokio-postgres)
-/// - **Long-term storage**: Keep prepared statements in application state
-/// - **Query reuse**: Execute the same query with different parameters efficiently
-///
-/// ## Examples
-///
-/// ```rust
-/// # mod drizzle {
-/// #     pub mod core { pub use drizzle_core::*; }
-/// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod types { pub use drizzle_types::*; }
-/// #     pub mod migrations { pub use drizzle_migrations::*; }
-/// #     pub use drizzle_types::Dialect;
-/// #     pub use drizzle_types as ddl;
-/// #     pub mod postgres {
-/// #         pub mod values { pub use drizzle_postgres::values::*; }
-/// #         pub mod traits { pub use drizzle_postgres::traits::*; }
-/// #         pub mod common { pub use drizzle_postgres::common::*; }
-/// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
-/// #         pub mod builder { pub use drizzle_postgres::builder::*; }
-/// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
-/// #         pub mod expr { pub use drizzle_postgres::expr::*; }
-/// #         pub mod types { pub use drizzle_postgres::types::*; }
-/// #         #[cfg(feature = "aws-data-api")]
-/// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-/// #         pub struct Row;
-/// #         impl Row {
-/// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-/// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-/// #         }
-/// #         pub mod prelude {
-/// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
-/// #             pub use drizzle_postgres::attrs::*;
-/// #             pub use drizzle_postgres::common::PostgresSchemaType;
-/// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-/// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-/// #             pub use drizzle_core::*;
-/// #         }
-/// #     }
-/// # }
-/// # use drizzle::postgres::prelude::*;
-/// # use drizzle::postgres::builder::QueryBuilder;
-/// #
-/// # #[PostgresTable(name = "users")]
-/// # struct User {
-/// #     #[column(serial, primary)]
-/// #     id: i32,
-/// #     name: String,
-/// # }
-/// #
-/// # #[derive(PostgresSchema)]
-/// # struct Schema {
-/// #     user: User,
-/// # }
-/// #
-/// # let builder = QueryBuilder::new::<Schema>();
-/// # let Schema { user } = Schema::new();
-/// // Create a query and convert to SQL
-/// let query = builder.select(user.name).from(user);
-/// let sql = query.to_sql();
-///
-/// // In practice, the driver creates a PreparedStatement from the SQL
-/// // let prepared = driver.prepare(sql)?;
-/// // let owned: OwnedPreparedStatement = prepared.into_owned();
-/// // Owned can be stored in a HashMap for reuse
-/// ```
-///
-/// ## Conversion
-///
-/// You can convert between borrowed and owned forms:
-/// - `PreparedStatement::into_owned()` → `OwnedPreparedStatement`
-/// - `OwnedPreparedStatement` → `PreparedStatement` (via `From` trait)
+/// Use it to cache a statement or move it across threads. Convert from a
+/// [`PreparedStatement`] with `into_owned()` or `From`, and back with `From`.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
     pub(crate) inner: CoreOwnedPreparedStatement<crate::values::OwnedPostgresValue>,

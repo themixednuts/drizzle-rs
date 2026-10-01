@@ -1,4 +1,338 @@
-#![doc = include_str!("../README.md")]
+//! A type-safe SQL query builder and ORM for Rust, inspired by
+//! [Drizzle ORM](https://orm.drizzle.team).
+//!
+//! You describe each table as a Rust struct. Drizzle generates typed columns
+//! and row models from it, builds SQL from typed expressions, and runs that SQL
+//! on a database connection you create and own. Many query mistakes become
+//! compile errors: comparing a number column with text, reading a table the
+//! query never joined, or decoding a column that can be `NULL` into a
+//! non-`Option` field.
+//!
+//! SQLite, PostgreSQL, and MySQL are supported. The examples below use SQLite
+//! through [`rusqlite`](https://docs.rs/rusqlite); the other drivers expose the
+//! same query API (async drivers add `.await`).
+//!
+//! # Getting started
+//!
+//! ## 1. Add the dependency
+//!
+//! Turn on the feature for the database client you already use:
+//!
+//! ```toml
+//! [dependencies]
+//! drizzle = { version = "0.2", features = ["rusqlite"] }
+//! rusqlite = { version = "0.39", features = ["bundled"] }
+//! ```
+//!
+//! ## 2. Define tables and a schema
+//!
+//! `#[SQLiteTable]` turns a struct into a table. Each field is a column; an
+//! `Option<T>` field is a nullable column. `#[column(references = ...)]`
+//! declares a foreign key, which joins and relational queries use.
+//! `#[derive(SQLiteSchema)]` groups the tables your database holds.
+//!
+//! ```
+//! # #[cfg(feature = "rusqlite")]
+//! # fn main() {
+//! use drizzle::sqlite::prelude::*;
+//!
+//! #[SQLiteTable]
+//! pub struct Users {
+//!     #[column(primary, autoincrement)]
+//!     pub id: i64,
+//!     pub name: String,
+//!     pub email: Option<String>, // nullable column
+//!     pub age: i64,
+//! }
+//!
+//! #[SQLiteTable]
+//! pub struct Posts {
+//!     #[column(primary, autoincrement)]
+//!     pub id: i64,
+//!     pub title: String,
+//!     pub content: Option<String>,
+//!     #[column(references = Users::id)] // foreign key to users.id
+//!     pub author_id: i64,
+//! }
+//!
+//! #[derive(SQLiteSchema)]
+//! pub struct Schema {
+//!     pub users: Users,
+//!     pub posts: Posts,
+//! }
+//! # }
+//! # #[cfg(not(feature = "rusqlite"))]
+//! # fn main() {}
+//! ```
+//!
+//! Each table also gets generated row models, named after the struct:
+//!
+//! | Model          | Use                                                                     |
+//! |----------------|-------------------------------------------------------------------------|
+//! | `SelectUsers`  | A full row read by a query.                                             |
+//! | `InsertUsers`  | A row to insert. `new(..)` takes the required fields; `with_*` adds optional ones. |
+//! | `UpdateUsers`  | The columns to change. Start from `default()` and call `with_*`.        |
+//!
+//! ## 3. Connect
+//!
+//! `Drizzle::new` wraps your connection and returns it together with the
+//! schema value, whose fields are the table handles you query with.
+//! `db.create()` runs `CREATE TABLE` for every table in the schema, which is
+//! handy for tests; use migrations (the `drizzle` CLI and
+//! [`include_migrations!`]) for real databases.
+//!
+//! ```
+//! # #[cfg(feature = "rusqlite")]
+//! # fn main() -> drizzle::Result<()> {
+//! # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+//! # use app::Schema;
+//! use drizzle::sqlite::rusqlite::Drizzle;
+//!
+//! let conn = rusqlite::Connection::open_in_memory()?;
+//! let (db, Schema { users, posts, .. }) = Drizzle::new(conn);
+//! db.create()?;
+//! # let _ = (users, posts);
+//! # Ok(())
+//! # }
+//! # #[cfg(not(feature = "rusqlite"))]
+//! # fn main() {}
+//! ```
+//!
+//! When no pattern names the schema type, put it on the call:
+//! `Drizzle::<Schema>::new(conn)`. Use `let (db, ()) = Drizzle::new(conn)` for a
+//! connection with no schema.
+//!
+//! # Queries
+//!
+//! Start a query from `db`, chain clauses, and finish with a terminal method
+//! that runs it:
+//!
+//! | Method      | Runs the query and returns                                      |
+//! |-------------|-----------------------------------------------------------------|
+//! | `.all()`    | every row, decoded into `Vec<R>`                                |
+//! | `.get()`    | the first row, or an error when there is none                   |
+//! | `.rows()`   | a cursor over the rows, decoded into the query's own row type   |
+//! | `.execute()`| the number of rows changed (for `INSERT`/`UPDATE`/`DELETE`)     |
+//!
+//! Comparison and boolean helpers such as `eq`, `gt`, `and`, and `count` live
+//! in [`core::expr`]. A tuple of conditions means `AND`. The ordering helpers
+//! [`asc`](core::asc) and [`desc`](core::desc) live in [`core`].
+//!
+//! ```
+//! # #[cfg(feature = "rusqlite")]
+//! # fn main() -> drizzle::Result<()> {
+//! # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+//! # use app::*;
+//! use drizzle::core::desc;
+//! use drizzle::core::expr::{eq, gt};
+//! # let (db, Schema { users, .. }) = app::database()?;
+//!
+//! // INSERT INTO "users" ("name", "email", "age") VALUES (?, ?, ?)
+//! db.insert(users)
+//!     .value(InsertUsers::new("Dana", 41).with_email("dana@example.com"))
+//!     .execute()?;
+//!
+//! // SELECT "users"."id", "users"."name", ... FROM "users" WHERE "users"."age" > ?
+//! let adults: Vec<SelectUsers> = db.select(()).from(users).r#where(gt(users.age, 18)).all()?;
+//!
+//! // Select specific columns into a tuple.
+//! let names: Vec<(i64, String)> = db
+//!     .select((users.id, users.name))
+//!     .from(users)
+//!     .order_by(desc(users.age))
+//!     .limit(10)
+//!     .all()?;
+//!
+//! // One row. `.get()` fails when nothing matches.
+//! let dana: SelectUsers = db.select(()).from(users).r#where(eq(users.name, "Dana")).get()?;
+//!
+//! // UPDATE "users" SET "age" = ? WHERE "users"."id" = ?
+//! db.update(users)
+//!     .set(UpdateUsers::default().with_age(42))
+//!     .r#where(eq(users.id, dana.id))
+//!     .execute()?;
+//!
+//! // DELETE FROM "users" WHERE "users"."id" = ?
+//! let deleted = db.delete(users).r#where(eq(users.id, dana.id)).execute()?;
+//! assert_eq!(deleted, 1);
+//! # let _ = (adults, names);
+//! # Ok(())
+//! # }
+//! # #[cfg(not(feature = "rusqlite"))]
+//! # fn main() {}
+//! ```
+//!
+//! Every builder implements [`ToSQL`](core::ToSQL), so you can look at the SQL
+//! without running it:
+//!
+//! ```
+//! # #[cfg(feature = "rusqlite")]
+//! # fn main() -> drizzle::Result<()> {
+//! # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+//! # use app::*;
+//! use drizzle::core::ToSQL;
+//! use drizzle::core::expr::eq;
+//! # let (db, Schema { users, .. }) = app::database()?;
+//!
+//! let query = db.select(users.name).from(users).r#where(eq(users.id, 1));
+//! assert_eq!(
+//!     query.to_sql().sql(),
+//!     r#"SELECT "users"."name" FROM "users" WHERE "users"."id" = ?"#,
+//! );
+//! # Ok(())
+//! # }
+//! # #[cfg(not(feature = "rusqlite"))]
+//! # fn main() {}
+//! ```
+//!
+//! # Joins
+//!
+//! Pass a table to `join`/`left_join`/... to join on its foreign key, or a
+//! `(table, condition)` pair to give the `ON` condition yourself. After a
+//! `LEFT JOIN`, the joined table's columns can be `NULL`, so they decode as
+//! `Option<T>`:
+//!
+//! ```
+//! # #[cfg(feature = "rusqlite")]
+//! # fn main() -> drizzle::Result<()> {
+//! # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+//! # use app::*;
+//! use drizzle::core::expr::eq;
+//! # let (db, Schema { users, posts, .. }) = app::database()?;
+//!
+//! // ... FROM "users" INNER JOIN "posts" ON "users"."id" = "posts"."author_id"
+//! let written: Vec<(String, String)> = db
+//!     .select((users.name, posts.title))
+//!     .from(users)
+//!     .inner_join((posts, eq(users.id, posts.author_id)))
+//!     .all()?;
+//!
+//! // ... FROM "users" LEFT JOIN "posts" ON "posts"."author_id" = "users"."id"
+//! let all_users: Vec<(String, Option<String>)> = db
+//!     .select((users.name, posts.title))
+//!     .from(users)
+//!     .left_join(posts)
+//!     .all()?;
+//! # let _ = (written, all_users);
+//! # Ok(())
+//! # }
+//! # #[cfg(not(feature = "rusqlite"))]
+//! # fn main() {}
+//! ```
+//!
+//! To map joined columns into a named struct, derive
+//! [`SQLiteFromRow`](sqlite::SQLiteFromRow).
+//!
+//! # Transactions
+//!
+//! `transaction` runs a closure inside `BEGIN ... COMMIT`. Return `Ok` to
+//! commit and `Err` to roll back; a panic also rolls back. Inside the closure,
+//! `tx` has the same query methods as `db`, and `tx.savepoint(..)` nests a
+//! savepoint that can roll back on its own.
+//!
+//! ```
+//! # #[cfg(feature = "rusqlite")]
+//! # fn main() -> drizzle::Result<()> {
+//! # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+//! # use app::*;
+//! use drizzle::sqlite::TransactionConfig;
+//! # let (mut db, Schema { users, .. }) = app::database()?;
+//!
+//! let total = db.transaction(TransactionConfig::Deferred, |tx| {
+//!     tx.insert(users).value(InsertUsers::new("Eve", 35)).execute()?;
+//!     let rows: Vec<SelectUsers> = tx.select(()).from(users).all()?;
+//!     Ok(rows.len())
+//! })?;
+//! assert_eq!(total, 4);
+//! # Ok(())
+//! # }
+//! # #[cfg(not(feature = "rusqlite"))]
+//! # fn main() {}
+//! ```
+//!
+//! # Compile-time checks
+//!
+//! The type system checks a query before it can run:
+//!
+//! - **Types.** Comparisons and functions accept only compatible SQL types, so
+//!   `eq(users.age, "ten")` does not compile.
+//! - **Scope.** Every column a query reads must come from a table in its
+//!   `FROM` or `JOIN` list. This is checked when you call `.all()`, `.get()`,
+//!   or `.rows()`.
+//! - **NULL.** A column that can be `NULL` (an `Option<T>` field, or any column
+//!   of a table brought in by `LEFT`, `RIGHT`, or `FULL JOIN`) must be decoded
+//!   into `Option<T>`.
+//! - **Grouping.** With `GROUP BY`, each column in a selected tuple must be
+//!   grouped (or belong to a table grouped by its primary key) or sit inside
+//!   an aggregate such as `count`.
+//!
+//! Reading `posts` without joining it is rejected:
+//!
+//! ```compile_fail,E0277
+//! # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+//! # use app::*;
+//! use drizzle::core::expr::eq;
+//! # fn main() -> drizzle::Result<()> {
+//! # let (db, Schema { users, posts, .. }) = app::database()?;
+//!
+//! // error: `Posts` is not in this query's FROM/JOIN scope
+//! let names: Vec<String> = db
+//!     .select(users.name)
+//!     .from(users)
+//!     .r#where(eq(posts.title, "Hello"))
+//!     .all()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! So is decoding a `LEFT JOIN` column as if it were never `NULL`:
+//!
+//! ```compile_fail,E0277
+//! # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+//! # use app::*;
+//! # fn main() -> drizzle::Result<()> {
+//! # let (db, Schema { users, posts, .. }) = app::database()?;
+//! // error: `posts.title` must decode as `Option<String>` after a LEFT JOIN
+//! let rows: Vec<(String, String)> = db
+//!     .select((users.name, posts.title))
+//!     .from(users)
+//!     .left_join(posts)
+//!     .all()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Database errors, such as a constraint violation or a row that does not
+//! match on `.get()`, are still runtime errors. They come back as
+//! [`DrizzleError`](error::DrizzleError) through [`Result`].
+//!
+//! # Drivers and features
+//!
+//! | Feature                           | Driver module                                          |
+//! |-----------------------------------|--------------------------------------------------------|
+//! | `rusqlite`                        | `sqlite::rusqlite` (blocking)                          |
+//! | `libsql`, `turso`                 | `sqlite::libsql`, `sqlite::turso` (async)              |
+//! | `d1`, `durable`                   | `sqlite::d1`, `sqlite::durable` (Cloudflare, `wasm32` only) |
+//! | `postgres-sync`                   | `postgres::sync` (blocking)                            |
+//! | `tokio-postgres`, `hyperdrive`    | `postgres::tokio` (async; `hyperdrive` is `wasm32` only) |
+//! | `aws-data-api`                    | `postgres::aws` (Aurora Data API over HTTP)            |
+//! | `mysql-sync`, `mysql-async`       | `mysql::mysql_sync`, `mysql::mysql_async`              |
+//!
+//! Other features: `query` adds relational queries (`db.query(table).with(..)`),
+//! `serde` adds JSON columns, and `uuid`, `chrono`, `time`, `jiff`, and
+//! `rust-decimal` add column types from those crates.
+//!
+//! # Modules
+//!
+//! - [`sqlite`], [`postgres`], [`mysql`]: table macros, a `prelude` for schema
+//!   files, dialect types, and one module per driver.
+//! - [`core`]: the dialect-independent traits, expressions ([`core::expr`]),
+//!   and SQL building blocks.
+//! - [`migrations`]: embedded migrations and schema snapshots.
+//! - [`error`]: [`DrizzleError`](error::DrizzleError).
+//!
+//! The project README covers migrations, relational queries, prepared
+//! statements, and the CLI in more depth.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg, rustdoc_internals))]
 #![allow(
@@ -802,3 +1136,8 @@ pub mod mysql {
 /// ```
 #[cfg(doctest)]
 struct _CompileFailTests;
+
+/// Compiles and runs the README's Rust examples as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct _ReadmeDoctests;

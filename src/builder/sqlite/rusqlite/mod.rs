@@ -137,7 +137,7 @@
 //! benchmark records.
 //!
 //! Do not wire `prepare_cached` into these paths without a fresh measurement
-//! showing a win. The explicit [`prepare`](crate::drizzle_prepare_impl) API
+//! showing a win. The explicit `.prepare()` API
 //! does use `prepare_cached`, because there the caller has already declared
 //! that one statement is going to be reused many times.
 
@@ -155,7 +155,13 @@ use crate::builder::sqlite::common;
 use crate::builder::sqlite::rows::Rows;
 use crate::transaction::sqlite::rusqlite::Transaction;
 
+/// The rusqlite database handle: a [`rusqlite::Connection`] plus the schema's table handles.
+///
+/// Create it with `Drizzle::new(conn)`, then build queries with
+/// `select`, `insert`, `update`, and `delete`.
 pub type Drizzle<Schema = ()> = common::Drizzle<Connection, Schema>;
+/// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
+/// `.all()`, `.get()`, or `.rows()`.
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<Connection, Schema>, Schema, Builder, State>;
 
@@ -199,6 +205,34 @@ pub(crate) fn execute_sql<P: rusqlite::Params>(
 }
 
 impl<Schema> common::Drizzle<Connection, Schema> {
+    /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, and
+    /// returns the number of rows it changed.
+    ///
+    /// Prefer the builder's own `.execute()`. This method takes anything that
+    /// renders to SQL, so it skips the builder's compile-time checks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// use drizzle::sqlite::rusqlite::Drizzle;
+    ///
+    /// let (db, ()) = Drizzle::new(rusqlite::Connection::open_in_memory()?);
+    /// db.execute(drizzle::sql!("CREATE TABLE notes (body TEXT)"))?;
+    /// let inserted = db.execute(drizzle::sql!("INSERT INTO notes VALUES ('hi')"))?;
+    /// assert_eq!(inserted, 1);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns rusqlite's error when SQLite cannot prepare or run the
+    /// statement. Unlike the builder methods, the error is a plain
+    /// [`rusqlite::Error`] without the SQL attached.
     pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -219,7 +253,34 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         )
     }
 
-    /// Runs the query and returns all matching rows (for SELECT queries)
+    /// Runs any SQL value and collects its rows into `C` (for example
+    /// `Vec<R>`).
+    ///
+    /// Each row is decoded with `R: TryFrom<&rusqlite::Row>`, which the
+    /// generated `Select*` models and [`SQLiteFromRow`](crate::sqlite::SQLiteFromRow)
+    /// types implement. Prefer the builder's own `.all()`: this method skips
+    /// its compile-time scope and `NULL` checks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # let (db, Schema { users, .. }) = app::database()?;
+    /// let everyone: Vec<SelectUsers> = db.all(drizzle::sql!("SELECT * FROM {users}"))?;
+    /// assert_eq!(everyone.len(), 3);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite cannot prepare or run the query, or when a
+    /// row cannot be decoded into `R`.
     pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
@@ -232,7 +293,16 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .collect::<drizzle_core::error::Result<C>>()
     }
 
-    /// Runs the query and returns a row cursor.
+    /// Runs any SQL value and returns an iterator over its rows decoded into
+    /// `R`.
+    ///
+    /// Every row is fetched and decoded before this returns. Like
+    /// [`all`](Self::all), this skips the builder's compile-time checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite cannot prepare or run the query, or when a
+    /// row cannot be decoded into `R`.
     pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
@@ -268,7 +338,15 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Ok(Rows::new(decoded))
     }
 
-    /// Runs the query and returns a single row (for SELECT queries)
+    /// Runs any SQL value and decodes its first row into `R`.
+    ///
+    /// Like [`all`](Self::all), this skips the builder's compile-time checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no row matches (rusqlite's
+    /// `QueryReturnedNoRows`), when SQLite cannot prepare or run the query, or
+    /// when the row cannot be decoded into `R`.
     pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
@@ -307,13 +385,15 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Ok(Transaction::new(tx, config, self.schema))
     }
 
-    /// Executes a transaction with the given callback.
+    /// Runs `f` inside a transaction and returns its value.
     ///
-    /// Returns the value produced by the callback on success. The transaction
-    /// is committed when the callback returns `Ok` and rolled back on `Err`
-    /// or panic.
+    /// The transaction commits when `f` returns `Ok` and rolls back when it
+    /// returns `Err` or panics (the panic then continues). `config` picks the
+    /// SQLite mode: `BEGIN DEFERRED`, `IMMEDIATE`, or `EXCLUSIVE`.
     ///
-    /// ```no_run
+    /// # Examples
+    ///
+    /// ```
     /// # use drizzle::sqlite::rusqlite::Drizzle;
     /// # use drizzle::sqlite::prelude::*;
     /// # use drizzle::sqlite::TransactionConfig;
@@ -331,6 +411,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// assert_eq!(count, 1);
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the error from `f`, or an error when `BEGIN`, `COMMIT`, or
+    /// `ROLLBACK` fails. When the rollback after an `Err` also fails, both
+    /// errors are reported together.
     pub fn transaction<F, R>(
         &mut self,
         config: drizzle_sqlite::TransactionConfig,
@@ -378,7 +464,15 @@ impl<Schema> common::Drizzle<Connection, Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create schema objects from `SQLSchemaImpl`.
+    /// Creates every table, index, and view in the schema.
+    ///
+    /// Runs the schema's `CREATE` statements in one batch. Useful for tests
+    /// and throwaway databases; use [`migrate`](Self::migrate) to evolve a
+    /// real one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite rejects one of the statements.
     pub fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements: Vec<_> = schema.create_statements()?.collect();
@@ -391,16 +485,44 @@ where
 }
 
 impl<Schema> common::Drizzle<Connection, Schema> {
-    /// Apply pending migrations from an embedded migration slice.
+    /// Applies the migrations that have not run yet.
     ///
-    /// Creates the migrations table if needed and runs pending migrations in a
-    /// transaction. Statements and the tracking insert share one
-    /// `BEGIN IMMEDIATE` transaction, so an interrupted run rolls both back and
-    /// leaves nothing to reconcile.
+    /// Creates the tracking table if needed, then runs every pending migration
+    /// and records it, all in one `BEGIN IMMEDIATE` transaction. An
+    /// interrupted run rolls back completely and leaves nothing to clean up.
+    /// Migrations that already ran are skipped.
     ///
-    /// Fails with an interrupted-migration error if the tracking table still
-    /// carries a dirty row from a different (non-transactional) runner — see
-    /// [`Self::migrate_with_repair`].
+    /// Load the migrations with [`include_migrations!`](crate::include_migrations)
+    /// or [`MigrationDir`](drizzle_migrations::MigrationDir).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// use drizzle::migrations::{MigrateOutcome, Migration, Tracking};
+    /// use drizzle::sqlite::rusqlite::Drizzle;
+    ///
+    /// let (db, ()) = Drizzle::new(rusqlite::Connection::open_in_memory()?);
+    /// let migrations = [Migration::new("0000_init", "CREATE TABLE notes (body TEXT);")];
+    ///
+    /// let first = db.migrate(&migrations, Tracking::SQLITE)?;
+    /// assert!(matches!(first, MigrateOutcome::Applied { .. }));
+    ///
+    /// let again = db.migrate(&migrations, Tracking::SQLITE)?;
+    /// assert!(matches!(again, MigrateOutcome::UpToDate));
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a migration statement fails (the whole run is
+    /// rolled back), or when the tracking table holds an unfinished ("dirty")
+    /// row left by an interrupted runner. Use
+    /// [`migrate_with_repair`](Self::migrate_with_repair) for that case.
     pub fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],
@@ -409,16 +531,21 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         self.migrate_inner(migrations, tracking, false)
     }
 
-    /// Apply pending migrations, first reconciling any interrupted migration.
+    /// Finishes any interrupted migration, then applies pending ones like
+    /// [`migrate`](Self::migrate).
     ///
-    /// For each migration marked dirty (tracking row present, `applied_at`
-    /// NULL) this introspects `sqlite_master` and classifies every statement:
-    /// `CREATE TABLE` / `CREATE [UNIQUE] INDEX` / `CREATE VIEW` statements whose
-    /// object already exists with a matching definition are skipped, and the
-    /// rest are executed. Anything that cannot be proven either way (an
-    /// `ALTER`, a data statement, an unparseable statement inside the region
-    /// that may already have run) aborts with a list of what needs manual
-    /// resolution.
+    /// A migration is "dirty" when its tracking row exists but `applied_at` is
+    /// `NULL`. For each one, this reads `sqlite_master` and checks every
+    /// statement. A `CREATE TABLE`, `CREATE [UNIQUE] INDEX`, or `CREATE VIEW`
+    /// whose object already exists with the same definition is skipped; the
+    /// rest run.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error listing what needs manual attention when a statement
+    /// cannot be proven applied or not applied (an `ALTER`, a data statement,
+    /// or one that cannot be parsed), and for the same failures as
+    /// [`migrate`](Self::migrate).
     pub fn migrate_with_repair(
         &self,
         migrations: &[drizzle_migrations::Migration],
@@ -815,10 +942,16 @@ fn introspect_query_index_sql(
 }
 
 impl<Schema> common::Drizzle<Connection, Schema> {
-    /// Introspect the live database and return a [`Snapshot`] of its current schema.
+    /// Reads the live database's schema into a
+    /// [`Snapshot`](drizzle_migrations::schema::Snapshot).
     ///
-    /// This queries `sqlite_master` and the various PRAGMAs to reconstruct the
-    /// full DDL state, then packages it as a `Snapshot::Sqlite(...)`.
+    /// Queries `sqlite_master` and SQLite's `PRAGMA` tables to rebuild every
+    /// table, column, index, foreign key, and view, and returns them as
+    /// `Snapshot::Sqlite(..)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when one of the catalog queries fails.
     pub fn introspect(&self) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
         let tables = introspect_query_tables(&self.conn)?;
         let raw_columns = introspect_query_columns(&self.conn)?;
@@ -847,10 +980,35 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         Ok(drizzle_migrations::schema::Snapshot::Sqlite(snapshot))
     }
 
-    /// Introspect the live database, diff against the desired schema, and
-    /// execute the SQL statements needed to bring the database in sync.
+    /// Changes the live database to match `schema`, without migration files.
     ///
-    /// This is a no-op if the database already matches.
+    /// Introspects the database, diffs it against `schema`, and runs the
+    /// resulting statements in one transaction. Does nothing when they already
+    /// match. Meant for local development: nothing is recorded in the
+    /// migration tracking table.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::Schema;
+    /// use drizzle::sqlite::rusqlite::Drizzle;
+    ///
+    /// let (db, schema) = Drizzle::<Schema>::new(rusqlite::Connection::open_in_memory()?);
+    /// db.push(&schema)?; // creates the tables
+    /// db.push(&schema)?; // already in sync: no-op
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when introspection or diffing fails, or when a
+    /// statement fails (the transaction is rolled back).
     pub fn push<S: drizzle_migrations::Schema>(
         &self,
         schema: &S,
@@ -1407,7 +1565,42 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Runs the query and returns the number of affected rows
+    /// Runs the statement and returns the number of rows it changed.
+    ///
+    /// Use it for `INSERT`, `UPDATE`, and `DELETE`. A statement with a
+    /// `RETURNING` clause still runs to completion; its returned rows are
+    /// counted, not decoded (use [`all`](Self::all) to read them).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// use drizzle::core::expr::eq;
+    /// # let (db, Schema { users, .. }) = app::database()?;
+    ///
+    /// let inserted = db.insert(users).value(InsertUsers::new("Dana", 41)).execute()?;
+    /// assert_eq!(inserted, 1);
+    ///
+    /// let changed = db
+    ///     .update(users)
+    ///     .set(UpdateUsers::default().with_age(42))
+    ///     .r#where(eq(users.name, "Dana"))
+    ///     .execute()?;
+    /// assert_eq!(changed, 1);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite cannot prepare or run the statement, for
+    /// example on a constraint violation. The error carries the SQL and its
+    /// parameters ([`DrizzleError::QueryFailed`]).
     pub fn execute(self) -> drizzle_core::error::Result<usize> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.execute");
@@ -1422,7 +1615,67 @@ where
         .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
-    /// Runs the query and returns all matching rows using the builder's row type.
+    /// Runs the query and decodes every row into `R`.
+    ///
+    /// `R` is usually the generated `Select*` model (for `select(())`), a
+    /// tuple matching the selected columns, or a type deriving
+    /// [`SQLiteFromRow`](crate::sqlite::SQLiteFromRow).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// use drizzle::core::expr::gt;
+    /// # let (db, Schema { users, posts, .. }) = app::database()?;
+    ///
+    /// let adults: Vec<SelectUsers> = db.select(()).from(users).r#where(gt(users.age, 18)).all()?;
+    /// assert_eq!(adults.len(), 2);
+    ///
+    /// // After a LEFT JOIN, the joined table's columns decode as `Option`.
+    /// let rows: Vec<(String, Option<String>)> = db
+    ///     .select((users.name, posts.title))
+    ///     .from(users)
+    ///     .left_join(posts)
+    ///     .all()?;
+    /// # let _ = rows;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite cannot prepare or run the query, or when a
+    /// row cannot be decoded into `R`. Query errors carry the SQL and its
+    /// parameters ([`DrizzleError::QueryFailed`]).
+    ///
+    /// # Compile-time checks
+    ///
+    /// The call does not compile unless:
+    ///
+    /// - every column the query reads (in `SELECT`, `WHERE`, `ORDER BY`, ...)
+    ///   belongs to a table in its `FROM`/`JOIN` list;
+    /// - `R` matches the selection: one field per selected column, with a
+    ///   compatible type, and `Option<T>` wherever the value can be `NULL`
+    ///   (a nullable column, or any column of an outer-joined table);
+    /// - with `GROUP BY`, each column in a selected tuple is grouped or
+    ///   aggregated;
+    /// - a raw `sql!` selection carries an explicit result type.
+    ///
+    /// ```compile_fail,E0277
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # fn main() -> drizzle::Result<()> {
+    /// # let (db, Schema { users, posts, .. }) = app::database()?;
+    /// // `posts` is never joined, so `posts.title` is out of scope.
+    /// let titles: Vec<String> = db.select(posts.title).from(users).all()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
@@ -1457,7 +1710,39 @@ where
         Ok(decoded)
     }
 
-    /// Runs the query and returns a row cursor using the builder's row type.
+    /// Runs the query and returns an iterator over its rows, decoded into the
+    /// row type the query infers from its selection.
+    ///
+    /// Unlike [`all`](Self::all), you do not pick the row type: `select(())`
+    /// yields the table's `Select*` model and a column tuple yields a tuple.
+    /// Every row is fetched and decoded before this returns.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # let (db, Schema { users, .. }) = app::database()?;
+    /// for row in db.select((users.id, users.name)).from(users).rows()? {
+    ///     let (id, name) = row?;
+    ///     println!("{id}: {name}");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite cannot prepare or run the query, or when a
+    /// row cannot be decoded.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The same scope and grouping checks as [`all`](Self::all).
     pub fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
         for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -1493,7 +1778,41 @@ where
         Ok(Rows::new(decoded))
     }
 
-    /// Runs the query and returns a single row using the builder's row type.
+    /// Runs the query and decodes its first row into `R`.
+    ///
+    /// Rows after the first are ignored; add `.limit(1)` if the query could
+    /// match many.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// use drizzle::core::expr::{count, eq};
+    /// # let (db, Schema { users, .. }) = app::database()?;
+    ///
+    /// let alice: SelectUsers = db.select(()).from(users).r#where(eq(users.name, "Alice")).get()?;
+    /// assert_eq!(alice.age, 30);
+    ///
+    /// let (total,): (i64,) = db.select((count(users.id),)).from(users).get()?;
+    /// assert_eq!(total, 3);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no row matches (rusqlite's
+    /// `QueryReturnedNoRows`), when SQLite cannot prepare or run the query, or
+    /// when the row cannot be decoded into `R`.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
     pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>

@@ -1,7 +1,8 @@
-//! Join types and helper macros for SQL JOIN operations
+//! JOIN keywords and the macros dialect crates use to build join helpers.
 //!
-//! This module provides shared JOIN functionality that can be used by
-//! dialect-specific implementations (`SQLite`, `PostgreSQL`, etc.)
+//! Users join tables with the builder methods (`.join(...)`,
+//! `.left_join(...)`, ...). This module holds the shared pieces those
+//! methods render with.
 
 use crate::{SQL, ToSQL, traits::SQLParam};
 
@@ -9,15 +10,21 @@ use crate::{SQL, ToSQL, traits::SQLParam};
 // Join Type Enum
 // =============================================================================
 
-/// The type of JOIN operation
+/// The kind of a JOIN.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum JoinType {
+    /// Plain `JOIN` (an inner join).
     #[default]
     Join,
+    /// `INNER JOIN`.
     Inner,
+    /// `LEFT JOIN`.
     Left,
+    /// `RIGHT JOIN`.
     Right,
+    /// `FULL JOIN`.
     Full,
+    /// `CROSS JOIN`.
     Cross,
 }
 
@@ -25,19 +32,42 @@ pub enum JoinType {
 // Join Builder Struct
 // =============================================================================
 
-/// Builder for constructing JOIN clauses
+/// The JOIN keyword of a join clause, such as `NATURAL LEFT OUTER JOIN`.
 ///
-/// This struct uses a builder pattern with const fn methods to allow
-/// compile-time construction of JOIN specifications.
+/// Built with `const` methods, so it can be a constant. Renders through
+/// [`ToSQL`].
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{Join, SQL, ToSQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = Join::new().left().outer().to_sql();
+/// assert_eq!(sql.sql(), "LEFT OUTER JOIN");
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Join {
+    /// Adds `NATURAL`.
     pub natural: bool,
+    /// The kind of join.
     pub join_type: JoinType,
-    pub outer: bool, // only meaningful for LEFT/RIGHT/FULL
+    /// Adds `OUTER`. Only used for `LEFT`, `RIGHT` and `FULL`.
+    pub outer: bool,
 }
 
 impl Join {
-    /// Creates a new Join with default settings (basic JOIN)
+    /// Creates a plain `JOIN`.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -47,49 +77,50 @@ impl Join {
         }
     }
 
-    /// Makes this a NATURAL join
+    /// Makes this a `NATURAL` join.
     #[must_use]
     pub const fn natural(mut self) -> Self {
         self.natural = true;
         self
     }
 
-    /// Makes this an INNER join
+    /// Makes this an `INNER` join.
     #[must_use]
     pub const fn inner(mut self) -> Self {
         self.join_type = JoinType::Inner;
         self
     }
 
-    /// Makes this a LEFT join
+    /// Makes this a `LEFT` join.
     #[must_use]
     pub const fn left(mut self) -> Self {
         self.join_type = JoinType::Left;
         self
     }
 
-    /// Makes this a RIGHT join
+    /// Makes this a `RIGHT` join.
     #[must_use]
     pub const fn right(mut self) -> Self {
         self.join_type = JoinType::Right;
         self
     }
 
-    /// Makes this a FULL join
+    /// Makes this a `FULL` join.
     #[must_use]
     pub const fn full(mut self) -> Self {
         self.join_type = JoinType::Full;
         self
     }
 
-    /// Makes this a CROSS join
+    /// Makes this a `CROSS` join.
     #[must_use]
     pub const fn cross(mut self) -> Self {
         self.join_type = JoinType::Cross;
         self
     }
 
-    /// Makes this an OUTER join (LEFT OUTER, RIGHT OUTER, FULL OUTER)
+    /// Adds `OUTER` (`LEFT OUTER`, `RIGHT OUTER`, `FULL OUTER`). Ignored for
+    /// other kinds.
     #[must_use]
     pub const fn outer(mut self) -> Self {
         self.outer = true;
@@ -126,13 +157,15 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
     }
 }
 
-/// An explicit derived source and boolean condition for `JOIN LATERAL`.
+/// A `(derived table, condition)` pair accepted by `JOIN LATERAL`.
 #[doc(hidden)]
 pub trait LateralArg<'a, V: SQLParam>: lateral_private::Arg {
+    /// The source added to the query scope.
     type JoinedTable;
     /// Sources read by the `ON` condition (see [`crate::scope`]).
     type OnSources;
 
+    /// Renders `<join> LATERAL <source> ON <condition>`.
     fn into_lateral_sql(self, join: Join) -> SQL<'a, V>;
 }
 
@@ -159,11 +192,13 @@ where
     }
 }
 
-/// A derived source accepted by `CROSS JOIN LATERAL`.
+/// A derived table accepted by `CROSS JOIN LATERAL`.
 #[doc(hidden)]
 pub trait LateralSource<'a, V: SQLParam>: lateral_private::Source {
+    /// The source added to the query scope.
     type JoinedTable;
 
+    /// Renders `CROSS JOIN LATERAL <source>`.
     fn into_cross_lateral_sql(self) -> SQL<'a, V>;
 }
 
@@ -207,24 +242,44 @@ mod lateral_private {
 // Join Helper Macro
 // =============================================================================
 
-/// Macro to generate join helper functions for a specific dialect.
+/// Generates free functions that render join clauses (`join`, `left_join`,
+/// `natural_full_outer_join`, ...) for one dialect.
 ///
-/// This macro generates all the standard join helper functions (`natural_join`,
-/// `left_join`, etc.) that create SQL JOIN clauses. Each dialect invokes this
-/// macro with their specific table trait and SQL type.
+/// Each function takes a table and, except for the `natural_*` ones, an ON
+/// condition, and returns the rendered clause. Dialect crates invoke this
+/// once with their table trait, condition trait and SQL type.
 ///
-/// # Usage
-/// ```rust
-/// # let _ = r####"
-/// impl_join_helpers!(
-///     /// Trait bound for table types
-///     table_trait: SQLiteTable<'a>,
-///     /// Trait bound for condition types
-///     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
-///     /// Return type for SQL
-///     sql_type: SQL<'a, SQLiteValue<'a>>,
-/// );
-/// # "####;
+/// # Examples
+///
+/// ```
+/// use drizzle_core::SQL;
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// mod joins {
+///     use super::Value;
+///     use drizzle_core::{SQL, ToSQL};
+///
+///     drizzle_core::impl_join_helpers!(
+///         table_trait: ToSQL<'a, Value>,
+///         condition_trait: ToSQL<'a, Value>,
+///         sql_type: SQL<'a, Value>,
+///     );
+/// }
+///
+/// fn main() {
+///     let clause = joins::left_join(SQL::<Value>::ident("posts"), SQL::<Value>::raw("TRUE"));
+///     assert_eq!(clause.sql(), r#"LEFT JOIN "posts" ON TRUE"#);
+/// }
 /// ```
 #[macro_export]
 macro_rules! impl_join_helpers {
@@ -248,10 +303,10 @@ macro_rules! impl_join_helpers {
                 .append(&condition)
         }
 
-        /// Helper function to create a NATURAL JOIN clause.
+        /// Renders `NATURAL JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -260,7 +315,7 @@ macro_rules! impl_join_helpers {
             $crate::Join::new().natural().to_sql().append(&table)
         }
 
-        /// Helper function to create a JOIN clause
+        /// Renders `JOIN table ON condition`.
         pub fn join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
@@ -268,10 +323,10 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new(), condition)
         }
 
-        /// Helper function to create a NATURAL LEFT JOIN clause.
+        /// Renders `NATURAL LEFT JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_left_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -280,7 +335,7 @@ macro_rules! impl_join_helpers {
             $crate::Join::new().natural().left().to_sql().append(&table)
         }
 
-        /// Helper function to create a LEFT JOIN clause
+        /// Renders `LEFT JOIN table ON condition`.
         pub fn left_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
@@ -288,7 +343,7 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().left(), condition)
         }
 
-        /// Helper function to create a LEFT OUTER JOIN clause
+        /// Renders `LEFT OUTER JOIN table ON condition`.
         pub fn left_outer_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
@@ -296,10 +351,10 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().left().outer(), condition)
         }
 
-        /// Helper function to create a NATURAL LEFT OUTER JOIN clause.
+        /// Renders `NATURAL LEFT OUTER JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_left_outer_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -313,10 +368,10 @@ macro_rules! impl_join_helpers {
                 .append(&table)
         }
 
-        /// Helper function to create a NATURAL RIGHT JOIN clause.
+        /// Renders `NATURAL RIGHT JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_right_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -329,7 +384,7 @@ macro_rules! impl_join_helpers {
                 .append(&table)
         }
 
-        /// Helper function to create a RIGHT JOIN clause
+        /// Renders `RIGHT JOIN table ON condition`.
         pub fn right_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
@@ -337,7 +392,7 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().right(), condition)
         }
 
-        /// Helper function to create a RIGHT OUTER JOIN clause
+        /// Renders `RIGHT OUTER JOIN table ON condition`.
         pub fn right_outer_join<'a, Table>(
             table: Table,
             condition: impl $ConditionTrait,
@@ -348,10 +403,10 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().right().outer(), condition)
         }
 
-        /// Helper function to create a NATURAL RIGHT OUTER JOIN clause.
+        /// Renders `NATURAL RIGHT OUTER JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_right_outer_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -365,10 +420,10 @@ macro_rules! impl_join_helpers {
                 .append(&table)
         }
 
-        /// Helper function to create a NATURAL FULL JOIN clause.
+        /// Renders `NATURAL FULL JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_full_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -377,7 +432,7 @@ macro_rules! impl_join_helpers {
             $crate::Join::new().natural().full().to_sql().append(&table)
         }
 
-        /// Helper function to create a FULL JOIN clause
+        /// Renders `FULL JOIN table ON condition`.
         pub fn full_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
@@ -385,7 +440,7 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().full(), condition)
         }
 
-        /// Helper function to create a FULL OUTER JOIN clause
+        /// Renders `FULL OUTER JOIN table ON condition`.
         pub fn full_outer_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
@@ -393,10 +448,10 @@ macro_rules! impl_join_helpers {
             join_internal(table, $crate::Join::new().full().outer(), condition)
         }
 
-        /// Helper function to create a NATURAL FULL OUTER JOIN clause.
+        /// Renders `NATURAL FULL OUTER JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_full_outer_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -410,10 +465,10 @@ macro_rules! impl_join_helpers {
                 .append(&table)
         }
 
-        /// Helper function to create a NATURAL INNER JOIN clause.
+        /// Renders `NATURAL INNER JOIN table`.
         ///
-        /// A natural join matches the columns both sides share by name,
-        /// so it takes no ON condition.
+        /// A natural join matches the columns both sides share by name, so it
+        /// takes no ON condition.
         pub fn natural_inner_join<'a, Table>(table: Table) -> $SQLType
         where
             Table: $TableTrait,
@@ -426,7 +481,7 @@ macro_rules! impl_join_helpers {
                 .append(&table)
         }
 
-        /// Helper function to create an INNER JOIN clause
+        /// Renders `INNER JOIN table ON condition`.
         pub fn inner_join<'a, Table>(table: Table, condition: impl $ConditionTrait) -> $SQLType
         where
             Table: $TableTrait,
@@ -448,11 +503,13 @@ macro_rules! impl_join_helpers {
     };
 }
 
-/// Macro to generate dialect-specific `JoinArg` trait and impls.
+/// Generates a dialect's `JoinArg` trait: what `.join(...)` and its variants
+/// accept.
 ///
-/// This consolidates the shared logic for:
-/// - explicit join tuples: `(table, condition)`
-/// - auto-FK joins for bare tables
+/// Two forms are accepted:
+/// - `(source, condition)`: an explicit ON condition;
+/// - a bare table: the ON condition comes from the foreign key between the
+///   two tables ([`Joinable`](crate::Joinable)).
 #[macro_export]
 macro_rules! impl_join_arg_trait {
     (
@@ -467,14 +524,15 @@ macro_rules! impl_join_arg_trait {
             /// Table added to the query scope by this join.
             type JoinedTable;
 
-            /// Sources read by the `ON` condition (see [`crate::scope`]).
+            /// Sources read by the `ON` condition (see `drizzle_core::scope`).
             type OnSources;
 
             /// Renders the join source and its `ON` condition.
             fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType>;
         }
 
-        /// Bare table: derives the ON condition from `Joinable::fk_columns()`.
+        /// Bare table: the ON condition matches the foreign-key columns from
+        /// `Joinable::fk_columns()`.
         impl<'a, U, T> JoinArg<'a, T> for U
         where
             U: $TableTrait + $crate::Joinable<T>,

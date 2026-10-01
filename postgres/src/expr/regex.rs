@@ -1,10 +1,41 @@
-//! `PostgreSQL` regular expression operators.
+//! `PostgreSQL` POSIX regular expression operators.
 //!
-//! Provides type-safe access to `PostgreSQL` regex operators:
-//! - `~` (matches regex, case-sensitive)
-//! - `~*` (matches regex, case-insensitive)
-//! - `!~` (does not match regex, case-sensitive)
-//! - `!~*` (does not match regex, case-insensitive)
+//! | Operator | Function / method | True when the text |
+//! |---|---|---|
+//! | `~` | [`regex_match`] | matches the pattern (case-sensitive) |
+//! | `~*` | [`regex_match_ci`] | matches the pattern (case-insensitive) |
+//! | `!~` | [`regex_not_match`] | does not match the pattern (case-sensitive) |
+//! | `!~*` | [`regex_not_match_ci`] | does not match the pattern (case-insensitive) |
+//!
+//! The left operand must be textual (`text`, `varchar`, `char` or an enum;
+//! see [`Textual`](drizzle_types::Textual)). The pattern is a `&str` bound as
+//! a `text` parameter. The pattern matches anywhere in the string unless it is
+//! anchored with `^` or `$`. Results are NULL when the left operand is NULL.
+//!
+//! # Examples
+//!
+//! ```
+//! use drizzle_core::{ToSQL, expr::raw_non_null};
+//! use drizzle_postgres::expr::RegexExprExt;
+//! use drizzle_postgres::values::PostgresValue;
+//! use drizzle_types::postgres::types::Text;
+//!
+//! let sku = raw_non_null::<PostgresValue, Text>("sku");
+//! let cond = sku.regex_match("^[A-Z]{3}-[0-9]+$");
+//! assert_eq!(cond.to_sql().sql(), "sku ~ $1");
+//! ```
+//!
+//! # Type safety
+//!
+//! ```compile_fail
+//! use drizzle_core::expr::raw_non_null;
+//! use drizzle_postgres::expr::regex_match;
+//! use drizzle_postgres::values::PostgresValue;
+//! use drizzle_types::postgres::types::Int8;
+//!
+//! let id = raw_non_null::<PostgresValue, Int8>("id");
+//! let _ = regex_match(id, "^1"); // `int8` is not textual
+//! ```
 
 use crate::values::PostgresValue;
 use drizzle_core::expr::{Expr, NonNull, SQLExpr};
@@ -12,17 +43,21 @@ use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk};
 use drizzle_types::postgres::types::Boolean;
 
-/// `PostgreSQL` `~` operator - case-sensitive regex match.
+/// Tests whether text matches a regular expression, case-sensitively (`~`).
 ///
-/// # Example
+/// The operand must be textual; see the [module docs](self) for the rules.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::regex_match;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
+/// use drizzle_postgres::expr::regex_match;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Text;
+///
+/// let name = raw_non_null::<PostgresValue, Text>("name");
 /// let cond = regex_match(name, "^[A-Z]");
-/// assert!(cond.to_sql().sql().contains("~"));
+/// assert_eq!(cond.to_sql().sql(), "name ~ $1");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regex_match<'a, E>(
@@ -40,17 +75,21 @@ where
     )
 }
 
-/// `PostgreSQL` `~*` operator - case-insensitive regex match.
+/// Tests whether text matches a regular expression, ignoring case (`~*`).
 ///
-/// # Example
+/// The operand must be textual; see the [module docs](self) for the rules.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::regex_match_ci;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
+/// use drizzle_postgres::expr::regex_match_ci;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Text;
+///
+/// let name = raw_non_null::<PostgresValue, Text>("name");
 /// let cond = regex_match_ci(name, "^john");
-/// assert!(cond.to_sql().sql().contains("~*"));
+/// assert_eq!(cond.to_sql().sql(), "name ~* $1");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regex_match_ci<'a, E>(
@@ -68,17 +107,21 @@ where
     )
 }
 
-/// `PostgreSQL` `!~` operator - case-sensitive regex non-match.
+/// Tests whether text does not match a regular expression, case-sensitively (`!~`).
 ///
-/// # Example
+/// The operand must be textual; see the [module docs](self) for the rules.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::regex_not_match;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
+/// use drizzle_postgres::expr::regex_not_match;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Text;
+///
+/// let name = raw_non_null::<PostgresValue, Text>("name");
 /// let cond = regex_not_match(name, "^[0-9]");
-/// assert!(cond.to_sql().sql().contains("!~"));
+/// assert_eq!(cond.to_sql().sql(), "name !~ $1");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regex_not_match<'a, E>(
@@ -96,17 +139,21 @@ where
     )
 }
 
-/// `PostgreSQL` `!~*` operator - case-insensitive regex non-match.
+/// Tests whether text does not match a regular expression, ignoring case (`!~*`).
 ///
-/// # Example
+/// The operand must be textual; see the [module docs](self) for the rules.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::regex_not_match_ci;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
+/// use drizzle_postgres::expr::regex_not_match_ci;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Text;
+///
+/// let name = raw_non_null::<PostgresValue, Text>("name");
 /// let cond = regex_not_match_ci(name, "^admin");
-/// assert!(cond.to_sql().sql().contains("!~*"));
+/// assert_eq!(cond.to_sql().sql(), "name !~* $1");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regex_not_match_ci<'a, E>(
@@ -124,9 +171,11 @@ where
     )
 }
 
-/// Extension trait providing method-based regex operators for `PostgreSQL` expressions.
+/// Method forms of the regex operators, available on every `PostgreSQL` expression.
+///
+/// Each method calls the free function of the same name and has the same operand rules.
 pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
-    /// Case-sensitive regex match (`~` operator).
+    /// Tests whether `self` matches `pattern`, case-sensitively (`~`). See [`regex_match`].
     #[allow(clippy::type_complexity)]
     fn regex_match(
         self,
@@ -145,7 +194,7 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         regex_match(self, pattern)
     }
 
-    /// Case-insensitive regex match (`~*` operator).
+    /// Tests whether `self` matches `pattern`, ignoring case (`~*`). See [`regex_match_ci`].
     #[allow(clippy::type_complexity)]
     fn regex_match_ci(
         self,
@@ -164,7 +213,7 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         regex_match_ci(self, pattern)
     }
 
-    /// Case-sensitive regex non-match (`!~` operator).
+    /// Tests whether `self` does not match `pattern`, case-sensitively (`!~`). See [`regex_not_match`].
     #[allow(clippy::type_complexity)]
     fn regex_not_match(
         self,
@@ -183,7 +232,7 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         regex_not_match(self, pattern)
     }
 
-    /// Case-insensitive regex non-match (`!~*` operator).
+    /// Tests whether `self` does not match `pattern`, ignoring case (`!~*`). See [`regex_not_match_ci`].
     #[allow(clippy::type_complexity)]
     fn regex_not_match_ci(
         self,
@@ -203,5 +252,4 @@ pub trait RegexExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 }
 
-/// Blanket implementation for all `PostgreSQL` `Expr` types.
 impl<'a, E: Expr<'a, PostgresValue<'a>>> RegexExprExt<'a> for E {}

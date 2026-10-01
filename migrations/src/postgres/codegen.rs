@@ -1,8 +1,7 @@
-//! `PostgreSQL` schema code generation
+//! Generates Rust schema source (`#[PostgresTable]` structs) from
+//! introspected PostgreSQL DDL entities.
 //!
-//! This module generates Rust source code from introspected DDL entities.
-//! The generated code uses the lowercase attribute syntax (e.g., `primary` instead of `PRIMARY`)
-//! that is the current recommended style.
+//! Output uses the lowercase attribute style (`primary`, not `PRIMARY`).
 
 use super::collection::PostgresDDL;
 use super::ddl::{

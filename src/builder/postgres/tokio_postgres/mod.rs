@@ -594,7 +594,14 @@ impl<Schema> Drizzle<Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create schema objects from `SQLSchemaImpl`.
+    /// Creates every table, index, and view in the schema.
+    ///
+    /// Useful for tests and throwaway databases; use `migrate` to evolve a
+    /// real one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the database rejects one of the statements.
     ///
     /// # Errors
     ///
@@ -1347,10 +1354,17 @@ impl<Schema> Drizzle<Schema> {
         Ok(drizzle_migrations::schema::Snapshot::Postgres(snap))
     }
 
-    /// Introspect the live database, diff against the desired schema, and
-    /// execute the SQL statements needed to bring the database in sync.
+    /// Changes the live database to match `schema`, without migration files.
     ///
-    /// This is a no-op if the database already matches.
+    /// Introspects the database, diffs it against `schema`, and runs the
+    /// resulting statements. Does nothing when they already match. Meant for
+    /// local development: nothing is recorded in the migration tracking
+    /// table.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when introspection or diffing fails, or when a
+    /// statement fails.
     ///
     /// # Errors
     ///

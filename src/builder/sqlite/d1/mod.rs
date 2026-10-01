@@ -123,7 +123,13 @@ use crate::builder::sqlite::common;
 #[cfg(feature = "query")]
 use crate::builder::sqlite::common::QueryRowFormat;
 
+/// The d1 database handle: a Cloudflare D1 binding ([`worker::D1Database`]) plus the schema's table handles.
+///
+/// Create it with `Drizzle::new(conn)`, then build queries with
+/// `select`, `insert`, `update`, and `delete`.
 pub type Drizzle<Schema = ()> = common::Drizzle<D1Database, Schema>;
+/// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
+/// `.all()`, `.get()`, or `.rows()`.
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<D1Database, Schema>, Schema, Builder, State>;
 

@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 /// `dialect` strings without knowing which dialect it's working with.
 pub trait SnapshotEntity {
     /// Dialect identifier serialized into the `dialect` field
-    /// (e.g. `"sqlite"`, `"postgres"`, or `"mysql"`).
+    /// (`"sqlite"`, `"postgresql"`, or `"mysql"`).
     const DIALECT: &'static str;
     /// Snapshot format version serialized into the `version` field
     /// (e.g. `"7"` for SQLite, `"8"` for Postgres, or `"6"` for MySQL).
@@ -41,7 +41,7 @@ pub trait SnapshotEntity {
 pub struct Snapshot<E> {
     /// Snapshot format version (e.g. `"7"`).
     pub version: String,
-    /// Dialect identifier (e.g. `"sqlite"`, `"postgres"`).
+    /// Dialect identifier (`"sqlite"`, `"postgresql"`, or `"mysql"`).
     pub dialect: String,
     /// Unique ID for this snapshot.
     pub id: String,

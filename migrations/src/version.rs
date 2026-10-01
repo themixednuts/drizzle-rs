@@ -1,36 +1,35 @@
-//! Version constants for drizzle migrations
-//!
-//! These match the versions used by drizzle-kit for compatibility.
-//! All version constants are centralized here for maintainability.
+//! Snapshot and journal format versions, matching drizzle-kit.
 
 use drizzle_types::Dialect;
 
-/// The origin UUID used for the first migration's `prev_id`
+/// The `prev_id` of the first snapshot in a chain (all zeros).
 pub const ORIGIN_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
-/// Journal version - used in _journal.json
-/// This matches drizzle-kit's snapshotVersion
+/// Version written to legacy `_journal.json` files (drizzle-kit's
+/// `snapshotVersion`).
 pub const JOURNAL_VERSION: &str = "7";
 
-/// SQLite/Turso/LibSQL snapshot version (current)
+/// Current SQLite (also Turso and libSQL) snapshot version.
 pub const SQLITE_SNAPSHOT_VERSION: &str = "7";
 
-/// `PostgreSQL` snapshot version (current)
+/// Current PostgreSQL snapshot version.
 pub const POSTGRES_SNAPSHOT_VERSION: &str = "8";
 
-/// `MySQL` snapshot version (current)
+/// Current MySQL snapshot version.
 pub const MYSQL_SNAPSHOT_VERSION: &str = "6";
 
-/// `SingleStore` snapshot version (current)
+/// Current SingleStore snapshot version (drizzle-kit compatibility only).
 pub const SINGLESTORE_SNAPSHOT_VERSION: &str = "1";
 
-/// Minimum supported versions for backwards compatibility
-/// (matches drizzle-kit's backwardCompatible* schemas)
+/// Oldest SQLite snapshot version that loads without `drizzle up`
+/// (matches drizzle-kit's `backwardCompatible*` schemas).
 pub const SQLITE_MIN_SUPPORTED_VERSION: u32 = 5;
+/// Oldest PostgreSQL snapshot version that loads without `drizzle up`.
 pub const POSTGRES_MIN_SUPPORTED_VERSION: u32 = 5;
+/// Oldest MySQL snapshot version that loads without `drizzle up`.
 pub const MYSQL_MIN_SUPPORTED_VERSION: u32 = 5;
 
-/// Get the current snapshot version for a dialect
+/// Returns the current snapshot version for `dialect`.
 #[must_use]
 pub const fn snapshot_version(dialect: Dialect) -> &'static str {
     match dialect {
@@ -40,7 +39,7 @@ pub const fn snapshot_version(dialect: Dialect) -> &'static str {
     }
 }
 
-/// Check if a snapshot version is the latest for a given dialect
+/// Returns `true` if `version` is the current snapshot version for `dialect`.
 #[must_use]
 pub const fn is_latest_version(dialect: Dialect, version: &str) -> bool {
     // Use const-compatible byte comparison since str::eq is not const
@@ -59,10 +58,10 @@ pub const fn is_latest_version(dialect: Dialect, version: &str) -> bool {
     true
 }
 
-/// Check if a snapshot version is supported for a given dialect.
-/// Older versions below the minimum need to be upgraded with `drizzle up`.
+/// Returns `true` if `version` is within the supported range for `dialect`.
 ///
-/// Supported version ranges (matching drizzle-kit beta):
+/// Versions below the minimum need `drizzle up`. Supported ranges (matching
+/// drizzle-kit beta):
 /// - `SQLite`: 5-7 (v4 and below need upgrade)
 /// - `PostgreSQL`: 5-8 (v4 and below need upgrade)
 /// - `MySQL`: 5-6
@@ -81,7 +80,18 @@ pub fn is_supported_version(dialect: Dialect, version: &str) -> bool {
     v >= min && v <= max
 }
 
-/// Check if a version needs to be upgraded to work with the current CLI
+/// Returns `true` if `version` is below the supported minimum or is not a
+/// number, so it must go through `drizzle up` first.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::needs_upgrade;
+/// use drizzle_types::Dialect;
+///
+/// assert!(needs_upgrade(Dialect::SQLite, "4"));
+/// assert!(!needs_upgrade(Dialect::SQLite, "7"));
+/// ```
 #[must_use]
 pub fn needs_upgrade(dialect: Dialect, version: &str) -> bool {
     let Ok(v) = version.parse::<u32>() else {

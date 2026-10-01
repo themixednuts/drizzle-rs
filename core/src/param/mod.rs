@@ -4,17 +4,17 @@ pub use owned::*;
 use crate::prelude::*;
 use crate::{placeholder::Placeholder, traits::SQLParam};
 
-/// A SQL parameter that associates a value with a placeholder.
-/// Designed to be const-friendly and zero-cost when possible.
+/// A placeholder in a SQL fragment, with its value once bound.
 #[derive(Debug, Clone)]
 pub struct Param<'a, V: SQLParam> {
-    /// The placeholder to use in the SQL
+    /// The placeholder written into the SQL text.
     pub placeholder: Placeholder,
-    /// The value to bind
+    /// The bound value, or `None` until one is bound.
     pub value: Option<Cow<'a, V>>,
 }
 
 impl<'a, V: SQLParam> Param<'a, V> {
+    /// Creates a parameter from a placeholder and an optional value.
     pub const fn new(placeholder: Placeholder, value: Option<Cow<'a, V>>) -> Self {
         Self { placeholder, value }
     }
@@ -48,7 +48,7 @@ impl<V: SQLParam> From<Placeholder> for Param<'_, V> {
 }
 
 impl<T: SQLParam> Param<'_, T> {
-    /// Creates a new parameter with a positional placeholder
+    /// Creates an anonymous (positional) parameter holding `value`.
     pub const fn positional(value: T) -> Self {
         Self {
             placeholder: Placeholder::anonymous(),
@@ -56,7 +56,7 @@ impl<T: SQLParam> Param<'_, T> {
         }
     }
 
-    /// Creates a new parameter with a specific placeholder and no value
+    /// Creates a parameter with no value yet.
     #[must_use]
     pub const fn from_placeholder(placeholder: Placeholder) -> Self {
         Self {
@@ -65,7 +65,7 @@ impl<T: SQLParam> Param<'_, T> {
         }
     }
 
-    /// Creates a new parameter with a named placeholder
+    /// Creates a named parameter holding `value`.
     pub const fn named(name: &'static str, value: T) -> Self {
         Self {
             placeholder: Placeholder::named(name),
@@ -73,7 +73,7 @@ impl<T: SQLParam> Param<'_, T> {
         }
     }
 
-    /// Creates a new parameter with a specific placeholder
+    /// Creates a parameter with the given placeholder, holding `value`.
     pub const fn with_placeholder(placeholder: Placeholder, value: T) -> Self {
         Self {
             placeholder,
@@ -82,30 +82,60 @@ impl<T: SQLParam> Param<'_, T> {
     }
 }
 
+/// A value to bind to the placeholder called `name`.
+///
+/// Pass these to [`SQL::bind`](crate::SQL::bind) or to a prepared
+/// statement. [`TypedPlaceholder::bind`](crate::TypedPlaceholder::bind)
+/// creates one with a type check.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{ParamBind, Placeholder, SQL, ToSQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = Placeholder::named("limit").to_sql();
+/// let bound = sql.bind([ParamBind::new("limit", Value(20))]);
+/// assert_eq!(bound.params().collect::<Vec<_>>(), [&Value(20)]);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ParamBind<'a, V: SQLParam> {
+    /// The placeholder name. Empty for a positional binding.
     pub name: &'a str,
+    /// The value to bind.
     pub value: V,
 }
 
 impl<'a, V: SQLParam> ParamBind<'a, V> {
+    /// Creates a binding for the placeholder `name`.
     pub const fn new(name: &'a str, value: V) -> Self {
         Self { name, value }
     }
 
-    /// Creates a new positional parameter binding.
+    /// Creates a binding with no name, matched by position.
     pub const fn positional(value: V) -> Self {
         Self { name: "", value }
     }
 }
 
-/// A typed collection of parameter bindings.
+/// A fixed-size set of [`ParamBind`]s, iterated in order.
 #[derive(Debug, Clone)]
 pub struct ParamSet<'a, V: SQLParam, const N: usize> {
     binds: [ParamBind<'a, V>; N],
 }
 
 impl<'a, V: SQLParam, const N: usize> ParamSet<'a, V, N> {
+    /// Creates a set from an array of bindings.
     pub const fn new(binds: [ParamBind<'a, V>; N]) -> Self {
         Self { binds }
     }

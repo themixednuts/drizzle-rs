@@ -1,4 +1,4 @@
-//! `SQLite` DDL types - re-exports from `drizzle_types` plus parsing types
+//! SQLite DDL entity types (re-exported from `drizzle_types`) plus parsing helpers.
 
 // Re-export everything from drizzle_types::sqlite::ddl
 pub use drizzle_types::sqlite::ddl::*;

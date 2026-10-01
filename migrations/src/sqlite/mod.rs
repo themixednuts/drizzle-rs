@@ -1,4 +1,5 @@
-//! `SQLite` schema types matching drizzle-kit beta v7 format
+//! SQLite snapshots, diffing, SQL generation, introspection, and codegen
+//! (drizzle-kit beta v7 format).
 
 // Local DDL module that re-exports from drizzle_types and adds parsing types
 pub mod ddl;

@@ -1,7 +1,4 @@
-//! `PostgreSQL` schema serialization
-//!
-//! This module provides functionality to serialize Drizzle schema definitions
-//! into DDL entities and snapshots.
+//! Turns drizzle PostgreSQL schema definitions into DDL entities and snapshots.
 
 use super::collection::PostgresDDL;
 use super::ddl::PostgresEntity;

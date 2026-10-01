@@ -1,34 +1,46 @@
-//! Dialect type re-exported from drizzle-types with core-specific extensions.
+//! Dialect markers, per-dialect type mappings, and dialect-only features.
+//!
+//! - [`Dialect`]: the runtime dialect enum.
+//! - [`SQLiteDialect`], [`PostgresDialect`], [`MySQLDialect`]: type-level
+//!   markers, chosen by a value type's [`SQLParam::DialectMarker`](crate::SQLParam::DialectMarker).
+//! - [`DialectTypes`]: maps generic SQL types (`Int`, `Text`, ...) to each
+//!   dialect's native types.
+//! - [`DialectSupports`] and [`feature`]: gate functions that only some
+//!   dialects have.
+//! - [`ParamStyle`]: how placeholders are written.
 
-/// Re-export the unified Dialect enum from drizzle-types
+/// The SQL dialect a value type or schema targets, known at runtime.
 pub use drizzle_types::Dialect;
 
 // =============================================================================
 // Type-level dialect markers
 // =============================================================================
 
-/// Type-level marker for `SQLite`.
+/// Type-level marker for SQLite.
 ///
-/// Used by [`crate::row::SQLTypeToRust`] to provide SQLite-specific type mappings.
-/// `SQLite` stores UUIDs as BLOB by default and uses TEXT for date/time and JSON values.
+/// Selects SQLite type mappings ([`DialectTypes`],
+/// [`SQLTypeToRust`](crate::row::SQLTypeToRust)). SQLite stores UUIDs as
+/// BLOB and date/time and JSON values as TEXT.
 #[derive(Debug, Clone, Copy)]
 pub struct SQLiteDialect;
 
-/// Type-level marker for `PostgreSQL`.
+/// Type-level marker for PostgreSQL.
 ///
-/// Used by [`crate::row::SQLTypeToRust`] to provide PostgreSQL-specific type mappings.
-/// `PostgreSQL` uses native binary formats for dates, UUIDs, and JSON, so the corresponding
-/// feature flags (`chrono`, `uuid`, `serde`) must be enabled.
+/// Selects PostgreSQL type mappings ([`DialectTypes`],
+/// [`SQLTypeToRust`](crate::row::SQLTypeToRust)). PostgreSQL has native
+/// date/time, UUID and JSON types, so selecting them needs a matching
+/// feature (`chrono`, `time` or `jiff`; `uuid`; `serde`).
 #[derive(Debug, Clone, Copy)]
 pub struct PostgresDialect;
 
-/// Type-level marker for `MySQL`.
+/// Type-level marker for MySQL.
 ///
-/// MySQL keeps signed and unsigned integer markers distinct, uses backtick
-/// identifiers, and has one native JSON type. It has no native UUID or
-/// time-zone-bearing datetime type: UUIDs use `BINARY(16)`, while
-/// `TimestampTz` maps to session-time-zone-aware `TIMESTAMP`. Concrete
-/// wire-driver behavior remains outside this marker.
+/// Selects MySQL type mappings ([`DialectTypes`],
+/// [`SQLTypeToRust`](crate::row::SQLTypeToRust)). MySQL keeps signed and
+/// unsigned integer types apart, quotes identifiers with backticks, and has
+/// one native JSON type. It has no native UUID or time-zone-aware datetime:
+/// UUIDs use `BINARY(16)`, and `TimestampTz` maps to `TIMESTAMP`, which
+/// follows the session time zone.
 #[derive(Debug, Clone, Copy)]
 pub struct MySQLDialect;
 
@@ -38,28 +50,45 @@ pub struct MySQLDialect;
 
 use crate::types::{Binary, BooleanLike, DataType, Floating, Integral, Temporal, Textual};
 
-/// Maps conceptual SQL types (Int, Text, Bool, ...) to dialect-native markers.
+/// Maps generic SQL types (`Int`, `Text`, `Bool`, ...) to each dialect's
+/// native type markers.
 ///
-/// Implemented for [`SQLiteDialect`], [`PostgresDialect`], and
-/// [`MySQLDialect`] so that
-/// expressions like `i32` can resolve to `sqlite::types::Integer` or
-/// `postgres::types::Int4` depending on the value type `V`.
+/// Implemented for [`SQLiteDialect`], [`PostgresDialect`] and
+/// [`MySQLDialect`]. Dialect-neutral expressions use it to pick a result
+/// type: `Int` is `sqlite::types::Integer` for SQLite and
+/// `postgres::types::Int4` for PostgreSQL.
 pub trait DialectTypes {
+    /// 16-bit integer.
     type SmallInt: DataType + Integral;
+    /// 32-bit integer.
     type Int: DataType + Integral;
+    /// 64-bit integer.
     type BigInt: DataType + Integral;
+    /// Single-precision float.
     type Float: DataType + Floating;
+    /// Double-precision float.
     type Double: DataType + Floating;
+    /// Text.
     type Text: DataType + Textual;
+    /// Boolean (an integer on SQLite).
     type Bool: DataType + BooleanLike;
+    /// Binary data.
     type Bytes: DataType + Binary;
+    /// Calendar date.
     type Date: DataType + Temporal;
+    /// Time of day.
     type Time: DataType + Temporal;
+    /// Date and time without a time zone.
     type Timestamp: DataType + Temporal;
+    /// Date and time with a time zone.
     type TimestampTz: DataType + Temporal;
+    /// UUID.
     type Uuid: DataType;
+    /// JSON.
     type Json: DataType;
+    /// Binary JSON (`jsonb`; plain JSON where the dialect has no `jsonb`).
     type Jsonb: DataType;
+    /// A value of unknown type.
     type Any: DataType;
 
     /// Result type of `RANDOM()`.
@@ -146,28 +175,39 @@ impl DialectTypes for MySQLDialect {
     const CHAR_LENGTH_FN: &'static str = "CHAR_LENGTH";
 }
 
-/// Parameter placeholder rendering style.
+/// How parameter placeholders are written.
 ///
-/// Decouples placeholder syntax from [`Dialect`] so drivers that speak a
-/// given SQL dialect but bind parameters differently (e.g. AWS Aurora Data
-/// API — Postgres SQL, named `:N` parameters) can request a non-default
-/// style without duplicating the whole dialect plumbing.
+/// Each [`Dialect`] has a default style ([`ParamStyle::for_dialect`]). A
+/// driver that speaks a dialect but binds parameters differently, such as
+/// the AWS Aurora Data API (PostgreSQL SQL with `:1, :2` parameters), can
+/// pick another style.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::dialect::{Dialect, ParamStyle};
+///
+/// let mut sql = String::new();
+/// ParamStyle::for_dialect(Dialect::PostgreSQL).write(2, &mut sql);
+/// ParamStyle::ColonNumbered.write(3, &mut sql);
+/// assert_eq!(sql, "$2:3");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamStyle {
-    /// `$1, $2, ...` — `PostgreSQL` native wire protocol.
+    /// `$1, $2, ...`: PostgreSQL.
     DollarNumbered,
-    /// `?` — `SQLite` / `MySQL` positional.
+    /// `?`: SQLite and MySQL, positional.
     Question,
-    /// `:1, :2, ...` — AWS Aurora Data API named parameters.
+    /// `:1, :2, ...`: AWS Aurora Data API.
     ///
-    /// Names are stringified 1-indexed ordinals, matching the
+    /// The names are 1-based positions, matching the
     /// `SqlParameter { name: "1", ... }` encoding the Data API expects.
     ColonNumbered,
 }
 
 impl ParamStyle {
-    /// Default placeholder style for a given dialect when the driver hasn't
-    /// overridden it.
+    /// The default style for `dialect`: `DollarNumbered` for PostgreSQL,
+    /// `Question` for SQLite and MySQL.
     #[inline]
     #[must_use]
     pub const fn for_dialect(dialect: Dialect) -> Self {
@@ -177,7 +217,7 @@ impl ParamStyle {
         }
     }
 
-    /// Write the placeholder for `index` (1-indexed) to the buffer.
+    /// Writes the placeholder for the parameter at 1-based position `index`.
     #[inline]
     pub fn write(self, index: usize, buf: &mut impl core::fmt::Write) {
         match self {
@@ -196,16 +236,17 @@ impl ParamStyle {
     }
 }
 
-/// Writes a dialect-appropriate placeholder directly to a buffer.
+/// Writes the default placeholder of `dialect` for the parameter at 1-based
+/// position `index`.
 ///
-/// Equivalent to `ParamStyle::for_dialect(dialect).write(index, buf)`. Kept
-/// as a free function for existing call sites that don't need a style override.
+/// Same as `ParamStyle::for_dialect(dialect).write(index, buf)`.
 #[inline]
 pub fn write_placeholder(dialect: Dialect, index: usize, buf: &mut impl core::fmt::Write) {
     ParamStyle::for_dialect(dialect).write(index, buf);
 }
 
-/// Dialect-only SQL features gated by [`DialectSupports`].
+/// Feature markers for [`DialectSupports`]: SQL functions that only some
+/// dialects have.
 pub mod feature {
     /// SQLite date/time functions (`unixepoch`, `strftime`, ...).
     #[derive(Debug, Clone, Copy, Default)]
@@ -228,7 +269,7 @@ pub mod feature {
     /// PostgreSQL aggregates (`array_agg`, `bool_and`, `json_agg`, ...).
     #[derive(Debug, Clone, Copy, Default)]
     pub struct PostgresAggregate;
-    /// SQLite-only aggregates.
+    /// SQLite-only aggregates (`total`, ...).
     #[derive(Debug, Clone, Copy, Default)]
     pub struct SQLiteAggregate;
     /// `GROUP_CONCAT`.
@@ -251,7 +292,36 @@ pub mod feature {
     pub struct Repeat;
 }
 
-/// The dialect `Self` provides the SQL feature `Feature`.
+/// The dialect `Self` has the SQL feature `Feature`.
+///
+/// Dialect-specific functions require
+/// `V::DialectMarker: DialectSupports<feature::X>`, where `V` is the value
+/// type. Calling one on a dialect that lacks it is a compile error rather
+/// than a database error:
+///
+/// ```text
+/// error[E0277]: `Sequence` is not available for `SQLiteDialect`
+///   = note: use a dialect-specific alternative
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{DialectSupports, PostgresDialect, feature};
+///
+/// fn nextval<D: DialectSupports<feature::Sequence>>() {}
+///
+/// nextval::<PostgresDialect>();
+/// ```
+///
+/// ```compile_fail
+/// use drizzle_core::{DialectSupports, SQLiteDialect, feature};
+///
+/// fn nextval<D: DialectSupports<feature::Sequence>>() {}
+///
+/// // error: `Sequence` is not available for `SQLiteDialect`
+/// nextval::<SQLiteDialect>();
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Feature}` is not available for `{Self}`",
     label = "this function is not supported by this dialect",

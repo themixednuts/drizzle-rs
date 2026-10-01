@@ -20,12 +20,47 @@ pub use tokens::*;
 #[cfg(feature = "profiling")]
 use crate::profile_sql;
 
-/// SQL fragment builder with flat chunk storage.
+/// A SQL fragment: tokens, identifiers, raw text, and bound parameters.
 ///
-/// Uses `SmallVec<[SQLChunk; 8]>` for inline storage of typical SQL fragments
-/// without heap allocation.
+/// Every query builder and expression renders to a `SQL`. `V` is the
+/// driver's value type (`SQLiteValue`, `PostgresValue`, ...), which also
+/// fixes the dialect used to render placeholders: `?` for SQLite and MySQL,
+/// `$1, $2, ...` for PostgreSQL.
+///
+/// Chunks are stored inline for short fragments (up to 8) without a heap
+/// allocation.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{SQL, Token};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = SQL::raw("SELECT")
+///     .append(SQL::ident("name"))
+///     .push(Token::FROM)
+///     .append(SQL::ident("users"))
+///     .push(Token::WHERE)
+///     .append(SQL::ident("id"))
+///     .push(Token::EQ)
+///     .append(SQL::param(Value(7)));
+///
+/// assert_eq!(sql.sql(), r#"SELECT "name" FROM "users" WHERE "id" = ?"#);
+/// assert_eq!(sql.params().collect::<Vec<_>>(), [&Value(7)]);
+/// ```
 #[derive(Debug, Clone)]
 pub struct SQL<'a, V: SQLParam> {
+    /// The fragment's chunks, in order.
     pub chunks: SmallVec<[SQLChunk<'a, V>; 8]>,
 }
 
@@ -34,7 +69,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== constructors ====================
 
-    /// Creates an empty SQL fragment
+    /// Creates an empty fragment.
     #[inline]
     #[must_use]
     pub const fn empty() -> Self {
@@ -43,9 +78,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    // ==================== constructors ====================
-
-    /// Creates SQL with a single token
+    /// Creates a fragment holding one keyword or punctuation [`Token`].
     #[inline]
     #[must_use]
     pub fn token(t: Token) -> Self {
@@ -54,7 +87,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates an empty SQL fragment with pre-allocated chunk capacity.
+    /// Creates an empty fragment with room for `capacity` chunks.
     #[inline]
     #[must_use]
     pub fn with_capacity_chunks(capacity: usize) -> Self {
@@ -63,7 +96,29 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL with a quoted identifier
+    /// Creates a quoted identifier, such as a table or column name.
+    ///
+    /// The quote character follows the dialect: `"name"` for SQLite and
+    /// PostgreSQL, `` `name` `` for MySQL.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_core::SQL;
+    /// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+    /// # use std::borrow::Cow;
+    /// # #[derive(Debug, Clone, PartialEq)]
+    /// # struct Value(i64);
+    /// # impl SQLParam for Value {
+    /// #     const DIALECT: Dialect = Dialect::SQLite;
+    /// #     type DialectMarker = SQLiteDialect;
+    /// # }
+    /// # impl From<Value> for Cow<'_, Value> {
+    /// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+    /// # }
+    ///
+    /// assert_eq!(SQL::<Value>::ident("user name").sql(), r#""user name""#);
+    /// ```
     #[inline]
     pub fn ident(name: impl Into<Cow<'a, str>>) -> Self {
         Self {
@@ -71,7 +126,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates a comma-separated list of unqualified column identifiers.
+    /// Creates a comma-separated list of quoted column names, without table
+    /// qualifiers: `"id", "name"`.
     #[must_use]
     pub fn columns(columns: &[ColumnRef]) -> Self {
         let mut sql = Self::with_capacity_chunks(columns.len().saturating_mul(2));
@@ -84,7 +140,29 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         sql
     }
 
-    /// Creates SQL with raw text (unquoted)
+    /// Creates a fragment of raw SQL text, written as-is.
+    ///
+    /// The text is not quoted or escaped. Never pass user input here; bind it
+    /// with [`SQL::param`] instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_core::SQL;
+    /// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+    /// # use std::borrow::Cow;
+    /// # #[derive(Debug, Clone, PartialEq)]
+    /// # struct Value(i64);
+    /// # impl SQLParam for Value {
+    /// #     const DIALECT: Dialect = Dialect::SQLite;
+    /// #     type DialectMarker = SQLiteDialect;
+    /// # }
+    /// # impl From<Value> for Cow<'_, Value> {
+    /// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+    /// # }
+    ///
+    /// assert_eq!(SQL::<Value>::raw("CURRENT_TIMESTAMP").sql(), "CURRENT_TIMESTAMP");
+    /// ```
     #[inline]
     pub fn raw(text: impl Into<Cow<'a, str>>) -> Self {
         Self {
@@ -92,7 +170,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL with a single unsigned integer literal.
+    /// Creates an unsigned integer literal, written into the SQL text rather
+    /// than bound.
     #[inline]
     #[must_use]
     pub fn number(value: usize) -> Self {
@@ -101,7 +180,31 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL with a single parameter value
+    /// Creates a bound parameter holding `value`.
+    ///
+    /// The SQL text gets a placeholder (`?` or `$n`); the value travels
+    /// separately and is returned by [`SQL::params`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_core::SQL;
+    /// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+    /// # use std::borrow::Cow;
+    /// # #[derive(Debug, Clone, PartialEq)]
+    /// # struct Value(i64);
+    /// # impl SQLParam for Value {
+    /// #     const DIALECT: Dialect = Dialect::SQLite;
+    /// #     type DialectMarker = SQLiteDialect;
+    /// # }
+    /// # impl From<Value> for Cow<'_, Value> {
+    /// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+    /// # }
+    ///
+    /// let sql = SQL::param(Value(1)).append(SQL::raw("+")).append(SQL::param(Value(2)));
+    /// assert_eq!(sql.sql(), "? + ?");
+    /// assert_eq!(sql.params().count(), 2);
+    /// ```
     #[inline]
     pub fn param(value: impl Into<Cow<'a, V>>) -> Self {
         Self {
@@ -112,9 +215,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL with a binary parameter value (BLOB/bytea)
+    /// Creates a bound binary parameter (BLOB / `bytea`).
     ///
-    /// Prefer this over `SQL::param(Vec<u8>)` to avoid list semantics.
+    /// Prefer this over `SQL::param(Vec<u8>)`, which some value types treat
+    /// as a list rather than one binary value.
     #[inline]
     pub fn bytes(bytes: impl Into<Cow<'a, [u8]>>) -> Self
     where
@@ -126,7 +230,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL referencing a table
+    /// Creates a reference to a table, rendered as its quoted name.
+    ///
+    /// Right after `SELECT ... FROM`, a table reference also lets the
+    /// renderer expand an empty projection into the table's columns.
     #[inline]
     #[must_use]
     pub fn table(table: TableRef) -> Self {
@@ -135,7 +242,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL referencing a column
+    /// Creates a reference to a column, rendered as `"table"."column"`.
     #[inline]
     #[must_use]
     pub fn column(column: ColumnRef) -> Self {
@@ -144,8 +251,30 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Creates SQL for a function call: NAME(args)
-    /// Subqueries are automatically wrapped in parentheses: NAME((SELECT ...))
+    /// Creates a function call: `NAME(args)`.
+    ///
+    /// A subquery argument gets its own parentheses: `NAME((SELECT ...))`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_core::SQL;
+    /// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+    /// # use std::borrow::Cow;
+    /// # #[derive(Debug, Clone, PartialEq)]
+    /// # struct Value(i64);
+    /// # impl SQLParam for Value {
+    /// #     const DIALECT: Dialect = Dialect::SQLite;
+    /// #     type DialectMarker = SQLiteDialect;
+    /// # }
+    /// # impl From<Value> for Cow<'_, Value> {
+    /// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+    /// # }
+    ///
+    /// let sql = SQL::<Value>::func("LOWER", SQL::ident("email"));
+    /// // SQLite and PostgreSQL put a space before `(`; MySQL does not.
+    /// assert_eq!(sql.sql(), r#"LOWER ("email")"#);
+    /// ```
     #[inline]
     pub fn func(name: &'static str, args: Self) -> Self {
         let args = args.parens_if_subquery();
@@ -157,7 +286,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== builder methods ====================
 
-    /// Append another SQL fragment (flat extend)
+    /// Appends another fragment and returns the result.
     #[inline]
     #[must_use]
     pub fn append(mut self, other: impl Into<Self>) -> Self {
@@ -176,6 +305,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         self
     }
 
+    /// Appends another fragment in place.
     #[inline]
     pub fn append_mut(&mut self, other: impl Into<Self>) {
         #[cfg(feature = "profiling")]
@@ -193,7 +323,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         self.chunks.extend(other.chunks);
     }
 
-    /// Push a single chunk
+    /// Appends one chunk (a [`Token`], parameter, ...) and returns the result.
     #[inline]
     #[must_use]
     pub fn push(mut self, chunk: impl Into<SQLChunk<'a, V>>) -> Self {
@@ -201,12 +331,13 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         self
     }
 
+    /// Appends one chunk in place.
     #[inline]
     pub fn push_mut(&mut self, chunk: impl Into<SQLChunk<'a, V>>) {
         self.chunks.push(chunk.into());
     }
 
-    /// Pre-allocates capacity for additional chunks
+    /// Reserves room for `additional` more chunks.
     #[inline]
     #[must_use]
     pub fn with_capacity(mut self, additional: usize) -> Self {
@@ -216,7 +347,28 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== combinators ====================
 
-    /// Joins multiple SQL fragments with a separator
+    /// Joins fragments with a separator token. Returns an empty fragment for
+    /// an empty iterator.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_core::{SQL, Token};
+    /// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+    /// # use std::borrow::Cow;
+    /// # #[derive(Debug, Clone, PartialEq)]
+    /// # struct Value(i64);
+    /// # impl SQLParam for Value {
+    /// #     const DIALECT: Dialect = Dialect::SQLite;
+    /// #     type DialectMarker = SQLiteDialect;
+    /// # }
+    /// # impl From<Value> for Cow<'_, Value> {
+    /// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+    /// # }
+    ///
+    /// let cols = [SQL::<Value>::ident("id"), SQL::ident("name")];
+    /// assert_eq!(SQL::join(cols, Token::COMMA).sql(), r#""id", "name""#);
+    /// ```
     pub fn join<T>(sqls: T, separator: Token) -> Self
     where
         T: IntoIterator,
@@ -248,14 +400,15 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         result
     }
 
-    /// Wrap in parentheses: (self)
+    /// Wraps the fragment in parentheses: `(self)`.
     #[inline]
     #[must_use]
     pub fn parens(self) -> Self {
         SQL::token(Token::LPAREN).append(self).push(Token::RPAREN)
     }
 
-    /// Wrap this SQL fragment in parentheses only when it is a subquery.
+    /// Wraps the fragment in parentheses only when it is a subquery (see
+    /// [`SQL::is_subquery`]).
     #[inline]
     #[must_use]
     pub fn parens_if_subquery(self) -> Self {
@@ -266,7 +419,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Check if this SQL fragment is a subquery (starts with SELECT/WITH).
+    /// Returns `true` if the fragment starts with a `SELECT` or `WITH` token.
     #[inline]
     pub fn is_subquery(&self) -> bool {
         matches!(
@@ -275,15 +428,14 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         )
     }
 
-    /// Creates an aliased version: self AS "name"
+    /// Appends an alias: `self AS "name"`.
     #[inline]
     #[must_use]
     pub fn alias(self, name: impl Into<Cow<'a, str>>) -> Self {
         self.push(Token::AS).push(SQLChunk::Ident(name.into()))
     }
 
-    /// Creates a comma-separated list of parameters.
-    /// Builds chunks directly without intermediate SQL allocations.
+    /// Creates a comma-separated list of bound parameters: `?, ?, ?`.
     #[inline]
     pub fn param_list<I>(values: I) -> Self
     where
@@ -306,8 +458,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL { chunks }
     }
 
-    /// Creates a comma-separated list of column assignments: "col" = ?
-    /// Builds chunks directly without intermediate SQL allocations.
+    /// Creates comma-separated assignments with bound values:
+    /// `"col" = ?, "other" = ?`.
     #[inline]
     pub fn assignments<I, T>(pairs: I) -> Self
     where
@@ -333,12 +485,12 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL { chunks }
     }
 
-    /// Creates comma-separated column assignments from pre-built SQL fragments,
-    /// such as `"col" = <expression>`.
+    /// Creates comma-separated assignments from fragments:
+    /// `"col" = <expression>`.
     ///
-    /// Unlike `assignments()` which wraps each value in `SQL::param()`, this variant
-    /// accepts pre-built `SQL` fragments, preserving placeholders and raw expressions.
-    /// Builds chunks directly without intermediate SQL allocations.
+    /// Unlike [`SQL::assignments`], which binds each value as a parameter,
+    /// this keeps each fragment as-is, so placeholders and raw expressions
+    /// survive.
     #[inline]
     pub fn assignments_sql<I>(pairs: I) -> Self
     where
@@ -361,11 +513,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
 
     // ==================== output methods ====================
 
-    /// Maps parameter values from type `V` to type `U` using the provided function.
+    /// Converts every bound value with `f`, changing the value type to `U`.
     ///
-    /// Only `Param` chunks are affected; all other chunks pass through unchanged.
-    /// This is useful for converting between owned and borrowed value types
-    /// (e.g. `OwnedPostgresValue` → `PostgresValue<'a>`).
+    /// Only parameter chunks change. Useful for converting between owned and
+    /// borrowed value types (for example `OwnedPostgresValue` to
+    /// `PostgresValue<'a>`).
     pub fn map_params<U: SQLParam>(self, mut f: impl FnMut(V) -> U) -> SQL<'a, U> {
         let chunks = self
             .chunks
@@ -386,11 +538,11 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL { chunks }
     }
 
-    /// Own every borrowed SQL fragment while mapping parameter values.
+    /// Copies every borrowed string into owned storage and converts bound
+    /// values with `f`, giving a `'static` fragment.
     ///
-    /// This is used by generated models that outlive their source values. It
-    /// preserves identifiers, raw fragments, placeholders, tables, and columns
-    /// instead of assuming the fragment consists of a single parameter.
+    /// Generated models use this to outlive the values they were built from.
+    /// Identifiers, raw text, placeholders, tables and columns are all kept.
     pub fn into_owned_with<U: SQLParam>(self, mut f: impl FnMut(V) -> U) -> SQL<'static, U> {
         let chunks = self
             .chunks
@@ -411,14 +563,17 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         SQL { chunks }
     }
 
-    /// Converts to owned version (consuming self to avoid clone)
+    /// Converts into an [`OwnedSQL`] with no borrowed data.
     #[inline]
     pub fn into_owned(self) -> OwnedSQL<V> {
         OwnedSQL::from(self)
     }
 
-    /// Returns the SQL string with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for `PostgreSQL`, `:name` or `?` for `SQLite`, `?` for `MySQL`.
+    /// Renders the SQL text.
+    ///
+    /// Placeholders follow the dialect of `V`: `$1, $2, ...` for PostgreSQL,
+    /// `:name` (named) or `?` for SQLite, and `?` for MySQL. Use
+    /// [`SQL::build`] to get the parameters in the same pass.
     pub fn sql(&self) -> String {
         #[cfg(feature = "profiling")]
         profile_sql!("sql");
@@ -446,12 +601,13 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         false
     }
 
-    /// Returns the SQL string with every bound value written as a literal
-    /// instead of a placeholder, for statements that cannot take parameters,
-    /// such as the body of a `CREATE VIEW`.
+    /// Renders the SQL text with every bound value written as a literal
+    /// instead of a placeholder.
     ///
-    /// Returns `None` when a placeholder has no bound value, or a value has
-    /// no literal form in this dialect (see [`SQLParam::write_literal`]).
+    /// For statements that cannot take parameters, such as the body of a
+    /// `CREATE VIEW`. Returns `None` when a placeholder has no bound value,
+    /// or a value has no literal form in this dialect (see
+    /// [`SQLParam::write_literal`]).
     #[must_use]
     pub fn inline_sql(&self) -> Option<String> {
         let (sql_cap, _) = self.render_capacity_estimate();
@@ -478,18 +634,44 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         Some(buf)
     }
 
-    /// Generates the SQL string and collects parameter references in a single pass.
+    /// Renders the SQL text and collects the bound values in one pass.
     ///
-    /// This is the preferred method for driver execution paths since it avoids
-    /// iterating the chunk list twice (once for `sql()`, once for `params()`).
+    /// Drivers use this to execute a statement. Placeholders without a bound
+    /// value are rendered but not collected. For SQLite, a named placeholder
+    /// that appears more than once is collected once, since SQLite gives each
+    /// distinct `:name` a single slot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_core::SQL;
+    /// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+    /// # use std::borrow::Cow;
+    /// # #[derive(Debug, Clone, PartialEq)]
+    /// # struct Value(i64);
+    /// # impl SQLParam for Value {
+    /// #     const DIALECT: Dialect = Dialect::SQLite;
+    /// #     type DialectMarker = SQLiteDialect;
+    /// # }
+    /// # impl From<Value> for Cow<'_, Value> {
+    /// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+    /// # }
+    ///
+    /// let sql = SQL::raw("SELECT").append(SQL::param(Value(1)));
+    /// let (text, params) = sql.build();
+    /// assert_eq!(text, "SELECT ?");
+    /// assert_eq!(params.as_slice(), [&Value(1)]);
+    /// ```
     pub fn build(&self) -> (String, SmallVec<[&V; 8]>) {
         self.build_with(crate::dialect::ParamStyle::for_dialect(V::DIALECT))
     }
 
-    /// Same as [`build`](Self::build) but lets the caller override the
-    /// placeholder style. Drivers that speak the dialect but bind parameters
-    /// differently (e.g. AWS Data API on Postgres) use this to emit
-    /// `:1, :2, ...` instead of `$1, $2, ...` without any post-hoc rewriting.
+    /// Like [`build`](Self::build), but with a caller-chosen placeholder
+    /// style.
+    ///
+    /// For drivers that speak the dialect but bind parameters differently,
+    /// such as the AWS Data API on PostgreSQL, which needs `:1, :2, ...`
+    /// instead of `$1, $2, ...`.
     pub fn build_with(&self, style: crate::dialect::ParamStyle) -> (String, SmallVec<[&V; 8]>) {
         use crate::dialect::Dialect;
 
@@ -540,14 +722,14 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         (buf, params)
     }
 
-    /// Write SQL to a buffer with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for `PostgreSQL`, `?` or `:name` for `SQLite`, `?` for `MySQL`.
+    /// Writes the SQL text to `buf`, like [`SQL::sql`] without allocating a
+    /// new string.
     #[inline]
     pub fn write_to(&self, buf: &mut impl core::fmt::Write) {
         self.write_to_with(buf, crate::dialect::ParamStyle::for_dialect(V::DIALECT));
     }
 
-    /// Same as [`write_to`](Self::write_to) but with a caller-chosen
+    /// Like [`write_to`](Self::write_to), but with a caller-chosen
     /// placeholder style.
     pub fn write_to_with(
         &self,
@@ -585,7 +767,10 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Write a single chunk with pattern detection
+    /// Writes the chunk at `index` to `buf`, expanding an empty `SELECT`
+    /// projection that ends at this chunk.
+    ///
+    /// Does not write the space that may follow the chunk.
     #[inline]
     pub fn write_chunk_to(
         &self,
@@ -702,7 +887,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Write fully qualified columns for a table
+    /// Writes every column of `table` as `"table"."column"`, separated by
+    /// commas, or `"table".*` when the column list is unknown.
     #[inline]
     pub fn write_qualified_columns(buf: &mut impl core::fmt::Write, table: &TableSqlRef) {
         Self::write_qualified_columns_as(buf, table, None);
@@ -746,7 +932,7 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         }
     }
 
-    /// Simplified spacing logic
+    /// Whether a space goes between the chunk at `index` and the next one.
     #[inline]
     fn needs_space(&self, index: usize) -> bool {
         let Some(next) = self.chunks.get(index + 1) else {
@@ -778,8 +964,8 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         (sql_cap.max(128), param_cap)
     }
 
-    /// Returns an iterator over references to parameter values
-    /// (avoids allocating a Vec - callers can collect if needed)
+    /// Returns the bound values, in order. Placeholders without a value are
+    /// skipped.
     #[inline]
     pub fn params(&self) -> impl Iterator<Item = &V> + use<'_, V> {
         self.chunks.iter().filter_map(|chunk| {
@@ -794,7 +980,37 @@ impl<'a, V: SQLParam> SQL<'a, V> {
         })
     }
 
-    /// Bind named parameters
+    /// Fills named placeholders with values, matching by name.
+    ///
+    /// Placeholders whose name is not in `params` keep no value. Values can
+    /// come from [`TypedPlaceholder::bind`](crate::TypedPlaceholder::bind),
+    /// which also checks the value's SQL type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_core::{ParamBind, Placeholder, SQL, ToSQL, Token};
+    /// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+    /// # use std::borrow::Cow;
+    /// # #[derive(Debug, Clone, PartialEq)]
+    /// # struct Value(i64);
+    /// # impl SQLParam for Value {
+    /// #     const DIALECT: Dialect = Dialect::SQLite;
+    /// #     type DialectMarker = SQLiteDialect;
+    /// # }
+    /// # impl From<Value> for Cow<'_, Value> {
+    /// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+    /// # }
+    ///
+    /// let sql: SQL<'_, Value> = SQL::ident("id")
+    ///     .push(Token::EQ)
+    ///     .append(Placeholder::named("id").into_sql());
+    /// assert_eq!(sql.params().count(), 0);
+    ///
+    /// let bound = sql.bind([ParamBind::new("id", Value(3))]);
+    /// assert_eq!(bound.sql(), r#""id" = :id"#);
+    /// assert_eq!(bound.params().collect::<Vec<_>>(), [&Value(3)]);
+    /// ```
     #[must_use]
     pub fn bind<T: SQLParam + Into<V>>(
         self,
@@ -882,8 +1098,8 @@ impl<'n> SQLiteNamedParams<'n> {
     }
 }
 
-/// Canonical spacing logic for SQL chunk rendering.
-/// Used by both `SQL::write_to()` and `prepare_render()`.
+/// Whether a space goes between two adjacent chunks when rendering.
+/// Shared by `SQL::write_to()` and `prepare_render()`.
 #[inline]
 pub(crate) fn chunk_needs_space<V: SQLParam>(
     current: &SQLChunk<'_, V>,

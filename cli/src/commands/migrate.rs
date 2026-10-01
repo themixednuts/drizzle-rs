@@ -1,6 +1,4 @@
-//! Migrate command implementation
-//!
-//! Runs pending migrations against the database.
+//! `drizzle migrate`: applies pending migrations to the database.
 
 use crate::commands::overrides::{self, ConnectionOverrides};
 use crate::config::{Config, Dialect, Driver};

@@ -1,7 +1,6 @@
-//! `SQLite` database introspection
+//! Reads an existing SQLite database's schema into DDL entities.
 //!
-//! This module provides functionality to introspect an existing `SQLite` database
-//! and extract its schema as DDL entities, matching drizzle-kit introspect.ts
+//! Mirrors drizzle-kit's `introspect.ts`.
 
 use super::ddl::{
     Column, ForeignKey, Index, IndexColumn, IndexOrigin, PrimaryKey, SqliteEntity, Table,

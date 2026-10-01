@@ -1,7 +1,7 @@
 use drizzle_core::traits::SQLViewInfo;
 use drizzle_core::{SQLIndexInfo, SQLSchemaType, TableRef};
 
-/// The type of database object
+/// The kind of schema object a `SQLite` schema item is.
 #[derive(Debug, Clone)]
 pub enum SQLiteSchemaType {
     /// A regular table
@@ -20,7 +20,7 @@ impl SQLSchemaType for SQLiteSchemaType {}
 // Number Type
 //------------------------------------------------------------------------------
 
-/// Numeric type that can be either an integer or a floating point value
+/// A number that is either an integer or a floating-point value.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum Number {
     /// Integer value

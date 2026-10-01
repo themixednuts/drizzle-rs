@@ -1,4 +1,5 @@
-//! `RelEntry<Rel, Data, Rest>` — type-level linked list for relation data storage.
+//! [`RelEntry`]: a type-level list holding the decoded data of each loaded
+//! relation.
 
 use core::marker::PhantomData;
 

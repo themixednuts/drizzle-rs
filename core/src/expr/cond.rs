@@ -1,45 +1,61 @@
 //! Condition lists: tuples as conjunctions, plus the [`all`] and [`any`] combinators.
 //!
 //! A tuple of conditions *is* a condition. It renders as the parenthesized AND
-//! of its elements and carries exactly the guarantees a chain of
-//! [`and`](super::and) calls would, so `and(a, and(b, c))` can be written
-//! `(a, b, c)` anywhere a condition is accepted:
+//! of its elements and has the same type as a chain of [`and`](super::and)
+//! calls, so `and(a, and(b, c))` can be written `(a, b, c)` anywhere a
+//! condition is accepted (for example in `.r#where(...)`). Bare tuples work up
+//! to 8 elements; use [`all`] or nested tuples for longer lists.
 //!
 //! ```rust
-//! # let _ = r####"
-//! use drizzle_core::expr::{all, any, eq, gt};
+//! # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+//! # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+//! # #[derive(Clone, Debug)] struct Value(String);
+//! # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+//! # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+//! # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+//! # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+//! # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+//! # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+//! # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+//! # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+//! let filter = (gt(users.age, 18), is_not_null(users.email), like(users.name, "A%"));
+//! assert_eq!(
+//!     filter.into_expr_sql().sql(),
+//!     r#"("users"."age" > ? AND "users"."email" IS NOT NULL AND "users"."name" LIKE ?)"#
+//! );
 //!
-//! // WHERE ("users"."active" = TRUE AND "users"."age" > 18 AND "users"."role" = 'admin')
-//! query.r#where((eq(users.active, true), gt(users.age, 18), eq(users.role, "admin")));
-//!
-//! // Flat OR lists too
-//! query.r#where(any((eq(users.role, "admin"), eq(users.role, "moderator"))));
-//!
-//! // Tuples nest inside or(), and inside each other
-//! query.r#where(or((a, b), (c, d)));
-//! # "####;
+//! // OR lists use `any`.
+//! let staff = any((eq(users.name, "admin"), eq(users.name, "moderator")));
+//! assert_eq!(staff.sql(), r#"("users"."name" = ? OR "users"."name" = ?)"#);
 //! ```
 //!
 //! # Optional elements
 //!
-//! Any element may be an [`Option`]. `None` contributes nothing to the rendered
-//! SQL, which makes dynamic filters composable without building the condition
-//! by hand:
+//! Any element may be an [`Option`]. `None` adds nothing to the SQL, which
+//! makes optional filters easy to build:
 //!
 //! ```rust
-//! # let _ = r####"
-//! let name_filter = name.map(|n| eq(users.name, n));
-//! query.r#where((gt(users.age, 18), name_filter));
-//! // Some("bob") => ("users"."age" > ? AND "users"."name" = ?)
-//! // None        => ("users"."age" > ?)
-//! # "####;
+//! # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+//! # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+//! # #[derive(Clone, Debug)] struct Value(String);
+//! # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+//! # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+//! # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+//! # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+//! # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+//! # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+//! # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+//! # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+//! let name: Option<&str> = None;
+//! let filter = (gt(users.age, 18), name.map(|n| eq(users.name, n)));
+//! assert_eq!(filter.into_expr_sql().sql(), r#"("users"."age" > ?)"#);
 //! ```
 //!
-//! When *every* element is `None` the list has nothing to combine, so it
-//! renders as the identity of its operator: `TRUE` for a conjunction (a tuple
-//! or [`all`]) and `FALSE` for a disjunction ([`any`]). A conjunction that
-//! filters nothing therefore behaves like an absent `WHERE` clause, while an
-//! empty disjunction fails closed rather than silently matching every row.
+//! When *every* element is `None`, the list renders as the identity of its
+//! operator: `TRUE` for a conjunction (a tuple or [`all`]) and `FALSE` for a
+//! disjunction ([`any`]). An empty conjunction therefore filters nothing,
+//! while an empty disjunction matches no rows instead of silently matching
+//! every row.
 
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
@@ -62,10 +78,8 @@ mod sealed {
 // ConditionSink
 // =============================================================================
 
-/// Accumulator threaded through a [`ConditionList`] while it renders.
-///
-/// Only [`ConditionList`] implementations interact with this type, and the
-/// trait is sealed, so it is an implementation detail of the crate.
+/// Collects rendered conditions while a [`ConditionList`] renders.
+/// Internal to the crate.
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct ConditionSink<'a, V: SQLParam> {
@@ -106,19 +120,18 @@ impl<'a, V: SQLParam + 'a> ConditionSink<'a, V> {
 // ConditionList
 // =============================================================================
 
-/// A list of SQL conditions combined under a single logical operator.
+/// A tuple of conditions that [`all`] and [`any`] can combine.
 ///
-/// Implemented for tuples whose every element is a boolean expression — or an
-/// [`Option`] of one — for arities 1..=8, extended to 16 by the `col16`
-/// feature. The associated markers fold across the elements
-/// exactly as chained [`and`](super::and) calls would: the list is nullable if
-/// any element is nullable, and aggregate if any element is aggregate.
+/// Implemented for tuples of 1 to 8 elements (16 with the `col16` feature,
+/// which is on by default). Each element is a boolean expression or an
+/// [`Option`] of one. The list is nullable if any element is nullable, and is
+/// an aggregate if any element is.
 ///
-/// A bare tuple additionally *is* a condition (it implements
-/// [`Expr`](super::Expr)) up to arity 8. Past that, combine through [`all`] or
-/// [`any`], or nest tuples — the result is the same flat AND.
+/// Tuples of up to 8 elements are also conditions themselves (they implement
+/// [`Expr`](super::Expr)). For longer lists, use [`all`] or [`any`], or nest
+/// tuples.
 ///
-/// This trait is sealed; the crate provides every implementation.
+/// This trait is sealed.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a list of SQL conditions",
     label = "expected a tuple of boolean expressions",
@@ -164,24 +177,35 @@ where
 // all / any
 // =============================================================================
 
-/// Logical AND of every condition in a list.
+/// Logical AND of every condition in a tuple.
 ///
-/// The flat form of [`and`](super::and): `all((a, b, c))` renders
-/// `(a AND b AND c)` instead of nesting `and(a, and(b, c))`. `None` elements
-/// are skipped, and a list with no present element renders as `TRUE`.
+/// Renders `(a AND b AND c)`. `None` elements are skipped, and a list with no
+/// present element renders as `TRUE`. The result is nullable if any element
+/// is, and is an aggregate if any element is.
 ///
-/// A bare tuple already means the same thing in condition position
-/// (`.r#where((a, b, c))`); reach for `all` where a tuple would be read as a
-/// column list instead — most notably a join's `ON` condition, which accepts
-/// any SQL fragment rather than a typed condition.
+/// A bare tuple means the same thing where a condition is expected. Use `all`
+/// where a tuple would be read as a list of columns instead (for example as a
+/// join's `ON` condition), or for lists longer than 8.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::{all, eq, gt};
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let cond = all((users.active, gt(users.age, 18)));
+/// assert_eq!(cond.sql(), r#"("users"."active" AND "users"."age" > ?)"#);
 ///
-/// all((eq(users.active, true), gt(users.age, 18)))
-/// // ("users"."active" = ? AND "users"."age" > ?)
-/// # "####;
+/// let nothing = all((None::<SQLExpr<'_, Value, Int>>,));
+/// assert_eq!(nothing.sql(), "TRUE");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn all<'a, V, L>(
@@ -194,21 +218,29 @@ where
     SQLExpr::new(combine(conditions, Token::AND, EMPTY_CONJUNCTION))
 }
 
-/// Logical OR of every condition in a list.
+/// Logical OR of every condition in a tuple.
 ///
-/// The flat form of [`or`](super::or): `any((a, b, c))` renders
-/// `(a OR b OR c)` instead of nesting `or(a, or(b, c))`. `None` elements are
-/// skipped, and a list with no present element renders as `FALSE` — an empty
-/// disjunction matches nothing, which fails closed rather than quietly
-/// dropping the filter.
+/// Renders `(a OR b OR c)`. `None` elements are skipped, and a list with no
+/// present element renders as `FALSE`, so an empty OR matches no rows. The
+/// result is nullable if any element is, and is an aggregate if any element
+/// is.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::{any, eq};
-///
-/// any((eq(users.role, "admin"), eq(users.role, "moderator")))
-/// // ("users"."role" = ? OR "users"."role" = ?)
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let cond = any((eq(users.name, "admin"), lt(users.age, 13)));
+/// assert_eq!(cond.sql(), r#"("users"."name" = ? OR "users"."age" < ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn any<'a, V, L>(

@@ -1,4 +1,5 @@
-//! SQLite-specific traits for tables, columns, and values
+//! `SQLite` traits for tables, columns, custom column types and row
+//! decoding.
 
 mod column;
 mod table;

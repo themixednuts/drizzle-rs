@@ -1,12 +1,36 @@
-//! Attribute markers for `SQLiteTable` derive macro.
+//! Names accepted inside `#[SQLiteTable(...)]`, `#[column(...)]` and
+//! `#[SQLiteIndex(...)]`.
 //!
-//! These const markers are used within `#[column(...)]` and `#[SQLiteTable(...)]`
-//! attributes. Import them from the prelude to get IDE hover documentation.
+//! The macros read these attributes by name; the constants here exist so
+//! your editor can show their documentation on hover. Import them through
+//! the prelude.
 //!
-//! # Example
+//! # Examples
+//!
 //! ```rust
-//! # let _ = r####"
-//! # use drizzle::sqlite::prelude::*;
+//! # mod drizzle {
+//! #     pub mod core { pub use drizzle_core::*; }
+//! #     pub mod error { pub use drizzle_core::error::*; }
+//! #     pub mod types { pub use drizzle_types::*; }
+//! #     pub mod migrations { pub use drizzle_migrations::*; }
+//! #     pub use drizzle_types::Dialect;
+//! #     pub use drizzle_types as ddl;
+//! #     pub mod sqlite {
+//! #         pub use drizzle_sqlite::*;
+//! #         #[cfg(feature = "rusqlite")]
+//! #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+//! #         #[cfg(feature = "libsql")]
+//! #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+//! #         #[cfg(feature = "turso")]
+//! #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+//! #         pub mod prelude {
+//! #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+//! #             pub use drizzle_sqlite::{*, attrs::*};
+//! #             pub use drizzle_core::*;
+//! #         }
+//! #     }
+//! # }
+//! use drizzle::sqlite::prelude::*;
 //!
 //! #[SQLiteTable(
 //!     name = "users",
@@ -23,7 +47,6 @@
 //!     score: i32,
 //!     metadata: String,
 //! }
-//! # "####;
 //! ```
 
 /// Marker struct for column constraint attributes.
@@ -36,7 +59,7 @@ pub struct ColumnMarker;
 
 /// Marks this column as the PRIMARY KEY.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(primary)]
@@ -52,7 +75,7 @@ pub const PRIMARY_KEY: ColumnMarker = ColumnMarker;
 
 /// Enables AUTOINCREMENT for INTEGER PRIMARY KEY columns.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(primary, autoincrement)]
@@ -76,7 +99,7 @@ pub struct IndexMarker;
 /// Use database column names in the predicate. Rust field or column renames do
 /// not rewrite this string.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteIndex(where = "deleted_at IS NULL")]
@@ -93,7 +116,7 @@ pub const WHERE: IndexMarker = IndexMarker;
 
 /// Adds a UNIQUE constraint to a column, table, or index.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(unique)]
@@ -119,7 +142,7 @@ pub const UNIQUE: ColumnMarker = ColumnMarker;
 
 /// Enables JSON serialization with TEXT storage.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(json)]
@@ -132,7 +155,7 @@ pub const JSON: ColumnMarker = ColumnMarker;
 
 /// Marks this column as storing an enum type.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(enum)]
@@ -157,7 +180,7 @@ pub const ENUM: ColumnMarker = ColumnMarker;
 ///
 /// The function is called for each insert when no value is provided.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(default_fn = Uuid::new_v4)]
@@ -170,7 +193,7 @@ pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
 /// Specifies a database `DEFAULT` clause for new rows.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(default = 0)]
@@ -194,7 +217,7 @@ pub const DEFAULT: ColumnMarker = ColumnMarker;
 
 /// Marks this column as a generated column.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(generated(stored, "length(name)"))]
@@ -210,7 +233,7 @@ pub const GENERATED: ColumnMarker = ColumnMarker;
 
 /// Adds a CHECK constraint for a column or table.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(check = "score >= 0")]
@@ -228,7 +251,7 @@ pub const CHECK: ColumnMarker = ColumnMarker;
 
 /// Establishes a foreign key reference to another table's column.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id)]
@@ -255,7 +278,7 @@ pub const REFERENCES: ColumnMarker = ColumnMarker;
 /// The forward relation (on this table) is unchanged; only the reverse
 /// accessor on the referenced table is renamed.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// // Users get `.authored()` instead of `.author_posts()`
@@ -273,7 +296,7 @@ pub const RELATION: ColumnMarker = ColumnMarker;
 
 /// Specifies the ON DELETE action for foreign key references.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = CASCADE)]
@@ -293,7 +316,7 @@ pub const ON_DELETE: ColumnMarker = ColumnMarker;
 
 /// Specifies the ON UPDATE action for foreign key references.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_update = CASCADE)]
@@ -320,7 +343,7 @@ pub type ReferentialAction = ColumnMarker;
 
 /// CASCADE action: Propagate the delete/update to referencing rows.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = CASCADE)]
@@ -333,7 +356,7 @@ pub const CASCADE: ColumnMarker = ColumnMarker;
 
 /// SET NULL action: Set referencing columns to NULL.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = SET_NULL)]
@@ -346,7 +369,7 @@ pub const SET_NULL: ColumnMarker = ColumnMarker;
 
 /// SET DEFAULT action: Set referencing columns to their default values.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = SET_DEFAULT, default = 0)]
@@ -359,7 +382,7 @@ pub const SET_DEFAULT: ColumnMarker = ColumnMarker;
 
 /// RESTRICT action: Prevent delete/update if referenced.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = RESTRICT)]
@@ -372,7 +395,7 @@ pub const RESTRICT: ColumnMarker = ColumnMarker;
 
 /// NO ACTION action: Similar to RESTRICT (default behavior).
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = NO_ACTION)]
@@ -389,7 +412,7 @@ pub const NO_ACTION: ColumnMarker = ColumnMarker;
 
 /// Specifies a collation sequence for a text column.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(COLLATE = NOCASE)]
@@ -424,18 +447,15 @@ pub const RTRIM: ColumnMarker = ColumnMarker;
 #[derive(Debug, Clone, Copy)]
 pub struct NameMarker;
 
-/// Specifies a custom name in the database.
+/// Sets the name used in the database.
 ///
-/// By default, table, view, and column names are automatically converted to `snake_case`
-/// from the Rust struct/field name. Use NAME to override this behavior.
+/// By default, table, view and column names are the `snake_case` form of the
+/// Rust struct or field name. `name` overrides that.
 ///
 /// ## Column Example
 /// ```rust
 /// # let _ = r####"
-/// // Field `createdAt` becomes `created_at` by default
-/// created_at: DateTime<Utc>,
-///
-/// // Override with custom name:
+/// // Column `created_at` by default; stored as `creation_timestamp` here.
 /// #[column(name = "creation_timestamp")]
 /// created_at: DateTime<Utc>,
 /// # "####;
@@ -472,7 +492,7 @@ pub struct ViewMarker;
 
 /// Specifies a view definition SQL string or expression.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteView(DEFINITION = "SELECT id, email FROM users")]
@@ -496,7 +516,7 @@ pub const DEFINITION: ViewMarker = ViewMarker;
 
 /// Marks the view as existing (skip creation).
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteView(EXISTING)]
@@ -515,7 +535,7 @@ pub struct TableMarker;
 
 /// Adds a table-level composite foreign key constraint.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(foreign_key(
@@ -535,7 +555,7 @@ pub const FOREIGN_KEY: TableMarker = TableMarker;
 
 /// Enables STRICT mode for the table.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(strict)]
@@ -560,7 +580,7 @@ pub const STRICT: TableMarker = TableMarker;
 
 /// Enables WITHOUT ROWID optimization for the table.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(without_rowid)]
@@ -587,7 +607,7 @@ pub struct TypeMarker;
 
 /// Specifies an INTEGER column type.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(integer, primary)]
@@ -603,7 +623,7 @@ pub const INTEGER: TypeMarker = TypeMarker;
 
 /// Specifies a TEXT column type.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(text)]
@@ -618,7 +638,7 @@ pub const TEXT: TypeMarker = TypeMarker;
 
 /// Specifies a BLOB column type.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(blob)]
@@ -633,7 +653,7 @@ pub const BLOB: TypeMarker = TypeMarker;
 
 /// Specifies a REAL column type.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(real)]
@@ -648,7 +668,7 @@ pub const REAL: TypeMarker = TypeMarker;
 
 /// Specifies a NUMERIC column type.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(numeric)]
@@ -663,7 +683,7 @@ pub const NUMERIC: TypeMarker = TypeMarker;
 
 /// Specifies an ANY column type (STRICT tables only).
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(strict)]
@@ -681,7 +701,7 @@ pub const ANY: TypeMarker = TypeMarker;
 
 /// Specifies a BOOLEAN column (stored as INTEGER 0/1).
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(boolean)]

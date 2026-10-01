@@ -1,4 +1,8 @@
-//! `PostgreSQL` ILIKE operators.
+//! `PostgreSQL` case-insensitive pattern matching: [`ilike`] and [`not_ilike`].
+//!
+//! Both operands must be text: the left side is a `text`, `varchar`, `char`
+//! or enum expression ([`Textual`]), and the pattern must be a textual value
+//! that is [`Compatible`] with it, such as a `&str` or a placeholder.
 
 use crate::values::PostgresValue;
 use drizzle_core::expr::{AggregateKind, ComparisonOperand, Expr, NonNull, SQLExpr};
@@ -7,7 +11,8 @@ use drizzle_core::sql::{SQLChunk, Token};
 use drizzle_types::postgres::types::Boolean;
 use drizzle_types::{Compatible, Textual};
 
-/// `ILIKE` result: NULL when either operand is, aggregate when either is.
+/// Result of [`ilike`] and [`not_ilike`]: `boolean`, NULL when either operand
+/// is NULL, and an aggregate when either operand is one.
 type IlikeExpr<'a, E, P> = SQLExpr<
     'a,
     PostgresValue<'a>,
@@ -28,20 +33,38 @@ type IlikeExpr<'a, E, P> = SQLExpr<
     ),
 >;
 
-/// Case-insensitive LIKE pattern matching (PostgreSQL-specific)
+/// Matches a text expression against a `LIKE` pattern, ignoring case (`ILIKE`).
 ///
-/// The result is a boolean expression, so it can be used directly in
-/// `WHERE`, `HAVING` and join conditions.
+/// In the pattern, `%` matches any run of characters and `_` matches one
+/// character. The result is a boolean condition for `WHERE`, `HAVING` or a
+/// join, and is NULL when either operand is NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::ilike;
-/// # use drizzle_core::ToSQL;
-/// # use drizzle_postgres::values::PostgresValue;
-/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
-/// let cond = ilike(name, "%john%");
-/// assert!(cond.to_sql().sql().contains("ILIKE"));
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::expr::ilike;
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Text;
+///
+/// // Stands in for a `name text NOT NULL` column.
+/// let name = raw_non_null::<PostgresValue, Text>("name");
+/// let cond = ilike(name, "%john%"); // matches "John", "JOHNNY", ...
+/// assert_eq!(cond.to_sql().sql(), "name ILIKE $1");
+/// ```
+///
+/// # Type safety
+///
+/// Both sides must be text.
+///
+/// ```compile_fail
+/// use drizzle_core::expr::raw_non_null;
+/// use drizzle_postgres::expr::ilike;
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Int4;
+///
+/// let age = raw_non_null::<PostgresValue, Int4>("age");
+/// let _ = ilike(age, "%1%"); // `int4` is not textual
 /// ```
 pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
 where
@@ -57,17 +80,22 @@ where
     )
 }
 
-/// Case-insensitive NOT LIKE pattern matching (PostgreSQL-specific)
+/// Tests that a text expression does not match a `LIKE` pattern, ignoring case
+/// (`NOT ILIKE`).
 ///
-/// # Example
+/// Operand rules and NULL handling are the same as [`ilike`].
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::not_ilike;
-/// # use drizzle_core::ToSQL;
-/// # use drizzle_postgres::values::PostgresValue;
-/// let name = drizzle_core::expr::raw_non_null::<PostgresValue, drizzle_types::postgres::types::Text>("name");
-/// let cond = not_ilike(name, "%admin%");
-/// assert!(cond.to_sql().sql().contains("NOT ILIKE"));
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::expr::not_ilike;
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Varchar;
+///
+/// let email = raw_non_null::<PostgresValue, Varchar>("email");
+/// let cond = not_ilike(email, "%@example.com");
+/// assert_eq!(cond.to_sql().sql(), "email NOT ILIKE $1");
 /// ```
 pub fn not_ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
 where

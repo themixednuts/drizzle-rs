@@ -25,21 +25,24 @@ impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
     }
 }
 
-/// Represents a value for INSERT operations that can be omitted, null, or a SQL expression
+/// One field of a generated insert model: left out, `NULL`, or a value.
+///
+/// You rarely build this directly. The `with_*` setters and `new` on a
+/// generated `InsertX` model convert their arguments into it.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum SQLiteInsertValue<'a, V: SQLParam, T> {
-    /// Omit this column from the INSERT (use database default)
+    /// Leave the column out of the INSERT so the database default applies.
     #[default]
     Omit,
-    /// Explicitly insert NULL
+    /// Insert `NULL`.
     Null,
-    /// Insert a SQL expression (value, placeholder, etc.)
+    /// Insert a bound value, placeholder or SQL expression.
     Value(ValueWrapper<'a, V, T>),
 }
 
 impl<'a, T> SQLiteInsertValue<'a, SQLiteValue<'a>, T> {
-    /// Converts this `InsertValue` to an owned version with 'static lifetime.
+    /// Converts this field to a `'static` form that owns its data.
     ///
     /// The whole SQL fragment is kept: placeholders stay unbound and
     /// expressions such as `json(?)` keep their shape, with every bound value

@@ -1,4 +1,4 @@
-//! Upgrade command - upgrades migration snapshots to the latest version
+//! `drizzle up`: upgrades migration folders and snapshots to the current format.
 //!
 //! This command matches drizzle-kit's `up` command and handles two layouts:
 //!

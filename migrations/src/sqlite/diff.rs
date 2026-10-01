@@ -1,7 +1,4 @@
-//! Schema diff types and logic for `SQLite` v7 DDL format
-//!
-//! This module provides diffing between DDL collections and
-//! generates migration statements from schema changes.
+//! Diffs two SQLite DDL collections (v7 format) into migration statements.
 
 use super::SQLiteSnapshot;
 use super::collection::{DiffType, EntityDiff, SQLiteDDL, diff_ddl};
@@ -89,7 +86,7 @@ impl SchemaDiff {
     }
 }
 
-/// Compare two `SQLite` snapshots and return the diff
+/// Returns the entity-level differences between two SQLite snapshots.
 #[must_use]
 pub fn diff_snapshots(prev: &SQLiteSnapshot, cur: &SQLiteSnapshot) -> SchemaDiff {
     let prev_ddl = SQLiteDDL::from_entities(prev.ddl.clone());
@@ -253,11 +250,11 @@ fn collect_tables_to_recreate(
     out
 }
 
-/// Compute a full migration diff between two DDL states
+/// Computes the migration (diff plus SQL) between two SQLite DDL states.
 ///
-/// This is a simplified version of the TypeScript ddlDiff function.
-/// For a fully interactive migration with rename detection, you would
-/// need to provide resolver callbacks.
+/// A non-interactive port of drizzle-kit's `ddlDiff`: renames are detected
+/// heuristically, never by prompting. Use rename hints
+/// ([`DiffOptions`](crate::DiffOptions)) for renames it cannot infer.
 #[must_use]
 pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     // Heuristic rename detection (non-interactive):

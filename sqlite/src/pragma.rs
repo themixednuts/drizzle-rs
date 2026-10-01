@@ -1,26 +1,16 @@
-//! `SQLite` PRAGMA statements for database configuration and introspection
+//! `SQLite` PRAGMA statements.
 //!
-//! This module provides type-safe, ergonomic access to `SQLite`'s PRAGMA statements.
-//! PRAGMA statements are SQL extension specific to `SQLite` and are used to modify
-//! the operation of the `SQLite` library or to query the `SQLite` library for internal
-//! (non-table) data.
+//! A PRAGMA changes a setting of the `SQLite` library or reads internal
+//! data such as table metadata. [`Pragma`] has one variant per pragma, with
+//! enums for settings that take a fixed set of values. Render it with
+//! [`ToSQL::to_sql`] and run the SQL with your driver.
 //!
-//! [SQLite PRAGMA Documentation](https://sqlite.org/pragma.html)
+//! Table, index and directory names are written into the SQL as given,
+//! without quoting or escaping. Only pass trusted names.
 //!
-//! ## Features
+//! See the [SQLite PRAGMA documentation](https://sqlite.org/pragma.html).
 //!
-//! - **Type Safety**: Enums for all pragma values (no string literals needed)
-//! - **Ergonomic API**: Uses `&'static str` instead of `String` - no `.to_string()` calls
-//! - **Documentation Links**: Each pragma links to official `SQLite` documentation
-//! - **`ToSQL` Integration**: Seamless integration with the query builder
-//!
-//! ## Categories
-//!
-//! - **Configuration**: `foreign_keys`, `journal_mode`, `wal_autocheckpoint`, `cache_spill`, etc.
-//! - **Introspection**: `table_info`, `index_list`, `compile_options`, etc.
-//! - **Maintenance**: `integrity_check`, `incremental_vacuum`, `wal_checkpoint`, etc.
-//!
-//! ## Examples
+//! # Examples
 //!
 //! ```
 //! use drizzle_sqlite::pragma::{Pragma, JournalMode, AutoVacuum};
@@ -386,7 +376,11 @@ pub enum WritableSchema {
     Reset,
 }
 
-/// `SQLite` pragma statements for database configuration and introspection
+/// A `SQLite` PRAGMA statement.
+///
+/// Variants are grouped as settings you can read and write, read-only
+/// queries, maintenance commands, and per-table queries. Names passed to
+/// variants (tables, indexes, directories) are not quoted or escaped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pragma {
     // Read/Write Configuration Pragmas
@@ -1267,67 +1261,77 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for Pragma {
 }
 
 impl Pragma {
-    /// Create a PRAGMA query to get the current value (read-only operation)
+    /// Builds `PRAGMA name`, which reads the pragma's current value.
+    ///
+    /// `pragma_name` is written into the SQL as given; only pass trusted
+    /// names.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use drizzle_sqlite::pragma::Pragma;
+    /// assert_eq!(Pragma::query("journal_mode").sql(), "PRAGMA journal_mode");
+    /// ```
     #[must_use]
     pub fn query(pragma_name: &str) -> SQL<'static, SQLiteValue<'static>> {
         SQL::raw(format!("PRAGMA {pragma_name}"))
     }
 
-    /// Convenience constructor for `foreign_keys` pragma
+    /// Same as [`Pragma::ForeignKeys`].
     #[must_use]
     pub const fn foreign_keys(enabled: bool) -> Self {
         Self::ForeignKeys(enabled)
     }
 
-    /// Convenience constructor for `journal_mode` pragma
+    /// Same as [`Pragma::JournalMode`].
     #[must_use]
     pub const fn journal_mode(mode: JournalMode) -> Self {
         Self::JournalMode(mode)
     }
 
-    /// Convenience constructor for `wal_autocheckpoint` pragma
+    /// Same as [`Pragma::WalAutocheckpoint`].
     #[must_use]
     pub const fn wal_autocheckpoint(pages: i32) -> Self {
         Self::WalAutocheckpoint(pages)
     }
 
-    /// Convenience constructor for `table_info` pragma
+    /// Same as [`Pragma::TableInfo`].
     #[must_use]
     pub const fn table_info(table: &'static str) -> Self {
         Self::TableInfo(table)
     }
 
-    /// Convenience constructor for `index_list` pragma
+    /// Same as [`Pragma::IndexList`].
     #[must_use]
     pub const fn index_list(table: &'static str) -> Self {
         Self::IndexList(table)
     }
 
-    /// Convenience constructor for `foreign_key_list` pragma
+    /// Same as [`Pragma::ForeignKeyList`].
     #[must_use]
     pub const fn foreign_key_list(table: &'static str) -> Self {
         Self::ForeignKeyList(table)
     }
 
-    /// Convenience constructor for `integrity_check` pragma
+    /// Same as [`Pragma::IntegrityCheck`].
     #[must_use]
     pub const fn integrity_check(table: Option<&'static str>) -> Self {
         Self::IntegrityCheck(table)
     }
 
-    /// Convenience constructor for `foreign_key_check` pragma
+    /// Same as [`Pragma::ForeignKeyCheck`].
     #[must_use]
     pub const fn foreign_key_check(table: Option<&'static str>) -> Self {
         Self::ForeignKeyCheck(table)
     }
 
-    /// Convenience constructor for `table_xinfo` pragma
+    /// Same as [`Pragma::TableXInfo`].
     #[must_use]
     pub const fn table_xinfo(table: &'static str) -> Self {
         Self::TableXInfo(table)
     }
 
-    /// Convenience constructor for encoding pragma
+    /// Same as [`Pragma::Encoding`].
     #[must_use]
     pub const fn encoding(encoding: Encoding) -> Self {
         Self::Encoding(encoding)

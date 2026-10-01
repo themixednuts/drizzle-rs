@@ -12,24 +12,20 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 // DeleteBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds a DELETE query specifically for `SQLite`.
+/// A DELETE query being built for `SQLite`.
 ///
-/// `DeleteBuilder` provides a type-safe, fluent API for constructing DELETE statements
-/// with support for conditional deletions and returning clauses.
+/// This is [`QueryBuilder`](super::QueryBuilder) in one of the `Delete*`
+/// states. Start it with [`QueryBuilder::delete`](super::QueryBuilder::delete).
 ///
-/// ## Type Parameters
+/// # Clause order
 ///
-/// - `Schema`: The database schema type, ensuring only valid tables can be referenced
-/// - `State`: The current builder state, enforcing proper query construction order
-/// - `Table`: The table being deleted from
+/// 1. Optionally `where`. Without it, every row is deleted.
+/// 2. Optionally [`returning`](Self::returning).
 ///
-/// ## Query Building Flow
+/// The WHERE condition and the RETURNING columns may only reference the
+/// table being deleted from; other tables do not compile.
 ///
-/// 1. Start with `QueryBuilder::delete(table)` to specify the target table
-/// 2. Optionally add `where()` to specify which rows to delete
-/// 3. Optionally add `returning()` to get deleted values back
-///
-/// ## Basic Usage
+/// # Examples
 ///
 /// ```rust
 /// # mod drizzle {
@@ -87,9 +83,8 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 /// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "users" WHERE "users"."id" < ?"#);
 /// ```
 ///
-/// ## Advanced Deletions
+/// With RETURNING:
 ///
-/// ### DELETE with RETURNING
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -130,7 +125,8 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 /// );
 /// ```
 ///
-/// ### DELETE all rows (use with caution!)
+/// Without WHERE, every row is deleted:
+///
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -160,7 +156,6 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 /// # #[derive(SQLiteSchema)] struct Schema { log: Log }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { log } = Schema::new();
-/// // This deletes ALL rows - be careful!
 /// let query = builder.delete(log);
 /// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "logs""#);
 /// ```
@@ -189,10 +184,10 @@ type ReturningBuilder<'a, S, T, Columns> = DeleteBuilder<
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
-    /// Adds a WHERE clause to specify which rows to delete.
+    /// Adds a WHERE clause that picks the rows to delete.
     ///
-    /// **Warning**: Without a WHERE clause, ALL rows in the table will be deleted!
-    /// Always use this method unless you specifically intend to truncate the entire table.
+    /// Without it, every row in the table is deleted. The condition must be a
+    /// boolean expression over the target table's columns.
     ///
     /// # Examples
     ///
@@ -239,6 +234,10 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     ///         gt(user.id, 100),
     ///         or(eq(user.name, "test"), eq(user.age, 0))
     ///     ));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"DELETE FROM "users" WHERE ("users"."id" > ? AND ("users"."name" = ? OR "users"."age" = ?))"#
+    /// );
     /// ```
     #[inline]
     pub fn r#where<E, ScopeProof>(self, condition: E) -> DeleteBuilder<'a, S, DeleteWhereSet, T>
@@ -261,7 +260,10 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
         }
     }
 
-    /// Adds a RETURNING clause to the query
+    /// Adds a RETURNING clause that reads columns of the deleted rows.
+    ///
+    /// Pass one column or expression, a tuple, or `()` for every column.
+    /// Only columns of the target table may be used.
     #[inline]
     pub fn returning<Columns, ScopeProof>(
         self,
@@ -292,7 +294,8 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteWhereSet, T> {
-    /// Adds a RETURNING clause after WHERE
+    /// Adds a RETURNING clause after WHERE. See
+    /// [`returning`](DeleteBuilder::returning).
     #[inline]
     pub fn returning<Columns, ScopeProof>(
         self,

@@ -33,23 +33,42 @@ pub use select::{
 };
 pub use update::{UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWhereSet};
 
+/// Builder state after [`QueryBuilder::with`]: the next call starts the
+/// statement that uses the common table expressions.
 #[derive(Debug, Clone)]
 pub struct CTEInit;
 
 impl ExecutableState for CTEInit {}
 
-/// Main query builder for `SQLite` operations.
+/// Type-safe SQL query builder for `SQLite`.
 ///
-/// `QueryBuilder` provides a type-safe, fluent API for building SQL queries. It uses compile-time
-/// type checking to ensure queries are valid and properly structured.
+/// Start with [`QueryBuilder::new`], then call [`select`](Self::select),
+/// [`insert`](Self::insert), [`update`](Self::update),
+/// [`delete`](Self::delete) or [`with`](Self::with). Each method returns a
+/// builder in a new state, and each state only offers the clauses that may
+/// come next, so an out-of-order query does not compile. Call
+/// [`ToSQL::to_sql`] to get the SQL text and its bound parameters.
 ///
-/// ## Type Parameters
+/// [`SelectBuilder`](select::SelectBuilder),
+/// [`InsertBuilder`](insert::InsertBuilder),
+/// [`UpdateBuilder`](update::UpdateBuilder) and
+/// [`DeleteBuilder`](delete::DeleteBuilder) are aliases of this type and
+/// document the clause order of each statement.
 ///
-/// - `Schema`: The database schema type, ensuring queries only reference valid tables
-/// - `State`: The current builder state, enforcing proper query construction order
-/// - `Table`: The table type being operated on (for single-table operations)
+/// # Type parameters
 ///
-/// ## Basic Usage
+/// - `Schema`: the schema the query runs against.
+/// - `State`: which clauses have been added so far (for example
+///   [`SelectWhereSet`]).
+/// - `Table`: the table the last FROM or JOIN added, or the target table of
+///   an INSERT, UPDATE or DELETE.
+/// - `Marker`: the selected columns and the tables in scope; used to check
+///   column references and to infer the row type.
+/// - `Row`: the Rust type of one result row.
+/// - `Grouped`: the GROUP BY columns, used to check which columns may be
+///   selected outside an aggregate.
+///
+/// # Examples
 ///
 /// ```
 /// # mod drizzle {
@@ -89,22 +108,14 @@ impl ExecutableState for CTEInit {}
 ///     user: User,
 /// }
 ///
-/// // Create a query builder for your schema
 /// let builder = QueryBuilder::new::<Schema>();
 /// let Schema { user } = Schema::new();
 ///
-/// // Build queries using the fluent API
-/// let query = builder
-///     .select(user.name)
-///     .from(user);
+/// let query = builder.select(user.name).from(user);
 /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
 /// ```
 ///
-/// ## Query Types
-///
-/// The builder supports all major SQL operations:
-///
-/// ### SELECT Queries
+/// SELECT:
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -135,11 +146,14 @@ impl ExecutableState for CTEInit {}
 /// # #[derive(SQLiteSchema)] struct Schema { user: User }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { user } = Schema::new();
-/// let query = builder.select(user.name).from(user);
 /// let query = builder.select((user.id, user.name)).from(user).r#where(gt(user.id, 10));
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?"#
+/// );
 /// ```
 ///
-/// ### INSERT Queries
+/// INSERT:
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -172,9 +186,10 @@ impl ExecutableState for CTEInit {}
 /// let query = builder
 ///     .insert(user)
 ///     .values([InsertUser::new("Alice")]);
+/// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name") VALUES (?)"#);
 /// ```
 ///
-/// ### UPDATE Queries
+/// UPDATE:
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -209,9 +224,10 @@ impl ExecutableState for CTEInit {}
 ///     .update(user)
 ///     .set(UpdateUser::default().with_name("Bob"))
 ///     .r#where(eq(user.id, 1));
+/// assert_eq!(query.to_sql().sql(), r#"UPDATE "users" SET "name" = ? WHERE "users"."id" = ?"#);
 /// ```
 ///
-/// ### DELETE Queries  
+/// DELETE:
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -245,11 +261,11 @@ impl ExecutableState for CTEInit {}
 /// let query = builder
 ///     .delete(user)
 ///     .r#where(lt(user.id, 10));
+/// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "users" WHERE "users"."id" < ?"#);
 /// ```
 ///
-/// ## Common Table Expressions (CTEs)
-///
-/// The builder supports WITH clauses for complex queries with typed field access:
+/// Common table expressions (WITH). [`into_cte`](Self::into_cte) turns a
+/// SELECT into a CTE whose columns you can reference like a table's:
 ///
 /// ```rust
 /// # mod drizzle {
@@ -284,16 +300,15 @@ impl ExecutableState for CTEInit {}
 /// # impl drizzle::core::Tag for ActiveUsersTag {
 /// #     const NAME: &'static str = "active_users";
 /// # }
-/// // Create a CTE with typed field access using .into_cte::<Tag>()
 /// let active_users = builder
 ///     .select((user.id, user.name))
 ///     .from(user)
 ///     .into_cte::<ActiveUsersTag>();
 ///
-/// // Use the CTE with typed column access via Deref
+/// // The CTE derefs to an aliased `User` table, so its columns are typed.
 /// let query = builder
 ///     .with(&active_users)
-///     .select(active_users.name)  // Typed field access!
+///     .select(active_users.name)
 ///     .from(&active_users);
 /// assert_eq!(
 ///     query.to_sql().sql(),
@@ -310,6 +325,7 @@ pub struct QueryBuilder<
     Row = (),
     Grouped = (),
 > {
+    /// The SQL built so far.
     pub sql: SQL<'a, SQLiteValue<'a>>,
     schema: PhantomData<Schema>,
     state: PhantomData<State>,
@@ -336,12 +352,46 @@ impl<'a, Schema, State, Table, Marker, Row, Grouped>
 where
     State: ExecutableState,
 {
-    /// Attaches a [sqlcommenter](https://google.github.io/sqlcommenter/) comment
-    /// to the query.
+    /// Prepends a [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment (`/*...*/`) to the query.
     ///
-    /// The comment is prepended to the generated SQL and wrapped in `/* ... */`.
-    /// Any `/*` or `*/` sequences in the input are sanitised so they can't
-    /// terminate the surrounding comment.
+    /// `/*` and `*/` inside `text` are escaped so the text cannot end the
+    /// comment early. An empty `text` leaves the query unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder.select(user.id).from(user).comment("list users");
+    /// assert_eq!(query.to_sql().sql(), r#"/*list users*/ SELECT "users"."id" FROM "users""#);
+    /// ```
     #[must_use]
     pub fn comment(mut self, text: impl AsRef<str>) -> Self {
         let fragment = drizzle_core::sql::comment::<SQLiteValue<'a>>(text);
@@ -353,12 +403,53 @@ where
         self
     }
 
-    /// Attaches a tag-style [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// Prepends a tag-style [sqlcommenter](https://google.github.io/sqlcommenter/)
     /// comment to the query.
     ///
-    /// Each `(key, value)` pair is URL-encoded, sorted alphabetically, joined
-    /// with `,`, and wrapped in `/* ... */`. Pairs with empty values are
-    /// skipped; an all-empty input is a no-op.
+    /// Each `(key, value)` pair is URL-encoded and written as `key='value'`.
+    /// Pairs are sorted and joined with `,`. Pairs with an empty value are
+    /// skipped; if none remain, the query is unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder
+    ///     .select(user.id)
+    ///     .from(user)
+    ///     .comment_tags([("route", "/users"), ("action", "list")]);
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"/*action='list',route='%2Fusers'*/ SELECT "users"."id" FROM "users""#
+    /// );
+    /// ```
     #[must_use]
     pub fn comment_tags<I, K, V>(mut self, pairs: I) -> Self
     where
@@ -377,10 +468,7 @@ where
 }
 
 impl<'a> QueryBuilder<'a> {
-    /// Creates a new query builder for the given schema type.
-    ///
-    /// This is the entry point for building SQL queries. The schema type parameter
-    /// ensures that only valid tables from your schema can be used in queries.
+    /// Creates a query builder for the schema `S`.
     ///
     /// # Examples
     ///
@@ -439,10 +527,11 @@ impl<'a> QueryBuilder<'a> {
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
-    /// Begins a SELECT query with the specified columns.
+    /// Starts a SELECT with the given columns.
     ///
-    /// This method starts building a SELECT statement. You can select individual columns,
-    /// multiple columns as a tuple, or use `()` to select all columns.
+    /// Pass one column or expression, a tuple of them, or `()` to select
+    /// every column of the FROM table (and of joined tables). Call
+    /// [`from`](select::SelectBuilder::from) next.
     ///
     /// # Examples
     ///
@@ -482,6 +571,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// // Select multiple columns
     /// let query = builder.select((user.id, user.name)).from(user);
     /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."id", "users"."name" FROM "users""#);
+    ///
+    /// // Select every column
+    /// let query = builder.select(()).from(user);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."id", "users"."name" FROM "users""#);
     /// ```
     pub fn select<T>(
         &self,
@@ -502,9 +595,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
-    /// Begins a SELECT DISTINCT query with the specified columns.
-    ///
-    /// SELECT DISTINCT removes duplicate rows from the result set.
+    /// Starts a SELECT DISTINCT, which drops duplicate rows from the result.
     ///
     /// # Examples
     ///
@@ -561,6 +652,9 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
+    /// Starts a SELECT after the WITH clause.
+    ///
+    /// See [`QueryBuilder::with`] for an example.
     pub fn select<T>(
         &self,
         columns: T,
@@ -580,7 +674,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    /// Begins a SELECT DISTINCT query with the specified columns after a CTE.
+    /// Starts a SELECT DISTINCT after the WITH clause.
     pub fn select_distinct<T>(
         &self,
         columns: T,
@@ -603,7 +697,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    /// Begins an INSERT query after a CTE.
+    /// Starts an INSERT after the WITH clause.
     pub fn insert<Table>(
         &self,
         table: Table,
@@ -628,7 +722,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    /// Begins an UPDATE query after a CTE.
+    /// Starts an UPDATE after the WITH clause.
     pub fn update<Table>(
         &self,
         table: Table,
@@ -653,7 +747,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
-    /// Begins a DELETE query after a CTE.
+    /// Starts a DELETE after the WITH clause.
     pub fn delete<Table>(
         &self,
         table: Table,
@@ -678,6 +772,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
         }
     }
 
+    /// Adds another common table expression to the WITH clause.
     #[must_use]
     pub fn with<C>(&self, cte: &C) -> Self
     where
@@ -701,10 +796,12 @@ impl<'a, Schema> QueryBuilder<'a, Schema, CTEInit> {
 }
 
 impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
-    /// Begins an INSERT query for the specified table.
+    /// Starts an INSERT into `table`.
     ///
-    /// This method starts building an INSERT statement. The table must be part of the schema
-    /// and will be type-checked at compile time.
+    /// Call [`values`](insert::InsertBuilder::values),
+    /// [`value`](insert::InsertBuilder::value),
+    /// [`select`](insert::InsertBuilder::select) or
+    /// [`columns`](insert::InsertBuilder::columns) next.
     ///
     /// # Examples
     ///
@@ -762,10 +859,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
-    /// Begins an UPDATE query for the specified table.
-    ///
-    /// This method starts building an UPDATE statement. The table must be part of the schema
-    /// and will be type-checked at compile time.
+    /// Starts an UPDATE of `table`. Call [`set`](update::UpdateBuilder::set) next.
     ///
     /// # Examples
     ///
@@ -825,10 +919,10 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
-    /// Begins a DELETE query for the specified table.
+    /// Starts a DELETE from `table`.
     ///
-    /// This method starts building a DELETE statement. The table must be part of the schema
-    /// and will be type-checked at compile time.
+    /// Without `where` the statement
+    /// deletes every row.
     ///
     /// # Examples
     ///
@@ -887,6 +981,60 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
         }
     }
 
+    /// Starts a WITH clause with one common table expression.
+    ///
+    /// Build the CTE with [`into_cte`](select::SelectBuilder::into_cte). Add
+    /// more CTEs with another `.with(..)`, then start the main statement.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::core::expr::gt;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// struct Recent;
+    /// impl drizzle::core::Tag for Recent {
+    ///     const NAME: &'static str = "recent";
+    /// }
+    ///
+    /// let recent = builder
+    ///     .select((user.id, user.name))
+    ///     .from(user)
+    ///     .r#where(gt(user.id, 100))
+    ///     .into_cte::<Recent>();
+    ///
+    /// let query = builder.with(&recent).select(recent.name).from(&recent);
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"WITH "recent" AS (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?) SELECT "recent"."name" FROM "recent""#
+    /// );
+    /// ```
     pub fn with<C>(&self, cte: &C) -> QueryBuilder<'a, Schema, CTEInit>
     where
         C: CTEDefinition<'a>,

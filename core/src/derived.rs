@@ -1,8 +1,10 @@
 //! Typed derived-table projections.
 //!
-//! A [`Derived`] value owns a complete query and exposes only the fields named
-//! by its projection. Dialect builders construct these values after checking
-//! that the query is in an executable state.
+//! A [`Derived`] value is a complete SELECT used as a named source
+//! (`(SELECT ...) AS "name"`) in another query's FROM or JOIN. It exposes
+//! only the columns the SELECT returns, as typed [`DerivedField`]s. Dialect
+//! builders create one with `.alias(name)` after checking the query is
+//! complete.
 
 use core::marker::PhantomData;
 
@@ -19,7 +21,13 @@ mod private {
     pub trait Output {}
 }
 
-/// A complete query used as a named source in another query.
+/// A complete SELECT used as a named source in another query:
+/// `(SELECT ...) AS "name"`.
+///
+/// Create one with a SELECT builder's `.alias(name)`, where `name` is a
+/// [`Tag`] value. Read its columns through [`fields`](Self::fields). Columns
+/// of a derived table resolve against its alias, so the scope check treats
+/// it like an aliased table.
 pub struct Derived<'a, V: SQLParam, Name, Projection, Query> {
     query: Query,
     marker: PhantomData<(&'a (), V, Name, Projection)>,
@@ -31,7 +39,7 @@ where
     Name: Tag,
     Projection: DerivedProjection<Name>,
 {
-    /// Constructs a derived source without validating its query.
+    /// Creates a derived source without checking its query.
     ///
     /// # Safety
     ///
@@ -59,7 +67,8 @@ where
         self.query
     }
 
-    /// Returns typed fields qualified by this source's name.
+    /// Returns the typed columns of this source, each rendered as
+    /// `"name"."column"`.
     pub fn fields(&self) -> Projection::Fields
     where
         Name: Tag,
@@ -103,7 +112,7 @@ where
     }
 }
 
-/// A derived source is referred to by its alias name.
+// A derived source is looked up in scope by its alias name.
 impl<V: SQLParam, Name, Projection, Query: crate::expr::ExprSources> crate::scope::ScopeEntry
     for Derived<'_, V, Name, Projection, Query>
 {
@@ -126,17 +135,26 @@ where
 /// Maps a SELECT projection to the fields and row exposed by a derived source.
 #[doc(hidden)]
 pub trait DerivedProjection<Name: Tag>: private::Projection {
+    /// The typed columns returned by [`Derived::fields`].
     type Fields;
+    /// The row type of `SELECT *` from the derived source.
     type Row;
 
+    /// Number of columns.
     const COLUMN_COUNT: usize;
 
+    /// Checks the projection at construction time.
+    ///
+    /// # Panics
+    ///
+    /// Implementations panic when two columns share an output name.
     fn validate() {}
 
+    /// Builds the typed columns.
     fn fields() -> Self::Fields;
 }
 
-/// Select-marker capability for becoming a derived source.
+/// Select markers whose query can become a derived source.
 ///
 /// The single-table `SELECT *` implementation deliberately matches only an
 /// exact one-table scope. After a join, `SELECT *` contains more columns and
@@ -252,7 +270,11 @@ where
     }
 }
 
-/// A field exposed by a named derived source.
+/// A column of a derived source named `Name`, rendered as
+/// `"name"."output"`.
+///
+/// `Output` is the selected expression (a column or a named expression),
+/// which supplies the output name, SQL type and nullability.
 pub struct DerivedField<Name, Output>(PhantomData<(Name, Output)>);
 
 impl<Name, Output> Copy for DerivedField<Name, Output> {}
@@ -332,7 +354,7 @@ where
 {
 }
 
-/// A derived field reads the derived source named `Name`.
+// A derived field reads the derived source named `Name`.
 impl<Name, Output> crate::expr::ExprSources for DerivedField<Name, Output> {
     type Sources = crate::scope::Src<crate::scope::AliasKey<Name>>;
 }
@@ -349,6 +371,7 @@ where
 /// Supplies the static output name for one SELECT expression.
 #[doc(hidden)]
 pub trait ProjectionOutput: private::Output {
+    /// The column's name in the derived table.
     fn output_name() -> &'static str;
 }
 

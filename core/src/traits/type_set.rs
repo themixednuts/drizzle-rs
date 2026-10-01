@@ -1,21 +1,25 @@
 use core::marker::PhantomData;
 
-/// Empty type-level set/list.
+/// The empty type-level list.
+///
+/// Type-level lists (`Cons<A, Cons<B, Nil>>`) let traits work over a list of
+/// types, such as a query's tables or a SELECT's columns.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Nil;
 
-/// Non-empty type-level set/list node.
+/// A type-level list node: `Head` followed by the list `Tail`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Cons<Head, Tail>(PhantomData<(Head, Tail)>);
 
-/// Marker trait for type-level sets/lists.
+/// A type-level list: [`Nil`] or a [`Cons`] ending in `Nil`.
 pub trait TypeSet {}
 
 impl TypeSet for Nil {}
 impl<Head, Tail> TypeSet for Cons<Head, Tail> where Tail: TypeSet {}
 
-/// Type-level concatenation.
+/// Appends the list `Rhs` to the list `Self`.
 pub trait Concat<Rhs> {
+    /// The joined list.
     type Output: TypeSet;
 }
 

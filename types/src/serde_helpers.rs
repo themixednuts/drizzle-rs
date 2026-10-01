@@ -1,7 +1,7 @@
-//! Serde helpers for Cow<'static, str> deserialization
+//! `#[serde(deserialize_with = ...)]` helpers for `Cow<'static, str>` fields.
 //!
-//! These helpers allow DDL types to use `Cow<'static, str>` while still
-//! being deserializable from JSON (where strings become `Cow::Owned`).
+//! DDL types store names as `Cow<'static, str>` so they can be `const`.
+//! These functions deserialize owned strings into `Cow::Owned`.
 
 #[allow(unused_imports)]
 use crate::alloc_prelude::*;
@@ -9,7 +9,7 @@ use crate::alloc_prelude::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer};
 
-/// Deserialize a String into Cow<'static, str>
+/// Deserializes a `String` into a `Cow<'static, str>`.
 ///
 /// # Errors
 ///
@@ -39,7 +39,7 @@ where
     Ok(opt.map(Cow::Owned))
 }
 
-/// Deserialize `Vec<String>` into `Vec<Cow<'static, str>>`.
+/// Deserializes a `Vec<String>` into a `Vec<Cow<'static, str>>`.
 ///
 /// # Errors
 ///
@@ -53,7 +53,7 @@ where
     Ok(vec.into_iter().map(Cow::Owned).collect())
 }
 
-/// Deserialize `Option<Vec<String>>` into `Option<Vec<Cow<'static, str>>>`.
+/// Deserializes an `Option<Vec<String>>` into an `Option<Vec<Cow<'static, str>>>`.
 ///
 /// # Errors
 ///

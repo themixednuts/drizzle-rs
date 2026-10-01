@@ -10,127 +10,21 @@ use drizzle_core::{
 
 use crate::values::{OwnedSQLiteValue, SQLiteValue};
 
-/// SQLite-specific prepared statement wrapper.
+/// A rendered `SQLite` statement split into SQL text and parameter slots.
 ///
-/// A prepared statement represents a compiled SQL query with placeholder parameters
-/// that can be executed multiple times with different parameter values. This wrapper
-/// provides SQLite-specific functionality while maintaining compatibility with the
-/// core Drizzle prepared statement infrastructure.
-///
-/// ## Features
-///
-/// - **Parameter Binding**: Safely bind values to SQL placeholders
-/// - **Reusable Execution**: Execute the same query multiple times efficiently  
-/// - **Memory Management**: Automatic handling of borrowed/owned lifetimes
-/// - **Type Safety**: Compile-time verification of parameter types
-///
-/// ## Basic Usage
-///
-/// ```rust
-/// # mod drizzle {
-/// #     pub mod core { pub use drizzle_core::*; }
-/// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod types { pub use drizzle_types::*; }
-/// #     pub mod migrations { pub use drizzle_migrations::*; }
-/// #     pub use drizzle_types::Dialect;
-/// #     pub use drizzle_types as ddl;
-/// #     pub mod sqlite {
-/// #         pub use drizzle_sqlite::*;
-/// #         #[cfg(feature = "rusqlite")]
-/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #         #[cfg(feature = "libsql")]
-/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #         #[cfg(feature = "turso")]
-/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #         pub mod prelude {
-/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// #             pub use drizzle_sqlite::{*, attrs::*};
-/// #             pub use drizzle_core::*;
-/// #         }
-/// #     }
-/// # }
-/// # use drizzle::sqlite::prelude::*;
-/// # use drizzle::sqlite::builder::QueryBuilder;
-/// # use drizzle::core::expr::eq;
-/// #
-/// # #[SQLiteTable(name = "users")]
-/// # struct User {
-/// #     #[column(primary)]
-/// #     id: i32,
-/// #     name: String,
-/// # }
-/// #
-/// # #[derive(SQLiteSchema)]
-/// # struct Schema {
-/// #     user: User,
-/// # }
-/// #
-/// # let builder = QueryBuilder::new::<Schema>();
-/// # let Schema { user } = Schema::new();
-/// // Build query that will become a prepared statement
-/// let query = builder
-///     .select(user.name)
-///     .from(user)
-///     .r#where(eq(user.id, Placeholder::anonymous()));
-///
-/// // Convert to SQL
-/// let sql = query.to_sql();
-/// println!("SQL: {}", sql.sql());
-/// ```
-///
-/// ## Lifetime Management
-///
-/// The prepared statement can be converted between borrowed and owned forms:
-///
-/// - `PreparedStatement<'a>` - Borrows data with lifetime 'a
-/// - `OwnedPreparedStatement` - Owns all data, no lifetime constraints
-///
-/// This allows for flexible usage patterns depending on whether you need to
-/// store the prepared statement long-term or use it immediately.
+/// Placeholders (see `drizzle_core::Placeholder`) stay as empty slots that
+/// are filled when the statement runs; other values are already bound. This
+/// type borrows its values for `'a`; use [`into_owned`](Self::into_owned)
+/// or [`OwnedPreparedStatement`] to keep it longer. Its `Display` output is
+/// the SQL text.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a> {
     pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
 }
 
 impl PreparedStatement<'_> {
-    /// Converts this borrowed prepared statement into an owned one.
-    ///
-    /// This method clones all the internal data to create an `OwnedPreparedStatement`
-    /// that doesn't have any lifetime constraints. This is useful when you need to
-    /// store the prepared statement beyond the lifetime of the original query builder.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # mod drizzle {
-    /// #     pub mod core { pub use drizzle_core::*; }
-    /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod types { pub use drizzle_types::*; }
-    /// #     pub mod migrations { pub use drizzle_migrations::*; }
-    /// #     pub use drizzle_types::Dialect;
-    /// #     pub use drizzle_types as ddl;
-    /// #     pub mod sqlite {
-    /// #         pub use drizzle_sqlite::*;
-    /// #         #[cfg(feature = "rusqlite")]
-    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-    /// #         #[cfg(feature = "libsql")]
-    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
-    /// #         #[cfg(feature = "turso")]
-    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-    /// #         pub mod prelude {
-    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-    /// #             pub use drizzle_sqlite::{*, attrs::*};
-    /// #             pub use drizzle_core::*;
-    /// #         }
-    /// #     }
-    /// # }
-    /// # fn example(prepared: drizzle::sqlite::builder::prepared::PreparedStatement<'_>) {
-    /// // Convert borrowed to owned for long-term storage
-    /// let owned = prepared.into_owned();
-    ///
-    /// // Now `owned` can be stored without lifetime constraints
-    /// # }
-    /// ```
+    /// Clones this statement into an [`OwnedPreparedStatement`] with no
+    /// borrowed data.
     #[must_use]
     pub fn into_owned(&self) -> OwnedPreparedStatement {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
@@ -151,76 +45,11 @@ impl PreparedStatement<'_> {
     }
 }
 
-/// Owned `SQLite` prepared statement wrapper.
+/// A [`PreparedStatement`] that owns all of its values.
 ///
-/// This is the owned counterpart to [`PreparedStatement`] that doesn't have any lifetime
-/// constraints. All data is owned by this struct, making it suitable for long-term storage,
-/// caching, or passing across thread boundaries.
-///
-/// ## Use Cases
-///
-/// - **Caching**: Store prepared statements in a cache for reuse
-/// - **Multi-threading**: Pass prepared statements between threads
-/// - **Long-term storage**: Keep prepared statements in application state
-/// - **Serialization**: Convert to/from persistent storage (when serialization is implemented)
-///
-/// ## Examples
-///
-/// ```rust
-/// # mod drizzle {
-/// #     pub mod core { pub use drizzle_core::*; }
-/// #     pub mod error { pub use drizzle_core::error::*; }
-/// #     pub mod types { pub use drizzle_types::*; }
-/// #     pub mod migrations { pub use drizzle_migrations::*; }
-/// #     pub use drizzle_types::Dialect;
-/// #     pub use drizzle_types as ddl;
-/// #     pub mod sqlite {
-/// #         pub use drizzle_sqlite::*;
-/// #         #[cfg(feature = "rusqlite")]
-/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
-/// #         #[cfg(feature = "libsql")]
-/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
-/// #         #[cfg(feature = "turso")]
-/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
-/// #         pub mod prelude {
-/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
-/// #             pub use drizzle_sqlite::{*, attrs::*};
-/// #             pub use drizzle_core::*;
-/// #         }
-/// #     }
-/// # }
-/// use drizzle::sqlite::prelude::*;
-/// use drizzle::sqlite::builder::QueryBuilder;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct User {
-///     #[column(primary)]
-///     id: i32,
-///     name: String,
-/// }
-///
-/// #[derive(SQLiteSchema)]
-/// struct Schema {
-///     user: User,
-/// }
-///
-/// let builder = QueryBuilder::new::<Schema>();
-/// let Schema { user } = Schema::new();
-///
-/// // Create a query and convert to SQL
-/// let query = builder.select(user.name).from(user);
-/// let sql = query.to_sql();
-///
-/// // In practice, the driver creates a PreparedStatement from the SQL
-/// // let prepared: PreparedStatement = driver.prepare(sql)?;
-/// // let owned: OwnedPreparedStatement = prepared.into_owned();
-/// ```
-///
-/// ## Conversion
-///
-/// You can convert between borrowed and owned forms:
-/// - `PreparedStatement::into_owned()` → `OwnedPreparedStatement`
-/// - `OwnedPreparedStatement` → `PreparedStatement` (via `From` trait)
+/// It has no lifetime, so it can be cached or stored in application state.
+/// Convert with [`PreparedStatement::into_owned`] or
+/// `From<PreparedStatement>`, and back with `From<OwnedPreparedStatement>`.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
     pub(crate) inner: CoreOwnedPreparedStatement<crate::values::OwnedSQLiteValue>,

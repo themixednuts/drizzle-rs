@@ -1,44 +1,76 @@
-//! Value generators for seeding database columns.
+//! Column value generators: the [`Generator`] trait, [`GeneratorKind`], and
+//! [`SeedValue`].
 
 pub mod numeric;
 pub mod special;
 pub mod string;
 pub mod temporal;
 
-/// Dialect-agnostic seed value (IR only — rendering to SQL is done by core).
+/// A generated column value, before it is rendered for a dialect.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SeedValue {
+    /// The SQL `DEFAULT` keyword (the column's own default).
     Default,
+    /// SQL `NULL`.
     Null,
     /// Signed integer IR. Dialects may bind nonnegative values as unsigned,
     /// but generated values remain limited to `i64::MAX`.
     Integer(i64),
+    /// A floating-point number.
     Float(f64),
+    /// A string.
     Text(String),
+    /// A boolean.
     Bool(bool),
+    /// Raw bytes.
     Blob(Vec<u8>),
-    /// Semantic keyword that maps to a dialect-specific current timestamp expression/value.
+    /// "Now", rendered as the dialect's current-timestamp expression.
     CurrentTime,
 }
 
-/// Trait for deterministic value generators.
+/// Produces one column value per row.
 ///
-/// Each generator produces a single column value given an RNG and a row index.
+/// Implement it for custom data and pass it to `SeedConfig::generator`.
+/// Use only `rng` for randomness so output stays deterministic.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_seed::{Generator, RngCore, SeedValue};
+///
+/// struct Sku;
+///
+/// impl Generator for Sku {
+///     fn generate(&self, _rng: &mut dyn RngCore, index: usize, _sql_type: &str) -> SeedValue {
+///         SeedValue::Text(format!("SKU-{:05}", index + 1))
+///     }
+///
+///     fn name(&self) -> &'static str {
+///         "Sku"
+///     }
+/// }
+///
+/// # use rand::SeedableRng;
+/// let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+/// assert_eq!(Sku.generate(&mut rng, 0, "TEXT"), SeedValue::Text("SKU-00001".into()));
+/// ```
 pub trait Generator: Send + Sync {
-    /// Generate a value for row `index`.
+    /// Returns the value for row `index` (0-based). `sql_type` is the
+    /// column's SQL type as declared, e.g. `"INTEGER"` or `"TEXT"`.
     fn generate(&self, rng: &mut dyn RngCore, index: usize, sql_type: &str) -> SeedValue;
 
-    /// Human-readable name of this generator for debugging.
+    /// Returns a short name for debugging.
     fn name(&self) -> &'static str;
 }
 
-/// Object-safe wrapper for `rand::RngCore`.
+/// Re-export of `rand::RngCore`, the RNG passed to [`Generator::generate`].
 pub use rand::RngCore;
 
-/// Which generator to use for a column, determined by type and name heuristics.
+/// A built-in generator, chosen by type/name inference or set with
+/// `SeedConfig::kind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneratorKind {
-    /// Primary key auto-increment
+    /// Sequential integers starting at 1 (row index + 1).
     IntPrimaryKey,
     /// Regular integer
     Int,
@@ -117,7 +149,7 @@ pub enum GeneratorKind {
 }
 
 impl GeneratorKind {
-    /// Create a boxed `Generator` instance for this kind.
+    /// Returns the generator for this kind.
     #[must_use]
     pub fn into_generator(self) -> Box<dyn Generator> {
         match self {

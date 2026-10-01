@@ -9,14 +9,15 @@ use core::fmt;
 use hashbrown::HashMap;
 use smallvec::SmallVec;
 
-/// An owned version of `PreparedStatement` with no lifetime dependencies
+/// A [`PreparedStatement`] that owns all its data, so it can be stored
+/// without a lifetime (for example in a cache).
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement<V: SQLParam> {
-    /// Pre-rendered text segments
+    /// Rendered SQL text between the parameters; one more than `params`.
     pub text_segments: Box<[CompactString]>,
-    /// Parameter placeholders (in order) - only placeholders, no values
+    /// The parameters, in order, with any values fixed at render time.
     pub params: Box<[OwnedParam<V>]>,
-    /// Fully rendered SQL with placeholders for this dialect
+    /// The full SQL text, with the dialect's placeholders.
     pub sql: CompactString,
 }
 impl<V: SQLParam> core::fmt::Display for OwnedPreparedStatement<V> {
@@ -40,9 +41,10 @@ impl<'a, V: SQLParam> From<PreparedStatement<'a, V>> for OwnedPreparedStatement<
 }
 
 impl<V: SQLParam> OwnedPreparedStatement<V> {
-    /// Returns the number of external parameter bindings expected.
-    /// This counts params that need external binding (no pre-set value),
-    /// deduplicating named params since one binding satisfies all uses.
+    /// Returns how many bindings [`bind`](Self::bind) expects.
+    ///
+    /// Counts parameters without a value, with each placeholder name counted
+    /// once, since one binding fills every use of a name.
     #[must_use]
     pub fn external_param_count(&self) -> usize {
         let mut named = HashMap::<&str, ()>::new();
@@ -61,13 +63,14 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
         named.len() + positional
     }
 
-    /// Bind parameters and return SQL with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for `PostgreSQL`, `?` for SQLite/MySQL.
+    /// Binds values to the placeholders and returns the SQL text with the
+    /// values to send, in order. Works like [`PreparedStatement::bind`].
     ///
     /// # Errors
     ///
-    /// Returns an error if required parameters are missing or if a named
-    /// placeholder cannot be resolved from the supplied bindings.
+    /// Returns [`DrizzleError::ParameterError`](crate::error::DrizzleError::ParameterError)
+    /// when a name is bound twice, a placeholder has no binding, or a binding
+    /// matches no placeholder.
     pub fn bind<'a, T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
@@ -82,7 +85,7 @@ impl<V: SQLParam> OwnedPreparedStatement<V> {
         Ok((self.sql.as_str(), bound_params.into_iter()))
     }
 
-    /// Returns the fully rendered SQL with placeholders.
+    /// Returns the SQL text, with the dialect's placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.sql.as_str()

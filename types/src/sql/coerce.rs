@@ -1,11 +1,117 @@
+//! Comparison ([`Compatible`]) and assignment ([`Assignable`]) rules between
+//! SQL type markers.
+
 use super::DataType;
 
+/// SQL types that can be compared with `Rhs`: `Self` on the left of `=`, `<`,
+/// `IN`, `LIKE` and similar operators, `Rhs` on the right.
+///
+/// Comparison is loose: it allows any pair the database can compare without
+/// an explicit cast. The rules, per dialect:
+///
+/// - **Every dialect**: a type is compatible with itself; [`Placeholder`](crate::Placeholder)
+///   and the dialect's `Any` (untyped SQL) are compatible with every marker
+///   of that dialect, both ways; tuples are compatible element by element.
+/// - **SQLite**: `Integer`, `Real` and `Numeric` with each other; `Text` with `Blob`.
+/// - **PostgreSQL**: all of `Int2`, `Int4`, `Int8`, `Float4`, `Float8` and
+///   `Numeric` with each other; `Text`, `Varchar`, `Char` and `Enum` with each
+///   other; `Text` with `Date`, `Time`, `Timestamp` and `Timestamptz`; `Timestamp`
+///   with `Timestamptz`; `Time` with `Timetz`; `Json` with `Jsonb`; `Inet`
+///   with `Cidr`; `MacAddr` with `MacAddr8`.
+/// - **MySQL**: signed integers with each other, and unsigned integers with
+///   each other, but not signed with unsigned (cast explicitly); `Year`,
+///   `Float`, `Double` and `Decimal` with every integer, and `Float`,
+///   `Double` and `Decimal` with each other; text types with each
+///   other and with `Enum` and `Set` (but `Enum` not with `Set`); binary types
+///   and `Bit` with each other; `DateTime` with `Timestamp`.
+///
+/// Everything else is rejected, for example a number with text, or a
+/// `boolean` with an integer. An [`Array<T>`](crate::Array) is compatible only
+/// with the same `Array<T>`.
+///
+/// For storing a value in a column, the stricter [`Assignable`] applies.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::{Compatible, DataType};
+/// use drizzle_types::postgres::types::{Float8, Int4, Jsonb, Json, Text, Varchar};
+///
+/// fn compatible<L: Compatible<R>, R: DataType>() {}
+///
+/// compatible::<Int4, Float8>(); // int4 = float8
+/// compatible::<Varchar, Text>(); // varchar = text
+/// compatible::<Jsonb, Json>(); // jsonb = json
+/// ```
+///
+/// # Type safety
+///
+/// ```compile_fail
+/// use drizzle_types::{Compatible, DataType};
+/// use drizzle_types::postgres::types::{Int4, Text};
+///
+/// fn compatible<L: Compatible<R>, R: DataType>() {}
+///
+/// compatible::<Int4, Text>(); // an integer cannot be compared with text
+/// ```
 #[diagnostic::on_unimplemented(
     message = "SQL type `{Self}` is not compatible with `{Rhs}`",
     label = "these SQL types cannot be compared or coerced",
     note = "compatible types include: integers with integers/floats, text with text/varchar, and any type with itself"
 )]
 pub trait Compatible<Rhs: DataType = Self>: DataType {}
+
+/// SQL types that accept a value of type `Rhs`: `Self` is the target (a
+/// column or typed placeholder), `Rhs` the type of the value stored in it.
+///
+/// Used when binding Rust values to typed columns and placeholders, and for
+/// `INSERT ... SELECT`. Assignment is stricter than [`Compatible`] and
+/// one-directional: a target accepts only values it can hold without loss.
+///
+/// - **Every dialect**: a type accepts itself; the dialect's `Any` accepts
+///   every marker of that dialect; tuples are checked element by element.
+/// - **SQLite**: `Real` accepts `Integer`; `Numeric` accepts `Integer` and `Real`.
+/// - **PostgreSQL**: wider integers accept narrower ones (`Int8` accepts
+///   `Int4` and `Int2`); `Float4`, `Float8` and `Numeric` accept every
+///   integer, and `Float8` and `Numeric` also accept `Float4` (`Numeric` also
+///   `Float8`); `Text`, `Varchar` and `Char` accept each other and `Enum`;
+///   `Timestamptz` accepts `Timestamp`; `Timetz` accepts `Time`; `Jsonb`
+///   accepts `Json`; `Cidr` accepts `Inet`.
+/// - **MySQL**: integers widen within range (an unsigned source fits a signed
+///   target only when its whole range does); `Float`, `Double` and `Decimal`
+///   accept integers, `Double` accepts `Float`, and `Decimal` accepts both;
+///   `Year` accepts `SmallIntUnsigned`; text types accept each other, `Enum`
+///   and `Set`, and `Enum` and `Set` accept text; `Decimal`, `Json` and the
+///   date/time types accept `Text`; binary types and `Bit` accept each other,
+///   and `Bit` also accepts `Boolean` and unsigned integers.
+///
+/// Narrowing is rejected: an `Int8` value cannot go into an `Int4` column,
+/// and a `Text` value cannot go into an `Enum` column. [`Placeholder`](crate::Placeholder)
+/// is not assignable; give it a type first.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::{Assignable, DataType};
+/// use drizzle_types::postgres::types::{Float8, Int2, Int8, Jsonb, Json};
+///
+/// fn assignable<Target: Assignable<Value>, Value: DataType>() {}
+///
+/// assignable::<Int8, Int2>(); // an i16 fits in a bigint column
+/// assignable::<Float8, Int8>(); // an integer fits in a double column
+/// assignable::<Jsonb, Json>(); // a json value goes into a jsonb column
+/// ```
+///
+/// # Type safety
+///
+/// ```compile_fail
+/// use drizzle_types::{Assignable, DataType};
+/// use drizzle_types::postgres::types::{Int4, Int8};
+///
+/// fn assignable<Target: Assignable<Value>, Value: DataType>() {}
+///
+/// assignable::<Int4, Int8>(); // an i64 does not fit in an integer column
+/// ```
 
 #[diagnostic::on_unimplemented(
     message = "SQL type `{Self}` is not assignable from `{Rhs}`",

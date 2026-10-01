@@ -13,17 +13,19 @@ use libsql::{Connection, Row};
 
 use super::super::prepared_common::sqlite_async_prepared_impl;
 
-/// Trait for types that can execute SQL queries asynchronously.
+/// A libsql connection or transaction that a prepared statement can run on.
 ///
-/// Both [`libsql::Connection`] and [`libsql::Transaction`] implement this trait,
-/// allowing prepared statements to be used with either.
+/// Implemented for [`libsql::Connection`] and [`libsql::Transaction`], so the same
+/// prepared statement runs inside or outside a transaction.
 pub trait LibsqlExecutor {
+    /// Runs `sql` with `params` and returns its rows.
     fn fetch(
         &self,
         sql: &str,
         params: Vec<libsql::Value>,
     ) -> impl std::future::Future<Output = drizzle_core::error::Result<libsql::Rows>>;
 
+    /// Runs `sql` with `params` and returns the number of rows it changed.
     fn exec(
         &self,
         sql: &str,
@@ -73,6 +75,10 @@ impl LibsqlExecutor for libsql::Transaction {
     }
 }
 
+/// A query rendered once, ready to run many times with new placeholder values.
+///
+/// Made by `.prepare()` on a query builder. It borrows the values embedded in
+/// the query; call [`into_owned`](Self::into_owned) to store it.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a, Marker = (), DecodedRow = ()> {
     pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
@@ -109,6 +115,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         }
     }
 
+    /// Copies the embedded values so the statement no longer borrows them.
     pub fn into_owned(self) -> OwnedPreparedStatement<Marker, DecodedRow> {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
             placeholder: p.placeholder,
@@ -131,6 +138,8 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     }
 }
 
+/// A [`PreparedStatement`] that owns its embedded values, so it can be stored
+/// or moved freely.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement<Marker = (), DecodedRow = ()> {
     pub(crate) inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,

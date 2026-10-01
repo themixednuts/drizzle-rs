@@ -1,6 +1,4 @@
-//! Export command implementation
-//!
-//! Exports the schema as SQL statements.
+//! `drizzle export`: prints the schema as `CREATE` SQL (no database needed).
 
 use std::path::PathBuf;
 

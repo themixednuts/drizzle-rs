@@ -1,4 +1,4 @@
-//! Check command - validates configuration
+//! `drizzle check`: validates the config and prints a summary.
 
 use std::path::{Path, PathBuf};
 

@@ -44,6 +44,14 @@ macro_rules! drizzle_builder_join_impl {
     };
     ($type:ident, $kind:ty) => {
         paste::paste! {
+            /// Adds the join this method names: `left_join` renders `LEFT JOIN`,
+            /// `full_outer_join` renders `FULL OUTER JOIN`, and so on.
+            ///
+            /// Pass a table to join on the foreign key between it and a table
+            /// already in the query, or a `(table, condition)` pair to give the
+            /// `ON` condition. After a `LEFT`, `RIGHT`, or `FULL` join, the
+            /// columns of a side that can be missing decode as `Option<T>`;
+            /// this is checked when the query runs.
             pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,
@@ -95,7 +103,8 @@ macro_rules! drizzle_pg_builder_join_impl {
         drizzle_pg_builder_join_impl!(@cross_lateral);
     };
     (@lateral $method:ident, $kind:ty $(, $proof:ident)?) => {
-        /// Adds a JOIN LATERAL clause with an ON condition.
+        /// Adds the lateral join this method names, with an `ON` condition.
+        /// The joined subquery can read columns of the tables before it.
         #[inline]
         #[allow(clippy::type_complexity)]
         pub fn $method<J $(, $proof)?>(self, arg: J) -> DrizzleBuilder<
@@ -127,7 +136,8 @@ macro_rules! drizzle_pg_builder_join_impl {
         }
     };
     (@cross_lateral) => {
-        /// Adds a CROSS JOIN LATERAL clause without an ON condition.
+        /// Adds a `CROSS JOIN LATERAL`: the joined subquery can read columns of
+        /// the tables before it, and there is no `ON` condition.
         #[inline]
         #[allow(clippy::type_complexity)]
         pub fn cross_join_lateral<Source>(
@@ -191,6 +201,14 @@ macro_rules! drizzle_pg_builder_join_impl {
     };
     ($type:ident, $kind:ty) => {
         paste::paste! {
+            /// Adds the join this method names: `left_join` renders `LEFT JOIN`,
+            /// `full_outer_join` renders `FULL OUTER JOIN`, and so on.
+            ///
+            /// Pass a table to join on the foreign key between it and a table
+            /// already in the query, or a `(table, condition)` pair to give the
+            /// `ON` condition. After a `LEFT`, `RIGHT`, or `FULL` join, the
+            /// columns of a side that can be missing decode as `Option<T>`;
+            /// this is checked when the query runs.
             pub fn [<$type _join>]<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,
@@ -226,7 +244,8 @@ macro_rules! drizzle_pg_builder_join_using_impl {
         drizzle_pg_builder_join_using_impl!(full_outer, drizzle_core::FullJoin);
         drizzle_pg_builder_join_using_impl!(inner, drizzle_core::InnerJoin);
 
-        /// JOIN USING clause (plain JOIN).
+        /// Adds `JOIN table USING (columns)`: the join matches the listed
+        /// columns, which both sides must have.
         pub fn join_using<U: drizzle_postgres::traits::PostgresTable<'a>>(
             self,
             table: U,
@@ -259,6 +278,8 @@ macro_rules! drizzle_pg_builder_join_using_impl {
     };
     ($type:ident, $kind:ty) => {
         paste::paste! {
+            /// Adds the join this method names with a `USING (columns)`
+            /// clause: `left_join_using` renders `LEFT JOIN table USING (...)`.
             pub fn [<$type _join_using>]<U: drizzle_postgres::traits::PostgresTable<'a>>(
                 self,
                 table: U,
@@ -295,7 +316,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
 #[doc(hidden)]
 macro_rules! sqlite_transaction_constructors {
     ($($conn_lt:lifetime),*) => {
-        /// Creates a SELECT query builder within the transaction
+        /// Starts a `SELECT` query inside the transaction.
         #[cfg(feature = "sqlite")]
         pub fn select<'tx, 'q, T>(
             &'tx self,
@@ -321,7 +342,7 @@ macro_rules! sqlite_transaction_constructors {
             }
         }
 
-        /// Creates a SELECT DISTINCT query builder within the transaction
+        /// Starts a `SELECT DISTINCT` query inside the transaction.
         #[cfg(feature = "sqlite")]
         pub fn select_distinct<'tx, 'q, T>(
             &'tx self,
@@ -347,7 +368,7 @@ macro_rules! sqlite_transaction_constructors {
             }
         }
 
-        /// Creates an INSERT query builder within the transaction
+        /// Starts an `INSERT` inside the transaction.
         #[cfg(feature = "sqlite")]
         pub fn insert<'tx, 'q, Table>(
             &'tx self,
@@ -370,7 +391,7 @@ macro_rules! sqlite_transaction_constructors {
             }
         }
 
-        /// Creates an UPDATE query builder within the transaction
+        /// Starts an `UPDATE` inside the transaction.
         #[cfg(feature = "sqlite")]
         pub fn update<'tx, 'q, Table>(
             &'tx self,
@@ -393,7 +414,7 @@ macro_rules! sqlite_transaction_constructors {
             }
         }
 
-        /// Creates a DELETE query builder within the transaction
+        /// Starts a `DELETE` inside the transaction.
         #[cfg(feature = "sqlite")]
         pub fn delete<'tx, 'q, T>(
             &'tx self,
@@ -416,7 +437,8 @@ macro_rules! sqlite_transaction_constructors {
             }
         }
 
-        /// Creates a query with CTE (Common Table Expression) within the transaction
+        /// Starts a query with a common table expression (`WITH ...`) inside the
+        /// transaction.
         #[cfg(feature = "sqlite")]
         pub fn with<'tx, 'q, C>(
             &'tx self,
@@ -444,7 +466,7 @@ macro_rules! sqlite_transaction_constructors {
 #[doc(hidden)]
 macro_rules! postgres_transaction_constructors {
     ($($conn_lt:lifetime),*) => {
-        /// Creates a SELECT query builder within the transaction
+        /// Starts a `SELECT` query inside the transaction.
         pub fn select<'tx, 'q, T>(
             &'tx self,
             query: T,
@@ -469,7 +491,7 @@ macro_rules! postgres_transaction_constructors {
             }
         }
 
-        /// Creates a SELECT DISTINCT query builder within the transaction
+        /// Starts a `SELECT DISTINCT` query inside the transaction.
         pub fn select_distinct<'tx, 'q, T>(
             &'tx self,
             query: T,
@@ -494,7 +516,7 @@ macro_rules! postgres_transaction_constructors {
             }
         }
 
-        /// Creates a SELECT DISTINCT ON query builder within the transaction
+        /// Starts a `SELECT DISTINCT ON (...)` query inside the transaction.
         pub fn select_distinct_on<'tx, 'q, On, Columns>(
             &'tx self,
             on: On,
@@ -521,7 +543,7 @@ macro_rules! postgres_transaction_constructors {
             }
         }
 
-        /// Creates an INSERT query builder within the transaction
+        /// Starts an `INSERT` inside the transaction.
         pub fn insert<'tx, 'q, Table>(
             &'tx self,
             table: Table,
@@ -543,7 +565,7 @@ macro_rules! postgres_transaction_constructors {
             }
         }
 
-        /// Creates an UPDATE query builder within the transaction
+        /// Starts an `UPDATE` inside the transaction.
         pub fn update<'tx, 'q, Table>(
             &'tx self,
             table: Table,
@@ -565,7 +587,7 @@ macro_rules! postgres_transaction_constructors {
             }
         }
 
-        /// Creates a DELETE query builder within the transaction
+        /// Starts a `DELETE` inside the transaction.
         pub fn delete<'tx, 'q, T>(
             &'tx self,
             table: T,
@@ -587,7 +609,8 @@ macro_rules! postgres_transaction_constructors {
             }
         }
 
-        /// Creates a query with CTE (Common Table Expression) within the transaction
+        /// Starts a query with a common table expression (`WITH ...`) inside the
+        /// transaction.
         pub fn with<'tx, 'q, C>(
             &'tx self,
             cte: &C,

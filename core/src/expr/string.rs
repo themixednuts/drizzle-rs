@@ -1,13 +1,8 @@
-//! Type-safe string functions.
+//! String functions: `UPPER`, `LOWER`, `TRIM`, `LENGTH`, `SUBSTR`, `REPLACE`, ...
 //!
-//! These functions require `Textual` types (Text, `VarChar`) and provide
-//! compile-time enforcement of string operations.
-//!
-//! # Type Safety
-//!
-//! - `upper`, `lower`, `trim`: Require `Textual` types
-//! - `length`: Dialect-aware integer output from text input
-//! - `substr`, `replace`, `instr`: Require `Textual` types
+//! Text arguments must have a text SQL type and position or length arguments
+//! an integer type; anything else does not compile. Functions that exist on
+//! only some databases do not compile for the others.
 
 use crate::dialect::{Dialect, DialectTypes};
 use crate::dialect::{DialectSupports, feature};
@@ -28,7 +23,11 @@ use crate::scope::Arg;
     message = "no length policy for `{Self}` on this dialect",
     label = "length return type is not defined for this SQL type/dialect"
 )]
+/// Result type of [`length`], [`char_length`] and [`octet_length`] for a
+/// text SQL type on dialect `D`: `INTEGER` on SQLite, `int4` on PostgreSQL,
+/// `BIGINT` on MySQL.
 pub trait LengthPolicy<D>: DataType {
+    /// Result type of the length functions.
     type Output: DataType;
 }
 
@@ -36,7 +35,9 @@ pub trait LengthPolicy<D>: DataType {
     message = "INSTR is not available for this dialect",
     label = "use a dialect-specific substring-position function"
 )]
+/// Dialects that provide [`instr`] (SQLite and MySQL), and its result type.
 pub trait InstrPolicy {
+    /// Result type of `INSTR`.
     type Output: DataType;
 }
 
@@ -100,20 +101,45 @@ impl DialectSupports<feature::Repeat> for MySQLDialect {}
 // CASE CONVERSION
 // =============================================================================
 
-/// UPPER - converts string to uppercase.
+/// Converts text to upper case (`UPPER`).
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be text. The result is text and keeps the argument's
+/// nullability.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Text column
-/// upper(users.name);
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(upper(users.name).sql(), r#"UPPER ("users"."name")"#);
+/// ```
 ///
-/// // ❌ Compile error: Int is not Textual
-/// upper(users.id);
-/// # "####;
+/// # Type safety
+///
+/// `UPPER` of an integer column does not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = upper(users.id);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn upper<'a, V, E>(
@@ -127,19 +153,26 @@ where
     SQLExpr::new(SQL::func("UPPER", expr.into_sql()))
 }
 
-/// LOWER - converts string to lowercase.
+/// Converts text to lower case (`LOWER`).
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be text. The result is text and keeps the argument's
+/// nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::lower;
-///
-/// // SELECT LOWER(users.email)
-/// let email_lower = lower(users.email);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(lower(users.email).sql(), r#"LOWER ("users"."email")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn lower<'a, V, E>(
@@ -157,19 +190,26 @@ where
 // TRIM FUNCTIONS
 // =============================================================================
 
-/// TRIM - removes leading and trailing whitespace.
+/// Removes leading and trailing spaces (`TRIM`).
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be text. The result is text and keeps the argument's
+/// nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::trim;
-///
-/// // SELECT TRIM(users.name)
-/// let trimmed = trim(users.name);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(trim(users.name).sql(), r#"TRIM ("users"."name")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn trim<'a, V, E>(
@@ -183,9 +223,27 @@ where
     SQLExpr::new(SQL::func("TRIM", expr.into_sql()))
 }
 
-/// LTRIM - removes leading whitespace.
+/// Removes leading spaces (`LTRIM`).
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be text. The result is text and keeps the argument's
+/// nullability.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(ltrim(users.name).sql(), r#"LTRIM ("users"."name")"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn ltrim<'a, V, E>(
     expr: E,
@@ -198,9 +256,27 @@ where
     SQLExpr::new(SQL::func("LTRIM", expr.into_sql()))
 }
 
-/// RTRIM - removes trailing whitespace.
+/// Removes trailing spaces (`RTRIM`).
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be text. The result is text and keeps the argument's
+/// nullability.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(rtrim(users.name).sql(), r#"RTRIM ("users"."name")"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn rtrim<'a, V, E>(
     expr: E,
@@ -217,32 +293,30 @@ where
 // COLLATE
 // =============================================================================
 
-/// `COLLATE` - apply a named collation to a text expression.
+/// Applies a collation to a text expression (`expr COLLATE "name"`).
 ///
-/// Preserves the input expression's SQL type, nullability, and aggregate
-/// kind. The collation name is emitted as a quoted identifier
-/// (`expr COLLATE "name"`) which works in both SQLite (which also accepts
-/// unquoted built-ins like `NOCASE`) and PostgreSQL (which requires
-/// quoting).
+/// Renders `(expr COLLATE "name")`, with the name quoted as an identifier,
+/// which both SQLite and PostgreSQL accept. The argument must be text. The
+/// result keeps its SQL type, nullability and aggregate kind. Use it in a
+/// comparison for case-insensitive matching, or in `ORDER BY`.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::collate;
-///
-/// // Case-insensitive comparison on SQLite:
-/// // SELECT * FROM users WHERE name COLLATE "NOCASE" = ?
-/// db.select(()).from(users)
-///   .r#where(eq(collate(users.name, "NOCASE"), "alice"))
-///   .all()?;
-///
-/// // PostgreSQL with the built-in `"C"` collation:
-/// // SELECT * FROM products ORDER BY label COLLATE "C"
-/// db.select(()).from(products)
-///   .order_by(asc(collate(products.label, "C")))
-///   .all()?;
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // Case-insensitive comparison on SQLite.
+/// let cond = eq(collate(users.name, "NOCASE"), "alice");
+/// assert_eq!(cond.sql(), r#"("users"."name" COLLATE "NOCASE") = ?"#);
 /// ```
 pub fn collate<'a, V, E>(
     expr: E,
@@ -267,21 +341,28 @@ where
 // LENGTH
 // =============================================================================
 
-/// `LENGTH` - returns the length of a string.
+/// Length of a text value (`LENGTH`).
 ///
-/// MySQL counts bytes. SQLite and PostgreSQL follow their native `LENGTH`
-/// semantics. Use [`char_length`] when character count is the intended value.
-/// The result type is dialect-aware and preserves nullability.
+/// SQLite and PostgreSQL count characters; MySQL counts bytes. Use
+/// [`char_length`] to count characters on every dialect. The argument must be
+/// text. The result is an integer (see [`LengthPolicy`]) and keeps the
+/// argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::length;
-///
-/// // SELECT LENGTH(users.name)
-/// let name_len = length(users.name);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(length(users.name).sql(), r#"LENGTH ("users"."name")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn length<'a, V, E>(
@@ -306,20 +387,29 @@ where
 // SUBSTRING
 // =============================================================================
 
-/// SUBSTR - extracts a substring from a string.
+/// Part of a text value (`SUBSTR(expr, start, len)`).
 ///
-/// Extracts `len` characters starting at position `start` (1-indexed).
-/// The result is nullable when any argument is nullable.
+/// Returns `len` characters starting at `start`, counting from 1. `expr`
+/// must be text; `start` and `len` must be integers. The result is text,
+/// nullable if any argument is.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::substr;
-///
-/// // SELECT SUBSTR(users.name, 1, 3) -- first 3 characters
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // The first three characters.
 /// let prefix = substr(users.name, 1, 3);
-/// # "####;
+/// assert_eq!(prefix.sql(), r#"SUBSTR ("users"."name", ?, ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn substr<'a, V, E, S, L>(
@@ -361,20 +451,27 @@ where
 // REPLACE
 // =============================================================================
 
-/// REPLACE - replaces occurrences of a substring.
+/// Replaces every occurrence of `from` with `to` (`REPLACE`).
 ///
-/// Replaces all occurrences of `from` with `to` in the expression.
-/// The result is nullable when any argument is nullable.
+/// All three arguments must be text. The result is text, nullable if any
+/// argument is.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::replace;
-///
-/// // SELECT REPLACE(users.email, '@old.com', '@new.com')
-/// let new_email = replace(users.email, "@old.com", "@new.com");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let email = replace(users.email, "@old.example", "@new.example");
+/// assert_eq!(email.sql(), r#"REPLACE ("users"."email", ?, ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn replace<'a, V, E, F, T>(
@@ -416,21 +513,27 @@ where
 // INSTR
 // =============================================================================
 
-/// INSTR - finds the position of a substring.
+/// Position of `search` within a text value (`INSTR`), on SQLite and MySQL.
 ///
-/// Returns the 1-indexed position of the first occurrence of `search`
-/// in the expression, or 0 if not found. The result type is dialect-aware.
-/// The result is nullable when either argument is nullable.
+/// Returns the 1-based position of the first match, or 0 when there is none.
+/// Both arguments must be text. The result is an integer, nullable if either
+/// argument is. On PostgreSQL, use [`strpos`].
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::instr;
-///
-/// // SELECT INSTR(users.email, '@')
-/// let at_pos = instr(users.email, "@");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(instr(users.email, "@").sql(), r#"INSTR ("users"."email", ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn instr<'a, V, E, S>(
@@ -460,7 +563,28 @@ where
     ))
 }
 
-/// STRPOS - finds the position of a substring (`PostgreSQL`).
+/// Position of `search` within a text value (`STRPOS`), on PostgreSQL.
+///
+/// Returns the 1-based position of the first match, or 0 when there is none.
+/// Both arguments must be text. The result is `int4`, nullable if either
+/// argument is. On SQLite and MySQL, use [`instr`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(strpos(users.name, "a").sql(), r#"STRPOS ("users"."name", $1)"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn strpos<'a, V, E, S>(
     expr: E,
@@ -493,37 +617,49 @@ where
 // CONCAT (with NULL propagation)
 // =============================================================================
 
-/// Concatenate two string expressions.
+/// Joins two text values.
 ///
-/// Nullability follows SQL concatenation rules: if either input is nullable,
-/// the result is nullable. `string_concat` is a compatibility alias.
-/// `MySQL` renders `CONCAT(left, right)` because its default SQL mode treats
-/// `||` as logical OR. `SQLite` and `PostgreSQL` use `||`.
+/// Renders `left || right` on SQLite and PostgreSQL and `CONCAT(left, right)`
+/// on MySQL, where `||` means logical OR by default. Both arguments must be
+/// text. The result is text, nullable if either argument is (concatenating
+/// NULL gives NULL). [`string_concat`](super::string_concat) is the same
+/// function.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Both are Text
-/// concat(users.first_name, users.last_name);
-///
-/// // ✅ OK: Text with string literal
-/// concat(users.first_name, " ");
-///
-/// // ❌ Compile error: Int is not Textual
-/// concat(users.id, users.name);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let label = concat(concat(users.name, " <"), concat(users.email, ">"));
+/// assert_eq!(label.sql(), r#""users"."name" || ? || ("users"."email" || ?)"#);
 /// ```
 ///
-/// # Example
+/// # Type safety
 ///
-/// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::concat;
+/// Joining an integer column does not compile:
 ///
-/// // SELECT users.first_name || ' ' || users.last_name
-/// let full_name = concat(concat(users.first_name, " "), users.last_name);
-/// # "####;
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = concat(users.id, users.name);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn concat<'a, V, E1, E2>(
@@ -561,22 +697,29 @@ where
 // CONCAT_WS (with separator)
 // =============================================================================
 
-/// `CONCAT_WS` - concatenates values with a separator, skipping NULLs.
+/// Joins values with a separator, skipping NULLs (`CONCAT_WS`).
 ///
-/// Unlike `||`, `CONCAT_WS` skips NULL values and never returns NULL
-/// (unless the separator itself is NULL).
+/// Renders `CONCAT_WS(sep, v1, v2, ...)`. The separator and values must be
+/// text; the values share one Rust type. NULL values are skipped, so the
+/// result is nullable only if the separator is. Needs SQLite 3.44 or later;
+/// also available on PostgreSQL and MySQL.
 ///
-/// Supported by both `SQLite` (3.44+) and `PostgreSQL`.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::concat_ws;
-///
-/// // SELECT CONCAT_WS(', ', users.city, users.state, users.country)
-/// let location = concat_ws(", ", [users.city, users.state, users.country]);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let names = concat_ws(", ", [users.name, users.name]);
+/// assert_eq!(names.sql(), r#"CONCAT_WS (?, "users"."name", "users"."name")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn concat_ws<'a, V, S, I>(
@@ -610,19 +753,26 @@ where
 // Dialect-gated String Functions
 // =============================================================================
 
-/// LEFT - returns the first n characters of a string (`PostgreSQL` and `MySQL`).
+/// The first `n` characters of a text value (`LEFT`), on PostgreSQL and MySQL.
 ///
-/// The result is nullable when either argument is nullable.
+/// `expr` must be text and `n` an integer. The result is text, nullable if
+/// either argument is. SQLite has no `LEFT`; use [`substr`] there.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::left;
-///
-/// // SELECT LEFT(users.name, 3)
-/// let prefix = left(users.name, 3);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(left(users.name, 3).sql(), r#"LEFT ("users"."name", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn left<'a, V, E, N>(
@@ -652,19 +802,26 @@ where
     ))
 }
 
-/// RIGHT - returns the last n characters of a string (`PostgreSQL` and `MySQL`).
+/// The last `n` characters of a text value (`RIGHT`), on PostgreSQL and MySQL.
 ///
-/// The result is nullable when either argument is nullable.
+/// `expr` must be text and `n` an integer. The result is text, nullable if
+/// either argument is. SQLite has no `RIGHT`; use [`substr`] there.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::right;
-///
-/// // SELECT RIGHT(users.phone, 4)
-/// let last_four = right(users.phone, 4);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(right(users.name, 3).sql(), r#"RIGHT ("users"."name", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn right<'a, V, E, N>(
@@ -694,19 +851,28 @@ where
     ))
 }
 
-/// `SPLIT_PART` - splits a string and returns the nth field (`PostgreSQL`).
+/// The `n`-th field of a text value split on `delimiter` (`SPLIT_PART`), on PostgreSQL.
 ///
-/// Returns the field at position `n` (1-indexed) when splitting by `delimiter`.
+/// Fields are numbered from 1. `expr` and `delimiter` must be text and `n` an
+/// integer. The result is text, nullable if any argument is.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::split_part;
-///
-/// // SELECT SPLIT_PART(users.email, '@', 2)  -- get domain
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // The domain part of an email address.
 /// let domain = split_part(users.email, "@", 2);
-/// # "####;
+/// assert_eq!(domain.sql(), r#"SPLIT_PART ("users"."email", $1, $2)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn split_part<'a, V, E, D, N>(
@@ -745,17 +911,27 @@ where
     ))
 }
 
-/// LPAD - pads a string on the left to a specified length (`PostgreSQL` and `MySQL`).
+/// Pads a text value on the left to `length` characters (`LPAD`), on PostgreSQL and MySQL.
 ///
-/// # Example
+/// `expr` and `fill` must be text and `length` an integer. Longer values are
+/// cut to `length`. The result is text, nullable if any argument is.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::lpad;
-///
-/// // SELECT LPAD(users.id::text, 5, '0')  -- zero-pad to 5 digits
-/// let padded = lpad(users.code, 5, "0");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let padded = lpad(users.name, 10, ".");
+/// assert_eq!(padded.sql(), r#"LPAD ("users"."name", $1, $2)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn lpad<'a, V, E, L, F>(
@@ -794,17 +970,27 @@ where
     ))
 }
 
-/// RPAD - pads a string on the right to a specified length (`PostgreSQL` and `MySQL`).
+/// Pads a text value on the right to `length` characters (`RPAD`), on PostgreSQL and MySQL.
 ///
-/// # Example
+/// `expr` and `fill` must be text and `length` an integer. Longer values are
+/// cut to `length`. The result is text, nullable if any argument is.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::rpad;
-///
-/// // SELECT RPAD(users.name, 20, '.')
-/// let padded = rpad(users.name, 20, ".");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let padded = rpad(users.name, 10, ".");
+/// assert_eq!(padded.sql(), r#"RPAD ("users"."name", $1, $2)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn rpad<'a, V, E, L, F>(
@@ -843,9 +1029,27 @@ where
     ))
 }
 
-/// INITCAP - converts the first letter of each word to uppercase (`PostgreSQL`).
+/// Capitalizes the first letter of each word (`INITCAP`), on PostgreSQL.
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be text. The result is text and keeps the argument's
+/// nullability.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(initcap(users.name).sql(), r#"INITCAP ("users"."name")"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn initcap<'a, V, E>(
     expr: E,
@@ -859,9 +1063,27 @@ where
     SQLExpr::new(SQL::func("INITCAP", expr.into_sql()))
 }
 
-/// REVERSE - reverses a string (`PostgreSQL` and `MySQL`).
+/// Reverses a text value (`REVERSE`), on PostgreSQL and MySQL.
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be text. The result is text and keeps the argument's
+/// nullability.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(reverse(users.name).sql(), r#"REVERSE ("users"."name")"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn reverse<'a, V, E>(
     expr: E,
@@ -875,17 +1097,26 @@ where
     SQLExpr::new(SQL::func("REVERSE", expr.into_sql()))
 }
 
-/// REPEAT - repeats a string n times (`PostgreSQL` and `MySQL`).
+/// Repeats a text value `n` times (`REPEAT`), on PostgreSQL and MySQL.
 ///
-/// # Example
+/// `expr` must be text and `n` an integer. The result is text, nullable if
+/// either argument is.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::repeat;
-///
-/// // SELECT REPEAT('-', 40)
-/// let separator = repeat("-", 40);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(repeat(users.name, 2).sql(), r#"REPEAT ("users"."name", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn repeat<'a, V, E, N>(
@@ -915,20 +1146,27 @@ where
     ))
 }
 
-/// `STARTS_WITH` - tests if a string starts with a prefix (`PostgreSQL`).
+/// Whether a text value starts with `prefix` (`STARTS_WITH`), on PostgreSQL.
 ///
-/// Returns a boolean expression. Follows comparison operator convention
-/// of returning `NonNull`.
+/// Both arguments must be text. Like the comparison operators, the result is
+/// the dialect's boolean, typed as non-null.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::starts_with;
-///
-/// // SELECT * FROM users WHERE STARTS_WITH(email, 'admin')
-/// let is_admin = starts_with(users.email, "admin");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let cond = starts_with(users.email, "admin");
+/// assert_eq!(cond.sql(), r#"STARTS_WITH ("users"."email", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn starts_with<'a, V, E, P>(
@@ -961,21 +1199,28 @@ where
 // CHAR_LENGTH / OCTET_LENGTH (Standard SQL)
 // =============================================================================
 
-/// `CHAR_LENGTH` - returns the number of characters in a string.
+/// Number of characters in a text value.
 ///
-/// Standard SQL function. Emits `CHAR_LENGTH` on `PostgreSQL` and `MySQL`,
-/// and `LENGTH` on `SQLite`.
+/// Renders `CHAR_LENGTH(expr)` on PostgreSQL and MySQL and `LENGTH(expr)` on
+/// SQLite, which counts characters. The argument must be text. The result is
+/// an integer (see [`LengthPolicy`]) and keeps the argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::char_length;
-///
-/// // SELECT CHAR_LENGTH(users.name)  -- PostgreSQL/MySQL
-/// // SELECT LENGTH(users.name)       -- SQLite
-/// let name_len = char_length(users.name);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // SQLite
+/// assert_eq!(char_length(users.name).sql(), r#"LENGTH ("users"."name")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn char_length<'a, V, E>(
@@ -999,19 +1244,27 @@ where
     ))
 }
 
-/// `OCTET_LENGTH` - returns the number of bytes in a string.
+/// Number of bytes in a text value (`OCTET_LENGTH`).
 ///
-/// Standard SQL function. Works on SQLite (3.43+), PostgreSQL, and MySQL.
+/// Needs SQLite 3.43 or later; also available on PostgreSQL and MySQL. The
+/// argument must be text. The result is an integer (see [`LengthPolicy`]) and
+/// keeps the argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::octet_length;
-///
-/// // SELECT OCTET_LENGTH(users.name)
-/// let byte_len = octet_length(users.name);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(octet_length(users.name).sql(), r#"OCTET_LENGTH ("users"."name")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn octet_length<'a, V, E>(
@@ -1036,20 +1289,30 @@ where
 // TRANSLATE (PostgreSQL)
 // =============================================================================
 
-/// TRANSLATE - replaces each character in `from` with the corresponding
-/// character in `to` (`PostgreSQL`).
+/// Replaces characters one for one (`TRANSLATE`), on PostgreSQL.
 ///
-/// Characters in `from` that have no match in `to` are removed.
+/// Each character of `from` is replaced by the character at the same position
+/// in `to`; characters of `from` with no partner in `to` are removed. All
+/// arguments must be text. The result is text and keeps `expr`'s
+/// nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::translate;
-///
-/// // SELECT TRANSLATE(users.phone, '()-', '')
-/// let clean_phone = translate(users.phone, "()-", "");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // Strip "(", ")" and "-".
+/// let digits = translate(users.name, "()-", "");
+/// assert_eq!(digits.sql(), r#"TRANSLATE ("users"."name", $1, $2)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn translate<'a, V, E, F, T>(
@@ -1090,20 +1353,28 @@ where
 // REGEXP_REPLACE / REGEXP_MATCH (PostgreSQL)
 // =============================================================================
 
-/// `REGEXP_REPLACE` - replaces substrings matching a POSIX regex (`PostgreSQL`).
+/// Replaces the first POSIX regular expression match (`REGEXP_REPLACE`), on PostgreSQL.
 ///
-/// Replaces the first match of `pattern` in `expr` with `replacement`.
-/// Use optional flags (e.g., `"g"` for global) via `regexp_replace_flags`.
+/// All arguments must be text. The result is text and keeps `expr`'s
+/// nullability. To replace every match, use [`regexp_replace_flags`] with
+/// `"g"`.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::regexp_replace;
-///
-/// // SELECT REGEXP_REPLACE(users.phone, '[^0-9]', '')
-/// let digits_only = regexp_replace(users.phone, "[^0-9]", "");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let cleaned = regexp_replace(users.name, "[^a-z]", "");
+/// assert_eq!(cleaned.sql(), r#"REGEXP_REPLACE ("users"."name", $1, $2)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_replace<'a, V, E, P, R>(
@@ -1140,19 +1411,28 @@ where
     ))
 }
 
-/// `REGEXP_REPLACE` with flags - replaces substrings matching a POSIX regex (`PostgreSQL`).
+/// [`regexp_replace`] with flags (`REGEXP_REPLACE(expr, pattern, replacement, flags)`), on PostgreSQL.
 ///
-/// Common flags: `"g"` (global), `"i"` (case-insensitive), `"gi"` (both).
+/// Common flags: `"g"` (every match), `"i"` (ignore case), `"gi"` (both). All
+/// arguments must be text. The result is text and keeps `expr`'s
+/// nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::regexp_replace_flags;
-///
-/// // SELECT REGEXP_REPLACE(users.phone, '[^0-9]', '', 'g')
-/// let digits_only = regexp_replace_flags(users.phone, "[^0-9]", "", "g");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let digits = regexp_replace_flags(users.name, "[^0-9]", "", "g");
+/// assert_eq!(digits.sql(), r#"REGEXP_REPLACE ("users"."name", $1, $2, $3)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_replace_flags<'a, V, E, P, R, F>(
@@ -1195,20 +1475,28 @@ where
     ))
 }
 
-/// `REGEXP_MATCH` - returns captured groups from the first POSIX regex match (`PostgreSQL`).
+/// Capture groups of the first POSIX regular expression match (`REGEXP_MATCH`), on PostgreSQL.
 ///
-/// Returns a text array of captured groups. If the pattern has no groups,
-/// the result is a single-element array with the whole match.
+/// Returns a text array with one element per capture group, or the whole
+/// match when the pattern has no groups. Both arguments must be text. The
+/// result is always nullable: it is NULL when nothing matches.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::regexp_match;
-///
-/// // SELECT REGEXP_MATCH(users.email, '(.+)@(.+)')
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// let parts = regexp_match(users.email, "(.+)@(.+)");
-/// # "####;
+/// assert_eq!(parts.sql(), r#"REGEXP_MATCH ("users"."email", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_match<'a, V, E, P>(
@@ -1239,19 +1527,27 @@ where
     ))
 }
 
-/// `REGEXP_MATCH` with flags (`PostgreSQL`).
+/// [`regexp_match`] with flags (`REGEXP_MATCH(expr, pattern, flags)`), on PostgreSQL.
 ///
-/// Common flags: `"i"` (case-insensitive), `"g"` (not valid for `regexp_match`, use `regexp_matches`).
+/// A common flag is `"i"` (ignore case). The `"g"` flag is not allowed here.
+/// All arguments must be text. The result is a nullable text array.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::regexp_match_flags;
-///
-/// // SELECT REGEXP_MATCH(users.email, '(.+)@(.+)', 'i')
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// let parts = regexp_match_flags(users.email, "(.+)@(.+)", "i");
-/// # "####;
+/// assert_eq!(parts.sql(), r#"REGEXP_MATCH ("users"."email", $1, $2)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn regexp_match_flags<'a, V, E, P, F>(

@@ -1,4 +1,4 @@
-//! Status command implementation
+//! `drizzle status`: lists local migrations.
 //!
 //! Lists the local migration folders and whether each has a snapshot. It
 //! does not connect to the database; `drizzle migrate --plan` shows what the

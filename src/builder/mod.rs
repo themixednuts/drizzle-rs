@@ -23,6 +23,11 @@ pub trait RelationalPreparedDriver {
     type PreparedDriver;
 }
 
+/// Implements `.prepare()` on a driver's `DrizzleBuilder` alias.
+///
+/// Expects `DrizzleBuilder`, `QueryBuilder`, `builder`, `prepare_render`,
+/// `ToSQL`, and the driver's `prepared` module to be in scope.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! drizzle_prepare_impl {
     () => {
@@ -31,23 +36,19 @@ macro_rules! drizzle_prepare_impl {
         where
             State: builder::ExecutableState,
         {
-            /// Creates a prepared statement from this query builder.
+            /// Renders this query once into a reusable prepared statement.
             ///
-            /// The returned statement can be executed with `.all()`, `.get()`, or
-            /// `.execute()`, each taking a fixed-size array of parameter bindings.
-            /// The array size is inferred from the call site and validated at runtime
-            /// against the actual placeholder count.
+            /// Put [`placeholder`](drizzle_core::traits::SQLColumn::placeholder)s
+            /// where values change between runs, then run the statement with
+            /// `.execute(conn, params)`, `.all(conn, params)`, or
+            /// `.get(conn, params)`, binding each placeholder by name in any
+            /// order (`name.bind(value)`). A binding has the placeholder
+            /// column's type, so a value of the wrong type does not compile.
             ///
-            /// # When to reach for this
-            ///
-            /// Every driver whose economics justify it now serves the plain
-            /// builder path from a per-connection statement cache, so `.prepare()`
-            /// is no longer the way to avoid re-parsing. Reach for it when you
-            /// want *named* bindings — build the query once with
-            /// [`placeholder`](drizzle_core::placeholder::Placeholder)s and bind
-            /// by name at each call, in any order — or when you want to hoist SQL
-            /// rendering and parameter layout out of a hot loop. For a query you
-            /// simply run repeatedly, the cached default path is equivalent.
+            /// The plain builder path already reuses statements through each
+            /// driver's statement cache, so repetition alone is not a reason to
+            /// prepare. Reach for it to bind by name, or to move SQL rendering
+            /// out of a hot loop.
             #[inline]
             pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))
@@ -64,6 +65,7 @@ macro_rules! drizzle_prepare_impl {
 ///
 /// Expects `TransactionBuilder`, `QueryBuilder`, `builder`, `prepare_render`,
 /// `ToSQL`, and the driver's `prepared` module to be in scope.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! drizzle_tx_prepare_impl {
     ($($conn:lifetime)?) => {
@@ -78,24 +80,19 @@ macro_rules! drizzle_tx_prepare_impl {
         where
             State: builder::ExecutableState,
         {
-            /// Creates a prepared statement from this transaction's query builder.
+            /// Renders this transaction's query once into a reusable prepared
+            /// statement.
             ///
-            /// Mirrors [`prepare`](crate::drizzle_prepare_impl) on the connection
-            /// runner, so a statement can be built inside a `transaction` closure
-            /// instead of being hoisted outside it just to exist.
+            /// Works like `prepare` on the database handle's builders, so a
+            /// statement can be built inside a `transaction` closure.
             ///
-            /// The statement is detached from the transaction — executing it takes
-            /// an explicit executor. On the `SQLite` drivers pass `tx.inner()` to
-            /// run it inside this transaction, so its writes commit and roll back
-            /// with the transaction. The `PostgreSQL` prepared executors currently
-            /// take a `&Client`, so a statement built here runs on the connection
-            /// once the transaction has finished; inside the transaction, prefer
-            /// the builder's own `.execute()`/`.all()`/`.get()`, which serve from
-            /// the connection's statement cache.
-            ///
-            /// Note that repetition alone is not a reason to prepare — see
-            /// [`prepare`](crate::drizzle_prepare_impl) on the connection runner
-            /// for when an explicit statement still earns its keep.
+            /// The statement is detached from the transaction: running it takes
+            /// an explicit executor. On the SQLite drivers, pass `tx.inner()` to
+            /// run it inside this transaction, so its writes commit and roll
+            /// back with the transaction. The PostgreSQL prepared executors take
+            /// a `&Client`, so a statement built here runs on the connection
+            /// after the transaction ends; inside the transaction, use the
+            /// builder's own `.execute()`/`.all()`/`.get()` instead.
             #[inline]
             pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))

@@ -1,6 +1,5 @@
-//! Introspect command implementation
-//!
-//! Introspects an existing database and generates a snapshot/schema.
+//! `drizzle introspect` / `drizzle pull`: reads a live database and writes a
+//! Rust schema file (and optionally initial migration metadata).
 
 use crate::commands::overrides::{self, ConnectionOverrides, FilterArgs};
 use crate::config::{Config, Dialect, IntrospectCasing};

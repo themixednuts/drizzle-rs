@@ -1,13 +1,19 @@
-//! Drizzle Migrations - DDL and migration infrastructure for drizzle-rs
+//! Migration generation, tracking, and DDL types for drizzle-rs.
 //!
-//! This crate provides:
-//! - migration discovery (`MigrationDir`)
-//! - runtime tracking config (`Tracking`)
-//! - pure diff APIs (`diff`, `diff_schemas_with`)
-//! - build-time migration generation (`build::run`)
-//! - interrupted-migration reconciliation (`repair::plan`)
+//! What this crate gives you:
+//! - [`build::run`]: generate migration folders from `build.rs`.
+//! - [`diff`] / [`diff_schemas_with`]: diff two schemas in memory.
+//! - [`MigrationDir`] and [`Migration`]: load migrations from disk or memory.
+//! - [`Migrations`] and [`Tracking`]: the tracking-table SQL drivers use when
+//!   applying migrations.
+//! - [`repair::plan`]: reconcile a migration that was interrupted mid-apply.
 //!
-//! # Recommended No-CLI Flow
+//! Most users reach this crate through `drizzle` (`db.migrate(...)`,
+//! `include_migrations!`) or the `drizzle` CLI.
+//!
+//! # Examples
+//!
+//! ## Generate and run migrations without the CLI
 //!
 //! 1. In `build.rs`, keep `./drizzle` up to date:
 //!
@@ -52,11 +58,9 @@
 //! # }
 //! ```
 //!
-//! # Runtime Generation APIs (No CLI)
+//! ## Diff two schemas at runtime
 //!
-//! Use these when you need runtime diffing between two inputs.
-//!
-//! ## Snapshot-to-snapshot
+//! Snapshot to snapshot:
 //!
 //! ```rust
 //! use drizzle_migrations::{Snapshot, diff};
@@ -64,10 +68,10 @@
 //! let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
 //! let current = Snapshot::empty(drizzle_types::Dialect::SQLite);
 //! let migration = diff(&prev, &current).unwrap();
-//! assert!(migration.statements.is_empty());
+//! assert!(migration.is_empty());
 //! ```
 //!
-//! ## Schema-to-schema with rename hints
+//! Schema to schema, with rename hints:
 //!
 //! ```rust,no_run
 //! use drizzle_migrations::{DiffOptions, Schema, Snapshot, diff_schemas_with};

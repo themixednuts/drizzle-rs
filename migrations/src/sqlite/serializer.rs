@@ -1,7 +1,4 @@
-//! `SQLite` schema serialization
-//!
-//! This module provides functionality to serialize Drizzle schema definitions
-//! into DDL entities and snapshots.
+//! Turns drizzle SQLite schema definitions into DDL entities and snapshots.
 
 use super::collection::SQLiteDDL;
 use super::ddl::SqliteEntity;

@@ -62,23 +62,32 @@ pub enum SQLiteType {
     Any,
 }
 
-/// `SQLite` type affinity classification.
+/// `SQLite` type affinity: how a column converts values it stores.
+///
+/// See <https://sqlite.org/datatype3.html#type_affinity>.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
 pub enum SQLiteAffinity {
+    /// `INTEGER` affinity.
     Integer,
+    /// `TEXT` affinity.
     Text,
+    /// `BLOB` affinity: values are stored as given.
     Blob,
+    /// `REAL` affinity.
     Real,
+    /// `NUMERIC` affinity.
     Numeric,
+    /// No affinity (`ANY` in STRICT tables).
     Any,
 }
 
 impl SQLiteType {
-    /// Convert from attribute name to enum variant
+    /// Parses a type name from a column attribute, ignoring case. Returns
+    /// `None` for unknown names.
     ///
-    /// Handles common attribute names used in the macro system.
+    /// Also accepts `"number"` (as `NUMERIC`) and `"boolean"` (as `INTEGER`).
     #[must_use]
     pub const fn from_attribute_name(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("integer") {
@@ -100,7 +109,7 @@ impl SQLiteType {
         }
     }
 
-    /// Get the SQL type string for this type
+    /// Returns the type as written in DDL, such as `"INTEGER"`.
     #[must_use]
     pub const fn to_sql_type(&self) -> &'static str {
         match self {
@@ -126,9 +135,7 @@ impl SQLiteType {
         }
     }
 
-    /// Whether this type is allowed for STRICT tables.
-    ///
-    /// `SQLite` STRICT supports: INTEGER, REAL, TEXT, BLOB, ANY.
+    /// Returns `true` if a STRICT table accepts this type: every type except `NUMERIC`.
     #[must_use]
     pub const fn is_strict_allowed(&self) -> bool {
         matches!(
@@ -137,9 +144,9 @@ impl SQLiteType {
         )
     }
 
-    /// Check if a flag is valid for this column type
+    /// Returns `true` if the column attribute flag can be used with this type.
     ///
-    /// # Valid Flags per Type
+    /// Valid flags per type:
     ///
     /// - `INTEGER`: `primary`, `primary_key`, `unique`, `autoincrement`, `enum`
     /// - `TEXT`: `primary`, `primary_key`, `unique`, `json`, `enum`

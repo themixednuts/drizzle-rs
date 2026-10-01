@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::traits::FromSQLiteValue;
 use drizzle_core::{error::DrizzleError, sql::SQL, traits::SQLParam};
 
-/// Represents a `SQLite` value (owned version)
+/// A [`SQLiteValue`] that owns its text and blob data.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum OwnedSQLiteValue {
     /// Integer value (i64)
@@ -85,10 +85,7 @@ impl OwnedSQLiteValue {
         }
     }
 
-    /// Convert this `SQLite` value to a Rust type using the `FromSQLiteValue` trait.
-    ///
-    /// This provides a unified conversion interface for all types that implement
-    /// `FromSQLiteValue`, including primitives and enum types.
+    /// Decodes this value into `T` with [`FromSQLiteValue`].
     ///
     /// # Errors
     ///
@@ -104,7 +101,7 @@ impl OwnedSQLiteValue {
         }
     }
 
-    /// Convert a reference to this `SQLite` value to a Rust type.
+    /// Decodes this value into `T` without consuming it.
     ///
     /// # Errors
     ///

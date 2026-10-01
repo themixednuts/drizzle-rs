@@ -1,7 +1,6 @@
-//! `PostgreSQL` SQL type grammar and naming conventions
+//! PostgreSQL type checks, default naming rules, and default-value handling.
 //!
-//! This module provides type checking, naming conventions, and default value
-//! handling for `PostgreSQL` columns matching drizzle-kit grammar.ts
+//! Mirrors drizzle-kit's `grammar.ts`.
 
 // =============================================================================
 // Naming Conventions

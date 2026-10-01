@@ -1,7 +1,12 @@
-//! PostgreSQL-specific expressions.
+//! `PostgreSQL`-only operators: arrays (`@>`, `<@`, `&&`), JSON and JSONB
+//! (`->`, `->>`, `#>`, `#>>`, `@>`, `?`, ...), `ILIKE`, and POSIX regular
+//! expressions (`~`, `~*`, ...).
 //!
-//! This module provides `PostgreSQL` dialect-specific SQL expressions and operators.
-//! For standard SQL expressions, use `drizzle_core::expr`.
+//! Each operator is a free function and, through an extension trait
+//! ([`ArrayExprExt`], [`JsonExprExt`], [`RegexExprExt`]), a method on any
+//! `PostgreSQL` expression. Operand types are checked at compile time; each
+//! function lists what it accepts. Portable operators (`eq`, `like`, `and`, ...)
+//! live in `drizzle_core::expr`.
 
 mod array_ops;
 mod ilike;

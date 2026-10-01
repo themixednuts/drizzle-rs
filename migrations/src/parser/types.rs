@@ -1,4 +1,4 @@
-//! Parser types - shared data structures for all dialects
+//! Data structures the schema parser produces, shared by all dialects.
 //!
 //! Each parsed entity keeps two views of the source:
 //!

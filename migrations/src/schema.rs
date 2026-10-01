@@ -1,17 +1,14 @@
-//! Schema trait for type-safe schema definitions
-//!
-//! This module provides the `Schema` trait that user-defined schema structs
-//! implement (via derive macros) to enable migration generation.
+//! The [`Schema`] trait and the dialect-independent [`Snapshot`] type.
 
 use crate::mysql::MySQLSnapshot;
 use crate::postgres::PostgresSnapshot;
 use crate::sqlite::SQLiteSnapshot;
 use drizzle_types::Dialect;
 
-/// A unified snapshot type for every migration-capable SQL dialect.
+/// A schema snapshot for any supported dialect.
 ///
-/// This is returned by `Schema::to_snapshot()` and used by the migration
-/// generation logic to diff against previous snapshots.
+/// Returned by [`Schema::to_snapshot`] and stored as `snapshot.json` in each
+/// migration folder. [`diff`](crate::diff) compares two of them.
 #[derive(Clone, Debug)]
 pub enum Snapshot {
     /// `SQLite` schema snapshot
@@ -23,7 +20,7 @@ pub enum Snapshot {
 }
 
 impl Snapshot {
-    /// Get the dialect of this snapshot
+    /// Returns the dialect of this snapshot.
     #[must_use]
     pub const fn dialect(&self) -> Dialect {
         match self {
@@ -33,7 +30,7 @@ impl Snapshot {
         }
     }
 
-    /// Save the snapshot to a file.
+    /// Writes the snapshot as JSON to `path`.
     ///
     /// # Errors
     ///
@@ -47,7 +44,7 @@ impl Snapshot {
         }
     }
 
-    /// Load a snapshot from a file.
+    /// Reads a `dialect` snapshot from the JSON file at `path`.
     ///
     /// # Errors
     ///
@@ -61,8 +58,8 @@ impl Snapshot {
         }
     }
 
-    /// Create an empty snapshot for the given dialect.
-    ///
+    /// Creates a snapshot with no entities, the starting point for a first
+    /// migration.
     #[must_use]
     pub fn empty(dialect: Dialect) -> Self {
         match dialect {
@@ -72,7 +69,7 @@ impl Snapshot {
         }
     }
 
-    /// Check if this snapshot is empty (no entities)
+    /// Returns `true` if the snapshot has no entities.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         match self {
@@ -82,7 +79,7 @@ impl Snapshot {
         }
     }
 
-    /// Get the ID of this snapshot
+    /// Returns this snapshot's ID.
     #[must_use]
     pub fn id(&self) -> &str {
         match self {
@@ -92,7 +89,7 @@ impl Snapshot {
         }
     }
 
-    /// Get the previous IDs chain
+    /// Returns the IDs of the snapshots this one follows.
     #[must_use]
     pub fn prev_ids(&self) -> &[String] {
         match self {
@@ -102,7 +99,7 @@ impl Snapshot {
         }
     }
 
-    /// Set the previous IDs chain
+    /// Replaces the IDs of the snapshots this one follows.
     pub fn set_prev_ids(&mut self, prev_ids: Vec<String>) {
         match self {
             Self::Sqlite(s) => s.prev_ids = prev_ids,
@@ -111,7 +108,7 @@ impl Snapshot {
         }
     }
 
-    /// Get the snapshot as `SQLite` if it is one
+    /// Returns the SQLite snapshot, or `None` for other dialects.
     #[must_use]
     pub const fn as_sqlite(&self) -> Option<&SQLiteSnapshot> {
         match self {
@@ -121,7 +118,7 @@ impl Snapshot {
         }
     }
 
-    /// Get the snapshot as `PostgreSQL` if it is one
+    /// Returns the PostgreSQL snapshot, or `None` for other dialects.
     #[must_use]
     pub const fn as_postgres(&self) -> Option<&PostgresSnapshot> {
         match self {
@@ -130,7 +127,7 @@ impl Snapshot {
         }
     }
 
-    /// Get the snapshot as `MySQL` if it is one.
+    /// Returns the MySQL snapshot, or `None` for other dialects.
     #[must_use]
     pub const fn as_mysql(&self) -> Option<&MySQLSnapshot> {
         match self {
@@ -140,42 +137,45 @@ impl Snapshot {
     }
 }
 
-/// Trait for database schemas that can be used with Drizzle migrations.
+/// A database schema that can produce a [`Snapshot`] for migration diffing.
 ///
-/// This trait is automatically implemented by the `#[derive(PostgresSchema)]`,
-/// `#[derive(SQLiteSchema)]`, and `#[derive(MySQLSchema)]` macros. It converts a
-/// schema definition into a snapshot for migration generation.
+/// You normally get this from `#[derive(SQLiteSchema)]`,
+/// `#[derive(PostgresSchema)]`, or `#[derive(MySQLSchema)]` on a struct whose
+/// fields are your tables and indexes; then call
+/// `AppSchema::default().to_snapshot()`.
 ///
-/// # Example
+/// # Examples
+///
+/// A hand-written implementation:
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle::postgres::prelude::*;
+/// use drizzle_migrations::{Schema, Snapshot};
+/// use drizzle_types::Dialect;
 ///
-/// #[derive(PostgresSchema)]
-/// pub struct AppSchema {
-///     pub users: Users,
-///     pub posts: Posts,
+/// #[derive(Default)]
+/// struct EmptySchema;
+///
+/// impl Schema for EmptySchema {
+///     fn dialect(&self) -> Dialect {
+///         Dialect::SQLite
+///     }
+///     fn to_snapshot(&self) -> Snapshot {
+///         Snapshot::empty(Dialect::SQLite)
+///     }
 /// }
 ///
-/// // The macro implements Schema for AppSchema
-/// let schema = AppSchema::default();
-/// let snapshot = schema.to_snapshot();
-/// # "####;
+/// assert!(EmptySchema.to_snapshot().is_empty());
 /// ```
 pub trait Schema: Default + Sized {
-    /// The dialect this schema targets (sqlite, postgresql, etc.)
+    /// Returns the dialect this schema targets.
     fn dialect(&self) -> Dialect;
 
-    /// Convert the schema to a snapshot for migration diffing.
-    ///
-    /// This method traverses all table and index definitions in the schema
-    /// and produces a snapshot representing the current state.
+    /// Builds a snapshot of every table, index, and other entity in the
+    /// schema.
     fn to_snapshot(&self) -> Snapshot;
 
-    /// Get an optional schema name (for `PostgreSQL` multi-schema support).
-    ///
-    /// Defaults to `None`, meaning the default schema will be used.
+    /// Returns the PostgreSQL schema name, or `None` (the default) for the
+    /// default schema.
     fn schema_name(&self) -> Option<&'static str> {
         None
     }

@@ -103,7 +103,7 @@
 //! across executions. Any reuse happens inside the Durable Object runtime,
 //! below this API and outside drizzle's control.
 //!
-//! [`prepare`](crate::drizzle_prepare_impl) still helps here: it renders the
+//! `.prepare()` still helps here: it renders the
 //! SQL and fixes the parameter layout once, so a loop re-binds instead of
 //! re-rendering. It just cannot skip the storage engine's own parse.
 
@@ -128,7 +128,13 @@ crate::drizzle_prepare_impl!();
 use crate::builder::sqlite::common;
 #[cfg(feature = "query")]
 use crate::builder::sqlite::common::QueryRowFormat;
+/// The durable database handle: a Durable Object's [`DurableStorage`] plus the schema's table handles.
+///
+/// Create it with `Drizzle::new(conn)`, then build queries with
+/// `select`, `insert`, `update`, and `delete`.
 pub type Drizzle<Schema = ()> = common::Drizzle<DurableStorage, Schema>;
+/// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
+/// `.all()`, `.get()`, or `.rows()`.
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, common::Drizzle<DurableStorage, Schema>, Schema, Builder, State>;
 

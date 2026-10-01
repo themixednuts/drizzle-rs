@@ -42,12 +42,18 @@ where
         .collect()
 }
 
+/// A query rendered once, ready to run many times with new placeholder values.
+///
+/// Made by `.prepare()` on a query builder. It borrows the values embedded in
+/// the query; call [`into_owned`](Self::into_owned) to store it.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a, Marker = (), DecodedRow = ()> {
     pub(crate) inner: CorePreparedStatement<'a, SQLiteValue<'a>>,
     pub(crate) marker: PhantomData<(Marker, DecodedRow)>,
 }
 
+/// A [`PreparedStatement`] that owns its embedded values, so it can be stored
+/// or moved freely.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement<Marker = (), DecodedRow = ()> {
     pub(crate) inner: CoreOwnedPreparedStatement<OwnedSQLiteValue>,
@@ -92,6 +98,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         }
     }
 
+    /// Copies the embedded values so the statement no longer borrows them.
     pub fn into_owned(self) -> OwnedPreparedStatement<Marker, DecodedRow> {
         let owned_params = self.inner.params.iter().map(|p| OwnedParam {
             placeholder: p.placeholder,
@@ -113,7 +120,18 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         }
     }
 
-    /// Runs the prepared statement and returns the number of affected rows.
+    /// Binds `params` and runs the statement, returning the number of rows it
+    /// changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
+    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// or the database error when the statement fails.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics when `N` differs from the number of placeholders.
     pub async fn execute<const N: usize>(
         &self,
         conn: &D1Database,
@@ -132,7 +150,18 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         run_execute(stmt).await
     }
 
-    /// Runs the prepared statement and returns all matching rows.
+    /// Binds `params`, runs the query, and decodes every row into `T`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
+    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// the database error when the query fails, or a decode error when a row
+    /// does not fit `T`.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics when `N` differs from the number of placeholders.
     pub async fn all<T, const N: usize>(
         &self,
         conn: &D1Database,
@@ -154,7 +183,18 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         run_all::<T>(stmt).await
     }
 
-    /// Runs the prepared statement and returns a single row.
+    /// Binds `params`, runs the query, and decodes its first row into `T`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
+    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// `DrizzleError::NotFound` when no row matches, the database
+    /// error when the query fails, or a decode error when the row does not fit `T`.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics when `N` differs from the number of placeholders.
     pub async fn get<T, const N: usize>(
         &self,
         conn: &D1Database,
@@ -178,7 +218,18 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
 }
 
 impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
-    /// Runs the prepared statement and returns the number of affected rows.
+    /// Binds `params` and runs the statement, returning the number of rows it
+    /// changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
+    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// or the database error when the statement fails.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics when `N` differs from the number of placeholders.
     pub async fn execute<'a, const N: usize>(
         &self,
         conn: &D1Database,
@@ -197,7 +248,18 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         run_execute(stmt).await
     }
 
-    /// Runs the prepared statement and returns all matching rows.
+    /// Binds `params`, runs the query, and decodes every row into `T`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
+    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// the database error when the query fails, or a decode error when a row
+    /// does not fit `T`.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics when `N` differs from the number of placeholders.
     pub async fn all<'a, T, const N: usize>(
         &self,
         conn: &D1Database,
@@ -219,7 +281,18 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         run_all::<T>(stmt).await
     }
 
-    /// Runs the prepared statement and returns a single row.
+    /// Binds `params`, runs the query, and decodes its first row into `T`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
+    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// `DrizzleError::NotFound` when no row matches, the database
+    /// error when the query fails, or a decode error when the row does not fit `T`.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics when `N` differs from the number of placeholders.
     pub async fn get<'a, T, const N: usize>(
         &self,
         conn: &D1Database,

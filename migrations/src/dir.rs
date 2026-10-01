@@ -3,22 +3,38 @@ use crate::migrator::{
 };
 use std::path::PathBuf;
 
-/// Filesystem migration discovery.
+/// A migrations folder on disk (for example `./drizzle`).
 ///
-/// This is intended for build-time usage (`build.rs`, proc macros) where
-/// migrations are discovered once and then embedded.
+/// Each migration is a subfolder named by its tag that holds a
+/// `migration.sql` file. Use this in `build.rs`, proc macros, tests, or dev
+/// tools; production builds usually embed migrations at compile time instead.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use drizzle_migrations::MigrationDir;
+///
+/// let migrations = MigrationDir::new("./drizzle").discover()?;
+/// for migration in &migrations {
+///     println!("{}: {} statements", migration.tag(), migration.statements().len());
+/// }
+/// # Ok::<(), drizzle_migrations::MigratorError>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct MigrationDir {
     path: PathBuf,
 }
 
 impl MigrationDir {
+    /// Creates a handle for the folder at `path`. Nothing is read until
+    /// [`discover`](Self::discover).
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
 
-    /// Discover all migrations in this directory.
+    /// Reads every migration in the folder, sorted by tag.
     ///
+    /// A missing folder yields an empty list.
     /// Subdirectories with neither `migration.sql` nor `snapshot.json`
     /// (editor artifacts, backup folders, staging leftovers) are not
     /// migrations and are skipped, the same way build-time discovery skips

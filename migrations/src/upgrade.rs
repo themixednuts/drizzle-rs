@@ -1,7 +1,7 @@
-//! Schema upgrade functions
+//! Upgrade old snapshot JSON documents to the current format.
 //!
-//! These functions transform snapshot schemas from older versions to newer versions.
-//! The transformations match what drizzle-kit does to maintain compatibility.
+//! The transformations match drizzle-kit, so folders made by drizzle-kit can
+//! be used here. [`upgrade_to_latest`] runs the whole chain for a dialect.
 //!
 //! Two kinds of upgrades exist:
 //!
@@ -28,7 +28,7 @@ use drizzle_types::mysql::ddl as mysql;
 use drizzle_types::postgres::ddl as pg;
 use drizzle_types::sqlite::ddl as lite;
 
-/// Upgrade a `SQLite` snapshot from v5 to v6
+/// Upgrades a SQLite snapshot from v5 to v6.
 ///
 /// Changes:
 /// - JSON object/array defaults are converted to escaped strings
@@ -70,7 +70,7 @@ pub fn upgrade_sqlite_v5_to_v6(mut json: Value) -> Value {
     json
 }
 
-/// Upgrade a `PostgreSQL` snapshot from v5 to v6
+/// Upgrades a PostgreSQL snapshot from v5 to v6.
 ///
 /// Changes:
 /// - Table keys become `schema.tablename` format
@@ -146,7 +146,7 @@ pub fn upgrade_postgres_v5_to_v6(mut json: Value) -> Value {
     json
 }
 
-/// Upgrade a `PostgreSQL` snapshot from v6 to v7
+/// Upgrades a PostgreSQL snapshot from v6 to v7.
 ///
 /// Changes:
 /// - Index format changes (columns become objects with expression, isExpression, asc, nulls, opClass)
@@ -367,8 +367,7 @@ fn carry_mysql_identity(obj: &Map<String, Value>) -> (String, Vec<String>) {
 // MySQL v5 -> v6 (structural)
 // =============================================================================
 
-/// Upgrade a legacy MySQL v5 object snapshot into the v6 entity-array
-/// snapshot format.
+/// Upgrades a legacy MySQL v5 object snapshot to the v6 entity-array format.
 ///
 /// The old document keeps child objects inside each table. The v6 format
 /// serializes the same facts as independently keyed entities, so this
@@ -852,7 +851,7 @@ fn mysql_table_options(table: &Map<String, Value>) -> Vec<mysql::TableOption> {
 // SQLite v6 → v7 (structural)
 // =============================================================================
 
-/// Upgrade a `SQLite` snapshot from the v6 object format (TS drizzle-kit's
+/// Upgrades a SQLite snapshot from the v6 object format (TS drizzle-kit's
 /// current stable format) to the v7 entity-array format.
 ///
 /// Mapping decisions (chosen to diff as a no-op against a macro-generated
@@ -1011,7 +1010,7 @@ pub fn upgrade_sqlite_v6_to_v7(json: Value) -> Value {
 // PostgreSQL v7 → v8 (structural)
 // =============================================================================
 
-/// Upgrade a `PostgreSQL` snapshot from the v7 object format (TS
+/// Upgrades a PostgreSQL snapshot from the v7 object format (TS
 /// drizzle-kit's current stable format) to the v8 entity-array format.
 ///
 /// Mapping decisions (chosen to diff as a no-op against a macro-generated
@@ -1505,7 +1504,12 @@ fn effective_version(json: &Value, dialect: Dialect) -> String {
     }
 }
 
-/// Upgrade a snapshot to the latest version for the given dialect
+/// Upgrades a snapshot JSON document to the latest version for `dialect`.
+///
+/// Runs each needed step in order (for example SQLite v5 → v6 → v7). A
+/// document that is already current, or has an unknown version, is
+/// returned unchanged. The version is read from the document's shape as
+/// well as its `version` field, so mis-stamped legacy files still upgrade.
 #[must_use]
 pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
     let mut version = effective_version(&json, dialect);
@@ -1547,16 +1551,21 @@ pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
     }
 }
 
-/// Check if a snapshot needs upgrade using the Dialect trait
+/// Returns `true` if `version` is supported for `dialect` but older than the
+/// latest, so [`upgrade_to_latest`] would change it.
 ///
-/// This provides type-safe version checking using the dialect marker types:
+/// Unlike [`needs_upgrade`](crate::needs_upgrade), versions below the
+/// supported minimum return `false`.
+///
+/// # Examples
+///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_migrations::{Sqlite, DialectTrait};
-/// if Sqlite::needs_upgrade(version) {
-///     // perform upgrade
-/// }
-/// # "####;
+/// use drizzle_migrations::needs_upgrade_for_dialect;
+/// use drizzle_types::Dialect;
+///
+/// assert!(needs_upgrade_for_dialect(Dialect::SQLite, 6));
+/// assert!(!needs_upgrade_for_dialect(Dialect::SQLite, 7));
+/// assert!(!needs_upgrade_for_dialect(Dialect::SQLite, 4));
 /// ```
 #[must_use]
 pub fn needs_upgrade_for_dialect(dialect: Dialect, version: u32) -> bool {
@@ -1569,7 +1578,7 @@ pub fn needs_upgrade_for_dialect(dialect: Dialect, version: u32) -> bool {
     }
 }
 
-/// Get the latest version for a dialect using the Dialect trait
+/// Returns the latest snapshot version number for `dialect`.
 #[must_use]
 pub const fn latest_version_for_dialect(dialect: Dialect) -> u32 {
     use crate::traits::{Dialect as DialectTrait, Mysql, Postgres, Sqlite, Version};

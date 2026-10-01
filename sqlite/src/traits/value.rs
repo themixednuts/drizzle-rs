@@ -210,46 +210,48 @@ where
     }
 }
 
-/// Trait for types that can be converted from `SQLite` values.
+/// Decodes a Rust value from a `SQLite` value.
 ///
-/// `SQLite` has 5 storage classes: NULL, INTEGER, REAL, TEXT, BLOB.
-/// This trait provides conversion methods for each type.
+/// `SQLite` has five storage classes (NULL, INTEGER, REAL, TEXT, BLOB), and
+/// this trait has one method per class. Return
+/// [`DrizzleError::ConversionError`] from the ones your type does not
+/// accept. `NULL` is rejected unless you override
+/// [`from_sqlite_null`](Self::from_sqlite_null), as `Option<T>` does.
 ///
-/// # Implementation Notes
-///
-/// - Implement the methods that make sense for your type
-/// - Return `Err` for unsupported conversions
-/// - `SQLiteEnum` derive automatically implements this trait
+/// Every [`DrizzleSQLiteColumn`] type (including `#[derive(SQLiteEnum)]`
+/// enums) gets this trait through a blanket impl, so implement
+/// `DrizzleSQLiteColumn` instead when the type is also used as a column.
 pub trait FromSQLiteValue: Sized {
-    /// Convert from a 64-bit integer value.
+    /// Decodes an INTEGER.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if `value` cannot be represented as `Self`.
     fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError>;
 
-    /// Convert from a text/string value.
+    /// Decodes a TEXT value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if `value` cannot be parsed or represented as `Self`.
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError>;
 
-    /// Convert from a real/float value.
+    /// Decodes a REAL value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if `value` cannot be represented as `Self`.
     fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError>;
 
-    /// Convert from a blob/binary value.
+    /// Decodes a BLOB.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if `value` cannot be interpreted as `Self`.
     fn from_sqlite_blob(value: &[u8]) -> Result<Self, DrizzleError>;
 
-    /// Convert from a borrowed SQLite storage value.
+    /// Decodes any borrowed value by calling the method for its storage
+    /// class.
     ///
     /// # Errors
     ///
@@ -265,7 +267,7 @@ pub trait FromSQLiteValue: Sized {
         }
     }
 
-    /// Convert from a NULL value (default returns error).
+    /// Decodes `NULL`.
     ///
     /// # Errors
     ///
@@ -277,7 +279,7 @@ pub trait FromSQLiteValue: Sized {
         ))
     }
 
-    /// Helper function to convert from rusqlite's `ValueRef` using `FromSQLiteValue`.
+    /// Decodes a rusqlite `ValueRef`.
     ///
     /// # Errors
     ///
@@ -319,9 +321,9 @@ where
     }
 }
 
-/// Row capability for index-based extraction.
+/// A driver row whose columns can be read by position.
 pub trait DrizzleRowByIndex {
-    /// Get a column value by index.
+    /// Reads and decodes the column at `idx` (0-based).
     ///
     /// # Errors
     ///
@@ -330,9 +332,9 @@ pub trait DrizzleRowByIndex {
     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError>;
 }
 
-/// Optional row capability for name-based extraction.
+/// A driver row whose columns can also be read by name.
 pub trait DrizzleRowByName: DrizzleRowByIndex {
-    /// Get a column value by name.
+    /// Reads and decodes the column called `name`.
     ///
     /// # Errors
     ///

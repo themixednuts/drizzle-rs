@@ -1,47 +1,52 @@
-//! # Drizzle RS Procedural Macros
+//! Procedural macros for Drizzle RS: schema definitions, row mapping and SQL
+//! templates.
 //!
-//! This crate provides the procedural macros for Drizzle RS, a type-safe SQL query builder for Rust.
+//! Use these macros through the `drizzle` crate, not directly. Each dialect's
+//! prelude (`drizzle::sqlite::prelude`, `drizzle::postgres::prelude`,
+//! `drizzle::mysql::prelude`) re-exports its macros together with the
+//! attribute markers they accept. The generated code names items by their
+//! `drizzle::...` paths, so `drizzle` must be a dependency of the crate that
+//! uses the macros.
 //!
-//! ## Core Macros
+//! Each dialect needs its cargo feature (`sqlite`, `postgres` or `mysql`), and
+//! a driver feature (such as `rusqlite` or `tokio-postgres`) to generate the
+//! row conversions for that driver.
 //!
-//! ### `SQLite`
-//! - [`SQLiteTable`] - Define `SQLite` table schemas with type safety
-//! - [`SQLiteView`] - Define `SQLite` view schemas with type safety
-//! - [`SQLiteEnum`] - Define enums that can be stored in `SQLite`
-//! - [`SQLiteIndex`] - Define indexes on `SQLite` tables
-//! - [`SQLiteSchema`] - Derive macro to group tables and indexes into a schema
+//! # Macros
 //!
-//! ### `PostgreSQL`
-//! - [`PostgresTable`] - Define `PostgreSQL` table schemas with type safety
-//! - [`PostgresView`] - Define `PostgreSQL` view schemas with type safety
-//! - [`PostgresEnum`] - Define enums for `PostgreSQL` (text, integer, or native ENUM)
-
-//! - [`PostgresIndex`] - Define indexes on `PostgreSQL` tables
-//! - [`PostgresSchema`] - Derive macro to group tables and indexes into a schema
+//! | Purpose | `SQLite` | `PostgreSQL` | `MySQL` |
+//! |---|---|---|---|
+//! | Table | [`SQLiteTable`] | [`PostgresTable`] | [`MySQLTable`] |
+//! | View | [`SQLiteView`] | [`PostgresView`] | [`MySQLView`] |
+//! | Index | [`SQLiteIndex`] | [`PostgresIndex`] | [`MySQLIndex`] |
+//! | Enum column type | [`SQLiteEnum`] | [`PostgresEnum`] | [`MySQLEnum`] |
+//! | Schema (all objects) | [`SQLiteSchema`] | [`PostgresSchema`] | [`MySQLSchema`] |
+//! | Row struct for custom selects | [`SQLiteFromRow`] | [`PostgresFromRow`] | [`MySQLFromRow`] |
+//! | Row-level security policy | | [`PostgresPolicy`] | |
 //!
-//! ### `MySQL`
-//! - [`MySQLTable`] - Define `MySQL` table schemas with type safety
-//! - [`MySQLView`] - Define `MySQL` view schemas with type safety
-//! - [`MySQLEnum`] - Define inline enums stored in `MySQL` columns
-//! - [`MySQLIndex`] - Define indexes on `MySQL` tables
-//! - [`MySQLSchema`] - Derive macro to group tables and indexes into a schema
-//! - [`MySQLFromRow`] - Derive a driver-neutral `MySQL` row selector
+//! Dialect-neutral macros:
 //!
-//! ### Shared
-//! - [`SQLiteFromRow`] - Derive automatic row-to-struct conversion
-//! - [`sql!`] - Build SQL queries with embedded expressions
+//! - [`sql!`] builds a raw SQL fragment with embedded expressions.
+//! - [`include_migrations!`] embeds a migrations folder at compile time.
+//! - [`test`] (`#[drizzle::test]`) is internal to drizzle's own test suite.
 //!
-//! ## Example Usage
+//! Table, view and column attribute keys are case-insensitive:
+//! `#[column(primary)]` and `#[column(PRIMARY)]` mean the same thing. Index
+//! attribute keys are lowercase.
 //!
-//! ```rust,no_run
+//! # Examples
+//!
+//! ```rust
 //! # #[cfg(feature = "sqlite")]
 //! # fn main() {
+//! use drizzle::core::expr::eq;
+//! use drizzle::sqlite::builder::QueryBuilder;
 //! use drizzle::sqlite::prelude::*;
 //!
 //! #[SQLiteTable(name = "users")]
 //! struct Users {
-//!     #[column(primary, autoincrement)]
-//!     id: i32,
+//!     #[column(primary)]
+//!     id: i64,
 //!     name: String,
 //!     email: Option<String>,
 //! }
@@ -50,12 +55,24 @@
 //! struct Schema {
 //!     users: Users,
 //! }
+//!
+//! let Schema { users } = Schema::new();
+//! let query = QueryBuilder::new::<Schema>()
+//!     .select(users.name)
+//!     .from(users)
+//!     .r#where(eq(users.id, 1));
+//!
+//! assert_eq!(
+//!     query.to_sql().sql(),
+//!     r#"SELECT "users"."name" FROM "users" WHERE "users"."id" = ?"#
+//! );
+//!
+//! // A driver's `Drizzle::new(conn)` returns the same schema handles and runs
+//! // these queries; `db.create()` runs `Schema`'s CREATE statements.
 //! # }
 //! # #[cfg(not(feature = "sqlite"))]
 //! # fn main() {}
 //! ```
-//!
-//! For more detailed documentation, see the individual macro documentation below.
 
 // Rationale for crate-level clippy allow:
 //   `too_many_lines`: this crate is dominated by proc-macro code-generation
@@ -95,89 +112,93 @@ mod mysql;
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
-/// Derive macro for creating SQLite-compatible enums.
+/// Derive a `SQLite` column type for a fieldless enum.
 ///
-/// The enum itself decides how it is stored:
+/// The enum decides its own storage:
 ///
-/// - **INTEGER** (discriminant values) when any variant has an explicit
-///   discriminant (`High = 10`) or the enum has an integer `#[repr]`
-///   (`#[repr(i64)]`)
-/// - **TEXT** (variant names) otherwise
+/// | Enum shape | Storage | Stored value |
+/// |---|---|---|
+/// | Any variant has an explicit discriminant (`High = 10`), or the enum has an integer `#[repr]` | `INTEGER` | the discriminant |
+/// | Otherwise | `TEXT` | the variant name, exactly as written |
 ///
-/// Use the enum as a column with `#[column(enum)]`. The column attribute does
-/// not choose the storage: an explicit `integer` or `text` marker next to
-/// `enum` must agree with the enum's storage, or the table fails to compile.
+/// Mark the column with `#[column(enum)]` in a [`SQLiteTable`]. The column
+/// attribute does not pick the storage. An `integer` or `text` marker next to
+/// `enum` only restates it, and the table fails to compile if it disagrees.
 ///
-/// # Requirements
+/// The derive takes no attributes. It needs at least one variant, and every
+/// variant must be a unit variant.
 ///
-/// - Enum must have at least one variant
-/// - Must derive `Default` to specify the default variant
+/// # Generated impls
+///
+/// - `Display`, `FromStr`, `AsRef<str>`, and `TryFrom<&str>` / `TryFrom<String>`,
+///   all using the variant name.
+/// - `From<Enum> for i64` and `TryFrom<i64>`, using the discriminant.
+///   Variants without an explicit discriminant count up from the previous
+///   one, as in Rust; duplicate values are a compile error.
+/// - The `SQLite` column, value and row conversions (`ToSQL`, `TryFrom<SQLiteValue>`,
+///   and conversions for each enabled driver), so the enum works as a column
+///   type, a bound parameter, and a selected value.
 ///
 /// # Examples
 ///
-/// ## Text Storage (Variant Names)
+/// Text storage:
 ///
-/// ```rust,no_run
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
-/// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
-/// enum UserRole {
-///     #[default]
-///     User,      // Stored as "User"
-///     Admin,     // Stored as "Admin"
-///     Moderator, // Stored as "Moderator"
+/// #[derive(SQLiteEnum, Clone, Copy, Debug, PartialEq)]
+/// enum Role {
+///     Member,
+///     Admin,
 /// }
 ///
-/// #[SQLiteTable(name = "users")]
+/// #[SQLiteTable]
 /// struct Users {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     #[column(enum)] // TEXT: UserRole has no explicit discriminants
-///     role: UserRole,
+///     #[column(primary)]
+///     id: i64,
+///     #[column(enum)]
+///     role: Role,
 /// }
 ///
-/// // The enum can be converted to/from strings
-/// assert_eq!(UserRole::Admin.to_string(), "Admin");
+/// assert_eq!(Role::Admin.to_string(), "Admin");
+/// assert_eq!("Member".parse::<Role>().unwrap(), Role::Member);
+/// assert!(Users::ddl_sql().contains("`role` TEXT NOT NULL"));
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
-/// ## Integer Storage (Discriminants)
+/// Integer storage, chosen by the explicit discriminants:
 ///
-/// ```rust,no_run
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
-/// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
+/// #[derive(SQLiteEnum, Clone, Copy, Debug, PartialEq)]
 /// enum Priority {
-///     #[default]
-///     Low = 1,    // Stored as 1
-///     Medium = 5, // Stored as 5
-///     High = 10,  // Stored as 10
+///     Low = 1,
+///     Medium = 5,
+///     High = 10,
 /// }
 ///
-/// #[SQLiteTable(name = "tasks")]
+/// #[SQLiteTable]
 /// struct Tasks {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     #[column(integer, enum)] // INTEGER comes from the discriminants; `integer` only restates it
+///     #[column(primary)]
+///     id: i64,
+///     #[column(enum)]
 ///     priority: Priority,
 /// }
 ///
-/// // The enum can be converted to/from integers
-/// let p: i64 = Priority::High.into();
-/// assert_eq!(p, 10);
+/// assert_eq!(i64::from(Priority::High), 10);
+/// assert_eq!(Priority::try_from(5_i64).unwrap(), Priority::Medium);
+/// assert!(Tasks::ddl_sql().contains("`priority` INTEGER NOT NULL"));
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
-///
-/// ## Generated Implementations
-///
-/// The macro automatically implements:
-/// - `std::fmt::Display` - For TEXT representation
-/// - `TryFrom<i64>` - For INTEGER representation  
-/// - `Into<i64>` - For INTEGER representation
-/// - `From<EnumType>` for `SQLiteValue` - Database conversion
-/// - `TryFrom<SQLiteValue>` for `EnumType` - Database conversion
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteEnum)]
 pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
@@ -211,194 +232,244 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Define a `SQLite` table schema with type-safe column definitions.
+/// Define a `SQLite` table from a struct.
 ///
-/// This attribute macro transforms a Rust struct into a complete `SQLite` table definition
-/// with generated types for INSERT, SELECT, and UPDATE operations.
+/// Each named field becomes a column. The macro replaces the struct with a
+/// zero-sized table handle whose fields are column handles, and generates the
+/// models used to insert, select and update rows. See
+/// [CREATE TABLE](https://sqlite.org/lang_createtable.html) for the SQL side.
 ///
-/// See [SQLite CREATE TABLE documentation](https://sqlite.org/lang_createtable.html) for
-/// the underlying SQL concepts.
+/// # Table attributes
 ///
-/// # Table Attributes
+/// Written as `#[SQLiteTable(...)]`. All are optional.
 ///
-/// - `name = "table_name"` - Custom table name (defaults to struct name in `snake_case`)
-/// - `strict` - Enable [SQLite STRICT mode](https://sqlite.org/stricttables.html)  
-/// - `without_rowid` - Create a [WITHOUT ROWID table](https://sqlite.org/withoutrowid.html)
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `name = "users"` | SQL table name. Defaults to the struct name in `snake_case` (`UserAccount` becomes `user_account`). |
+/// | `strict` | Create a [STRICT table](https://sqlite.org/stricttables.html). Every column must then use `INTEGER`, `REAL`, `TEXT`, `BLOB` or `ANY`. |
+/// | `without_rowid` | Create a [WITHOUT ROWID table](https://sqlite.org/withoutrowid.html). Needs a primary key and rules out `autoincrement`. |
+/// | `unique(a, b)` or `unique(columns(a, b), name = "...")` | Table-level `UNIQUE` constraint over the named fields. |
+/// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "CASCADE", on_update = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. |
 ///
-/// # Field Attributes
+/// # Column attributes
 ///
-/// ## Column Types
-/// - Column types are inferred from Rust field types by default
-/// - Use `#[column(integer|text|real|blob|numeric|any)]` to override the inferred type
-/// - Legacy type attributes (like `#[integer]`, `#[text]`) are still supported for compatibility
+/// Written as `#[column(...)]` on a field. All are optional.
 ///
-/// ## Constraints
-/// - `primary` - Primary key constraint
-/// - `autoincrement` - Auto-increment (INTEGER PRIMARY KEY only)
-/// - `unique` - Unique constraint
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `primary` (or `primary_key`) | Primary key. Put it on several fields for a composite key. |
+/// | `autoincrement` | `AUTOINCREMENT`. Only on an `INTEGER` primary key, and not with `without_rowid`. |
+/// | `unique` | `UNIQUE` constraint. |
+/// | `integer`, `text`, `real`, `blob`, `numeric`, `boolean`, `any` | Override the SQL type inferred from the Rust type (`boolean` stores `INTEGER` 0/1). |
+/// | `enum` | The field's type derives [`SQLiteEnum`]; the enum decides `TEXT` or `INTEGER` storage. |
+/// | `json` | Store a `serde` type as JSON `TEXT` (needs the `serde` feature). |
+/// | `name = "col"` | SQL column name. Defaults to the field name. |
+/// | `default = value` | SQL `DEFAULT` clause. A string literal becomes a SQL string, `true`/`false` become `1`/`0`, and a path or call such as `CURRENT_TIMESTAMP` is written as SQL. |
+/// | `default_fn = path` | Rust function called to fill the field when an insert model is created. |
+/// | `references = Table::column` | Foreign key to another table's column. |
+/// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
+/// | `relation = "name"` | Name of the reverse relation accessor (see [Relations](#relations)). Needs `references`. |
+/// | `collate = NOCASE` | Column collation: `BINARY`, `NOCASE`, `RTRIM`, or any name as a string. |
+/// | `check = "score >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
+/// | `generated(stored, "expr")` or `generated(virtual, "expr")` | Generated column. Never written by inserts. |
 ///
-/// ## Defaults
-/// - `default = value` - Literal database `DEFAULT` clause
-/// - `default_fn = function` - Application default function (called at insert time)
-///
-/// ## Special Types
-/// - `enum` - Store a `SQLiteEnum` as TEXT or INTEGER; the enum's derive
-///   decides which (see [`SQLiteEnum`])
-/// - `json` - JSON serialization (requires `serde` feature)
-/// - `references = Table::column` - Foreign key reference. With the `query`
-///   feature it also generates relation accessors:
-///   - forward, on this table: the column name without its `_id` suffix
-///     (`author_id` gives `posts.author()`)
-///   - reverse, on the referenced table: the plural `snake_case` name of this
-///     struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
-///   - a self-reference, or two or more foreign keys to the same table, names
-///     each of those reverse accessors `{forward}_{plural}`
-///     (`users.author_posts()`)
-///   - `relation = "name"` names the reverse accessor and leaves the forward
-///     one alone. It is required only when two accessors on the referenced
-///     table would still share a name: the macro's error asks for it when
-///     both come from one table, and rustc reports a duplicate definition
-///     when they come from different tables (e.g. a direct foreign key and
-///     a junction table)
-///   - a table with exactly two foreign keys, to two other distinct tables,
-///     also links them many-to-many (`posts.tags()` and `tags.posts()`)
-///
-/// # Examples
-///
-/// ## Basic Table
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct Users {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     name: String,
-///     #[column(unique)]
-///     email: String,
-///     age: Option<i32>, // Nullable field
-/// }
-///
-/// #[derive(SQLiteSchema)]
-/// struct Schema {
-///     users: Users,
-/// }
-///
-/// let _schema = Schema::new();
-/// # }
-/// ```
-///
-/// ## Table with Defaults
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "posts", strict)]
-/// struct Posts {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     title: String,
-///     #[column(default = "draft")]
-///     status: String,
-/// }
-///
-/// // Default value is used when not specified
-/// let post = InsertPosts::new("My Title");
-/// # }
-/// ```
-///
-/// ## Enums and JSON
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "serde")]
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-/// use serde::{Serialize, Deserialize};
-///
-/// #[derive(SQLiteEnum, Default, Clone, PartialEq, Debug)]
-/// enum Role {
-///     #[default]
-///     User,
-///     Admin,
-/// }
-///
-/// #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-/// struct Metadata {
-///     theme: String,
-/// }
-///
-/// #[SQLiteTable(name = "accounts")]
-/// struct Accounts {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     #[column(enum)]     // Store enum variant name as TEXT
-///     role: Role,
-///     #[column(json)]     // Serialize struct as JSON TEXT
-///     metadata: Option<Metadata>,
-/// }
-/// # }
-/// # #[cfg(not(feature = "serde"))]
-/// # fn main() {}
-/// ```
-///
-/// ## Foreign Key References
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct Users {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     name: String,
-/// }
-///
-/// #[SQLiteTable(name = "posts")]
-/// struct Posts {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     #[column(references = Users::id)]  // Foreign key to users.id
-///     author_id: i32,
-///     title: String,
-/// }
-/// # }
-/// ```
-///
-/// # Generated Types
-///
-/// For a table `Users`, the macro generates:
-/// - `SelectUsers` - For SELECT operations (derives `FromRow`)
-/// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
-/// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
-///   set columns with `with_*()` methods
-/// - `users` - A module with one type per column: `users::Name` is the type of
-///   `Users::name`. Keeping them there leaves the names beside the table to
-///   you, so a `User` table can have a `role: UserRole` column
+/// The SQL type comes from the Rust type when no type attribute is given:
+/// integers and `bool` map to `INTEGER`, floats to `REAL`, `String` to
+/// `TEXT`, and `Vec<u8>` and `uuid::Uuid` to `BLOB`. Any other type must
+/// implement `DrizzleSQLiteColumn`.
 ///
 /// # Nullability
 ///
-/// Use `Option<T>` for nullable fields. Non-optional fields get a NOT NULL constraint:
+/// `Option<T>` makes a column nullable. Every other field gets `NOT NULL`.
+/// There is no `not_null` attribute.
 ///
-/// ```rust,no_run
+/// # Generated items
+///
+/// For `#[SQLiteTable] struct Users { ... }` the macro generates:
+///
+/// | Item | Purpose |
+/// |---|---|
+/// | `Users` | The table handle. Its fields (`users.name`) are typed columns for building queries. `Users::TABLE_NAME` is the SQL name, and `Users::ddl_sql()` returns the `CREATE TABLE` statement. |
+/// | `SelectUsers` | One row: every column, with `Option<T>` for nullable ones. |
+/// | `PartialSelectUsers` | A row where every field is `Option<T>`, for partial selects. |
+/// | `InsertUsers` | Insert builder. `InsertUsers::new(...)` takes the required columns in field order; `with_<field>(value)` sets the rest. |
+/// | `UpdateUsers` | Update builder. Start from `UpdateUsers::default()` and set columns with `with_<field>(value)`. |
+/// | `users` module | One type per column (`users::Name` is the type of `Users::name`), plus the alias column types. |
+/// | `Users::alias::<Tag>()` | A second, independently named copy of the table for self-joins (name the alias with a type made by the prelude's `tag!` macro). |
+///
+/// A column is required in `InsertUsers::new` unless it is nullable, has a
+/// `default`, `default_fn` or `generated` value, or is an `INTEGER` primary
+/// key (which `SQLite` fills from the rowid).
+///
+/// Row conversions for `SelectUsers` and `PartialSelectUsers` are generated
+/// for every enabled driver (`rusqlite`, `libsql`, `turso`).
+///
+/// # Relations
+///
+/// With the `query` feature, `references` also generates relation accessors
+/// for the relational query API:
+///
+/// - Forward, on this table: the column name without its `_id` suffix
+///   (`author_id` gives `posts.author()`).
+/// - Reverse, on the referenced table: this struct's name in plural
+///   `snake_case` (`Post` gives `users.posts()`, `Category` gives
+///   `categories()`).
+/// - A self-reference, or two or more foreign keys to the same table, name
+///   each reverse accessor `{forward}_{plural}` (`users.author_posts()`).
+/// - `relation = "name"` renames the reverse accessor. It is needed only when
+///   two accessors on the referenced table would still share a name. The
+///   macro asks for it when both come from one table; when they come from
+///   different tables (for example a direct foreign key and a junction
+///   table), rustc reports a duplicate definition instead.
+/// - A table with exactly two foreign keys, to two other distinct tables,
+///   also links those tables many-to-many (`posts.tags()` and `tags.posts()`).
+///
+/// # Examples
+///
+/// A table and the SQL it creates:
+///
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
+/// # fn main() {
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[column(primary)]
+///     id: i64,
+///     #[column(unique, collate = NOCASE)]
+///     email: String,
+///     #[column(default = "member")]
+///     role: String,
+///     age: Option<i64>,
+/// }
+///
+/// assert_eq!(Users::TABLE_NAME, "users");
+/// assert_eq!(
+///     Users::ddl_sql(),
+///     "CREATE TABLE `users` (\n\
+///     \t`id` INTEGER PRIMARY KEY,\n\
+///     \t`email` TEXT NOT NULL UNIQUE COLLATE NOCASE,\n\
+///     \t`role` TEXT DEFAULT 'member' NOT NULL,\n\
+///     \t`age` INTEGER\n\
+///     );"
+/// );
+///
+/// // `id` is filled by SQLite and `role` has a default, so only `email` is required.
+/// let alice = InsertUsers::new("alice@example.com").with_age(30);
+/// # let _ = alice;
+/// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
+/// ```
+///
+/// Foreign keys, generated columns and table-level constraints:
+///
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable]
-/// struct Example {
-///     #[column(primary, autoincrement)]
-///     id: i32,               // NOT NULL, auto-generated
-///     name: String,          // NOT NULL (required in InsertExample::new())
-///     email: Option<String>, // NULL allowed (set via with_email())
+/// struct Users {
+///     #[column(primary)]
+///     id: i64,
+///     name: String,
 /// }
 ///
-/// // Non-optional, non-primary fields are required in new()
-/// let insert = InsertExample::new("Alice").with_email("alice@example.com");
+/// #[SQLiteTable(strict, check(name = "title_not_empty", expr = "title <> ''"))]
+/// struct Posts {
+///     #[column(primary, autoincrement)]
+///     id: i64,
+///     #[column(references = Users::id, on_delete = CASCADE)]
+///     author_id: i64,
+///     title: String,
+///     #[column(generated(virtual, "length(title)"))]
+///     title_length: i64,
+/// }
+///
+/// assert_eq!(
+///     Posts::ddl_sql(),
+///     "CREATE TABLE `posts` (\n\
+///     \t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\
+///     \t`author_id` INTEGER NOT NULL,\n\
+///     \t`title` TEXT NOT NULL,\n\
+///     \t`title_length` INTEGER GENERATED ALWAYS AS (length(title)) VIRTUAL NOT NULL,\n\
+///     \tCONSTRAINT `fk_posts_author_id_users_id_fk` FOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,\n\
+///     \tCONSTRAINT `title_not_empty` CHECK(title <> '')\n\
+///     ) STRICT;"
+/// );
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
+///
+/// Enum and JSON columns:
+///
+/// ```rust
+/// # #[cfg(all(feature = "sqlite", feature = "serde"))]
+/// # fn main() {
+/// use drizzle::sqlite::prelude::*;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(SQLiteEnum, Clone, Copy, Debug, PartialEq)]
+/// enum Role {
+///     Member,
+///     Admin,
+/// }
+///
+/// #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// struct Settings {
+///     theme: String,
+/// }
+///
+/// #[SQLiteTable]
+/// struct Accounts {
+///     #[column(primary)]
+///     id: i64,
+///     #[column(enum)]
+///     role: Role,
+///     #[column(json)]
+///     settings: Option<Settings>,
+/// }
+///
+/// let account = InsertAccounts::new(Role::Admin).with_settings(Settings { theme: "dark".into() });
+/// # let _ = account;
+/// # }
+/// # #[cfg(not(all(feature = "sqlite", feature = "serde")))]
+/// # fn main() {}
+/// ```
+///
+/// # Compile-time checks
+///
+/// The insert builder only accepts complete rows. Leaving out a required
+/// column is a type error:
+///
+/// ```rust,compile_fail
+/// # #[cfg(feature = "sqlite")]
+/// # fn main() {
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable]
+/// struct Users {
+///     #[column(primary)]
+///     id: i64,
+///     name: String,
+///     email: String,
+/// }
+///
+/// // `email` is required too.
+/// let user = InsertUsers::new("Alice");
+/// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() { compile_error!("needs sqlite") }
+/// ```
+///
+/// The macro also rejects, among others: `autoincrement` on a non-`INTEGER`
+/// or non-primary column, `autoincrement` with `without_rowid`, column types
+/// that `strict` does not allow, `on_delete`/`on_update`/`relation` without
+/// `references`, and a `default` whose literal does not fit the column type.
 #[cfg(feature = "sqlite")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -412,15 +483,87 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute macro for defining `SQLite` views.
+/// Define a `SQLite` view from a struct.
 ///
-/// This macro generates a typed view schema with column accessors and view metadata.
+/// Each named field is a column of the view. The view is queried like a
+/// table: the macro generates the same column handles, `Select*` models and
+/// row conversions as [`SQLiteTable`]. Field attributes are the
+/// `#[column(...)]` attributes of [`SQLiteTable`]; usually none are needed.
 ///
 /// # Attributes
 ///
-/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in `snake_case`)
-/// - `definition/DEFINITION = "SELECT ..."` - View definition SQL
-/// - `existing/EXISTING` - Mark view as existing (skip creation)
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `name = "active_users"` | SQL view name. Defaults to the struct name in `snake_case`. |
+/// | `definition = "SELECT ..."` | The view's query as raw SQL. |
+/// | `definition = expr` | The view's query as a query-builder expression, rendered when the view is created. |
+/// | `query(...)` | The view's query in a small typed DSL, rendered to SQL at compile time (see below). |
+/// | `existing` | The view already exists in the database: drizzle queries it but never creates it. |
+///
+/// A view needs one of `definition` or `query(...)` unless it is `existing`.
+/// `definition` and `query(...)` cannot be combined.
+///
+/// # The `query(...)` DSL
+///
+/// Clauses, in any order, each at most once (joins may repeat):
+///
+/// - `select(Table::col, count(Table::col), ...)` and `from(Table)` (required)
+/// - `join(Table, cond)` (or `inner_join`), `left_join`, `right_join`,
+///   `full_join`, `cross_join(Table)`
+/// - `filter(cond)`, `group_by(Table::col, ...)`, `having(cond)`
+/// - `order_by(asc(Table::col), desc(Table::col), ...)`, `limit(n)`, `offset(n)`
+///
+/// Conditions use `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `not_like`,
+/// `is_null`, `is_not_null`, `between`, `not_between`, `in_array`, `and`,
+/// `or` and `not`. Aggregates are `count`, `count_all`, `count_distinct`,
+/// `sum`, `avg`, `min` and `max`. Columns are written `Table::column`, and
+/// their types are checked against the compared values.
+///
+/// # Generated items
+///
+/// Besides the table-like items, the view gets `VIEW_NAME`,
+/// `VIEW_DEFINITION_SQL` (empty for an expression `definition`), and
+/// `ddl_sql()`, which returns the `CREATE VIEW` statement.
+///
+/// # Examples
+///
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
+/// # fn main() {
+/// use drizzle::sqlite::prelude::*;
+///
+/// #[SQLiteTable(name = "users")]
+/// struct Users {
+///     #[column(primary)]
+///     id: i64,
+///     email: String,
+///     active: bool,
+/// }
+///
+/// #[SQLiteView(query(
+///     select(Users::id, Users::email),
+///     from(Users),
+///     filter(eq(Users::active, true)),
+/// ))]
+/// struct ActiveUsers {
+///     id: i64,
+///     email: String,
+/// }
+///
+/// #[SQLiteView(name = "user_ids", definition = "SELECT id FROM users")]
+/// struct UserIds {
+///     id: i64,
+/// }
+///
+/// assert_eq!(
+///     ActiveUsers::ddl_sql(),
+///     r#"CREATE VIEW "active_users" AS SELECT "users"."id" AS "id", "users"."email" AS "email" FROM "users" WHERE "users"."active" = 1"#
+/// );
+/// assert_eq!(UserIds::ddl_sql(), r#"CREATE VIEW "user_ids" AS SELECT id FROM users"#);
+/// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
+/// ```
 #[cfg(feature = "sqlite")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -434,83 +577,65 @@ pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute macro for creating `SQLite` indexes.
+/// Define a `SQLite` index on one or more columns of a table.
 ///
-/// This macro generates SQLite-specific index definitions for columns in your tables.
-/// Indexes improve query performance when filtering or sorting by the indexed columns.
+/// Apply it to a tuple struct whose fields name the indexed columns as
+/// `Table::column`. All columns must belong to the same table. Add the index
+/// to a [`SQLiteSchema`] so `db.create()` and migrations include it.
 ///
 /// # Attributes
 ///
-/// - `name = "..."` / `NAME = "..."` - Set the physical index name; defaults
-///   to the struct name converted to `snake_case`
-/// - `unique` - Create a unique index (enforces uniqueness constraint)
-/// - `where = "..."` - Create a partial index with a raw SQLite SQL predicate;
-///   database column names inside the string are not rename-checked
-/// - No attributes for standard index
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `unique` | Create a `UNIQUE` index. |
+/// | `name = "..."` | SQL index name. Defaults to the struct name in `snake_case` (`UsersEmailIdx` becomes `users_email_idx`). |
+/// | `where = "..."` | Partial index predicate, as raw SQL. Column names inside the string are not checked. |
+///
+/// # Generated items
+///
+/// The struct becomes a unit struct with `new()`, and `ddl_sql()` returns its
+/// `CREATE INDEX` statement.
 ///
 /// # Examples
 ///
-/// ## Unique Index
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct Users {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     email: String,
-/// }
-///
-/// #[SQLiteIndex(unique)]
-/// struct UserEmailIdx(Users::email);
-///
-/// #[derive(SQLiteSchema)]
-/// struct Schema {
-///     users: Users,
-///     user_email_idx: UserEmailIdx,
-/// }
-/// # }
-/// ```
-///
-/// ## Composite Index
-///
-/// Index on multiple columns:
-///
-/// ```rust,no_run
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "posts")]
 /// struct Posts {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     author_id: i32,
-///     status: String,
+///     #[column(primary)]
+///     id: i64,
+///     slug: String,
+///     author_id: i64,
+///     title: String,
 /// }
 ///
-/// #[SQLiteIndex]
-/// struct PostAuthorStatusIdx(Posts::author_id, Posts::status);
-/// # }
-/// ```
+/// #[SQLiteIndex(unique)]
+/// struct PostsSlugIdx(Posts::slug);
 ///
-/// ## Standard (Non-Unique) Index
+/// #[SQLiteIndex(name = "posts_by_author", where = "title <> ''")]
+/// struct PostsAuthorIdx(Posts::author_id, Posts::title);
 ///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "logs")]
-/// struct Logs {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     created_at: String,
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
+///     posts: Posts,
+///     posts_slug_idx: PostsSlugIdx,
+///     posts_author_idx: PostsAuthorIdx,
 /// }
 ///
-/// #[SQLiteIndex]
-/// struct LogsCreatedAtIdx(Logs::created_at);
+/// assert_eq!(
+///     PostsSlugIdx::ddl_sql(),
+///     r#"CREATE UNIQUE INDEX "posts_slug_idx" ON "posts" ("slug")"#
+/// );
+/// assert_eq!(
+///     PostsAuthorIdx::ddl_sql(),
+///     r#"CREATE INDEX "posts_by_author" ON "posts" ("author_id", "title") WHERE title <> ''"#
+/// );
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 #[cfg(feature = "sqlite")]
 #[allow(non_snake_case)]
@@ -525,156 +650,117 @@ pub fn SQLiteIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Automatically implements row-to-struct conversion for database result types.
+/// Derive row decoding for a custom result struct on `SQLite` drivers.
 ///
-/// This derive macro generates `TryFrom` implementations for all enabled `SQLite` database
-/// drivers, allowing seamless conversion from database rows to Rust structs.
+/// Use it for query results that are not a whole table row, such as a join
+/// or a few chosen columns. For each enabled driver (`rusqlite`, `libsql`,
+/// `turso`) the struct gets `TryFrom<&Row>` and the row-decoding traits the
+/// query builder uses, so `.all()` and `.get()` can return it.
 ///
-/// # Supported Drivers
+/// # Attributes
 ///
-/// Implementations are generated based on enabled features:
-/// - **rusqlite** - `TryFrom<&rusqlite::Row<'_>>` (sync)
-/// - **libsql** - `TryFrom<&libsql::Row>` (async)
-/// - **turso** - `TryFrom<&turso::Row>` (async)
+/// | Attribute | Where | Meaning |
+/// |---|---|---|
+/// | `#[from(Table)]` | struct | Default table for fields without `#[column(...)]`: field `name` reads `Table::name`. |
+/// | `#[column(Table::field)]` | field | Read this field from `Table::field`, whatever the field is called. |
 ///
-/// # Supported Types
+/// # Selecting into the struct
 ///
-/// The macro automatically handles type conversion for:
+/// A struct with named fields also gets a selector, `Struct::Select`. Pass it
+/// to `select(...)` and it selects each field's column, aliased to the field
+/// name. The query is checked against it when it runs: every table the
+/// struct reads must be in the query, and a field read from an outer-joined
+/// table must be an `Option<T>`.
 ///
-/// | Rust Type | `SQLite` Type | Notes |
-/// |-----------|-------------|-------|
-/// | `i8`, `i16`, `i32`, `i64` | INTEGER | Auto-converts from i64 |
-/// | `u8`, `u16`, `u32`, `u64` | INTEGER | Auto-converts from i64 |
-/// | `f32`, `f64` | REAL | Auto-converts from f64 |
-/// | `bool` | INTEGER | 0 = false, non-zero = true |
-/// | `String` | TEXT | |
-/// | `Vec<u8>` | BLOB | |
-/// | `uuid::Uuid` | BLOB | Requires `uuid` feature |
-/// | `Option<T>` | Any | Nullable columns |
+/// Without `#[from]` or `#[column]`, the selector selects the bare field
+/// names (`"name"`), which suits single-table queries and views.
 ///
-/// # Field Attributes
+/// # Decoding
 ///
-/// - `#[column(Table::field)]` - Map to a specific table column (useful for JOINs)
-/// - No attribute - Maps to column with same name as the field
+/// - Named fields are decoded by column name with `rusqlite` and `libsql`
+///   when the struct uses no `#[from]` or `#[column]`, and by position
+///   otherwise. `turso` rows carry no column names, so `turso` always decodes
+///   by position.
+/// - Tuple structs decode by position (field 0 is column 0) and get no
+///   selector.
+/// - `Option<T>` fields accept `NULL`.
+/// - Integer widths and `f32` convert from `SQLite`'s `INTEGER` and `REAL`,
+///   and `bool` reads `0` as false and anything else as true. `String`,
+///   `Vec<u8>`, `uuid::Uuid` (with the `uuid` feature), [`SQLiteEnum`] types and
+///   custom column types decode as they do in table models.
 ///
-/// # Struct Types
-///
-/// Both named structs and tuple structs are supported:
-/// - Named structs map fields by column name
-/// - Tuple structs map fields by column index (0-based)
-///
-/// Note: Turso rows currently do not expose column names, so named structs
-/// also decode by index with the `turso` driver.
-///
-/// `SQLiteFromRow` uses each backend's direct row conversion. Select a full
-/// table into its generated `Select{Table}` model when table-owned JSON or
-/// custom-column codecs must run.
+/// The derive reads each value directly, so table-owned JSON codecs do not
+/// run. Select into the table's `Select*` model when you need them.
 ///
 /// # Examples
 ///
-/// ## Basic Usage
-///
-/// ```rust,no_run
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
+/// use drizzle::core::expr::eq;
+/// use drizzle::sqlite::builder::QueryBuilder;
 /// use drizzle::sqlite::prelude::*;
-///
-/// #[derive(SQLiteFromRow, Debug, Default)]
-/// struct User {
-///     id: i32,
-///     name: String,
-///     email: Option<String>,  // Nullable column
-///     active: bool,           // INTEGER 0/1 -> bool
-/// }
-/// # }
-/// ```
-///
-/// ## Custom Column Mapping (for JOINs)
-///
-/// When joining tables with columns of the same name, use `#[column(...)]` to
-/// specify which table's column to use:
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-/// use drizzle_macros::{SQLiteTable, SQLiteFromRow};
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
 ///     #[column(primary)]
-///     id: i32,
-///     pub name: String,
+///     id: i64,
+///     name: String,
 /// }
 ///
 /// #[SQLiteTable(name = "posts")]
 /// struct Posts {
 ///     #[column(primary)]
-///     id: i32,
+///     id: i64,
 ///     #[column(references = Users::id)]
-///     user_id: i32,
-///     pub title: String,
-/// }
-///
-/// #[derive(SQLiteFromRow, Debug, Default)]
-/// struct UserPost {
-///     #[column(Users::id)]     // Explicitly use users.id
-///     user_id: i32,
-///     #[column(Users::name)]
-///     user_name: String,
-///     #[column(Posts::id)]     // Explicitly use posts.id
-///     post_id: i32,
-///     #[column(Posts::title)]
+///     author_id: i64,
 ///     title: String,
 /// }
-/// # }
-/// ```
 ///
-/// ## Tuple Structs
-///
-/// For simple single-column or multi-column results:
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// // Single column result
-/// #[derive(SQLiteFromRow, Default)]
-/// struct Count(i64);
-///
-/// // Multiple columns by index
-/// #[derive(SQLiteFromRow, Default)]
-/// struct IdAndName(i32, String);
-/// # }
-/// ```
-///
-/// ## With UUID (requires `uuid` feature)
-///
-/// ```rust,no_run
-/// # fn main() {
-/// # #[cfg(feature = "uuid")]
-/// # {
-/// use drizzle::sqlite::prelude::*;
-/// use uuid::Uuid;
-///
-/// #[derive(SQLiteFromRow, Debug, Default)]
-/// struct UserWithId {
-///     id: Uuid,        // Stored as BLOB (16 bytes)
-///     name: String,
+/// #[derive(SQLiteSchema)]
+/// struct Schema {
+///     users: Users,
+///     posts: Posts,
 /// }
+///
+/// #[derive(SQLiteFromRow, Debug)]
+/// #[from(Users)]
+/// struct UserWithPost {
+///     name: String,
+///     // Posts is left-joined, so its fields are optional.
+///     #[column(Posts::title)]
+///     post_title: Option<String>,
+/// }
+///
+/// let Schema { users, posts } = Schema::new();
+/// let query = QueryBuilder::new::<Schema>()
+///     .select(UserWithPost::Select)
+///     .from(users)
+///     .left_join((posts, eq(users.id, posts.author_id)));
+///
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"SELECT "users"."name" AS "name", "posts"."title" AS "post_title" FROM "users" LEFT JOIN "posts" ON "users"."id" = "posts"."author_id""#
+/// );
+///
+/// // With a driver: `let rows: Vec<UserWithPost> = db.select(UserWithPost::Select)...all()?;`
 /// # }
-/// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
-/// ## Tuple Structs
+/// A tuple struct for a single value:
 ///
-/// ```rust,no_run
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
-/// #[derive(SQLiteFromRow, Default)]
-/// struct NameOnly(String);
-///
-/// // Usage: let names: Vec<NameOnly> = db.select(users.name).from(users).all()?;
+/// #[derive(SQLiteFromRow)]
+/// struct Count(i64);
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteFromRow, attributes(column, from))]
@@ -687,31 +773,59 @@ pub fn sqlite_from_row_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Automatically implements row-to-struct conversion for `PostgreSQL` database drivers.
+/// Derive row decoding for a custom result struct on `PostgreSQL` drivers.
 ///
-/// This derive macro generates `TryFrom` implementations for `PostgreSQL` database
-/// drivers, allowing seamless conversion from database rows to Rust structs.
+/// The `PostgreSQL` counterpart of [`SQLiteFromRow`], with the same
+/// attributes and the same `Struct::Select` selector:
 ///
-/// # Supported Drivers
+/// | Attribute | Where | Meaning |
+/// |---|---|---|
+/// | `#[from(Table)]` | struct | Default table for fields without `#[column(...)]`. |
+/// | `#[column(Table::field)]` | field | Read this field from `Table::field`. |
 ///
-/// Implementations are generated based on enabled features:
-/// - **postgres** - `TryFrom<&postgres::Row>` (sync)
-/// - **tokio-postgres** - `TryFrom<&tokio_postgres::Row>` (async)
+/// With `postgres-sync` or `tokio-postgres` the struct gets
+/// `TryFrom<&postgres::Row>` (the two drivers share one row type), and with
+/// `aws-data-api` the Data API row conversion. Named fields decode by column
+/// name when the struct uses no `#[from]` or `#[column]`, and by position
+/// otherwise; tuple structs always decode by position.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```rust,no_run
+/// ```rust
 /// # #[cfg(feature = "postgres")]
 /// # fn main() {
+/// use drizzle::postgres::builder::QueryBuilder;
 /// use drizzle::postgres::prelude::*;
 ///
-/// #[derive(PostgresFromRow, Debug, Default)]
-/// struct User {
+/// #[PostgresTable(name = "users")]
+/// struct Users {
+///     #[column(serial, primary)]
 ///     id: i32,
 ///     name: String,
 ///     email: Option<String>,
 /// }
+///
+/// #[derive(PostgresSchema)]
+/// struct Schema {
+///     users: Users,
+/// }
+///
+/// #[derive(PostgresFromRow, Debug)]
+/// #[from(Users)]
+/// struct Contact {
+///     name: String,
+///     email: Option<String>,
+/// }
+///
+/// let Schema { users } = Schema::new();
+/// let query = QueryBuilder::new::<Schema>().select(Contact::Select).from(users);
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"SELECT "users"."name" AS "name", "users"."email" AS "email" FROM "users""#
+/// );
 /// # }
+/// # #[cfg(not(feature = "postgres"))]
+/// # fn main() {}
 /// ```
 #[cfg(feature = "postgres")]
 #[proc_macro_derive(PostgresFromRow, attributes(column, from))]
@@ -724,94 +838,108 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Derive macro for creating schema structures that manage tables and indexes.
+/// Derive a `SQLite` schema: the set of tables, indexes and views an
+/// application uses.
 ///
-/// This macro analyzes struct fields to automatically detect tables and indexes,
-/// then generates methods to create all database objects in the correct order.
+/// Apply it to a struct with named fields, one per table ([`SQLiteTable`]),
+/// index ([`SQLiteIndex`]) or view ([`SQLiteView`]). The field names are up to
+/// you. A driver's `Drizzle::new(conn)` returns the schema next to the
+/// connection, and the schema is what `db.create()` and migrations work from.
 ///
-/// The schema provides:
-/// - `Schema::new()` - Creates a new schema instance with all tables and indexes
-/// - Integration with `Drizzle::new()` for database operations
-/// - Automatic table and index creation via `db.create()`
+/// The derive takes no attributes.
+///
+/// # Generated items
+///
+/// - `Schema::new()` (a `const fn`) and `Default`, building every handle.
+/// - `Clone`, `Copy` and `Debug`. Do not derive these (or `Default`) yourself:
+///   the macro reports an error if they appear in a `#[derive]` on the struct.
+/// - `schema.items()`, a tuple of references to every field, and
+///   `From<Schema>` for the tuple of fields.
+/// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
+///   statements: tables ordered so referenced tables come first, each table's
+///   indexes right after it, then views. A foreign key cycle or a duplicate
+///   table or index name is an error there.
+/// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
 ///
 /// # Examples
 ///
-/// ## Basic Schema
-///
-/// ```rust,no_run
-/// # fn main() {
+/// ```rust
+/// # #[cfg(feature = "sqlite")]
+/// # fn main() -> drizzle::Result<()> {
+/// use drizzle::core::SQLSchemaImpl;
 /// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
 /// struct Users {
-///     #[column(primary, autoincrement)]
-///     id: i32,
+///     #[column(primary)]
+///     id: i64,
 ///     email: String,
 /// }
 ///
-/// #[derive(SQLiteSchema)]
-/// struct Schema {
-///     users: Users,
-/// }
-/// // Schema::new() is generated by the derive
-/// let _schema = Schema::new();
-/// # }
-/// ```
-///
-/// ## Schema with Indexes
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// struct Users {
-///     #[column(primary, autoincrement)]
-///     id: i32,
-///     email: String,
-///     name: String,
+/// #[SQLiteTable(name = "posts")]
+/// struct Posts {
+///     #[column(primary)]
+///     id: i64,
+///     #[column(references = Users::id)]
+///     author_id: i64,
 /// }
 ///
 /// #[SQLiteIndex(unique)]
-/// struct UserEmailIdx(Users::email);
+/// struct UsersEmailIdx(Users::email);
 ///
 /// #[derive(SQLiteSchema)]
 /// struct Schema {
+///     // Field order does not matter: `users` is still created before `posts`.
+///     posts: Posts,
 ///     users: Users,
-///     user_email_idx: UserEmailIdx,
+///     users_email_idx: UsersEmailIdx,
 /// }
 ///
-/// let _schema = Schema::new();
+/// let statements: Vec<String> = Schema::new().create_statements()?.collect();
+/// assert!(statements[0].starts_with("CREATE TABLE `users`"));
+/// assert_eq!(statements[1], r#"CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email")"#);
+/// assert!(statements[2].starts_with("CREATE TABLE `posts`"));
+///
+/// // Destructure to get the handles used in queries.
+/// let Schema { users, posts, .. } = Schema::new();
+/// # let _ = (users, posts);
+/// # Ok(())
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() {}
 /// ```
 ///
-/// ## Async Drivers (libsql, turso)
+/// # Compile-time checks
 ///
-/// ```rust,no_run
+/// Every table a foreign key points to must be in the schema:
+///
+/// ```rust,compile_fail
+/// # #[cfg(feature = "sqlite")]
 /// # fn main() {
 /// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable]
 /// struct Users {
 ///     #[column(primary)]
-///     id: i32,
-///     name: String,
+///     id: i64,
+/// }
+///
+/// #[SQLiteTable]
+/// struct Posts {
+///     #[column(primary)]
+///     id: i64,
+///     #[column(references = Users::id)]
+///     author_id: i64,
 /// }
 ///
 /// #[derive(SQLiteSchema)]
 /// struct Schema {
-///     users: Users,
+///     posts: Posts, // error: `Users` is referenced but missing
 /// }
-///
-/// let _schema = Schema::new();
 /// # }
+/// # #[cfg(not(feature = "sqlite"))]
+/// # fn main() { compile_error!("needs sqlite") }
 /// ```
-///
-/// # Generated trait impls
-///
-/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
-/// schema struct (every field is a zero-sized table or index handle). Don't
-/// derive those traits too: a second impl fails to compile with E0119.
 #[cfg(feature = "sqlite")]
 #[proc_macro_derive(SQLiteSchema)]
 pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
@@ -823,13 +951,70 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Derive a `PostgreSQL` schema from named table, index, view and enum fields.
+/// Derive a `PostgreSQL` schema: the set of database objects an application
+/// uses.
 ///
-/// # Generated trait impls
+/// Apply it to a struct with named fields, one per table
+/// ([`PostgresTable`]), index ([`PostgresIndex`]), view ([`PostgresView`]),
+/// native enum ([`PostgresEnum`]) or policy ([`PostgresPolicy`]). A driver's
+/// `Drizzle::new(client)` returns the schema next to the connection, and the
+/// schema is what `db.create()` and migrations work from. Every field type
+/// must implement `Default` (derive it on enums).
 ///
-/// The derive implements `Clone`, `Copy`, `Debug` and `Default` for the
-/// schema struct (every field is a zero-sized table or index handle). Don't
-/// derive those traits too: a second impl fails to compile with E0119.
+/// The derive takes no attributes.
+///
+/// # Generated items
+///
+/// - `Schema::new()` and `Default`, building every handle.
+/// - `Clone`, `Copy` and `Debug`. Do not derive these (or `Default`) yourself:
+///   the macro reports an error if they appear in a `#[derive]` on the struct.
+/// - `schema.items()` and `From<Schema>` for the tuple of fields.
+/// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
+///   statements in dependency order: enum types first, then each table
+///   (referenced tables first) followed by its indexes, row-level security
+///   switch and policies, then views.
+/// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
+///
+/// As with [`SQLiteSchema`], every table a foreign key points to must be in
+/// the schema, or the derive fails to compile.
+///
+/// # Examples
+///
+/// ```rust
+/// # #[cfg(feature = "postgres")]
+/// # fn main() -> drizzle::Result<()> {
+/// use drizzle::core::SQLSchemaImpl;
+/// use drizzle::postgres::prelude::*;
+///
+/// #[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]
+/// enum Status {
+///     #[default]
+///     Open,
+///     Closed,
+/// }
+///
+/// #[PostgresTable(name = "tickets")]
+/// struct Tickets {
+///     #[column(serial, primary)]
+///     id: i32,
+///     #[column(enum)]
+///     status: Status,
+/// }
+///
+/// #[derive(PostgresSchema)]
+/// struct Schema {
+///     status: Status,
+///     tickets: Tickets,
+/// }
+///
+/// let statements: Vec<String> = Schema::new().create_statements()?.collect();
+/// assert_eq!(statements[0], "CREATE TYPE Status AS ENUM ('Open', 'Closed')");
+/// assert!(statements[1].starts_with(r#"CREATE TABLE "tickets""#));
+/// # Ok(())
+/// # }
+/// # #[cfg(not(feature = "postgres"))]
+/// # fn main() {}
+/// ```
 #[cfg(feature = "postgres")]
 #[proc_macro_derive(PostgresSchema)]
 pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
@@ -841,149 +1026,54 @@ pub fn postgres_schema_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// A procedural macro for building SQL queries with embedded expressions.
+/// Build a SQL fragment from a template with embedded expressions.
 ///
-/// This macro supports two different syntax forms:
-/// 1. **String literal syntax**: `sql!("SELECT * FROM {table}")`
-/// 2. **Printf-style syntax**: `sql!("SELECT * FROM {} WHERE {} = {}", table, column, value)`
+/// Text in the template is copied as raw SQL. Each `{...}` is a Rust
+/// expression that implements `ToSQL`: a table renders as its quoted name, a
+/// column as its qualified name, and a plain value becomes a bound parameter
+/// (`?` or `$n`), never inlined text. The result is a `SQL` value for the
+/// dialect the expressions belong to.
 ///
-/// The macro parses SQL templates and generates type-safe SQL code by:
-/// - Converting literal text to `SQL::raw()` calls
-/// - Converting expressions in `{braces}` to `ToSQL::to_sql(&expr)` calls
-/// - Joining the pieces in order with `.append()`
+/// Two forms:
 ///
-/// # Syntax Forms
+/// - Named: `sql!("SELECT * FROM {users} WHERE {users.id} = {id}")`. Any
+///   expression can go inside the braces.
+/// - Positional: `sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42)`.
+///   Each empty `{}` takes the next argument. The number of `{}` must match
+///   the number of arguments.
 ///
-/// ## String Literal Syntax
-///
-/// Embed expressions directly in the SQL string using `{expression}`:
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "sqlite")]
-/// # fn main() {
-/// use drizzle::sql;
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// pub struct Users {
-///     #[column(primary)]
-///     pub id: i32,
-///     pub name: String,
-/// }
-///
-/// #[derive(SQLiteSchema)]
-/// pub struct Schema { pub users: Users }
-///
-/// let users = Users::default();
-/// let query = sql!("SELECT * FROM {users} WHERE {users.id} = 42");
-/// # }
-/// # #[cfg(not(feature = "sqlite"))]
-/// # fn main() {}
-/// ```
-///
-/// ## Printf-Style Syntax
-///
-/// Use `{}` placeholders with arguments after the string:
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "sqlite")]
-/// # fn main() {
-/// use drizzle::sql;
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// pub struct Users {
-///     #[column(primary)]
-///     pub id: i32,
-/// }
-///
-/// #[derive(SQLiteSchema)]
-/// pub struct Schema { pub users: Users }
-///
-/// let users = Users::default();
-/// let query = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
-/// # }
-/// # #[cfg(not(feature = "sqlite"))]
-/// # fn main() {}
-/// ```
+/// Write `{{` and `}}` for literal braces. An unmatched brace or an argument
+/// count mismatch is a compile error.
 ///
 /// # Examples
 ///
-/// ## Basic Usage
-///
-/// ```rust,no_run
+/// ```rust
 /// # #[cfg(feature = "sqlite")]
 /// # fn main() {
+/// use drizzle::sql;
 /// use drizzle::sqlite::prelude::*;
 ///
 /// #[SQLiteTable(name = "users")]
-/// pub struct Users {
+/// struct Users {
 ///     #[column(primary)]
-///     pub id: i32,
+///     id: i64,
+///     email: String,
 /// }
 ///
 /// let users = Users::default();
-/// let query = drizzle::sql!("SELECT * FROM {users}");
-/// // Generates: SQL::raw("SELECT * FROM ").append(ToSQL::to_sql(&users))
+///
+/// let named = sql!("SELECT {users.email} FROM {users} WHERE {users.id} = {42}");
+/// assert_eq!(
+///     named.sql(),
+///     r#"SELECT "users"."email" FROM "users" WHERE "users"."id" = ?"#
+/// );
+///
+/// let positional = sql!("SELECT * FROM {} WHERE {} = {}", users, users.id, 42);
+/// assert_eq!(positional.sql(), r#"SELECT * FROM "users" WHERE "users"."id" = ?"#);
 /// # }
 /// # #[cfg(not(feature = "sqlite"))]
 /// # fn main() {}
 /// ```
-///
-/// ## Multiple Expressions
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "sqlite")]
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// pub struct Users {
-///     #[column(primary)]
-///     pub id: i32,
-/// }
-///
-/// #[SQLiteTable(name = "posts")]
-/// pub struct Posts {
-///     #[column(primary)]
-///     pub id: i32,
-///     pub author_id: i32,
-/// }
-///
-/// let users = Users::default();
-/// let posts = Posts::default();
-/// let query = drizzle::sql!("SELECT * FROM {users} WHERE {users.id} = {posts.author_id}");
-/// # }
-/// # #[cfg(not(feature = "sqlite"))]
-/// # fn main() {}
-/// ```
-///
-/// ## Escaped Braces
-///
-/// Use `{{` and `}}` for literal braces in the SQL:
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "sqlite")]
-/// # fn main() {
-/// use drizzle::sqlite::prelude::*;
-///
-/// #[SQLiteTable(name = "users")]
-/// pub struct Users {
-///     #[column(primary)]
-///     pub id: i32,
-/// }
-///
-/// let users = Users::default();
-/// let query = drizzle::sql!("SELECT JSON_OBJECT('key', {{literal}}) FROM {users}");
-/// // Generates: SQL::raw("SELECT JSON_OBJECT('key', {literal}) FROM ").append(ToSQL::to_sql(&users))
-/// # }
-/// # #[cfg(not(feature = "sqlite"))]
-/// # fn main() {}
-/// ```
-///
-/// # Requirements
-///
-/// All expressions within `{braces}` must implement the `ToSQL` trait.
 #[proc_macro]
 pub fn sql(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as crate::sql::SqlInput);
@@ -994,7 +1084,15 @@ pub fn sql(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Embed migrations at compile time and return `Vec<Migration>`.
+/// Embed a migrations folder in the binary and return `Vec<Migration>`.
+///
+/// The argument is a string literal: the path to the folder that
+/// `drizzle generate` writes, relative to the crate's `Cargo.toml`. Each
+/// `<timestamp>_<name>/migration.sql` inside becomes one `Migration`, sorted
+/// by folder name, with its SQL split into statements at compile time. Pass
+/// the result to a driver's `migrate` to apply the ones not yet run.
+///
+/// # Examples
 ///
 /// ```rust
 /// let migrations: Vec<drizzle::migrations::Migration> = drizzle::include_migrations!("./drizzle");
@@ -1002,8 +1100,9 @@ pub fn sql(input: TokenStream) -> TokenStream {
 /// # assert_eq!(migrations.len(), 1);
 /// ```
 ///
-/// The path is relative to the crate's `Cargo.toml`. A missing or unreadable
-/// directory is a compile error, not an empty list.
+/// # Errors
+///
+/// A missing or unreadable folder is a compile error, not an empty list.
 ///
 /// # Rebuilding after `drizzle generate`
 ///
@@ -1026,121 +1125,128 @@ pub fn include_migrations(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute-style integration test macro with dependency injection.
+/// Run one test body against every enabled database driver.
 ///
 /// **Internal to drizzle's own test suite.** The expansion calls helpers in
 /// that suite's `crate::common::helpers` module (connection setup, `TestDb`,
 /// the panic hook), so it does not compile in other crates. It is exported
 /// only because the suite is a separate crate.
 ///
-/// Apply to a plain `fn` whose signature declares `db`, the driver-bound test
-/// handle. The schema instance is injected into the body as `schema`.
-/// The macro expands into per-driver test modules: one gated on each enabled
-/// driver feature (`rusqlite`, `libsql`, `turso`, `postgres-sync`,
-/// `tokio-postgres`, `mysql-sync`, `mysql-async`). Body-local `result!` and `catch!` helper
-/// macros provide explicit access to fallible results and panic assertions.
+/// The macro turns one synchronous `fn` into a test module per driver of the
+/// chosen dialect, each gated on that driver's feature: `rusqlite`, `libsql`
+/// and `turso` for `SQLite`; `postgres-sync` and `tokio-postgres` for
+/// `PostgreSQL`; `mysql-sync` and `mysql-async` for `MySQL`. Async drivers get
+/// `.await` added to terminal calls (`.execute()`, `.all()`, `.get()`,
+/// transactions, and so on). A failing terminal call panics with the SQL
+/// that ran.
 ///
-/// # Dialect selection
+/// # Arguments
 ///
-/// - `#[drizzle::test]` — dialect is auto-detected from the call-site file
-///   path: tests living under a `sqlite` directory emit `SQLite` drivers,
-///   tests under a `postgres` directory emit `PostgreSQL` drivers, and tests
-///   under a `mysql` directory emit `MySQL` drivers. If the path is ambiguous,
-///   the macro emits a compile error asking for an explicit override.
-/// - `#[drizzle::test(sqlite)]` — force `SQLite` driver expansion.
-/// - `#[drizzle::test(postgres)]` — force `PostgreSQL` driver expansion.
-/// - `#[drizzle::test(mysql)]` — force `MySQL` driver expansion.
+/// | Form | Dialect |
+/// |---|---|
+/// | `#[drizzle::test]` | From the test file's path: a `sqlite`, `postgres` or `mysql` directory. Anything else is a compile error asking for an explicit dialect. |
+/// | `#[drizzle::test(sqlite)]` | `SQLite` |
+/// | `#[drizzle::test(postgres)]` | `PostgreSQL` |
+/// | `#[drizzle::test(mysql)]` | `MySQL` |
 ///
-/// # Signature requirements
+/// # Signature
 ///
 /// ```ignore
 /// #[drizzle::test]
-/// fn my_test(db: &mut TestDb<MySchema>) {
+/// fn inserts_a_user(db: &mut TestDb<MySchema>) {
 ///     let MySchema { users } = schema;
-///     db.insert(users).values([/* ... */]).execute();
+///     db.insert(users).values([InsertUsers::new("Alice")]).execute();
 /// }
 /// ```
 ///
-/// - The function must be synchronous; async is injected for async drivers.
-/// - Its only parameter must be named `db`. The forms `&mut TestDb<S>`,
-///   `&TestDb<S>`, `mut TestDb<S>`, and owned `TestDb<S>` are honored.
+/// - The function must be synchronous, with no generics.
+/// - Its only parameter must be named `db`, typed `&mut TestDb<S>`,
+///   `&TestDb<S>`, or `TestDb<S>`. `S` must implement `SQLSchemaImpl`,
+///   `Default` and `Copy` (any schema derive does).
+/// - The body gets a `schema: S` local, and helper macros: `result!(expr)`
+///   returns the call's `Result` instead of panicking on `Err`, `catch!`
+///   expects a panic, and `next_row!` / `collect_rows!` read row cursors.
 #[proc_macro_attribute]
 pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
     crate::drizzle_test::attribute_impl(args, item)
 }
 
-/// Derive macro for creating PostgreSQL-compatible enums.
+/// Derive a `PostgreSQL` column type for a fieldless enum.
 ///
-/// This macro provides `PostgreSQL` enum support in two storage modes:
-/// - **Native ENUM** (default) - Uses a `PostgreSQL` enum type with `#[column(enum)]`
-/// - **INTEGER** - Uses INTEGER storage when the enum has an integer repr
-///   (for example `#[repr(i32)]`), also with `#[column(enum)]`
+/// The enum decides its own storage:
 ///
-/// # Requirements
+/// | Enum shape | Storage | Stored value |
+/// |---|---|---|
+/// | No integer `#[repr]` | native enum type, `CREATE TYPE Name AS ENUM (...)` | the variant name |
+/// | Integer `#[repr]` (`#[repr(i32)]`, `#[repr(i16)]`, ...) | `integer` | the discriminant |
 ///
-/// - Enum must have at least one variant
-/// - For INTEGER storage, add an integer repr (`#[repr(i32)]`, `#[repr(i16)]`, etc.)
-/// - Must derive `Default` to specify the default variant
+/// Mark the column with `#[column(enum)]` in a [`PostgresTable`]. A native
+/// enum is a database object of its own: list it in the [`PostgresSchema`]
+/// so its `CREATE TYPE` runs before the tables that use it. A schema field
+/// must implement `Default`, so derive `Default` on enums you list there.
+///
+/// # Attributes
+///
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `#[postgres_enum(schema = "app")]` | Create the native type in this schema instead of `public`. Not allowed with an integer `#[repr]`. |
+///
+/// The type is named after the enum, exactly as written (`Mood`).
+///
+/// # Generated impls
+///
+/// - `Display`, `FromStr`, `AsRef<str>`, and `TryFrom<&str>` / `TryFrom<String>`,
+///   all using the variant name.
+/// - `From<Enum> for i64` and `TryFrom` from the integer types, using the
+///   discriminant.
+/// - The `PostgreSQL` column, value and row conversions, including
+///   `postgres_types::ToSql` / `FromSql` when a driver feature is enabled.
 ///
 /// # Examples
 ///
-/// ## Native `PostgreSQL` ENUM Type (Default)
-///
-/// ```rust,no_run
+/// ```rust
+/// # #[cfg(feature = "postgres")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
-/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
-/// enum UserRole {
+/// #[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]
+/// enum Mood {
 ///     #[default]
-///     User,      // Stored as "User"
-///     Admin,     // Stored as "Admin"
-///     Moderator, // Stored as "Moderator"
+///     Happy,
+///     Sad,
 /// }
 ///
-/// #[PostgresTable(name = "users")]
-/// struct Users {
-///     #[column(serial, primary)]
-///     id: i32,
-///     #[column(enum)]  // Uses native PostgreSQL ENUM type "UserRole"
-///     role: UserRole,
-/// }
-/// # }
-/// ```
-///
-/// ## Integer Storage (Discriminants)
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::postgres::prelude::*;
-///
-/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
+/// #[derive(PostgresEnum, Clone, Copy, Debug, PartialEq)]
 /// #[repr(i32)]
 /// enum Priority {
-///     #[default]
-///     Low = 1,    // Stored as 1
-///     Medium = 5, // Stored as 5
-///     High = 10,  // Stored as 10
+///     Low = 1,
+///     High = 10,
 /// }
 ///
-/// #[PostgresTable(name = "tasks")]
-/// struct Tasks {
+/// #[PostgresTable]
+/// struct Entries {
 ///     #[column(serial, primary)]
 ///     id: i32,
-///     #[column(enum)]  // Stored as INTEGER because of #[repr(i32)]
+///     #[column(enum)]
+///     mood: Mood,
+///     #[column(enum)]
 ///     priority: Priority,
 /// }
+///
+/// #[derive(PostgresSchema)]
+/// struct Schema {
+///     mood: Mood,
+///     entries: Entries,
+/// }
+///
+/// assert_eq!(Mood::Sad.to_string(), "Sad");
+/// assert_eq!(i64::from(Priority::High), 10);
+/// assert!(Entries::ddl_sql().contains(r#""mood" Mood NOT NULL"#));
+/// assert!(Entries::ddl_sql().contains(r#""priority" integer NOT NULL"#));
 /// # }
+/// # #[cfg(not(feature = "postgres"))]
+/// # fn main() {}
 /// ```
-///
-/// ## Generated Implementations
-///
-/// The macro automatically implements:
-/// - `std::fmt::Display` - For TEXT representation
-/// - `TryFrom<i64>` - For INTEGER representation
-/// - `Into<i64>` - For INTEGER representation
-/// - `From<EnumType>` for `PostgresValue` - Database conversion
-/// - `TryFrom<PostgresValue>` for `EnumType` - Database conversion
 #[cfg(feature = "postgres")]
 #[proc_macro_derive(PostgresEnum, attributes(postgres_enum))]
 pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
@@ -1174,181 +1280,162 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Define a `PostgreSQL` table schema with type-safe column definitions.
+/// Define a `PostgreSQL` table from a struct.
 ///
-/// This attribute macro transforms a Rust struct into a complete `PostgreSQL` table definition
-/// with generated types for INSERT, SELECT, and UPDATE operations.
+/// Each named field becomes a column. The macro replaces the struct with a
+/// zero-sized table handle whose fields are column handles, and generates the
+/// models used to insert, select and update rows. See
+/// [CREATE TABLE](https://www.postgresql.org/docs/current/sql-createtable.html)
+/// for the SQL side.
 ///
-/// See [PostgreSQL CREATE TABLE documentation](https://www.postgresql.org/docs/current/sql-createtable.html) for
-/// the underlying SQL concepts.
+/// # Table attributes
 ///
-/// # Table Attributes
+/// Written as `#[PostgresTable(...)]`. All are optional.
 ///
-/// Table attribute names are case-insensitive (`name` and `NAME` both work).
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `name = "users"` | SQL table name. Defaults to the struct name in `snake_case`. |
+/// | `schema = "auth"` | Create the table in this schema. Without it the name is unqualified and resolves through `search_path` (normally `public`). |
+/// | `unlogged` | `CREATE UNLOGGED TABLE`: faster writes, not crash-safe. |
+/// | `temporary` | `CREATE TEMPORARY TABLE`. |
+/// | `inherits = "parent"` | Inherit from a parent table. |
+/// | `tablespace = "name"` | Create the table in a tablespace. |
+/// | `rls` | Enable row-level security (see [`PostgresPolicy`]). |
+/// | `unique(a, b)` or `unique(columns(a, b), name = "...", nulls_not_distinct, deferrable, initially_deferred)` | Table-level `UNIQUE` constraint over the named fields. |
+/// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "...", on_update = "...", deferrable, initially_deferred)` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. |
 ///
-/// - `name = "table_name"` - Custom table name (defaults to struct name in `snake_case`)
-/// - `schema = "schema_name"` - Qualify the table with this schema; without it
-///   the name stays unqualified and resolves through `search_path` (normally
-///   `public`)
-/// - `unlogged` - Create an UNLOGGED table (faster, not crash-safe)
-/// - `temporary` - Create a TEMPORARY table
-/// - `inherits = "parent_table"` - Inherit from a parent table
-/// - `tablespace = "name"` - Create the table in a tablespace
-/// - `rls` - Enable row-level security
-/// - `foreign_key(columns(a, b), references(Parent, x, y))` - Composite foreign
-///   key; also accepts `on_delete = "..."`, `on_update = "..."`, `deferrable`,
-///   and `initially_deferred`
-/// - `unique(columns(a, b))` - Table-level unique constraint; also accepts
-///   `name = "..."`, `nulls_not_distinct`, `deferrable`, and `initially_deferred`
-/// - `check(expr = "...")` - Table-level check constraint, optionally with
-///   `name = "..."`
+/// # Column attributes
 ///
-/// # Field Attributes
+/// Written as `#[column(...)]` on a field. All are optional.
 ///
-/// ## Column Types
-/// - Column types are inferred from Rust field types by default
-/// - Use `#[column(...)]` to add markers like `serial`, `smallserial`, `bigserial`,
-///   `json`, `jsonb`, or `enum`
-/// - Use `#[column(VARCHAR(length))]` or `#[column(CHAR(length))]` on `String`
-///   or `Vec<String>` fields when the physical character-length constraint must
-///   be preserved
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `primary` (or `primary_key`) | Primary key. Put it on several fields for a composite key. |
+/// | `unique` | `UNIQUE` constraint. |
+/// | `serial`, `smallserial`, `bigserial` | Auto-incrementing column. The field must be `i32`, `i16` or `i64` respectively. |
+/// | `identity`, `identity(always)`, `identity(by_default)` | `GENERATED ... AS IDENTITY` (`always` when no mode is given). Sequence options may follow the mode: `start`, `increment`, `min_value`, `max_value`, `cache`, `cycle`. |
+/// | `varchar(n)`, `char(n)` | `VARCHAR(n)` / `CHAR(n)` instead of `TEXT`, on a `String` field. |
+/// | `enum` | The field's type derives [`PostgresEnum`]; the enum decides native enum or `integer` storage. |
+/// | `json`, `jsonb` | Store a `serde` type as `JSON` / `JSONB` (needs the `serde` feature). |
+/// | `name = "col"` | SQL column name. Defaults to the field name. |
+/// | `default = value` | SQL `DEFAULT` clause. A string literal becomes a SQL string; a path or call such as `now()` is written as SQL. |
+/// | `default_fn = path` | Rust function called to fill the field when an insert model is created. Cannot be combined with `default`. |
+/// | `references = Table::column` | Foreign key to another table's column. |
+/// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
+/// | `deferrable`, `initially_deferred` | Make the column's foreign key deferrable. |
+/// | `relation = "name"` | Name of the reverse relation accessor (see [Relations](#relations)). |
+/// | `collate = "C"` | Column collation. |
+/// | `check = "balance >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
+/// | `generated(stored, "expr")` | Generated column. Never written by inserts. |
 ///
-/// ## Constraints
-/// - `primary` - Primary key constraint
-/// - `unique` - Unique constraint
-///
-/// ## Defaults
-/// - `default = value` - Literal database `DEFAULT` clause
-/// - `default_fn = function` - Application default function
-///
-/// ## Special Types
-/// - `enum` - Map a `PostgresEnum` field (`#[column(enum)]`)
-/// - `json` - JSON serialization (`#[column(json)]` or `#[column(jsonb)]`)
-/// - `references = Table::column` - Foreign key reference. With the `query`
-///   feature it also generates relation accessors:
-///   - forward, on this table: the column name without its `_id` suffix
-///     (`author_id` gives `posts.author()`)
-///   - reverse, on the referenced table: the plural `snake_case` name of this
-///     struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
-///   - a self-reference, or two or more foreign keys to the same table, names
-///     each of those reverse accessors `{forward}_{plural}`
-///     (`users.author_posts()`)
-///   - `relation = "name"` names the reverse accessor and leaves the forward
-///     one alone. It is required only when two accessors on the referenced
-///     table would still share a name: the macro's error asks for it when
-///     both come from one table, and rustc reports a duplicate definition
-///     when they come from different tables (e.g. a direct foreign key and
-///     a junction table)
-///   - a table with exactly two foreign keys, to two other distinct tables,
-///     also links them many-to-many (`posts.tags()` and `tags.posts()`)
-///
-/// Note: For `#[derive(PostgresEnum)]`, storage is:
-/// - Native `PostgreSQL` ENUM by default
-/// - INTEGER when the enum has an integer repr (`#[repr(i32)]`, etc.)
-///
-/// # Examples
-///
-/// ## Basic Table
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::postgres::prelude::*;
-///
-/// #[PostgresTable(name = "users")]
-/// struct Users {
-///     #[column(serial, primary)]
-///     id: i32,
-///     name: String,
-///     #[column(unique)]
-///     email: String,
-///     age: Option<i32>,  // Nullable field
-/// }
-///
-/// #[derive(PostgresSchema)]
-/// struct Schema {
-///     users: Users,
-/// }
-/// # }
-/// ```
-///
-/// ## Enums (Native and Integer-repr)
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::postgres::prelude::*;
-///
-/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
-/// enum Status {
-///     #[default]
-///     Draft,
-///     Published,
-///     Archived,
-/// }
-///
-/// #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
-/// #[repr(i32)]
-/// enum Priority {
-///     #[default]
-///     Low = 1,
-///     Medium = 5,
-///     High = 10,
-/// }
-///
-/// #[PostgresTable(name = "posts")]
-/// struct Posts {
-///     #[column(serial, primary)]
-///     id: i32,
-///     title: String,
-///     #[column(enum)]  // Native PostgreSQL ENUM type "Status"
-///     status: Status,
-///     #[column(enum)]  // INTEGER because Priority uses #[repr(i32)]
-///     priority: Priority,
-/// }
-/// # }
-/// ```
-///
-/// ## JSON and JSONB
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "serde")]
-/// # fn main() {
-/// use drizzle::postgres::prelude::*;
-/// use serde::{Serialize, Deserialize};
-///
-/// #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-/// struct Metadata {
-///     theme: String,
-///     notifications: bool,
-/// }
-///
-/// #[PostgresTable(name = "settings")]
-/// struct Settings {
-///     #[column(serial, primary)]
-///     id: i32,
-///     #[column(jsonb)]  // Binary JSON for faster queries
-///     config: Metadata,
-///     #[column(json)]   // Standard JSON
-///     raw_data: Option<serde_json::Value>,
-/// }
-/// # }
-/// # #[cfg(not(feature = "serde"))]
-/// # fn main() {}
-/// ```
-///
-/// # Generated Types
-///
-/// For a table `Users`, the macro generates:
-/// - `SelectUsers` - For SELECT operations (derives `FromRow`)
-/// - `InsertUsers` - Builder for INSERT operations with `new()` and `with_*()` methods
-/// - `UpdateUsers` - Builder for UPDATE operations: start from `default()` and
-///   set columns with `with_*()` methods
-/// - `users` - A module with one type per column: `users::Name` is the type of
-///   `Users::name`. Keeping them there leaves the names beside the table to
-///   you, so a `User` table can have a `role: UserRole` column
+/// The SQL type comes from the Rust type: for example `i16` is `SMALLINT`,
+/// `i32` is `INTEGER`, `i64` is `BIGINT`, `f64` is `DOUBLE PRECISION`, `bool`
+/// is `BOOLEAN`, `String` is `TEXT`, `Vec<u8>` is `BYTEA` and `uuid::Uuid` is
+/// `UUID`. Any other type must implement `DrizzlePostgresColumn`.
 ///
 /// # Nullability
 ///
-/// Use `Option<T>` for nullable fields. Non-optional fields get a NOT NULL constraint.
+/// `Option<T>` makes a column nullable. Every other field gets `NOT NULL`.
+///
+/// # Generated items
+///
+/// For `#[PostgresTable] struct Users { ... }` the macro generates:
+///
+/// | Item | Purpose |
+/// |---|---|
+/// | `Users` | The table handle. Its fields (`users.name`) are typed columns for building queries. `Users::ddl_sql()` returns the `CREATE TABLE` statement. |
+/// | `SelectUsers` | One row: every column, with `Option<T>` for nullable ones. |
+/// | `PartialSelectUsers` | A row where every field is `Option<T>`, for partial selects. |
+/// | `InsertUsers` | Insert builder. `InsertUsers::new(...)` takes the required columns in field order; `with_<field>(value)` sets the rest. |
+/// | `UpdateUsers` | Update builder. Start from `UpdateUsers::default()` and set columns with `with_<field>(value)`. |
+/// | `users` module | One type per column (`users::Name` is the type of `Users::name`), plus the alias column types. |
+/// | `Users::alias::<Tag>()` | A second, independently named copy of the table for self-joins (name the alias with a type made by the prelude's `tag!` macro). |
+///
+/// A column is required in `InsertUsers::new` unless it is nullable, has a
+/// `default` or `default_fn`, or is a serial, identity or generated column.
+///
+/// Row conversions are generated for every enabled driver (`postgres-sync`,
+/// `tokio-postgres`, `aws-data-api`).
+///
+/// # Relations
+///
+/// With the `query` feature, `references` also generates relation accessors
+/// for the relational query API. The naming rules are the same as for
+/// [`SQLiteTable`](SQLiteTable#relations): the forward accessor drops the
+/// `_id` suffix (`posts.author()`), the reverse one is this struct's name in
+/// plural `snake_case` (`users.posts()`), and `relation = "name"` renames the
+/// reverse accessor when two would collide.
+///
+/// # Examples
+///
+/// ```rust
+/// # #[cfg(feature = "postgres")]
+/// # fn main() {
+/// use drizzle::postgres::prelude::*;
+///
+/// #[PostgresTable(name = "accounts")]
+/// struct Accounts {
+///     #[column(serial, primary)]
+///     id: i32,
+///     #[column(varchar(255), unique)]
+///     email: String,
+///     #[column(default = 0, check = "balance >= 0")]
+///     balance: i64,
+///     note: Option<String>,
+/// }
+///
+/// #[PostgresTable(name = "events")]
+/// struct Events {
+///     #[column(identity(always), primary)]
+///     id: i64,
+///     #[column(references = Accounts::id, on_delete = CASCADE)]
+///     account_id: i32,
+/// }
+///
+/// assert_eq!(
+///     Accounts::ddl_sql(),
+///     "TODO_PG_ACCOUNTS"
+/// );
+/// assert_eq!(
+///     Events::ddl_sql(),
+///     "TODO_PG_EVENTS"
+/// );
+///
+/// // `id` is serial and `balance` has a default, so only `email` is required.
+/// let account = InsertAccounts::new("ada@example.com").with_note("first");
+/// # let _ = account;
+/// # }
+/// # #[cfg(not(feature = "postgres"))]
+/// # fn main() {}
+/// ```
+///
+/// JSON columns:
+///
+/// ```rust
+/// # #[cfg(all(feature = "postgres", feature = "serde"))]
+/// # fn main() {
+/// use drizzle::postgres::prelude::*;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// struct Preferences {
+///     theme: String,
+/// }
+///
+/// #[PostgresTable]
+/// struct Settings {
+///     #[column(serial, primary)]
+///     id: i32,
+///     #[column(jsonb)]
+///     preferences: Preferences,
+///     #[column(json)]
+///     raw: Option<serde_json::Value>,
+/// }
+/// # }
+/// # #[cfg(not(all(feature = "postgres", feature = "serde")))]
+/// # fn main() {}
+/// ```
 #[cfg(feature = "postgres")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -1362,21 +1449,73 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute macro for defining `PostgreSQL` views.
+/// Define a `PostgreSQL` view or materialized view from a struct.
 ///
-/// This macro generates a typed view schema with column accessors and view metadata.
+/// Each named field is a column of the view. The view is queried like a
+/// table: the macro generates the same column handles, `Select*` models and
+/// row conversions as [`PostgresTable`]. Field attributes are the
+/// `#[column(...)]` attributes of [`PostgresTable`]; usually none are needed.
 ///
 /// # Attributes
 ///
-/// - `name/NAME = "view_name"` - Optional view name (defaults to struct name in `snake_case`)
-/// - `schema/SCHEMA = "schema_name"` - Optional schema (defaults to public)
-/// - `definition/DEFINITION = "SELECT ..."` - View definition SQL
-/// - `materialized/MATERIALIZED` - Mark as materialized view
-/// - `with/WITH = ViewWithOptionDef::new()...` - WITH options
-/// - `with_no_data/WITH_NO_DATA` - Materialized view WITH NO DATA
-/// - `using/USING = "..."` - USING clause for materialized views
-/// - `tablespace/TABLESPACE = "..."` - Tablespace for materialized views
-/// - `existing/EXISTING` - Mark view as existing (skip creation)
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `name = "active_users"` | SQL view name. Defaults to the struct name in `snake_case`. |
+/// | `schema = "app"` | Create the view in this schema. Defaults to `public`. |
+/// | `definition = "SELECT ..."` | The view's query as raw SQL. |
+/// | `definition = expr` | The view's query as a query-builder expression, rendered when the view is created. |
+/// | `query(...)` | The view's query in the typed DSL described on [`SQLiteView`](SQLiteView#the-query-dsl), rendered at compile time. |
+/// | `materialized` | Create a materialized view. |
+/// | `with_no_data` | Materialized view created `WITH NO DATA`. |
+/// | `using = "heap"` | Table access method of a materialized view. |
+/// | `tablespace = "name"` | Tablespace of a materialized view. |
+/// | `with = ViewWithOptionDef::new()...` | `WITH (...)` storage options, such as `security_barrier()`. |
+/// | `existing` | The view already exists in the database: drizzle queries it but never creates it. |
+///
+/// A view needs one of `definition` or `query(...)` unless it is `existing`.
+///
+/// # Generated items
+///
+/// Besides the table-like items, the view gets `VIEW_NAME`,
+/// `VIEW_DEFINITION_SQL` and `ddl_sql()`, which returns the `CREATE VIEW`
+/// statement.
+///
+/// # Examples
+///
+/// ```rust
+/// # #[cfg(feature = "postgres")]
+/// # fn main() {
+/// use drizzle::postgres::prelude::*;
+///
+/// #[PostgresTable(name = "accounts")]
+/// struct Accounts {
+///     #[column(serial, primary)]
+///     id: i32,
+///     balance: i64,
+/// }
+///
+/// #[PostgresView(definition = "SELECT id FROM accounts WHERE balance > 0")]
+/// struct FundedAccounts {
+///     id: i32,
+/// }
+///
+/// #[PostgresView(materialized, with_no_data, query(select(Accounts::id), from(Accounts)))]
+/// struct AccountIds {
+///     id: i32,
+/// }
+///
+/// assert_eq!(
+///     FundedAccounts::ddl_sql(),
+///     r#"CREATE VIEW "funded_accounts" AS SELECT id FROM accounts WHERE balance > 0"#
+/// );
+/// assert_eq!(
+///     AccountIds::ddl_sql(),
+///     "TODO_PG_MVIEW"
+/// );
+/// # }
+/// # #[cfg(not(feature = "postgres"))]
+/// # fn main() {}
+/// ```
 #[cfg(feature = "postgres")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -1390,28 +1529,32 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute macro for creating `PostgreSQL` indexes.
+/// Define a `PostgreSQL` index on one or more columns of a table.
 ///
-/// This macro generates PostgreSQL-specific index definitions with support for
-/// various `PostgreSQL` index features.
+/// Apply it to a tuple struct whose fields name the indexed columns as
+/// `Table::column`. All columns must belong to the same table. Add the index
+/// to a [`PostgresSchema`] so `db.create()` and migrations include it.
 ///
 /// # Attributes
 ///
-/// - `name = "..."` / `NAME = "..."` - Set the physical index name; defaults
-///   to the struct name converted to `snake_case` with an `_idx` suffix when
-///   needed
-/// - `unique` - Create a unique index
-/// - `concurrent` - Create the index without locking out writes
-/// - `method = "..."` - Select the PostgreSQL index method
-/// - `where = "..."` - Create a partial index with a raw PostgreSQL SQL
-///   predicate; database column names inside the string are not rename-checked
-/// - No attributes for standard index
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `unique` | Create a `UNIQUE` index. |
+/// | `name = "..."` | SQL index name. Defaults to the struct name in `snake_case`, with `_idx` appended unless it already ends in `_idx` or `_index`. |
+/// | `concurrent` | `CREATE INDEX CONCURRENTLY`, which does not block writes. |
+/// | `method = "gin"` | Index method: `btree`, `hash`, `gin`, `gist`, `spgist` or `brin`. |
+/// | `tablespace = "name"` | Create the index in a tablespace. |
+/// | `where = "..."` | Partial index predicate, as raw SQL. Column names inside the string are not checked. |
+///
+/// # Generated items
+///
+/// The struct becomes a unit struct with `new()`, and `ddl_sql()` returns its
+/// `CREATE INDEX` statement.
 ///
 /// # Examples
 ///
-/// ## Unique Index
-///
-/// ```rust,no_run
+/// ```rust
+/// # #[cfg(feature = "postgres")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
@@ -1420,36 +1563,33 @@ pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     #[column(serial, primary)]
 ///     id: i32,
 ///     email: String,
+///     deleted_at: Option<i64>,
 /// }
 ///
-/// #[PostgresIndex(unique)]
-/// struct UserEmailIdx(Users::email);
+/// #[PostgresIndex(unique, method = "btree")]
+/// struct UsersEmail(Users::email);
+///
+/// #[PostgresIndex(concurrent, where = "deleted_at IS NULL")]
+/// struct LiveUsersIdx(Users::email, Users::deleted_at);
 ///
 /// #[derive(PostgresSchema)]
 /// struct Schema {
 ///     users: Users,
-///     user_email_idx: UserEmailIdx,
-/// }
-/// # }
-/// ```
-///
-/// ## Composite Index
-///
-/// ```rust,no_run
-/// # fn main() {
-/// use drizzle::postgres::prelude::*;
-///
-/// #[PostgresTable(name = "users")]
-/// struct Users {
-///     #[column(serial, primary)]
-///     id: i32,
-///     email: String,
-///     organization_id: i32,
+///     users_email: UsersEmail,
+///     live_users_idx: LiveUsersIdx,
 /// }
 ///
-/// #[PostgresIndex(unique)]
-/// struct UserOrgIdx(Users::email, Users::organization_id);
+/// assert_eq!(
+///     UsersEmail::ddl_sql(),
+///     r#"CREATE UNIQUE INDEX "users_email_idx" ON "public"."users" USING btree("email")"#
+/// );
+/// assert_eq!(
+///     LiveUsersIdx::ddl_sql(),
+///     "TODO_PG_IDX2"
+/// );
 /// # }
+/// # #[cfg(not(feature = "postgres"))]
+/// # fn main() {}
 /// ```
 #[cfg(feature = "postgres")]
 #[allow(non_snake_case)]
@@ -1464,23 +1604,55 @@ pub fn PostgresIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-/// Attribute macro for creating `PostgreSQL` row-level security policies.
+/// Define a `PostgreSQL` row-level security policy on a table.
 ///
-/// Apply this to a tuple struct containing exactly one table type:
+/// Apply it to a tuple struct holding exactly one table type. Policies apply
+/// only once row-level security is on, so mark the table `rls`, and add the
+/// policy to a [`PostgresSchema`] so it is created with the table. See
+/// [CREATE POLICY](https://www.postgresql.org/docs/current/sql-createpolicy.html).
 ///
-/// ```rust,no_run
+/// # Attributes
+///
+/// Keys are case-insensitive; all values are string literals.
+///
+/// | Attribute | Meaning |
+/// |---|---|
+/// | `name = "..."` | Policy name. Defaults to the struct name in `snake_case`. |
+/// | `AS = "PERMISSIVE"` | `PERMISSIVE` (the default) or `RESTRICTIVE`. |
+/// | `FOR = "SELECT"` | Command it applies to: `ALL`, `SELECT`, `INSERT`, `UPDATE` or `DELETE`. |
+/// | `TO("role", ...)` or `TO = "role"` | Roles it applies to. Bare identifiers work too: `TO(public)`. |
+/// | `USING = "..."` | Raw SQL condition for rows that may be read or changed. |
+/// | `WITH_CHECK = "..."` | Raw SQL condition new rows must satisfy. |
+///
+/// # Generated items
+///
+/// The struct becomes a unit struct with `new()`, `TO_ROLES`, and `ddl_sql()`,
+/// which returns the `CREATE POLICY` statement.
+///
+/// # Examples
+///
+/// ```rust
+/// # #[cfg(feature = "postgres")]
 /// # fn main() {
 /// use drizzle::postgres::prelude::*;
 ///
-/// #[PostgresTable]
-/// struct Users {
-///     #[column(primary)]
+/// #[PostgresTable(name = "documents", rls)]
+/// struct Documents {
+///     #[column(serial, primary)]
 ///     id: i32,
+///     owner: String,
 /// }
 ///
-/// #[PostgresPolicy(FOR = "SELECT", TO("public"), USING = "id > 0")]
-/// struct UsersReadPolicy(Users);
+/// #[PostgresPolicy(FOR = "SELECT", TO("public"), USING = "owner = current_user")]
+/// struct OwnerCanRead(Documents);
+///
+/// assert_eq!(
+///     OwnerCanRead::ddl_sql(),
+///     "TODO_PG_POLICY"
+/// );
 /// # }
+/// # #[cfg(not(feature = "postgres"))]
+/// # fn main() {}
 /// ```
 #[cfg(feature = "postgres")]
 #[allow(non_snake_case)]

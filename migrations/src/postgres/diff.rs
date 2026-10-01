@@ -1,7 +1,4 @@
-//! Schema diff types and logic for `PostgreSQL`
-//!
-//! This module provides diffing between `PostgreSQL` DDL collections and
-//! generates migration statements from schema changes.
+//! Diffs two PostgreSQL DDL collections into migration statements.
 
 use super::collection::{DiffType, EntityDiff, PostgresDDL, diff_ddl};
 use super::statements::{Generator, JsonStatement};
@@ -98,7 +95,7 @@ impl SchemaDiff {
     }
 }
 
-/// Compare two `PostgreSQL` snapshots
+/// Returns the entity-level differences between two PostgreSQL entity lists.
 #[must_use]
 pub fn diff_snapshots(prev_ddl: &[PostgresEntity], cur_ddl: &[PostgresEntity]) -> SchemaDiff {
     let left = PostgresDDL::from_entities(prev_ddl.to_vec());
@@ -116,7 +113,7 @@ pub fn diff_collections(prev: &PostgresDDL, cur: &PostgresDDL) -> SchemaDiff {
     }
 }
 
-/// Compare two full `PostgreSQL` snapshots
+/// Returns the entity-level differences between two PostgreSQL snapshots.
 #[must_use]
 pub fn diff_full_snapshots(prev: &PostgresSnapshot, cur: &PostgresSnapshot) -> SchemaDiff {
     diff_snapshots(&prev.ddl, &cur.ddl)
@@ -161,7 +158,7 @@ pub struct MigrationDiff {
     pub warnings: Vec<String>,
 }
 
-/// Compute a full migration diff between two `PostgreSQL` DDL states
+/// Computes the migration (diff plus SQL) between two PostgreSQL DDL states.
 #[must_use]
 pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff {
     // Heuristic rename detection (non-interactive):
@@ -824,7 +821,7 @@ fn apply_column_rename(ddl: &mut PostgresDDL, schema: &str, table: &str, from: &
     }
 }
 
-/// Compute a migration from snapshots
+/// Computes the migration (diff plus SQL) between two PostgreSQL snapshots.
 #[must_use]
 pub fn compute_migration_from_snapshots(
     prev: &PostgresSnapshot,

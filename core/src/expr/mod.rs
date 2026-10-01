@@ -1,24 +1,62 @@
-//! Type-safe SQL expression system.
+//! Type-safe SQL expressions: comparisons, logic, aggregates and functions.
 //!
-//! This module provides a type-safe wrapper around SQL expressions that tracks:
-//! - The SQL data type of the expression
-//! - Whether the expression can be NULL
-//! - Whether the expression is an aggregate or scalar
+//! Every expression carries three facts in its type:
 //!
-//! # Example
+//! - its SQL type, such as the dialect's integer or text type;
+//! - whether it can be NULL ([`NonNull`] or [`Null`]);
+//! - whether it is a plain value or an aggregate ([`Scalar`] or [`Agg`]).
+//!
+//! The functions in this module read those facts from their arguments and
+//! compute them for their result. Comparing a number with text, summing a text
+//! column, or calling a PostgreSQL-only function on SQLite fails to compile.
+//! Expressions also record which tables they read ([`ExprSources`]); a query
+//! checks that against its `FROM`/`JOIN` scope.
+//!
+//! Rust values (`i32`, `&str`, `bool`, ...) can be used wherever an expression
+//! is expected. They are sent as bound parameters (`?` on SQLite and MySQL,
+//! `$1`, `$2`, ... on PostgreSQL).
+//!
+//! The examples in this module use a `users` table with the columns `id`,
+//! `age` (integer), `name` (text), `email` (nullable text), `score` (nullable
+//! real), `active` (boolean) and `created_at` (timestamp).
+//!
+//! # Examples
 //!
 //! ```rust
-//! # let _ = r####"
-//! use drizzle_core::expr::*;
+//! # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+//! # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+//! # #[derive(Clone, Debug)] struct Value(String);
+//! # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+//! # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+//! # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+//! # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+//! # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+//! # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+//! # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+//! # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+//! let adults = and(gt(users.age, 18), like(users.name, "A%"));
+//! assert_eq!(adults.sql(), r#"("users"."age" > ? AND "users"."name" LIKE ?)"#);
 //!
-//! // Type-safe comparisons
-//! let condition = eq(users.id, 10);  // OK: Int == Int
-//! // let bad = eq(users.id, "hello"); // ERROR: Int != Text
+//! // Arithmetic uses the Rust operators.
+//! let next_year = users.age.clone() + 1;
+//! assert_eq!(next_year.sql(), r#""users"."age" + ?"#);
+//! ```
 //!
-//! // Type-safe arithmetic
-//! let total = users.price + users.tax;  // OK: both Numeric
-//! // let bad = users.name + users.id;   // ERROR: Text + Int
-//! # "####;
+//! Comparing an integer column with text does not compile:
+//!
+//! ```rust,compile_fail
+//! # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+//! # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+//! # #[derive(Clone, Debug)] struct Value(String);
+//! # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+//! # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+//! # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+//! # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+//! # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+//! # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+//! # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+//! # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+//! let wrong = eq(users.age, "hello");
 //! ```
 
 mod agg;
@@ -79,14 +117,17 @@ mod private {
 // Nullability Markers
 // =============================================================================
 
-/// Marker trait for nullability state.
+/// Type-level marker saying whether an expression can be NULL.
+///
+/// Implemented only by [`NonNull`] and [`Null`]. The associated types compute
+/// the nullability of combined expressions.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid nullability marker",
     label = "expected `NonNull` or `Null`"
 )]
 pub trait Nullability: private::Sealed + Copy + Default + 'static {
-    /// A decoded value of type `T` under this nullability: `T` for
-    /// [`NonNull`], [`MaybeNull<T>`](crate::row::MaybeNull) for [`Null`].
+    /// How a decoded value of Rust type `T` is wrapped: `T` for [`NonNull`],
+    /// [`MaybeNull<T>`](crate::row::MaybeNull) for [`Null`].
     type Decoded<T>;
 
     /// NULL propagation: nullable when either side is (`a + b`, `f(a, b)`).
@@ -99,14 +140,20 @@ pub trait Nullability: private::Sealed + Copy + Default + 'static {
     type Or<Rhs: Nullability>: Nullability;
 
     /// NULL absorption: nullable only when both sides are (`COALESCE(a, b)`).
+    ///
+    /// | Self | Rhs | And |
+    /// |------|-----|-----|
+    /// | NonNull | _ | NonNull |
+    /// | Null | NonNull | NonNull |
+    /// | Null | Null | Null |
     type And<Rhs: Nullability>: Nullability;
 }
 
-/// Marker indicating an expression cannot be NULL.
+/// Nullability marker: the expression is never NULL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NonNull;
 
-/// Marker indicating an expression can be NULL.
+/// Nullability marker: the expression can be NULL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Null;
 
@@ -123,10 +170,11 @@ impl Nullability for Null {
     type And<Rhs: Nullability> = Rhs;
 }
 
-/// Compile-time relation between a column's nullability and an assigned value.
+/// Says whether a value of nullability `Source` may be assigned to a column
+/// with nullability `Self`.
 ///
-/// Non-null expressions can be assigned to every column. Nullable expressions
-/// can only be assigned to nullable columns.
+/// Non-null values can be assigned to any column. Nullable values can only be
+/// assigned to nullable columns.
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
     message = "a nullable expression cannot be assigned to a non-null column",
@@ -143,7 +191,11 @@ impl AcceptsNullability<Null> for Null {}
 // Aggregate Kind Markers
 // =============================================================================
 
-/// Marker trait for expression aggregation state.
+/// Type-level marker saying whether an expression is an aggregate.
+///
+/// Implemented only by [`Scalar`] and [`Agg`]. Query builders use it to check
+/// that a SELECT list does not mix aggregates and plain columns without a
+/// `GROUP BY`.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid aggregate marker",
     label = "expected `Scalar` or `Agg`"
@@ -159,15 +211,16 @@ pub trait AggregateKind: private::Sealed + Copy + Default + 'static {
     /// | Agg | _ | Agg |
     type Or<Rhs: AggregateKind>: AggregateKind;
 
-    /// The SELECT-list status this kind starts from.
+    /// The SELECT-list status of a single expression of this kind
+    /// ([`AllScalar`] or [`AllAgg`]).
     type Status;
 }
 
-/// Marker indicating a scalar (non-aggregate) expression.
+/// Aggregate marker: a plain per-row expression (not an aggregate).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Scalar;
 
-/// Marker indicating an aggregate expression (COUNT, SUM, etc.).
+/// Aggregate marker: an aggregate expression such as `COUNT(...)` or `SUM(...)`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Agg;
 
@@ -186,19 +239,19 @@ impl AggregateKind for Agg {
 // Aggregate Status (for SELECT list validation)
 // =============================================================================
 
-/// Status indicating all selected expressions are scalar (non-aggregate).
+/// SELECT-list status: every selected expression is scalar.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AllScalar;
 
-/// Status indicating all selected expressions are aggregate.
+/// SELECT-list status: every selected expression is an aggregate.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AllAgg;
 
-/// Status indicating a mix of scalar and aggregate expressions.
+/// SELECT-list status: the list mixes scalar and aggregate expressions.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MixedAgg;
 
-/// Combine two aggregate statuses.
+/// Combines the SELECT-list statuses of two expressions.
 ///
 /// | Left | Right | Output |
 /// |------|-------|--------|
@@ -237,9 +290,10 @@ impl CombineAggStatus<Self> for MixedAgg {
     type Output = Self;
 }
 
-/// Extract the aggregate status of a type that appears in a SELECT list.
+/// The SELECT-list status of a type that can appear in a SELECT list.
 ///
-/// Implemented for column ZSTs (always Scalar), `SQLExpr`, and expression wrappers.
+/// Implemented for columns (always [`AllScalar`]), [`SQLExpr`], and the
+/// expression wrappers in this module.
 pub trait HasAggStatus {
     type Status;
 }
@@ -252,43 +306,15 @@ impl<T: HasAggStatus + ?Sized> HasAggStatus for &T {
 // Core Expression Trait
 // =============================================================================
 
-/// An expression in SQL with an associated data type.
-///
-/// This is the core trait for type-safe SQL expressions. Every SQL expression
-/// (column, literal, function result) implements this with its SQL type.
-///
-/// # Type Parameters
-///
-/// - `'a`: Lifetime of borrowed data in the expression
-/// - `V`: The dialect's value type (`SQLiteValue`, `PostgresValue`)
-///
-/// # Associated Types
-///
-/// - `SQLType`: The SQL data type this expression evaluates to
-/// - `Nullable`: Whether this expression can be NULL
-/// - `Aggregate`: Whether this is an aggregate or scalar expression
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::{Expr, NonNull, Scalar};
-/// use drizzle_core::types::Int;
-///
-/// // i32 literals are Int, NonNull, Scalar
-/// fn check_expr<'a, V, E: Expr<'a, V>>() {}
-/// check_expr::<_, i32>(); // SQLType=Int, Nullable=NonNull, Aggregate=Scalar
-/// # "####;
-/// ```
-/// The sources an expression reads, as a type-level tree.
+/// The tables an expression reads, as a type-level tree.
 ///
 /// Columns record their table, operators combine their operands' trees, and
-/// literals, placeholders and raw SQL read nothing (`()`). Query builders
-/// check the tree against the FROM/JOIN scope, so a column of a table that
-/// was never joined is a compile error in any clause. See [`crate::scope`]
-/// for the node types.
+/// literals, placeholders and raw SQL read nothing (`()`). Queries check the
+/// tree against their `FROM`/`JOIN` scope when they are run with `.all()`,
+/// `.get()` or `.rows()`, so using a column of a table that was never joined
+/// is a compile error. See [`crate::scope`] for the node types.
 pub trait ExprSources {
-    /// Type-level tree of [`Src`](crate::scope::Src) leaves.
+    /// Type-level tree with one [`Src`](crate::scope::Src) leaf per column read.
     type Sources;
 }
 
@@ -335,6 +361,45 @@ with_col_sizes_8!(impl_tuple_expr_sources);
 ))]
 with_col_sizes_16!(impl_tuple_expr_sources);
 
+/// A typed SQL expression.
+///
+/// Columns, Rust literals, [`SQLExpr`] values and the results of the functions
+/// in this module implement `Expr`. The associated types describe the result:
+///
+/// - `SQLType`: the SQL data type, such as the dialect's integer or text type;
+/// - `Nullable`: [`NonNull`] or [`Null`];
+/// - `Aggregate`: [`Scalar`] or [`Agg`].
+///
+/// `V` is the dialect's value type (for example `SQLiteValue` or
+/// `PostgresValue`), and `'a` is the lifetime of borrowed values inside the
+/// expression. The table macros implement this trait for generated columns;
+/// you rarely implement it yourself.
+///
+/// # Examples
+///
+/// A helper that accepts any integer expression:
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// fn is_adult<'a, E>(age: E) -> impl Expr<'a, Value>
+/// where
+///     E: Expr<'a, Value, SQLType = Int>,
+/// {
+///     gt(age, 18)
+/// }
+///
+/// assert_eq!(is_adult(users.age).into_expr_sql().sql(), r#""users"."age" > ?"#);
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid SQL expression",
     label = "expected a column, literal, or expression — does this type implement Expr?",
@@ -350,7 +415,7 @@ pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> + ExprSources {
     /// Whether this is an aggregate (COUNT, SUM) or scalar expression.
     type Aggregate: AggregateKind;
 
-    /// Render this value as a scalar expression by reference.
+    /// Renders this value as a scalar expression, borrowing it.
     ///
     /// Most expressions use their `ToSQL` implementation. A few Rust container
     /// types, notably byte buffers, need expression-specific rendering because
@@ -359,7 +424,7 @@ pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> + ExprSources {
         self.to_sql().parens_if_subquery()
     }
 
-    /// Render this value as a scalar expression, consuming it when useful.
+    /// Renders this value as a scalar expression, consuming it.
     fn into_expr_sql(self) -> crate::SQL<'a, V>
     where
         Self: Sized,
@@ -367,7 +432,7 @@ pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> + ExprSources {
         self.into_sql().parens_if_subquery()
     }
 
-    /// Render this value as one element of a [`ConditionList`].
+    /// Renders this value as one element of a [`ConditionList`].
     ///
     /// `None` means the element contributes no condition and is dropped from
     /// the combined SQL. Only `Option::None` does this; every other expression

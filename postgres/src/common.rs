@@ -2,7 +2,7 @@ use drizzle_core::schema::SQLEnumInfo;
 use drizzle_core::traits::SQLViewInfo;
 use drizzle_core::{SQLIndexInfo, SQLPolicyInfo, SQLSchemaType};
 
-/// The type of database object
+/// A schema object that a `PostgreSQL` schema can contain.
 #[derive(Debug, Clone)]
 pub enum PostgresSchemaType {
     /// A regular table
@@ -13,7 +13,7 @@ pub enum PostgresSchemaType {
     Index(&'static dyn SQLIndexInfo),
     /// A row-level security policy
     Policy(&'static dyn SQLPolicyInfo),
-    /// A trigger
+    /// A trigger (reserved; not generated yet)
     Trigger,
     /// A database enum type (`PostgreSQL`)
     Enum(&'static dyn SQLEnumInfo),
@@ -25,7 +25,7 @@ impl SQLSchemaType for PostgresSchemaType {}
 // Number Type
 //------------------------------------------------------------------------------
 
-/// Numeric type that can be either an integer or a floating point value
+/// A number that is either an integer or a float.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum Number {
     /// Integer value
@@ -52,7 +52,9 @@ impl From<f64> for Number {
     }
 }
 
-/// `PostgreSQL` transaction isolation levels
+/// `PostgreSQL` transaction isolation levels.
+///
+/// `Display` renders the SQL keyword, such as `READ COMMITTED`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresTransactionType {
     /// READ UNCOMMITTED isolation level

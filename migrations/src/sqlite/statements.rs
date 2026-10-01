@@ -1,8 +1,7 @@
-//! `SQLite` SQL statement types and generation (v7 DDL format)
+//! SQLite migration statements and their SQL rendering (v7 DDL format).
 //!
-//! This implements the full statement generation from drizzle-kit beta.
-//! - `JsonStatement` enum represents migration operations
-//! - Convertor functions convert statements to SQL strings
+//! Ported from drizzle-kit beta: `JsonStatement` describes one migration
+//! operation, and the convertor functions render each one to SQL.
 
 use crate::sqlite::ddl::{
     CheckConstraint, Column, ForeignKey, Index, PrimaryKey, Table, TableSql, UniqueConstraint, View,

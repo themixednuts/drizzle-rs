@@ -1,15 +1,15 @@
-//! Low-level migration file writer for V3 folder layouts.
+//! Low-level writer for migration folders, plus [`MigrationError`].
 //!
-//! Prefer [`crate::build::run`] for normal `build.rs` workflows. This module is the
-//! lower-level writer used for custom generation flows.
+//! Prefer [`build::run`](crate::build::run) in `build.rs`. Use this module
+//! for custom generation flows.
 //!
-//! V3 format (matches drizzle-kit):
-//! - Each migration is in its own folder: `out/{tag}/`
-//! - SQL file: `out/{tag}/migration.sql`
-//! - Snapshot: `out/{tag}/snapshot.json`
-//! - Tag format: `YYYYMMDDHHMMSS_adjective_hero` (or custom name)
+//! Folder layout (V3, matches drizzle-kit):
+//! - each migration has its own folder `out/{tag}/`
+//! - SQL in `out/{tag}/migration.sql`
+//! - snapshot in `out/{tag}/snapshot.json`
+//! - tags look like `YYYYMMDDHHMMSS_adjective_hero` (or a custom name)
 //!
-//! No journal file is used - migrations are discovered by scanning folders.
+//! There is no journal file: migrations are found by scanning folders.
 
 use crate::naming::{PrefixMode, generate_migration_tag, validate_migration_name};
 use crate::sqlite::statements::Generator as SqliteGenerator;
@@ -21,7 +21,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Publish a complete migration directory without exposing partially written files.
+/// Creates `out/{tag}/` atomically, so readers never see a half-written folder.
 ///
 /// The callback writes into a unique sibling staging directory. The staging
 /// directory is renamed to `tag` only after the callback succeeds.
@@ -74,11 +74,14 @@ pub fn publish_migration_directory(
 // Migration Writer V3 (folder-based, matches drizzle-kit)
 // =============================================================================
 
-/// Low-level writer for creating migration files in V3 folder structure.
+/// Writes migration folders in the V3 layout.
 ///
-/// V3 format creates a folder per migration:
-/// ```rust
-/// # let _ = r####"
+/// Diff-based writes ([`write_sqlite_migration`](Self::write_sqlite_migration),
+/// [`generate_migration_from_snapshots`](Self::generate_migration_from_snapshots))
+/// and [`write_custom_migration`](Self::write_custom_migration) use SQLite
+/// snapshots.
+///
+/// ```text
 /// out/
 ///   20231220143052_initial_schema/
 ///     migration.sql
@@ -86,7 +89,6 @@ pub fn publish_migration_directory(
 ///   20231221093015_add_users/
 ///     migration.sql
 ///     snapshot.json
-/// # "####;
 /// ```
 pub struct Writer {
     /// Output directory for migrations
@@ -102,7 +104,8 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// Create a new migration writer with the given settings
+    /// Creates a writer for the folder `out`, with breakpoints on and
+    /// timestamp tag prefixes.
     pub fn new(out: impl Into<PathBuf>, dialect: Dialect) -> Self {
         Self {
             out: out.into(),
@@ -113,40 +116,40 @@ impl Writer {
         }
     }
 
-    /// Set whether to use breakpoints in generated SQL
+    /// Sets whether `--> statement-breakpoint` lines separate statements.
     #[must_use]
     pub const fn with_breakpoints(mut self, enabled: bool) -> Self {
         self.breakpoints = enabled;
         self
     }
 
-    /// Set the prefix mode for migration tags
+    /// Sets how migration tags are prefixed.
     #[must_use]
     pub const fn with_prefix_mode(mut self, mode: PrefixMode) -> Self {
         self.prefix_mode = mode;
         self
     }
 
-    /// Set a custom name for the next migration
+    /// Uses `name` as the tag suffix instead of a random `adjective_hero`.
     #[must_use]
     pub fn with_custom_name(mut self, name: impl Into<String>) -> Self {
         self.custom_name = Some(name.into());
         self
     }
 
-    /// Get the migrations directory path
+    /// Returns the migrations folder.
     #[must_use]
     pub fn migrations_dir(&self) -> &Path {
         &self.out
     }
 
-    /// Get the dialect
+    /// Returns the dialect.
     #[must_use]
     pub const fn dialect(&self) -> Dialect {
         self.dialect
     }
 
-    /// Ensure the migration directory exists.
+    /// Creates the migrations folder if it is missing.
     ///
     /// # Errors
     ///
@@ -157,25 +160,25 @@ impl Writer {
         Ok(())
     }
 
-    /// Get the path to a migration folder
+    /// Returns `out/{tag}`.
     #[must_use]
     pub fn migration_folder_path(&self, tag: &str) -> PathBuf {
         self.out.join(tag)
     }
 
-    /// Get the path to a migration SQL file (V3 format: folder/migration.sql)
+    /// Returns `out/{tag}/migration.sql`.
     #[must_use]
     pub fn migration_sql_path(&self, tag: &str) -> PathBuf {
         self.migration_folder_path(tag).join("migration.sql")
     }
 
-    /// Get the path to a snapshot file (V3 format: folder/snapshot.json)
+    /// Returns `out/{tag}/snapshot.json`.
     #[must_use]
     pub fn snapshot_path(&self, tag: &str) -> PathBuf {
         self.migration_folder_path(tag).join("snapshot.json")
     }
 
-    /// Discover all existing migration folders, sorted by name.
+    /// Returns the tags of all folders that contain a `migration.sql`, sorted.
     ///
     /// # Errors
     ///
@@ -204,7 +207,8 @@ impl Writer {
         Ok(folders)
     }
 
-    /// Load the previous snapshot by scanning existing migration folders.
+    /// Loads the newest SQLite `snapshot.json`, or an empty snapshot if there
+    /// is none.
     ///
     /// # Errors
     ///
@@ -225,13 +229,17 @@ impl Writer {
         Ok(SQLiteSnapshot::new())
     }
 
-    /// Write a `SQLite` migration in V3 folder format.
+    /// Writes a SQLite migration folder for `diff` and returns its tag.
+    ///
+    /// The new snapshot is `current_snapshot` with a fresh ID, chained to the
+    /// previous snapshot.
     ///
     /// # Errors
     ///
     /// Returns [`MigrationError::NoChanges`] if the diff produces no
-    /// statements, or [`MigrationError::IoError`] if any filesystem
-    /// operation fails during migration emission.
+    /// statements, [`MigrationError::ConfigError`] if the tag already exists,
+    /// or [`MigrationError::IoError`] / [`MigrationError::SnapshotError`] if
+    /// a filesystem operation fails.
     pub fn write_sqlite_migration(
         &self,
         diff: &SqliteSchemaDiff,
@@ -292,7 +300,8 @@ impl Writer {
         Ok(tag)
     }
 
-    /// Generate migration from comparing two snapshots.
+    /// Diffs two SQLite snapshots and writes the result as a migration
+    /// folder, returning its tag.
     ///
     /// # Errors
     ///
@@ -312,12 +321,16 @@ impl Writer {
         self.write_sqlite_migration(&diff, cur)
     }
 
-    /// Write a custom (empty) migration for user SQL.
+    /// Writes a placeholder migration for hand-written SQL and returns its tag.
+    ///
+    /// The `migration.sql` holds only a comment; the snapshot is a copy of
+    /// the previous one, so the next diff is unaffected.
     ///
     /// # Errors
     ///
-    /// Returns [`MigrationError::IoError`] if directory creation or file
-    /// writes fail while emitting the placeholder migration folder.
+    /// Returns [`MigrationError::ConfigError`] if the tag already exists, or
+    /// [`MigrationError::IoError`] / [`MigrationError::SnapshotError`] if a
+    /// filesystem operation fails.
     pub fn write_custom_migration(&self) -> Result<String, MigrationError> {
         // Ensure base directory exists
         self.ensure_dirs()
@@ -369,21 +382,27 @@ impl Writer {
 // Migration Errors
 // =============================================================================
 
-/// Migration errors
+/// Errors from diffing snapshots and writing migration folders.
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {
+    /// Invalid input: bad or existing tag, unusable rename hint, or a
+    /// snapshot that cannot be diffed or rendered.
     #[error("Configuration error: {0}")]
     ConfigError(String),
 
+    /// A filesystem operation failed.
     #[error("IO error: {0}")]
     IoError(String),
 
+    /// The diff produced no statements.
     #[error("No schema changes detected")]
     NoChanges,
 
+    /// A snapshot could not be read or written.
     #[error("Snapshot error: {0}")]
     SnapshotError(String),
 
+    /// The two snapshots use different dialects.
     #[error("Dialect mismatch: cannot diff snapshots from different dialects")]
     DialectMismatch,
 }

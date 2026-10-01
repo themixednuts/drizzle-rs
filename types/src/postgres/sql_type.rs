@@ -5,10 +5,12 @@
 #[cfg(feature = "serde")]
 use crate::alloc_prelude::String;
 
-/// Enum representing supported `PostgreSQL` column types.
+/// A `PostgreSQL` column type as written in DDL.
 ///
-/// These correspond to `PostgreSQL` data types.
-/// See: <https://www.postgresql.org/docs/current/datatype.html>
+/// Some variants need a feature: `Uuid` (`uuid`), `Json`/`Jsonb`/`Enum`
+/// (`serde`), `Interval` (`chrono`), network types (`cidr`), geometric types
+/// (`geo-types`) and bit strings (`bit-vec`).
+/// See <https://www.postgresql.org/docs/current/datatype.html>.
 ///
 /// # Examples
 ///
@@ -230,9 +232,20 @@ pub enum PostgreSQLType {
 }
 
 impl PostgreSQLType {
-    /// Convert from attribute name to enum variant
+    /// Parses a lowercase type name from a column attribute, such as `"int4"`
+    /// or `"double_precision"`. Returns `None` for unknown names.
     ///
+    /// Multi-word names use underscores (`"timestamp_with_time_zone"`).
     /// For native enums, use [`Self::from_enum_attribute`] instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_types::postgres::PostgreSQLType;
+    ///
+    /// assert_eq!(PostgreSQLType::from_attribute_name("int8"), Some(PostgreSQLType::Bigint));
+    /// assert_eq!(PostgreSQLType::from_attribute_name("nope"), None);
+    /// ```
     #[must_use]
     pub fn from_attribute_name(name: &str) -> Option<Self> {
         match name {
@@ -314,16 +327,16 @@ impl PostgreSQLType {
         }
     }
 
-    /// Create a native `PostgreSQL` enum type from enum attribute
-    ///
-    /// Used for `#[enum(MyEnum)]` syntax.
+    /// Creates a native enum column type with the given type name.
     #[cfg(feature = "serde")]
     #[must_use]
     pub fn from_enum_attribute(enum_name: &str) -> Self {
         Self::Enum(String::from(enum_name))
     }
 
-    /// Get the SQL type string for this type
+    /// Returns the type as written in DDL, such as `"DOUBLE PRECISION"`.
+    ///
+    /// For a native enum this is the enum's type name.
     #[must_use]
     pub const fn to_sql_type(&self) -> &str {
         match self {
@@ -385,13 +398,13 @@ impl PostgreSQLType {
         }
     }
 
-    /// Check if this type is an auto-incrementing type
+    /// Returns `true` for the auto-incrementing types: `SMALLSERIAL`, `SERIAL`, `BIGSERIAL`.
     #[must_use]
     pub const fn is_serial(&self) -> bool {
         matches!(self, Self::Smallserial | Self::Serial | Self::Bigserial)
     }
 
-    /// Check if this type supports primary keys
+    /// Returns `true` if the type can be a primary key; `JSON` and `JSONB` cannot.
     #[must_use]
     pub const fn supports_primary_key(&self) -> bool {
         core::cfg_select! {
@@ -400,7 +413,11 @@ impl PostgreSQLType {
         }
     }
 
-    /// Check if a flag is valid for this column type
+    /// Returns `true` if the column attribute flag (such as `"identity"`,
+    /// `"json"` or `"enum"`) can be used with this type.
+    ///
+    /// `primary`, `primary_key`, `unique`, `not_null` and `check` are valid
+    /// for every type.
     #[must_use]
     pub fn is_valid_flag(&self, flag: &str) -> bool {
         match (self, flag) {

@@ -1,4 +1,5 @@
-//! Core `QueryBuilder` — pure SQL generation layer, no connection.
+//! The relational [`QueryBuilder`]: query settings and relations, without a
+//! connection.
 
 use core::marker::PhantomData;
 
@@ -82,20 +83,23 @@ pub trait IntoColumnSelection {
 // QueryBuilder
 // =============================================================================
 
-/// Core query builder. Holds relation handles and query config.
+/// Builder for a relational query: one table, its filters, and the
+/// relations to load with it.
 ///
-/// The `Rels` type parameter is the actual storage for relation handles —
-/// `()` when empty, `(RelationHandle<'a, V, R, N, C>, Rest)` when populated.
-/// This preserves the full relation tree in the type system.
+/// Drivers wrap this with a connection (`db.query(table)`) to run it.
 ///
-/// The `Cols` type parameter controls column selection — `AllColumns` (default)
-/// selects all columns, `PartialColumns` selects a subset.
+/// - `Rels` holds the relation handles added with [`with`](Self::with):
+///   `()` when empty, `(RelationHandle<...>, Rest)` otherwise, so the whole
+///   relation tree is part of the type.
+/// - `Cols` is [`AllColumns`] (default) or [`PartialColumns`].
+/// - `Cl` is a [`Clauses`] value recording which of WHERE, ORDER BY,
+///   LIMIT and OFFSET are set.
 ///
-/// The `Cl` type parameter is a [`Clauses`] composite tracking which query
-/// clauses have been set (WHERE, ORDER BY, LIMIT/OFFSET). Each clause can
-/// only be set once — the typestate prevents double-calling at compile time.
+/// # Compile-time checks
 ///
-/// The driver layer wraps this with a connection reference for execution.
+/// Each clause can be set once; calling `.r#where(...)` twice, or
+/// `.offset(...)` before `.limit(...)`, does not compile. WHERE and ORDER BY
+/// may only read columns of the queried table.
 pub struct QueryBuilder<'a, V: SQLParam, T, Rels = (), Cols = AllColumns, Cl = Clauses> {
     #[doc(hidden)]
     pub where_sql: SQL<'a, V>,
@@ -113,7 +117,7 @@ pub struct QueryBuilder<'a, V: SQLParam, T, Rels = (), Cols = AllColumns, Cl = C
 }
 
 impl<'a, V: SQLParam, T> QueryBuilder<'a, V, T> {
-    /// Creates a new empty `QueryBuilder` for the given table type.
+    /// Creates a builder for table `T` with no clauses or relations.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -135,7 +139,9 @@ impl<'a, V: SQLParam, T> Default for QueryBuilder<'a, V, T> {
 }
 
 impl<'a, V: SQLParam, T, Rels, Cols, Cl> QueryBuilder<'a, V, T, Rels, Cols, Cl> {
-    /// Includes a relation in the query results.
+    /// Loads the relation `handle` with each row.
+    ///
+    /// The relation must start from this builder's table.
     #[allow(clippy::type_complexity)]
     pub fn with<R, N, C, RCl>(
         self,
@@ -160,10 +166,11 @@ impl<'a, V: SQLParam, T, Rels, Cols, Cl> QueryBuilder<'a, V, T, Rels, Cols, Cl> 
 impl<'a, V: SQLParam, T, Rels, Cols, Ord, Lim>
     QueryBuilder<'a, V, T, Rels, Cols, Clauses<NoWhere, Ord, Lim>>
 {
-    /// Sets the WHERE clause for the query.
+    /// Sets the WHERE clause.
     ///
-    /// Can only be called once. To combine multiple conditions, use boolean
-    /// operators: `and(cond_a, cond_b)` or `or(cond_a, cond_b)`.
+    /// Can only be called once; combine conditions with `and(...)` or
+    /// `or(...)`. The condition must be boolean and may only read columns of
+    /// the queried table.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -190,10 +197,10 @@ impl<'a, V: SQLParam, T, Rels, Cols, Ord, Lim>
 impl<'a, V: SQLParam, T, Rels, Cols, W, Lim>
     QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, NoOrderBy, Lim>>
 {
-    /// Adds a typed ORDER BY clause.
+    /// Sets the ORDER BY clause, such as `asc(col)` or `(desc(a), asc(b))`.
     ///
-    /// Can only be called once. ORDER BY expressions are column references
-    /// (e.g., `asc(col)`, `desc(col)`), which never produce bind parameters.
+    /// Can only be called once. The expressions may only read columns of the
+    /// queried table.
     pub fn order_by<E, ScopeProof>(
         self,
         expr: E,
@@ -219,9 +226,8 @@ impl<'a, V: SQLParam, T, Rels, Cols, W, Lim>
 impl<'a, V: SQLParam, T, Rels, Cols, W, Ord>
     QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, NoLimit>>
 {
-    /// Sets a LIMIT on the query.
-    ///
-    /// Can only be called once. Enables calling `.offset()`.
+    /// Sets the LIMIT (see [`PaginationArg`]). Can only be called once, and
+    /// must come before [`offset`](QueryBuilder::offset).
     pub fn limit<P>(self, n: P) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, HasLimit>>
     where
         P: PaginationArg<'a, V>,
@@ -243,7 +249,8 @@ impl<'a, V: SQLParam, T, Rels, Cols, W, Ord>
 impl<'a, V: SQLParam, T, Rels, Cols, W, Ord>
     QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, HasLimit>>
 {
-    /// Sets an OFFSET on the query. Requires `.limit()` to have been called first.
+    /// Sets the OFFSET. Only available after
+    /// [`limit`](QueryBuilder::limit).
     pub fn offset<P>(self, n: P) -> QueryBuilder<'a, V, T, Rels, Cols, Clauses<W, Ord, HasOffset>>
     where
         P: PaginationArg<'a, V>,
@@ -261,11 +268,11 @@ impl<'a, V: SQLParam, T, Rels, Cols, W, Ord>
     }
 }
 
-/// Methods only available when all columns are selected (prevents double-calling).
+// Column selection can only be chosen once.
 impl<'a, V: SQLParam, T: QueryTable, Rels, Cl> QueryBuilder<'a, V, T, Rels, AllColumns, Cl> {
-    /// Selects only the specified columns (include list).
+    /// Selects only the given columns.
     ///
-    /// The result model becomes `T::PartialSelect` with only selected columns populated.
+    /// Rows decode into `T::PartialSelect`, with only these fields set.
     pub fn columns<S: IntoColumnSelection>(
         self,
         selector: S,
@@ -283,9 +290,9 @@ impl<'a, V: SQLParam, T: QueryTable, Rels, Cl> QueryBuilder<'a, V, T, Rels, AllC
         }
     }
 
-    /// Excludes the specified columns (exclude list).
+    /// Selects every column except the given ones.
     ///
-    /// The result model becomes `T::PartialSelect` with all columns except the omitted ones.
+    /// Rows decode into `T::PartialSelect`, with the omitted fields unset.
     pub fn omit<S: IntoColumnSelection>(
         self,
         selector: S,

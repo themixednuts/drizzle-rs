@@ -3,15 +3,22 @@ use crate::sql::{ColumnRef, ColumnSqlRef, TableRef, TableSqlRef};
 use crate::{OwnedParam, SQL, SQLChunk, SQLParam, ToSQL, Token};
 use smallvec::SmallVec;
 
-/// Owned version of `SQLChunk` with 'static lifetime
+/// A [`SQLChunk`] that owns all its data, so it has no lifetime.
 #[derive(Debug, Clone)]
 pub enum OwnedSQLChunk<V: SQLParam> {
+    /// A keyword or punctuation token.
     Token(Token),
+    /// A quoted identifier.
     Ident(Box<str>),
+    /// Raw SQL text, written as-is.
     Raw(Box<str>),
+    /// An unsigned integer literal.
     Number(usize),
+    /// A placeholder with an optional bound value.
     Param(OwnedParam<V>),
+    /// A table reference.
     Table(TableSqlRef),
+    /// A column reference.
     Column(ColumnSqlRef),
 }
 
@@ -49,7 +56,7 @@ impl<V: SQLParam> OwnedSQLChunk<V> {
         Self::Raw(text.into())
     }
 
-    /// Creates a parameter chunk with owned value.
+    /// Creates a parameter chunk.
     #[inline]
     pub const fn param(value: OwnedParam<V>) -> Self {
         Self::Param(value)
@@ -84,9 +91,14 @@ impl<V: SQLParam> From<OwnedSQLChunk<V>> for SQLChunk<'static, V> {
     }
 }
 
-/// Owned version of SQL with 'static lifetime
+/// A [`SQL`] fragment that owns all its data, so it can be stored without a
+/// lifetime.
+///
+/// Create one with [`SQL::into_owned`]; turn it back with
+/// [`OwnedSQL::into_sql`].
 #[derive(Debug, Clone)]
 pub struct OwnedSQL<V: SQLParam> {
+    /// The fragment's chunks, in order.
     pub chunks: SmallVec<[OwnedSQLChunk<V>; 8]>,
 }
 
@@ -107,7 +119,7 @@ impl<'a, V: SQLParam> From<SQL<'a, V>> for OwnedSQL<V> {
 }
 
 impl<V: SQLParam> OwnedSQL<V> {
-    /// Creates an empty SQL fragment with const-friendly initialization.
+    /// Creates an empty fragment. Usable in `const` contexts.
     #[inline]
     #[must_use]
     pub const fn empty() -> Self {
@@ -116,7 +128,7 @@ impl<V: SQLParam> OwnedSQL<V> {
         }
     }
 
-    /// Creates an empty SQL fragment with pre-allocated chunk capacity.
+    /// Creates an empty fragment with room for `capacity` chunks.
     #[inline]
     #[must_use]
     pub fn with_capacity_chunks(capacity: usize) -> Self {
@@ -125,14 +137,14 @@ impl<V: SQLParam> OwnedSQL<V> {
         }
     }
 
-    /// Convert to SQL with 'static lifetime
+    /// Copies this fragment into a `SQL<'static, V>`.
     pub fn to_sql(&self) -> SQL<'static, V> {
         SQL {
             chunks: self.chunks.iter().cloned().map(Into::into).collect(),
         }
     }
 
-    /// Convert into SQL with 'static lifetime (consuming)
+    /// Converts this fragment into a `SQL<'static, V>`.
     pub fn into_sql(self) -> SQL<'static, V> {
         SQL {
             chunks: self.chunks.into_iter().map(Into::into).collect(),

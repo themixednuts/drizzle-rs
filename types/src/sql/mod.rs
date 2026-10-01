@@ -1,8 +1,45 @@
-//! SQL data type markers for compile-time type safety.
+//! Traits that classify SQL type markers, so query builders can check
+//! operations at compile time.
 //!
-//! This module provides zero-sized type markers that represent SQL data types
-//! at the Rust type level, enabling the type system to verify compatible
-//! comparisons and operations at compile time.
+//! Every expression carries a SQL type marker, a zero-sized type such as
+//! [`postgres::types::Int4`](crate::postgres::types::Int4) or
+//! [`sqlite::types::Text`](crate::sqlite::types::Text). The traits here say
+//! what a marker can do:
+//!
+//! | Trait | Question it answers | Used for |
+//! |---|---|---|
+//! | [`DataType`] | Is this a SQL type marker? | every typed expression |
+//! | [`Compatible`] | Can these two types be compared? | `eq`, `lt`, `IN`, `LIKE`, ... |
+//! | [`Assignable`] | Can a value of this type be stored in that column? | bind values, `INSERT ... SELECT` |
+//! | [`Numeric`] | Is it a number? | `+ - * /`, `SUM`, `AVG`, `ABS` |
+//! | [`Integral`] | Is it an integer? | `LIMIT`/`OFFSET`, `SUBSTR` positions |
+//! | [`Floating`] | Is it a floating-point number? | dialect type aliases |
+//! | [`Textual`] | Is it a string? | `LIKE`, `UPPER`, `LENGTH`, `ILIKE`, regex |
+//! | [`Binary`] | Is it raw bytes? | dialect type aliases |
+//! | [`Temporal`] | Is it a date, time or timestamp? | date/time functions |
+//! | [`BooleanLike`] | Can it be a condition? | `WHERE`, `AND`/`OR`/`NOT`, join `ON` |
+//! | [`ArithmeticOutput`] / [`NegOutput`] | What type does arithmetic produce? | result type of `a + b`, `-a` |
+//!
+//! All traits are implemented by this crate for the dialect markers in
+//! [`sqlite::types`](crate::sqlite::types), [`postgres::types`](crate::postgres::types)
+//! and [`mysql::types`](crate::mysql::types). [`DataType`] is sealed, so
+//! other crates cannot add new markers.
+//!
+//! # Examples
+//!
+//! Generic code can require a capability with a trait bound:
+//!
+//! ```
+//! use drizzle_types::{Compatible, Numeric, postgres::types::{Float8, Int4, Text}};
+//!
+//! fn comparable<L: Compatible<R>, R: drizzle_types::DataType>() {}
+//! fn numeric<T: Numeric>() {}
+//!
+//! comparable::<Int4, Float8>(); // int4 = float8 is allowed
+//! numeric::<Int4>();
+//! // numeric::<Text>(); // error: `Text` is not a numeric SQL type
+//! # let _ = Text;
+//! ```
 
 use core::marker::PhantomData;
 
@@ -16,69 +53,144 @@ mod private {
     pub trait Sealed {}
 }
 
-/// Represents a SQL data type at the type level.
+/// A SQL type marker: a zero-sized type that stands for one SQL type.
+///
+/// Every typed expression names its SQL type through a `DataType`. This
+/// crate implements it for each dialect marker (for example
+/// [`postgres::types::Int4`](crate::postgres::types::Int4)), for
+/// [`Array<T>`], [`Placeholder`], [`Conjunction`], and for tuples of markers
+/// (row values such as `(a, b) IN (...)`; up to 8 elements by default, more
+/// with the `col16` ... `col200` features).
+///
+/// The trait is sealed: other crates cannot implement it.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a recognized SQL data type",
     label = "use a drizzle SQL type marker (Int, Text, Bool, etc.)"
 )]
 pub trait DataType: private::Sealed + Copy + 'static {}
 
-/// Numeric SQL types that support arithmetic operations (+, -, *, /).
+/// Numeric SQL types: operands of arithmetic (`+`, `-`, `*`, `/`, `%`) and
+/// numeric functions such as `SUM`, `AVG`, `ABS` and `ROUND`.
+///
+/// | Dialect | Markers |
+/// |---|---|
+/// | SQLite | `Integer`, `Real`, `Numeric`, `Any` |
+/// | PostgreSQL | `Int2`, `Int4`, `Int8`, `Float4`, `Float8`, `Numeric` |
+/// | MySQL | every integer marker (signed and unsigned), `Year`, `Float`, `Double`, `Decimal` |
+///
+/// Text, boolean, date and JSON markers are not numeric. The result type of an
+/// operation comes from [`ArithmeticOutput`].
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a numeric SQL type",
     label = "arithmetic operations require Int, SmallInt, BigInt, Float, or Double"
 )]
 pub trait Numeric: DataType {}
 
-/// Integer SQL types (SMALLINT, INTEGER, BIGINT).
+/// Integer SQL types, required where SQL expects a whole number, such as
+/// `LIMIT`/`OFFSET` and string positions.
+///
+/// | Dialect | Markers |
+/// |---|---|
+/// | SQLite | `Integer` |
+/// | PostgreSQL | `Int2`, `Int4`, `Int8` |
+/// | MySQL | every integer marker (signed and unsigned), `Year` |
+///
+/// Floating-point and decimal markers (`Real`, `Float8`, `Numeric`, ...) are not integral.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not an integer SQL type",
     label = "expected SmallInt, Int, or BigInt"
 )]
 pub trait Integral: Numeric {}
 
-/// Floating-point SQL types (REAL, DOUBLE PRECISION).
+/// Floating-point SQL types.
+///
+/// | Dialect | Markers |
+/// |---|---|
+/// | SQLite | `Real` |
+/// | PostgreSQL | `Float4` (`real`), `Float8` (`double precision`) |
+/// | MySQL | `Float`, `Double` |
+///
+/// Exact decimals (`Numeric`, `Decimal`) are not floating.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a floating-point SQL type",
     label = "expected Float or Double"
 )]
 pub trait Floating: Numeric {}
 
-/// String/text SQL types (TEXT, VARCHAR, CHAR).
+/// String SQL types: operands of `LIKE`, `ILIKE`, regex matching and string
+/// functions such as `UPPER`, `LOWER`, `LENGTH` and `CONCAT`.
+///
+/// | Dialect | Markers |
+/// |---|---|
+/// | SQLite | `Text`, `Any` |
+/// | PostgreSQL | `Text`, `Varchar`, `Char`, `Enum` |
+/// | MySQL | `Char`, `Varchar`, `TinyText`, `Text`, `MediumText`, `LongText`, `Enum`, `Set` |
+///
+/// [`Placeholder`] is also textual, so a placeholder can be a pattern. JSON,
+/// UUID and binary markers are not textual.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a text SQL type",
     label = "expected Text or VarChar"
 )]
 pub trait Textual: DataType {}
 
-/// Binary data types (BLOB, BYTEA).
+/// Raw byte SQL types.
+///
+/// | Dialect | Markers |
+/// |---|---|
+/// | SQLite | `Blob` |
+/// | PostgreSQL | `Bytea` |
+/// | MySQL | `Binary`, `Varbinary`, `TinyBlob`, `Blob`, `MediumBlob`, `LongBlob`, `Bit` |
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a binary SQL type",
     label = "expected Bytes (BLOB/BYTEA)"
 )]
 pub trait Binary: DataType {}
 
-/// Temporal SQL types (DATE, TIME, TIMESTAMP).
+/// Date and time SQL types: operands of date/time functions.
+///
+/// | Dialect | Markers |
+/// |---|---|
+/// | SQLite | `Integer`, `Real`, `Text`, `Numeric` (SQLite stores dates as Unix times, Julian days or ISO-8601 text) |
+/// | PostgreSQL | `Date`, `Time`, `Timetz`, `Timestamp`, `Timestamptz`, `Interval` |
+/// | MySQL | `Date`, `Time`, `DateTime`, `Timestamp` |
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a temporal SQL type",
     label = "expected Date, Time, Timestamp, or TimestampTz"
 )]
 pub trait Temporal: DataType {}
 
-/// Boolean-like SQL types that support logical operations (NOT, AND, OR).
+/// SQL types that can be used as a condition: in `WHERE`, `HAVING`, join
+/// `ON`, `CASE WHEN`, and with `AND`, `OR` and `NOT`.
+///
+/// | Dialect | Markers |
+/// |---|---|
+/// | SQLite | `Integer` (SQLite has no boolean type; `0` is false) |
+/// | PostgreSQL | `Boolean` |
+/// | MySQL | `Boolean` |
+///
+/// [`Conjunction`], the type of a tuple of conditions, is also boolean-like.
+/// Comparisons such as `eq` produce a boolean-like type, so they can be used
+/// as conditions directly.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a boolean SQL type",
     label = "logical operations require a boolean-typed expression"
 )]
 pub trait BooleanLike: DataType {}
 
-/// PostgreSQL-style SQL array type marker.
+/// SQL array type marker: `Array<T>` is an array whose elements have SQL type `T`.
 ///
-/// `Array<T>` represents an array whose element SQL type is `T`.
+/// Used for `PostgreSQL` array columns, such as `Array<Text>` for `text[]`.
+/// `Array<T>` is [`Compatible`] and [`Assignable`] only with the same
+/// `Array<T>`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Array<T: DataType>(pub PhantomData<T>);
 
-/// Placeholder marker used for bind parameters before concrete typing.
+/// SQL type of an untyped placeholder, whose value is bound when the query runs.
+///
+/// A placeholder has no known type yet, so it is [`Compatible`] with every
+/// dialect marker in both directions and is [`Textual`]. This lets
+/// `eq(column, Placeholder::named("id"))` compile for any column.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Placeholder;
 

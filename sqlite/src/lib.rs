@@ -1,6 +1,11 @@
-//! `SQLite` implementation for Drizzle
+//! `SQLite` dialect for drizzle-rs.
 //!
-//! This crate provides SQLite-specific types, query builders, and utilities.
+//! This crate holds the `SQLite` parts of drizzle-rs: the typed query
+//! builder ([`builder::QueryBuilder`]), values ([`values::SQLiteValue`]),
+//! JSON helpers ([`expr`]), PRAGMA statements ([`pragma`]), and the traits
+//! that `#[SQLiteTable]` and friends implement. Most applications use it
+//! through the `drizzle` crate (`drizzle::sqlite`), which adds the drivers
+//! (`rusqlite`, `libsql`, `turso`).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

@@ -1,10 +1,69 @@
-//! Deterministic database seeding for drizzle-rs.
+//! Deterministic test data for drizzle-rs schemas.
 //!
-//! Generates reproducible INSERT statements using type-aware generators
-//! and column name heuristics. FK-aware topological ordering ensures
-//! parent tables are seeded before children.
+//! [`SeedConfig`] turns a schema into INSERT statements. The same seed always
+//! gives the same rows.
 //!
-//! # Example
+//! How values are chosen, per column:
+//! 1. a [`Generator`] set with `.generator(...)`, else
+//! 2. a [`GeneratorKind`] set with `.kind(...)`, else
+//! 3. `DEFAULT` when the column has a default (and is not the primary key), else
+//! 4. a generator inferred from the SQL type and column name (`email` gets
+//!    emails, `first_name` gets first names, and so on).
+//!
+//! Parent tables are seeded before their children, and foreign keys point at
+//! generated parent rows. A child table gets `parent rows × relation count`
+//! rows (the relation count defaults to 1) unless you set its count.
+//! [`reset_plan`](SeedConfig::reset_plan) returns delete statements in
+//! child-before-parent order.
+//!
+//! Enable one dialect feature: `sqlite`, `postgres`, or `mysql`.
+//!
+//! # Examples
+//!
+//! With drizzle schema macros (`drizzle` with the `rusqlite` feature):
+//!
+//! ```rust,ignore
+//! use drizzle::sqlite::prelude::*;
+//! use drizzle_seed::{GeneratorKind, SeedConfig};
+//!
+//! #[SQLiteTable]
+//! struct Users {
+//!     #[column(primary)]
+//!     id: i32,
+//!     email: String,
+//!     nickname: String,
+//! }
+//!
+//! #[SQLiteTable]
+//! struct Posts {
+//!     #[column(primary)]
+//!     id: i32,
+//!     #[column(references = Users::id)]
+//!     user_id: i32,
+//!     title: String,
+//! }
+//!
+//! #[derive(SQLiteSchema)]
+//! struct AppSchema {
+//!     users: Users,
+//!     posts: Posts,
+//! }
+//!
+//! let schema = AppSchema::new();
+//! let statements = SeedConfig::sqlite(&schema)
+//!     .seed(42)
+//!     .count(&schema.users, 5)                     // 5 users
+//!     .relation(&schema.users, &schema.posts, 3)   // 3 posts per user: 15 posts
+//!     .kind(&schema.users.nickname, GeneratorKind::FirstName)
+//!     .generate();
+//!
+//! for statement in &statements {
+//!     println!("{}", statement.sql()); // INSERT INTO ... VALUES (...), (...), ...
+//! }
+//! ```
+//!
+//! A schema value only needs [`drizzle_core::SQLSchemaImpl`], so this
+//! compiles without the macros:
 //!
 //! ```rust
 //! # #[cfg(feature = "sqlite")]
@@ -102,15 +161,15 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 // Dialect marker types — encode the target database in the type system
 // ---------------------------------------------------------------------------
 
-/// `SQLite` dialect marker for type-safe seeder configuration.
+/// SQLite marker for [`SeedConfig`]; created by [`SeedConfig::sqlite`].
 #[cfg(feature = "sqlite")]
 pub struct Sqlite;
 
-/// `PostgreSQL` dialect marker for type-safe seeder configuration.
+/// PostgreSQL marker for [`SeedConfig`]; created by [`SeedConfig::postgres`].
 #[cfg(feature = "postgres")]
 pub struct Postgres;
 
-/// `MySQL` dialect marker for type-safe seeder configuration.
+/// MySQL marker for [`SeedConfig`]; created by [`SeedConfig::mysql`].
 #[cfg(feature = "mysql")]
 pub struct MySql;
 
@@ -192,22 +251,23 @@ mod statement {
         ($name:ident, $owned:ty, $borrowed:ty, $feature:literal) => {
             #[cfg(feature = $feature)]
             #[derive(Debug, Clone)]
-            /// An owned SQL statement produced by [`crate::SeedConfig`].
+            /// One SQL statement produced by [`SeedConfig`](crate::SeedConfig),
+            /// owning its bound values.
             ///
-            /// Inspect it with [`Self::build`] or execute it directly through
-            /// the matching drizzle driver.
+            /// Inspect it with [`sql`](Self::sql) or [`build`](Self::build),
+            /// or pass it to the matching drizzle driver to execute it.
             pub struct $name {
                 pub(crate) inner: OwnedSQL<$owned>,
             }
 
             #[cfg(feature = $feature)]
             impl $name {
-                /// Render the statement as a SQL string.
+                /// Returns the SQL text, with placeholders for bound values.
                 pub fn sql(&self) -> String {
                     self.inner.to_sql().build().0
                 }
 
-                /// Render the statement as a SQL string with bound parameters.
+                /// Returns the SQL text and the values bound to its placeholders.
                 pub fn build(&self) -> (String, Vec<$owned>) {
                     let sql = self.inner.to_sql();
                     let (text, params) = sql.build();

@@ -16,7 +16,10 @@ use drizzle_core::{
 use super::SQLiteValue;
 use super::insert::ValueWrapper;
 
-/// Represents a value for UPDATE operations that can be skipped, null, or a SQL expression.
+/// One field of a generated update model: unchanged, `NULL`, or a new value.
+///
+/// You rarely build this directly. The `with_*` setters on a generated
+/// `UpdateX` model convert their arguments into it.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum SQLiteUpdateValue<
@@ -26,19 +29,19 @@ pub enum SQLiteUpdateValue<
     Target: DataType = Any,
     TargetNull: Nullability = Null,
 > {
-    /// Don't include this column in the SET clause
+    /// Leave the column out of the SET clause.
     #[default]
     Skip,
-    /// Explicitly set column = NULL
+    /// Set the column to `NULL`.
     Null,
-    /// Set column to a SQL expression (value, placeholder, etc.)
+    /// Set the column to a bound value, placeholder or SQL expression.
     Value(ValueWrapper<'a, V, (T, Target, TargetNull)>),
 }
 
 impl<V: SQLParam, T, Target: DataType, TargetNull: Nullability>
     SQLiteUpdateValue<'_, V, T, Target, TargetNull>
 {
-    /// Returns true if this is `Skip`
+    /// Returns `true` if the column is left unchanged.
     pub const fn is_skip(&self) -> bool {
         matches!(self, Self::Skip)
     }

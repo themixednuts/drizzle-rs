@@ -79,7 +79,7 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// Create an empty snapshot.
+    /// Creates an empty catalog.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -87,12 +87,12 @@ impl Catalog {
         }
     }
 
-    /// Record an object.
+    /// Adds an object.
     pub fn push(&mut self, object: CatalogObject) {
         self.objects.push(object);
     }
 
-    /// Look up an object by kind and (optionally schema-qualified) name.
+    /// Finds an object by kind and (optionally schema-qualified) name.
     ///
     /// An unqualified lookup prefers `public` (the `PostgreSQL` default
     /// `search_path` head) and otherwise accepts a unique name match.
@@ -176,7 +176,8 @@ pub enum StatementTarget {
 }
 
 impl StatementTarget {
-    /// Whether this statement kind can ever be proven already-applied.
+    /// Returns `true` unless this is [`StatementTarget::Unclassified`], i.e.
+    /// the statement could be proven already applied.
     #[must_use]
     pub const fn is_classified(&self) -> bool {
         !matches!(self, Self::Unclassified)
@@ -223,7 +224,7 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// Statements repair refused to reconcile.
+    /// Returns the steps repair refused to reconcile.
     #[must_use]
     pub fn unresolvable(&self) -> Vec<&Step> {
         self.steps
@@ -232,7 +233,7 @@ impl Plan {
             .collect()
     }
 
-    /// Number of statements proven already applied.
+    /// Returns how many statements were proven already applied.
     #[must_use]
     pub fn skipped_count(&self) -> usize {
         self.steps
@@ -241,13 +242,17 @@ impl Plan {
             .count()
     }
 
-    /// Whether every statement was reconciled (nothing needs a human).
+    /// Returns `true` if every statement was reconciled (nothing needs a human).
     #[must_use]
     pub fn is_resolvable(&self) -> bool {
         self.unresolvable().is_empty()
     }
 
-    /// The statements that still need to run, in order.
+    /// Returns the statements that still need to run, in order.
+    ///
+    /// `table_ident` is the quoted tracking table (see
+    /// [`Migrations::table_ident_sql`](crate::Migrations::table_ident_sql)); it
+    /// appears in the manual-recovery SQL of the error message.
     ///
     /// # Errors
     ///
@@ -298,9 +303,37 @@ impl Plan {
     }
 }
 
-/// Classify every statement of `migration` against the live database.
+/// Classifies every statement of `migration` against the live database.
 ///
 /// See the [module docs](self) for the two-phase walk this implements.
+///
+/// # Examples
+///
+/// The first table was created before the crash; the second was not.
+///
+/// ```rust
+/// use drizzle_migrations::{Migration, repair};
+/// use drizzle_types::Dialect;
+///
+/// let migration = Migration::new(
+///     "0001_init",
+///     "CREATE TABLE users (id INTEGER, name TEXT);\n--> statement-breakpoint\nCREATE TABLE posts (id INTEGER);",
+/// );
+/// // Rows from `repair::sqlite::OBJECTS_QUERY`.
+/// let catalog = repair::sqlite::catalog(&[(
+///     "table".to_string(),
+///     "users".to_string(),
+///     Some("CREATE TABLE users (id INTEGER, name TEXT)".to_string()),
+/// )]);
+///
+/// let plan = repair::plan(Dialect::SQLite, &migration, &catalog);
+/// assert_eq!(plan.skipped_count(), 1);
+///
+/// let remaining = plan.into_executable(r#""__drizzle_migrations""#)?;
+/// assert_eq!(remaining.len(), 1);
+/// assert!(remaining[0].starts_with("CREATE TABLE posts"));
+/// # Ok::<(), drizzle_migrations::MigratorError>(())
+/// ```
 #[must_use]
 pub fn plan(dialect: Dialect, migration: &Migration, catalog: &Catalog) -> Plan {
     let mut steps = Vec::new();
@@ -676,7 +709,7 @@ const CONSTRAINT_KEYWORDS: [&str; 8] = [
     "period",
 ];
 
-/// Classify a single migration statement.
+/// Works out what a single migration statement creates.
 ///
 /// Returns [`StatementTarget::Unclassified`] for anything that is not a
 /// `CREATE TABLE` / `CREATE [UNIQUE] INDEX` / `CREATE VIEW` /

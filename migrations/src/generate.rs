@@ -1,19 +1,35 @@
-//! Programmatic migration generation API.
+//! Diff two schemas in memory and get the migration SQL.
 //!
-//! Diff two schema snapshots and get SQL statements — no file I/O, no CLI needed.
+//! No file I/O and no CLI. Use [`diff`] / [`diff_with`] for two
+//! [`Snapshot`]s, or [`diff_schemas`] / [`diff_schemas_with`] for two
+//! [`Schema`] values. To write a migration folder, use
+//! [`build::run`](crate::build::run) instead.
 //!
-//! # Snapshot-to-snapshot example
+//! # Examples
+//!
+//! Snapshot to snapshot:
 //!
 //! ```rust
-//! use drizzle_migrations::{Snapshot, diff};
+//! use drizzle_migrations::{Snapshot, diff, parser::SchemaParser};
+//! use drizzle_types::Dialect;
 //!
-//! let prev = Snapshot::empty(drizzle_types::Dialect::SQLite);
-//! let current = Snapshot::empty(drizzle_types::Dialect::SQLite);
-//! let migration = diff(&prev, &current).unwrap();
-//! assert!(migration.is_empty());
+//! let parsed = SchemaParser::parse(r#"
+//!     #[SQLiteTable]
+//!     pub struct Users {
+//!         #[column(primary)]
+//!         pub id: i64,
+//!         pub name: String,
+//!     }
+//! "#);
+//! let current = Snapshot::from_parse_result(&parsed, Dialect::SQLite, None);
+//!
+//! let plan = diff(&Snapshot::empty(Dialect::SQLite), &current)?;
+//! assert_eq!(plan.statements.len(), 1);
+//! assert!(plan.statements[0].starts_with("CREATE TABLE `users`"));
+//! # Ok::<(), drizzle_migrations::MigrationError>(())
 //! ```
 //!
-//! # Schema-to-schema example (recommended for runtime generation)
+//! Schema to schema, with rename hints:
 //!
 //! ```rust,no_run
 //! use drizzle_migrations::{DiffOptions, diff_schemas_with};
@@ -57,7 +73,7 @@ use crate::writer::MigrationError;
 use std::borrow::Cow;
 use std::io::{self, Write};
 
-/// Generated migration payload.
+/// The result of a diff: SQL statements, warnings, and the new snapshot.
 #[derive(Clone, Debug)]
 pub struct Plan {
     /// SQL statements for the migration.
@@ -69,7 +85,7 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// Returns true when there are no executable SQL statements.
+    /// Returns `true` when every statement is blank (nothing to run).
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.statements.is_empty()
@@ -79,13 +95,14 @@ impl Plan {
                 .all(|statement| statement.trim().is_empty())
     }
 
-    /// Format statements with `--> statement-breakpoint` markers.
+    /// Joins the statements with `--> statement-breakpoint` lines, the format
+    /// used in `migration.sql`.
     #[must_use]
     pub fn to_sql(&self) -> String {
         self.statements.join("\n--> statement-breakpoint\n")
     }
 
-    /// Write formatted migration SQL to a writer.
+    /// Writes [`to_sql`](Self::to_sql) to `writer`.
     ///
     /// # Errors
     ///
@@ -96,7 +113,11 @@ impl Plan {
     }
 }
 
-/// Explicit rename hints used during migration generation.
+/// Rename hints that turn a drop + create into a rename.
+///
+/// The differ detects only some renames on its own; without a hint, other
+/// renames become a drop plus a create, which loses data. Usually built
+/// through [`DiffOptions`]'s `rename_*` methods.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RenameHints {
     /// PostgreSQL schema rename hints. MySQL rejects these because databases
@@ -111,11 +132,13 @@ pub struct RenameHints {
 }
 
 impl RenameHints {
+    /// Creates an empty set of hints.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Adds a PostgreSQL schema rename.
     #[must_use]
     pub fn rename_schema(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.schema_renames.push(SchemaRenameHint {
@@ -125,6 +148,7 @@ impl RenameHints {
         self
     }
 
+    /// Adds a table rename in the default schema.
     #[must_use]
     pub fn rename_table(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.table_renames.push(TableRenameHint {
@@ -135,6 +159,8 @@ impl RenameHints {
         self
     }
 
+    /// Adds a table rename inside `schema` (PostgreSQL schema or MySQL
+    /// database).
     #[must_use]
     pub fn rename_table_in(
         mut self,
@@ -150,6 +176,7 @@ impl RenameHints {
         self
     }
 
+    /// Adds a column rename on `table` in the default schema.
     #[must_use]
     pub fn rename_column(
         mut self,
@@ -166,6 +193,7 @@ impl RenameHints {
         self
     }
 
+    /// Adds a column rename on `schema.table`.
     #[must_use]
     pub fn rename_column_in(
         mut self,
@@ -183,6 +211,7 @@ impl RenameHints {
         self
     }
 
+    /// Adds a view rename in the default schema.
     #[must_use]
     pub fn rename_view(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.view_renames.push(ViewRenameHint {
@@ -193,6 +222,7 @@ impl RenameHints {
         self
     }
 
+    /// Adds a view rename inside `schema`.
     #[must_use]
     pub fn rename_view_in(
         mut self,
@@ -258,7 +288,8 @@ pub struct ViewRenameHint {
 pub struct DiffOptions {
     /// Explicit rename hints applied before heuristic diffing.
     pub renames: RenameHints,
-    /// If true, every hint must apply; otherwise generation fails.
+    /// When `true`, a hint that cannot be applied (unknown object, invalid
+    /// name, unsupported for the dialect) is an error instead of being skipped.
     pub strict_renames: bool,
     /// Typed data movement for SQLite table rebuilds, bound to the exact
     /// predecessor snapshot.
@@ -269,29 +300,34 @@ pub struct DiffOptions {
 }
 
 impl DiffOptions {
+    /// Creates default options: no hints, non-strict.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Replaces all rename hints with `renames`.
     #[must_use]
     pub fn with_renames(mut self, renames: RenameHints) -> Self {
         self.renames = renames;
         self
     }
 
+    /// Sets [`strict_renames`](Self::strict_renames).
     #[must_use]
     pub const fn strict_renames(mut self, strict: bool) -> Self {
         self.strict_renames = strict;
         self
     }
 
+    /// Attaches one SQLite rebuild-data plan.
     #[must_use]
     pub fn sqlite_rebuild_data(mut self, plan: crate::sqlite::SqliteRebuildDataPlan) -> Self {
         self.sqlite_rebuild_data = Some(crate::sqlite::SqliteRebuildDataPlanRegistry::single(plan));
         self
     }
 
+    /// Attaches a registry of SQLite rebuild-data plans.
     #[must_use]
     pub fn sqlite_rebuild_data_registry(
         mut self,
@@ -301,24 +337,28 @@ impl DiffOptions {
         self
     }
 
+    /// Sets live MySQL catalog defaults (for push planning only).
     #[must_use]
     pub fn mysql_catalog_defaults(mut self, defaults: crate::mysql::MySQLCatalogDefaults) -> Self {
         self.mysql_catalog_defaults = Some(defaults);
         self
     }
 
+    /// See [`RenameHints::rename_schema`].
     #[must_use]
     pub fn rename_schema(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.renames = self.renames.rename_schema(from, to);
         self
     }
 
+    /// See [`RenameHints::rename_table`].
     #[must_use]
     pub fn rename_table(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.renames = self.renames.rename_table(from, to);
         self
     }
 
+    /// See [`RenameHints::rename_table_in`].
     #[must_use]
     pub fn rename_table_in(
         mut self,
@@ -330,6 +370,7 @@ impl DiffOptions {
         self
     }
 
+    /// See [`RenameHints::rename_column`].
     #[must_use]
     pub fn rename_column(
         mut self,
@@ -341,6 +382,7 @@ impl DiffOptions {
         self
     }
 
+    /// See [`RenameHints::rename_column_in`].
     #[must_use]
     pub fn rename_column_in(
         mut self,
@@ -353,12 +395,14 @@ impl DiffOptions {
         self
     }
 
+    /// See [`RenameHints::rename_view`].
     #[must_use]
     pub fn rename_view(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.renames = self.renames.rename_view(from, to);
         self
     }
 
+    /// See [`RenameHints::rename_view_in`].
     #[must_use]
     pub fn rename_view_in(
         mut self,
@@ -371,15 +415,24 @@ impl DiffOptions {
     }
 }
 
-/// Diff two snapshots and return the migration SQL statements.
+/// Diffs two snapshots and returns the migration [`Plan`].
 ///
-/// Both snapshots must use the same SQLite, PostgreSQL, or MySQL dialect.
-/// Returns `Ok(vec![])` if no changes are detected.
+/// Both snapshots must use the same dialect. When nothing changed, the plan
+/// has no statements ([`Plan::is_empty`]). No file I/O.
 ///
-/// This is a pure function — no file I/O, no side effects.
+/// To write a migration folder (`./drizzle/<tag>/...`), use
+/// [`build::run`](crate::build::run).
 ///
-/// For writing tagged migration directories (`./drizzle/<tag>/...`), prefer
-/// [`crate::build::run`].
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::{Snapshot, diff};
+/// use drizzle_types::Dialect;
+///
+/// let plan = diff(&Snapshot::empty(Dialect::SQLite), &Snapshot::empty(Dialect::SQLite))?;
+/// assert!(plan.is_empty());
+/// # Ok::<(), drizzle_migrations::MigrationError>(())
+/// ```
 ///
 /// # Errors
 ///
@@ -390,10 +443,27 @@ pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError>
     diff_with(prev, current, &DiffOptions::default())
 }
 
-/// Diff two snapshots with explicit generation options.
+/// Diffs two snapshots using `options` (rename hints, strict mode, etc.).
 ///
-/// Use this when you need rename hints (table/column renames) to avoid
-/// drop-and-recreate diffs.
+/// Rename hints make sure a renamed table or column becomes a rename
+/// instead of a drop + create.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::{DiffOptions, Snapshot, diff_with, parser::SchemaParser};
+/// use drizzle_types::Dialect;
+///
+/// let snapshot = |src: &str| {
+///     Snapshot::from_parse_result(&SchemaParser::parse(src), Dialect::SQLite, None)
+/// };
+/// let v1 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub name: String }");
+/// let v2 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub full_name: String }");
+///
+/// let plan = diff_with(&v1, &v2, &DiffOptions::new().rename_column("users", "name", "full_name"))?;
+/// assert_eq!(plan.statements, ["ALTER TABLE `users` RENAME COLUMN `name` TO `full_name`;"]);
+/// # Ok::<(), drizzle_migrations::MigrationError>(())
+/// ```
 ///
 /// # Errors
 ///
@@ -528,9 +598,9 @@ pub fn diff_with(
     })
 }
 
-/// Generate migration SQL from two schema values implementing [`Schema`].
+/// Diffs two [`Schema`] values (for example two `#[SQLiteSchema]` structs).
 ///
-/// This is usually the best runtime API when you already have two schema types.
+/// Same as [`diff`] on their [`Schema::to_snapshot`] results.
 ///
 /// # Errors
 ///
@@ -545,9 +615,11 @@ pub fn diff_schemas<From: Schema, To: Schema>(
     diff(&prev, &current)
 }
 
-/// Generate migration SQL from two schemas with generation options.
+/// Diffs two [`Schema`] values using `options`.
 ///
-/// # Example
+/// Same as [`diff_with`] on their [`Schema::to_snapshot`] results.
+///
+/// # Examples
 ///
 /// ```rust,no_run
 /// use drizzle_migrations::{DiffOptions, Schema, Snapshot, diff_schemas_with};

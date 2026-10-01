@@ -12,16 +12,49 @@ use compact_str::CompactString;
 use core::fmt;
 use smallvec::SmallVec;
 
-/// A pre-rendered SQL statement with parameter placeholders
-/// Structure: [text, param, text, param, text] where text segments
-/// are pre-rendered and params are placeholders to be bound later
+/// A statement rendered once, whose placeholders are bound each time it
+/// runs.
+///
+/// Create one with [`prepare_render`]; drivers wrap it in their own prepared
+/// statement types. The SQL is stored as text segments with one parameter
+/// between each pair: `[text, param, text, param, text]`. Parameters that
+/// already had a value when the statement was rendered keep it.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::prepared::prepare_render;
+/// use drizzle_core::{ParamBind, Placeholder, SQL, ToSQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = SQL::raw("SELECT * FROM users WHERE id =")
+///     .append(Placeholder::named("id").to_sql());
+/// let prepared = prepare_render(&sql);
+/// assert_eq!(prepared.sql(), "SELECT * FROM users WHERE id = :id");
+/// assert_eq!(prepared.external_param_count(), 1);
+///
+/// let (text, values) = prepared.bind([ParamBind::new("id", Value(5))])?;
+/// assert_eq!(text, "SELECT * FROM users WHERE id = :id");
+/// assert_eq!(values.collect::<Vec<_>>(), [Value(5)]);
+/// # Ok::<(), drizzle_core::error::DrizzleError>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a, V: SQLParam> {
-    /// Pre-rendered text segments
+    /// Rendered SQL text between the parameters; one more than `params`.
     pub text_segments: Box<[CompactString]>,
-    /// Parameter placeholders (in order)
+    /// The parameters, in order.
     pub params: Box<[Param<'a, V>]>,
-    /// Fully rendered SQL with placeholders for this dialect
+    /// The full SQL text, with the dialect's placeholders.
     pub sql: CompactString,
 }
 
@@ -41,8 +74,8 @@ impl<V: SQLParam> core::fmt::Display for PreparedStatement<'_, V> {
     }
 }
 
-/// Internal helper for binding parameters with optimizations
-/// Returns the bound parameter values in order.
+/// Matches `param_binds` to `params` and returns the values to send, in
+/// order. See [`PreparedStatement::bind`] for the errors.
 pub(crate) fn bind_values_internal<'a, V, T, P>(
     params: &[P],
     param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
@@ -170,9 +203,10 @@ where
 }
 
 impl<'a, V: SQLParam> PreparedStatement<'a, V> {
-    /// Returns the number of external parameter bindings expected.
-    /// This counts params that need external binding (no pre-set value),
-    /// deduplicating named params since one binding satisfies all uses.
+    /// Returns how many bindings [`bind`](Self::bind) expects.
+    ///
+    /// Counts parameters without a value, with each placeholder name counted
+    /// once, since one binding fills every use of a name.
     #[must_use]
     pub fn external_param_count(&self) -> usize {
         let mut named = HashSet::<&str>::new();
@@ -191,13 +225,17 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
         named.len() + positional
     }
 
-    /// Bind parameters and return SQL with dialect-appropriate placeholders.
-    /// Uses `$1, $2, ...` for `PostgreSQL`, `:name` or `?` for `SQLite`, `?` for `MySQL`.
+    /// Binds values to the placeholders and returns the SQL text with the
+    /// values to send, in order.
+    ///
+    /// Named bindings match placeholders by name; unnamed ones
+    /// ([`ParamBind::positional`]) fill unnamed placeholders in order. For
+    /// SQLite, a name used more than once is sent once.
     ///
     /// # Errors
     ///
-    /// Returns an error if required parameters are missing or if a named
-    /// placeholder cannot be resolved from the supplied bindings.
+    /// Returns [`DrizzleError::ParameterError`] when a name is bound twice,
+    /// a placeholder has no binding, or a binding matches no placeholder.
     pub fn bind<T: SQLParam + Into<V>>(
         &self,
         param_binds: impl IntoIterator<Item = ParamBind<'a, T>>,
@@ -212,7 +250,7 @@ impl<'a, V: SQLParam> PreparedStatement<'a, V> {
         Ok((self.sql.as_str(), bound_params.into_iter()))
     }
 
-    /// Returns the fully rendered SQL with placeholders.
+    /// Returns the SQL text, with the dialect's placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.sql.as_str()
@@ -241,7 +279,8 @@ impl<'a, V: SQLParam> ToSQL<'a, V> for PreparedStatement<'a, V> {
         SQL { chunks }
     }
 }
-/// Pre-render SQL by processing chunks and separating text from parameters
+/// Renders `sql` into a [`PreparedStatement`], splitting the text around its
+/// parameters.
 pub fn prepare_render<'a, V: SQLParam>(sql: &SQL<'a, V>) -> PreparedStatement<'a, V> {
     use crate::dialect::{Dialect, write_placeholder};
     use crate::sql::chunk_needs_space;

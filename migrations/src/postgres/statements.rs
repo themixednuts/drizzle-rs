@@ -1,4 +1,4 @@
-//! `PostgreSQL` SQL generation from schema metadata
+//! PostgreSQL migration statements and their SQL rendering.
 
 use super::collection::{DiffType, EntityDiff, PostgresDDL};
 use super::ddl::{
