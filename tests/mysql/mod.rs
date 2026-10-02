@@ -13,6 +13,8 @@ pub mod datetime_crates;
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod expressions;
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+pub mod migration_regressions;
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub mod migrations;
 #[cfg(feature = "mysql-async")]
 pub mod mysql_async;
