@@ -170,8 +170,11 @@ fn opt_i64(value: i64) -> Option<i64> {
 
 /// Ids of the page `offset+1 ..= offset+limit`, matching the id-range
 /// pagination every SpacetimeDB target uses (seeded ids are dense from 1).
-fn page_ids(offset: u32, limit: u32) -> std::ops::RangeInclusive<u32> {
-    offset.saturating_add(1)..=offset.saturating_add(limit)
+fn page_ids(offset: u32, limit: u32) -> core::range::RangeInclusive<u32> {
+    core::range::RangeInclusive {
+        start: offset.saturating_add(1),
+        last: offset.saturating_add(limit),
+    }
 }
 
 /// Wrap a requested id into the seeded id space `1..=n`.
@@ -280,6 +283,7 @@ fn contains_term(value: &str, term_lower: &str) -> bool {
 pub fn route_customers(ctx: &mut ProcedureContext, offset: u32, limit: u32) -> String {
     ctx.with_tx(|tx| {
         let rows = page_ids(offset, limit)
+            .into_iter()
             .filter_map(|id| tx.db.customers().id().find(id))
             .map(customer_response)
             .collect::<Vec<_>>();
@@ -309,6 +313,7 @@ pub fn route_customer_by_id(ctx: &mut ProcedureContext, id: i32) -> String {
 pub fn route_employees(ctx: &mut ProcedureContext, offset: u32, limit: u32) -> String {
     ctx.with_tx(|tx| {
         let rows = page_ids(offset, limit)
+            .into_iter()
             .filter_map(|id| tx.db.employees().id().find(id))
             .map(employee_response)
             .collect::<Vec<_>>();
@@ -348,6 +353,7 @@ pub fn route_employee_with_recipient(ctx: &mut ProcedureContext, id: i32) -> Str
 pub fn route_suppliers(ctx: &mut ProcedureContext, offset: u32, limit: u32) -> String {
     ctx.with_tx(|tx| {
         let rows = page_ids(offset, limit)
+            .into_iter()
             .filter_map(|id| tx.db.suppliers().id().find(id))
             .map(supplier_response)
             .collect::<Vec<_>>();
@@ -377,6 +383,7 @@ pub fn route_supplier_by_id(ctx: &mut ProcedureContext, id: i32) -> String {
 pub fn route_products(ctx: &mut ProcedureContext, offset: u32, limit: u32) -> String {
     ctx.with_tx(|tx| {
         let rows = page_ids(offset, limit)
+            .into_iter()
             .filter_map(|id| tx.db.products().id().find(id))
             .map(product_response)
             .collect::<Vec<_>>();
@@ -415,6 +422,7 @@ pub fn route_product_with_supplier(ctx: &mut ProcedureContext, id: i32) -> Strin
 pub fn route_orders_with_details(ctx: &mut ProcedureContext, offset: u32, limit: u32) -> String {
     ctx.with_tx(|tx| {
         let rows = page_ids(offset, limit)
+            .into_iter()
             .filter_map(|id| tx.db.orders().id().find(id))
             .map(|order| {
                 let details = details_of(tx, order.id);
