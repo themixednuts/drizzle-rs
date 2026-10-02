@@ -6,6 +6,7 @@
 //! - [`TypeCategory`]: how a Rust field type maps to a `MySQL` column.
 //! - [`MySQLTypeCategory`]: families of SQL type declarations, used when parsing.
 //! - [`ddl`]: schema objects (tables, columns, indexes, ...) for migrations.
+//! - [`names`]: default constraint names that fit `MySQL` identifiers.
 //! - [`default`]: the canonical `DEFAULT` clause spelling shared by every
 //!   schema producer.
 //!
@@ -14,6 +15,7 @@
 
 pub mod ddl;
 pub mod default;
+pub mod names;
 mod sql_type;
 mod type_category;
 

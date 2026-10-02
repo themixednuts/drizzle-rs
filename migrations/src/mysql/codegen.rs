@@ -1144,7 +1144,14 @@ fn foreign_key_attribute(
         }
     }
 
-    let expected_name = format!("{}_{}_fkey", table.name, foreign_key.columns[0]);
+    let collides = entities.foreign_keys.iter().any(|other| {
+        other.name != foreign_key.name && other.columns.first() == foreign_key.columns.first()
+    });
+    let name_columns: Vec<&str> = foreign_key.columns.iter().map(AsRef::as_ref).collect();
+    let expected_name = drizzle_types::mysql::names::foreign_key_name(
+        &table.name,
+        drizzle_types::mysql::names::composite_foreign_key_name_columns(&name_columns, collides),
+    );
     if foreign_key.name != expected_name {
         warnings.push(format!(
             "foreign-key name {} on {} cannot be preserved; MySQLTable derives `{expected_name}`",

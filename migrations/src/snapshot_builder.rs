@@ -1161,7 +1161,10 @@ fn build_mysql_snapshot(result: &ParseResult) -> MySQLSnapshot {
                 snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey {
                     database: database.clone().map(Cow::Owned),
                     table: Cow::Owned(table_name.clone()),
-                    name: Cow::Owned(format!("{table_name}_{column_name}_fkey")),
+                    name: Cow::Owned(drizzle_types::mysql::names::foreign_key_name(
+                        &table_name,
+                        &[column_name.as_str()],
+                    )),
                     columns: vec![Cow::Owned(column_name.clone())],
                     foreign_database,
                     foreign_table: Cow::Owned(maps.table(&reference.table)),
@@ -1183,19 +1186,41 @@ fn build_mysql_snapshot(result: &ParseResult) -> MySQLSnapshot {
             }));
         }
 
-        for foreign_key in &table.spec.composite_fks {
-            let columns: Vec<String> = foreign_key
-                .source_columns
-                .iter()
-                .map(|column| maps.field(&table.name, column))
-                .collect();
+        let composite_columns: Vec<Vec<String>> = table
+            .spec
+            .composite_fks
+            .iter()
+            .map(|foreign_key| {
+                foreign_key
+                    .source_columns
+                    .iter()
+                    .map(|column| maps.field(&table.name, column))
+                    .collect()
+            })
+            .collect();
+        for (fk_index, foreign_key) in table.spec.composite_fks.iter().enumerate() {
+            let columns = composite_columns[fk_index].clone();
             let foreign_database = table_databases
                 .get(foreign_key.target_table.as_str())
                 .and_then(|database| *database)
                 .map(|database| Cow::Owned(database.to_string()));
-            let name = format!(
-                "{table_name}_{}_fkey",
-                columns.first().cloned().unwrap_or_default()
+            // Same rule as the table macro: name after the first column unless
+            // another foreign key on this table would get the same name.
+            let first = columns.first();
+            let collides = table.fields.iter().any(|field| {
+                field.spec.references.is_some()
+                    && Some(&maps.field(&table.name, &field.name)) == first
+            }) || composite_columns
+                .iter()
+                .enumerate()
+                .any(|(other, other_columns)| other != fk_index && other_columns.first() == first);
+            let name_columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+            let name = drizzle_types::mysql::names::foreign_key_name(
+                &table_name,
+                drizzle_types::mysql::names::composite_foreign_key_name_columns(
+                    &name_columns,
+                    collides,
+                ),
             );
             snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey {
                 database: database.clone().map(Cow::Owned),
