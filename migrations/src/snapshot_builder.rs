@@ -658,11 +658,14 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
             // declared `#[postgres_enum(schema = "...")]`, otherwise the
             // `DrizzlePostgresColumn::SCHEMA` default of `public` (the
             // parser cannot evaluate user trait impls, so custom non-enum
-            // types resolve to `public` like the trait default).
-            let type_schema = if matches!(
-                crate::postgres::grammar::PgTypeCategory::from_sql_type(&sql_type),
-                crate::postgres::grammar::PgTypeCategory::Custom
-            ) {
+            // types resolve to `public` like the trait default). A declared
+            // enum is an enum whatever its name looks like (`TimeUnit`,
+            // `LineItemStatus` start like built-in type names).
+            let type_schema = if enum_schemas.contains_key(sql_type.as_str())
+                || matches!(
+                    crate::postgres::grammar::PgTypeCategory::from_sql_type(&sql_type),
+                    crate::postgres::grammar::PgTypeCategory::Custom
+                ) {
                 Some(Cow::Owned(type_schema_of(&sql_type)))
             } else {
                 None
@@ -2136,6 +2139,58 @@ pub struct Sessions {
             })
             .expect("pk");
         assert_eq!(pk.name.as_ref(), "users_pkey");
+    }
+
+    #[test]
+    fn test_postgres_enum_named_like_builtin_type_is_an_enum() {
+        // `TimeUnit` / `LineItemStatus` start like the built-in `time` /
+        // `line` types; a declared enum must still get its type schema so
+        // the column type renders quoted and qualified.
+        use crate::postgres::ddl::PostgresEntity;
+
+        let code = r#"
+#[derive(PostgresEnum, Default, Clone)]
+pub enum TimeUnit {
+    #[default]
+    Seconds,
+    Minutes,
+}
+
+#[derive(PostgresEnum, Default, Clone)]
+#[postgres_enum(schema = "billing")]
+pub enum LineItemStatus {
+    #[default]
+    Open,
+    Closed,
+}
+
+#[PostgresTable]
+pub struct Timers {
+    #[column(primary)]
+    pub id: i32,
+    #[column(enum)]
+    pub unit: TimeUnit,
+    #[column(enum)]
+    pub status: LineItemStatus,
+}
+"#;
+
+        let snap = postgres_snapshot(code);
+        let column = |name: &str| {
+            snap.ddl
+                .iter()
+                .find_map(|e| match e {
+                    PostgresEntity::Column(c) if c.name.as_ref() == name => Some(c.clone()),
+                    _ => None,
+                })
+                .expect("column")
+        };
+        let unit = column("unit");
+        assert_eq!(unit.type_schema.as_deref(), Some("public"));
+        assert_eq!(unit.type_sql(), "\"TimeUnit\"");
+        let status = column("status");
+        assert_eq!(status.type_schema.as_deref(), Some("billing"));
+        assert_eq!(status.type_sql(), "\"billing\".\"LineItemStatus\"");
     }
 
     #[test]
