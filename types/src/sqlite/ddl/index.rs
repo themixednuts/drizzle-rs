@@ -108,7 +108,7 @@ impl IndexColumn {
         if self.is_expression {
             format!("({})", self.value)
         } else {
-            format!("`{}`", self.value)
+            format!("`{}`", self.value.replace('`', "``"))
         }
     }
 }
@@ -315,6 +315,12 @@ impl From<IndexDef> for Index {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn column_names_with_backticks_are_escaped() {
+        let column = IndexColumn::new("a`b");
+        assert_eq!(column.to_sql(), "`a``b`");
+    }
 
     #[test]
     fn test_const_index_def() {

@@ -8,6 +8,7 @@ use crate::sqlite::ddl::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 /// The line that separates statements in `migration.sql` (drizzle-kit's
 /// marker).
@@ -112,7 +113,7 @@ pub enum JsonStatement {
     DropIndex(DropIndexStatement),
     /// `CREATE VIEW`.
     CreateView(CreateViewStatement),
-    /// `DROP VIEW IF EXISTS`.
+    /// `DROP VIEW`.
     DropView(DropViewStatement),
     /// Drop and re-create the view under its new name.
     RenameView(RenameViewStatement),
@@ -420,7 +421,7 @@ fn convert_add_column(st: &AddColumnStatement) -> String {
                 .map(|c| quote_ident(c))
                 .collect::<Vec<_>>()
                 .join(",");
-            if fk.name_explicit {
+            let mut reference = if fk.name_explicit {
                 format!(
                     " CONSTRAINT {} REFERENCES {}({})",
                     quote_ident(&fk.name),
@@ -429,7 +430,15 @@ fn convert_add_column(st: &AddColumnStatement) -> String {
                 )
             } else {
                 format!(" REFERENCES {}({})", quote_ident(&fk.table_to), to_cols)
+            };
+            // Same rule as `CREATE TABLE`: `NO ACTION` is the default.
+            if let Some(action) = fk.on_update.as_deref().filter(|a| *a != "NO ACTION") {
+                let _ = write!(reference, " ON UPDATE {action}");
             }
+            if let Some(action) = fk.on_delete.as_deref().filter(|a| *a != "NO ACTION") {
+                let _ = write!(reference, " ON DELETE {action}");
+            }
+            reference
         })
         .unwrap_or_default();
 
@@ -649,7 +658,7 @@ fn convert_rename_view(st: &RenameViewStatement) -> Vec<String> {
     // SQLite doesn't support RENAME VIEW, so we drop and recreate.
     // Two separate statements: executors run one statement per string.
     vec![
-        format!("DROP VIEW IF EXISTS {};", quote_ident(&st.from.name)),
+        format!("DROP VIEW {};", quote_ident(&st.from.name)),
         st.to.create_view_sql(),
     ]
 }
@@ -1043,6 +1052,27 @@ impl Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_column_keeps_foreign_key_actions() {
+        let mut fk = ForeignKey::new(
+            "posts",
+            "posts_uid_fk",
+            vec!["uid".into()],
+            "users",
+            vec!["id".into()],
+        );
+        fk.on_delete = Some("CASCADE".into());
+        fk.on_update = Some("SET NULL".into());
+        let sql = convert_add_column(&AddColumnStatement {
+            column: Column::new("posts", "uid", "integer"),
+            fk: Some(fk),
+        });
+        assert_eq!(
+            sql,
+            "ALTER TABLE `posts` ADD `uid` INTEGER REFERENCES `users`(`id`) ON UPDATE SET NULL ON DELETE CASCADE;"
+        );
+    }
     use crate::sqlite::ddl::{Column, IndexColumn};
 
     #[test]
@@ -1140,7 +1170,7 @@ mod tests {
         assert_eq!(
             statements,
             vec![
-                "DROP VIEW IF EXISTS `old_view`;".to_string(),
+                "DROP VIEW `old_view`;".to_string(),
                 "CREATE VIEW `new_view` AS SELECT 1;".to_string(),
             ]
         );
