@@ -579,3 +579,80 @@ fn concurrent_index_recreate_drops_without_concurrently() {
     );
 }
 
+#[test]
+fn equivalent_spellings_do_not_produce_alters() {
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    column(&mut prev, "users", "balance", "int4");
+    col(&mut prev, "users", "balance").default = Some(Cow::Borrowed("'-1'::integer"));
+    column(&mut prev, "users", "active", "bool");
+    col(&mut prev, "users", "active").default = Some(Cow::Borrowed("true"));
+    column(&mut prev, "users", "score", "float8");
+    column(&mut prev, "users", "ratio", "float4");
+    column(&mut prev, "users", "price", "numeric(10,0)");
+    column(&mut prev, "users", "status", "status");
+    col(&mut prev, "users", "status").type_schema = Some(Cow::Borrowed("app"));
+    col(&mut prev, "users", "status").default = Some(Cow::Borrowed("'on'::app.status"));
+    let mut index = Index::new(
+        "public",
+        "users",
+        "users_active_idx",
+        vec![IndexColumn::new("active")],
+    );
+    index.where_clause = Some(Cow::Borrowed("(active IS NOT NULL)"));
+    prev.indexes.push(index);
+
+    let mut cur = PostgresDDL::new();
+    users(&mut cur);
+    column(&mut cur, "users", "balance", "INTEGER");
+    col(&mut cur, "users", "balance").default = Some(Cow::Borrowed("-1"));
+    column(&mut cur, "users", "active", "BOOLEAN");
+    col(&mut cur, "users", "active").default = Some(Cow::Borrowed("TRUE"));
+    column(&mut cur, "users", "score", "DOUBLE PRECISION");
+    column(&mut cur, "users", "ratio", "REAL");
+    column(&mut cur, "users", "price", "numeric(10)");
+    column(&mut cur, "users", "status", "status");
+    col(&mut cur, "users", "status").type_schema = Some(Cow::Borrowed("app"));
+    col(&mut cur, "users", "status").default = Some(Cow::Borrowed("'on'"));
+    let mut index = Index::new(
+        "public",
+        "users",
+        "users_active_idx",
+        vec![IndexColumn::new("active")],
+    );
+    index.where_clause = Some(Cow::Borrowed("active IS NOT NULL"));
+    index.concurrently = true;
+    index.name_explicit = false;
+    cur.indexes.push(index);
+
+    let statements = sql(&prev, &cur);
+    assert!(statements.is_empty(), "{statements:#?}");
+}
+
+#[test]
+fn index_nulls_order_is_rendered_and_compared() {
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    column(&mut prev, "users", "score", "integer");
+    let mut cur = prev.clone();
+    cur.indexes.push(Index::new(
+        "public",
+        "users",
+        "users_score_idx",
+        vec![IndexColumn::new("score").desc().nulls_last()],
+    ));
+    assert_eq!(
+        sql(&prev, &cur),
+        ["CREATE INDEX \"users_score_idx\" ON \"users\"(\"score\" DESC NULLS LAST);"]
+    );
+
+    let mut nulls_first = cur.clone();
+    nulls_first.indexes.list_mut()[0].columns[0] = IndexColumn::new("score").desc();
+    assert_eq!(
+        sql(&cur, &nulls_first),
+        [
+            "DROP INDEX \"users_score_idx\";",
+            "CREATE INDEX \"users_score_idx\" ON \"users\"(\"score\" DESC);",
+        ]
+    );
+}

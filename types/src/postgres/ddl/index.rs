@@ -113,7 +113,8 @@ pub struct IndexColumn {
     /// Ascending order (true) or descending (false)
     #[cfg_attr(feature = "serde", serde(default = "default_true"))]
     pub asc: bool,
-    /// NULLS FIRST ordering
+    /// NULLS FIRST ordering (the effective order: `DESC` columns default
+    /// to `true`, `ASC` columns to `false`)
     #[cfg_attr(feature = "serde", serde(default))]
     pub nulls_first: bool,
     /// Operator class (optional)
@@ -149,10 +150,11 @@ impl IndexColumn {
         }
     }
 
-    /// Set descending order
+    /// Set descending order (with `PostgreSQL`'s default `NULLS FIRST`).
     #[must_use]
     pub const fn desc(mut self) -> Self {
         self.asc = false;
+        self.nulls_first = true;
         self
     }
 
@@ -160,6 +162,13 @@ impl IndexColumn {
     #[must_use]
     pub const fn nulls_first(mut self) -> Self {
         self.nulls_first = true;
+        self
+    }
+
+    /// Set NULLS LAST
+    #[must_use]
+    pub const fn nulls_last(mut self) -> Self {
+        self.nulls_first = false;
         self
     }
 
@@ -184,12 +193,12 @@ impl IndexColumn {
         if let Some(ref op) = self.opclass {
             let _ = write!(sql, " {op}");
         }
-        if !self.asc {
-            sql.push_str(" DESC");
-        }
-        if self.nulls_first {
-            sql.push_str(" NULLS FIRST");
-        }
+        sql.push_str(match (self.asc, self.nulls_first) {
+            (true, false) => "",
+            (true, true) => " NULLS FIRST",
+            (false, true) => " DESC",
+            (false, false) => " DESC NULLS LAST",
+        });
 
         sql
     }
@@ -226,7 +235,8 @@ pub struct IndexColumnDef {
     /// Ascending order (true) or descending (false)
     #[cfg_attr(feature = "serde", serde(default = "default_true"))]
     pub asc: bool,
-    /// NULLS FIRST ordering
+    /// NULLS FIRST ordering (the effective order: `DESC` columns default
+    /// to `true`, `ASC` columns to `false`)
     #[cfg_attr(feature = "serde", serde(default))]
     pub nulls_first: bool,
     /// Operator class (optional)
@@ -267,10 +277,14 @@ impl IndexColumnDef {
         }
     }
 
-    /// Set descending order
+    /// Set descending order (with `PostgreSQL`'s default `NULLS FIRST`).
     #[must_use]
     pub const fn desc(self) -> Self {
-        Self { asc: false, ..self }
+        Self {
+            asc: false,
+            nulls_first: true,
+            ..self
+        }
     }
 
     /// Set NULLS FIRST
@@ -278,6 +292,15 @@ impl IndexColumnDef {
     pub const fn nulls_first(self) -> Self {
         Self {
             nulls_first: true,
+            ..self
+        }
+    }
+
+    /// Set NULLS LAST
+    #[must_use]
+    pub const fn nulls_last(self) -> Self {
+        Self {
+            nulls_first: false,
             ..self
         }
     }

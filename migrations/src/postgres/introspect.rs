@@ -426,6 +426,7 @@ struct IdentityOptions {
     min: Option<String>,
     max: Option<String>,
     cycle: Option<bool>,
+    cache: Option<String>,
 }
 
 /// Decode the `identity_type` column: either the JSON object emitted by
@@ -449,6 +450,7 @@ fn parse_identity_type(raw: &str) -> (String, IdentityOptions) {
             min: get("min"),
             max: get("max"),
             cycle: value.get("cycle").and_then(serde_json::Value::as_bool),
+            cache: get("cache"),
         };
         return (type_str, options);
     }
@@ -499,7 +501,7 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                         min_value: options.min.map(Into::into),
                         max_value: options.max.map(Into::into),
                         start_with: options.start.map(Into::into),
-                        cache: None,
+                        cache: options.cache.and_then(|cache| cache.parse().ok()),
                         cycle: options.cycle,
                     }
                 })
@@ -514,13 +516,12 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                     None
                 }
             });
+            // COLUMNS_QUERY appends a non-default collation to the type.
+            let (raw_type, collate) = split_collation(&c.column_type);
             let column_type = if dimensions.is_some() {
-                c.column_type
-                    .strip_prefix('_')
-                    .unwrap_or(&c.column_type)
-                    .to_string()
+                raw_type.strip_prefix('_').unwrap_or(raw_type).to_string()
             } else {
-                c.column_type.clone()
+                raw_type.to_string()
             };
 
             Column {
@@ -535,15 +536,28 @@ pub fn process_columns(raw_columns: &[RawColumnInfo]) -> Vec<Column> {
                 identity,
                 dimensions,
                 comment: c.comment.clone().map(std::convert::Into::into),
-                // pg_attribute exposes attcollation but we don't read it yet
-                // (the introspect SQL doesn't pull it). Collation drift
-                // detection requires extending the SELECT — defer to a
-                // follow-up.
-                collate: None,
+                collate: collate.map(Into::into),
                 ordinal_position: Some(c.ordinal_position),
             }
         })
         .collect()
+}
+
+/// Split `type COLLATE "name"` (as [`queries::COLUMNS_QUERY`] reports a
+/// non-default collation) into the type and the unquoted collation name.
+fn split_collation(column_type: &str) -> (&str, Option<String>) {
+    let Some((ty, collation)) = column_type.split_once(" COLLATE ") else {
+        return (column_type, None);
+    };
+    let collation = collation.trim();
+    let name = collation
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .map_or_else(
+            || collation.to_string(),
+            |inner| inner.replace("\"\"", "\""),
+        );
+    (ty, Some(name))
 }
 
 /// Process raw enum info into Enum entities
@@ -804,13 +818,16 @@ pub mod queries {
     /// by index. Two derived columns pack extra detail without changing the
     /// shape:
     ///
-    /// - `column_type` appends the type modifier reconstructed from
-    ///   `character_maximum_length` / `numeric_precision+scale`, so
-    ///   `varchar(255)` and `numeric(10,2)` survive introspection instead of
-    ///   degrading to bare `varchar` / `numeric`.
+    /// - `column_type` appends the type modifier (from `format_type`, so
+    ///   `varchar(255)`, `numeric(10,2)`, `timestamp(3)` and array element
+    ///   modifiers like `varchar(10)[]` survive introspection instead of
+    ///   degrading to bare `varchar` / `numeric`), then ` COLLATE "name"`
+    ///   when the column's collation is not its type's default.
+    ///   `process_columns` splits the collation back off.
     /// - `identity_type` is a JSON object
-    ///   `{type, start, increment, min, max, cycle}` built from
-    ///   `information_schema.columns` identity metadata (the legacy plain
+    ///   `{type, start, increment, min, max, cycle, cache}` built from
+    ///   `information_schema.columns` identity metadata and the identity
+    ///   sequence (the legacy plain
     ///   `ALWAYS` / `BY DEFAULT` strings are still accepted by
     ///   `process_columns` for hand-built rows).
     pub const COLUMNS_QUERY: &str = r"
@@ -818,13 +835,20 @@ pub mod queries {
             c.table_schema AS schema,
             c.table_name AS table,
             c.column_name AS name,
-            c.udt_name || CASE
-                WHEN c.data_type != 'ARRAY' AND c.character_maximum_length IS NOT NULL
-                    THEN '(' || c.character_maximum_length || ')'
-                WHEN c.udt_name IN ('numeric', 'decimal')
-                     AND c.numeric_precision IS NOT NULL
-                     AND c.numeric_scale IS NOT NULL
-                    THEN '(' || c.numeric_precision || ',' || c.numeric_scale || ')'
+            c.udt_name || COALESCE(
+                substring(format_type(a.atttypid, a.atttypmod) from '\(.*\)'),
+                CASE
+                    WHEN c.data_type != 'ARRAY' AND c.character_maximum_length IS NOT NULL
+                        THEN '(' || c.character_maximum_length || ')'
+                    WHEN c.udt_name IN ('numeric', 'decimal')
+                         AND c.numeric_precision IS NOT NULL
+                         AND c.numeric_scale IS NOT NULL
+                        THEN '(' || c.numeric_precision || ',' || c.numeric_scale || ')'
+                    ELSE ''
+                END
+            ) || CASE
+                WHEN a.attcollation <> 0 AND a.attcollation <> ty.typcollation
+                    THEN ' COLLATE ' || quote_ident(coll.collname)
                 ELSE ''
             END AS column_type,
             c.udt_schema AS type_schema,
@@ -838,7 +862,15 @@ pub mod queries {
                     'increment', c.identity_increment,
                     'min', c.identity_minimum,
                     'max', c.identity_maximum,
-                    'cycle', c.identity_cycle = 'YES'
+                    'cycle', c.identity_cycle = 'YES',
+                    'cache', (
+                        SELECT seq.seqcache::text
+                        FROM pg_sequence seq
+                        WHERE seq.seqrelid = pg_get_serial_sequence(
+                            format('%I.%I', c.table_schema, c.table_name),
+                            c.column_name
+                        )::regclass
+                    )
                 )::text
                 ELSE NULL
             END AS identity_type,
@@ -859,6 +891,10 @@ pub mod queries {
          AND a.attname = c.column_name
          AND a.attnum > 0
          AND NOT a.attisdropped
+        LEFT JOIN pg_type ty
+          ON ty.oid = a.atttypid
+        LEFT JOIN pg_collation coll
+          ON coll.oid = a.attcollation
         WHERE c.table_schema NOT LIKE 'pg_%'
           AND c.table_schema != 'information_schema'
           AND n.oid IS NOT NULL
@@ -1015,7 +1051,19 @@ SELECT
     ix.indisunique AS is_unique,
     ix.indisprimary AS is_primary,
     am.amname AS method,
-    array_agg(pg_get_indexdef(ix.indexrelid, s.n, true) ORDER BY s.n) AS columns,
+    -- The per-column pg_get_indexdef omits the ordering and operator
+    -- class; append them so parse_index_columns sees the full key.
+    array_agg(
+        pg_get_indexdef(ix.indexrelid, s.n, true)
+        || CASE WHEN opc.opcdefault IS FALSE THEN ' ' || opc.opcname ELSE '' END
+        || CASE (ix.indoption[s.n - 1] & 3)
+            WHEN 1 THEN ' DESC NULLS LAST'
+            WHEN 2 THEN ' NULLS FIRST'
+            WHEN 3 THEN ' DESC'
+            ELSE ''
+        END
+        ORDER BY s.n
+    ) AS columns,
     pg_get_expr(ix.indpred, ix.indrelid) AS where_clause
 FROM pg_index ix
 JOIN pg_class idx ON idx.oid = ix.indexrelid
@@ -1023,10 +1071,17 @@ JOIN pg_class tbl ON tbl.oid = ix.indrelid
 JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 JOIN pg_am am ON am.oid = idx.relam
 JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
+LEFT JOIN pg_opclass opc ON opc.oid = ix.indclass[s.n - 1]
 WHERE ns.nspname NOT LIKE 'pg_%'
   AND ns.nspname <> 'information_schema'
   AND has_schema_privilege(current_user, ns.oid, 'USAGE')
   AND has_table_privilege(current_user, tbl.oid, 'SELECT')
+  -- Indexes backing a primary key or unique constraint are part of that
+  -- constraint (drizzle-kit `forPK` / `forUnique`).
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint con
+      WHERE con.conindid = ix.indexrelid AND con.contype IN ('p', 'u')
+  )
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
 ";
@@ -1045,7 +1100,19 @@ SELECT
     ix.indisunique AS is_unique,
     ix.indisprimary AS is_primary,
     am.amname AS method,
-    array_agg(pg_get_indexdef(ix.indexrelid, s.n, true) ORDER BY s.n) AS columns,
+    -- The per-column pg_get_indexdef omits the ordering and operator
+    -- class; append them so parse_index_columns sees the full key.
+    array_agg(
+        pg_get_indexdef(ix.indexrelid, s.n, true)
+        || CASE WHEN opc.opcdefault IS FALSE THEN ' ' || opc.opcname ELSE '' END
+        || CASE (ix.indoption[s.n - 1] & 3)
+            WHEN 1 THEN ' DESC NULLS LAST'
+            WHEN 2 THEN ' NULLS FIRST'
+            WHEN 3 THEN ' DESC'
+            ELSE ''
+        END
+        ORDER BY s.n
+    ) AS columns,
     pg_get_expr(ix.indpred, ix.indrelid) AS where_clause
 FROM pg_index ix
 JOIN pg_class idx ON idx.oid = ix.indexrelid
@@ -1053,9 +1120,16 @@ JOIN pg_class tbl ON tbl.oid = ix.indrelid
 JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 JOIN pg_am am ON am.oid = idx.relam
 JOIN generate_series(1, ix.indnkeyatts) AS s(n) ON TRUE
+LEFT JOIN pg_opclass opc ON opc.oid = ix.indclass[s.n - 1]
 WHERE ns.nspname = ANY($1::text[])
   AND has_schema_privilege(current_user, ns.oid, 'USAGE')
   AND has_table_privilege(current_user, tbl.oid, 'SELECT')
+  -- Indexes backing a primary key or unique constraint are part of that
+  -- constraint (drizzle-kit `forPK` / `forUnique`).
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint con
+      WHERE con.conindid = ix.indexrelid AND con.contype IN ('p', 'u')
+  )
 GROUP BY ns.nspname, tbl.relname, idx.relname, ix.indisunique, ix.indisprimary, am.amname, ix.indpred, ix.indrelid
 ORDER BY ns.nspname, tbl.relname, idx.relname
 ";
@@ -1504,7 +1578,7 @@ mod tests {
             default_value: None,
             is_identity: true,
             identity_type: Some(
-                r#"{"type":"ALWAYS","start":"100","increment":"5","min":"1","max":"1000","cycle":true}"#
+                r#"{"type":"ALWAYS","start":"100","increment":"5","min":"1","max":"1000","cycle":true,"cache":"20"}"#
                     .to_string(),
             ),
             is_generated: false,
@@ -1522,6 +1596,39 @@ mod tests {
         assert_eq!(identity.min_value.as_deref(), Some("1"));
         assert_eq!(identity.max_value.as_deref(), Some("1000"));
         assert_eq!(identity.cycle, Some(true));
+        assert_eq!(identity.cache, Some(20));
+    }
+
+    #[test]
+    fn process_columns_splits_a_non_default_collation_off_the_type() {
+        let raw = |column_type: &str| RawColumnInfo {
+            schema: "public".to_string(),
+            table: "users".to_string(),
+            name: "name".to_string(),
+            column_type: column_type.to_string(),
+            type_schema: Some("pg_catalog".to_string()),
+            not_null: false,
+            default_value: None,
+            is_identity: false,
+            identity_type: None,
+            is_generated: false,
+            generated_expression: None,
+            generated_stored: false,
+            dimensions: None,
+            comment: None,
+            ordinal_position: 1,
+        };
+
+        let columns = process_columns(&[
+            raw("text COLLATE \"C\""),
+            raw("varchar(10) COLLATE \"en\"\"x\""),
+            raw("text"),
+        ]);
+        assert_eq!(columns[0].sql_type, "text");
+        assert_eq!(columns[0].collate.as_deref(), Some("C"));
+        assert_eq!(columns[1].sql_type, "varchar(10)");
+        assert_eq!(columns[1].collate.as_deref(), Some("en\"x"));
+        assert_eq!(columns[2].collate, None);
     }
 
     #[test]

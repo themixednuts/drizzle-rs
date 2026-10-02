@@ -840,24 +840,33 @@ fn views_equivalent(left: &View, right: &View) -> bool {
     left == right
 }
 
-/// Compare indexes with NULLS ordering normalized to `PostgreSQL`'s
-/// defaults: `DESC` implies `NULLS FIRST`, `ASC` implies `NULLS LAST`. A
-/// schema-side `col DESC` (with `nulls_first` unset/false) must compare
-/// equal to the introspected column, which records the effective
-/// `nulls_first = true`.
-fn indexes_equivalent(left: &Index, right: &Index) -> bool {
+/// Compare indexes ignoring what does not change the index itself: whether
+/// it is (re)built `CONCURRENTLY` (drizzle-kit never recreates for that),
+/// whether its name was spelled out, the default `btree` method, and
+/// formatting/redundant parentheses in the predicate and key expressions
+/// (`(a IS NOT NULL)` as `PostgreSQL` prints it vs `a IS NOT NULL`).
+/// `nulls_first` is the effective NULLS order (`DESC` defaults to `NULLS
+/// FIRST`), as introspection reads it.
+pub(crate) fn indexes_equivalent(left: &Index, right: &Index) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     for index in [&mut left, &mut right] {
-        for column in &mut index.columns {
-            if !column.asc && !column.nulls_first {
-                // DESC without explicit NULLS LAST defaults to NULLS FIRST;
-                // both spellings behave identically, so compare them equal.
-                column.nulls_first = true;
-            }
-        }
+        index.concurrently = false;
+        index.name_explicit = false;
         if index.method.is_none() {
             index.method = Some(Cow::Borrowed("btree"));
+        }
+        if index.r#with.as_deref().is_some_and(|w| w.trim().is_empty()) {
+            index.r#with = None;
+        }
+        index.where_clause = index
+            .where_clause
+            .as_deref()
+            .map(|clause| Cow::Owned(normalize_expression(clause)));
+        for column in &mut index.columns {
+            if column.is_expression {
+                column.value = Cow::Owned(normalize_expression(&column.value));
+            }
         }
     }
     left == right
@@ -891,7 +900,7 @@ fn sequences_equivalent(left: &Sequence, right: &Sequence) -> bool {
     left == right
 }
 
-fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
+pub(crate) fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     left.on_delete = normalize_fk_action(left.on_delete.as_deref());
@@ -905,7 +914,7 @@ fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
     left == right
 }
 
-fn pks_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
+pub(crate) fn pks_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     // See foreign_keys_equivalent: name_explicit is provenance, not DDL.
@@ -914,7 +923,7 @@ fn pks_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
     left == right
 }
 
-fn uniques_equivalent(left: &UniqueConstraint, right: &UniqueConstraint) -> bool {
+pub(crate) fn uniques_equivalent(left: &UniqueConstraint, right: &UniqueConstraint) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     // See foreign_keys_equivalent: name_explicit is provenance, not DDL.

@@ -408,18 +408,17 @@ pub fn parse_type_params(sql_type: &str) -> Option<(String, Option<String>)> {
 }
 
 /// Returns `true` if `expr` is a `nextval('..._seq'::regclass)` default in
-/// `schema` (unqualified for `public`), as PostgreSQL stores a serial
-/// column's default.
+/// `schema`, as PostgreSQL stores a serial column's default. PostgreSQL
+/// prints the sequence relative to the session's `search_path`, so the
+/// name may be unqualified even outside `public`.
 #[must_use]
 pub fn is_serial_expression(expr: &str, schema: &str) -> bool {
-    let schema_prefix = if schema == "public" {
-        String::new()
-    } else {
-        format!("{schema}.")
-    };
+    let unqualified = expr.starts_with("nextval('") && !expr["nextval('".len()..].contains('.');
+    let qualified = schema != "public"
+        && (expr.starts_with(&format!("nextval('{schema}."))
+            || expr.starts_with(&format!("nextval('\"{schema}\".")));
 
-    (expr.starts_with(&format!("nextval('{schema_prefix}"))
-        || expr.starts_with(&format!("nextval('\"{schema_prefix}")))
+    (unqualified || qualified)
         && (expr.ends_with("_seq'::regclass)") || expr.ends_with("_seq\"'::regclass)"))
 }
 

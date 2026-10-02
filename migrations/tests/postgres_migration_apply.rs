@@ -685,3 +685,105 @@ impl TestSchema {
 // push round trip: introspecting what was created gives the same schema
 // =============================================================================
 
+#[test]
+fn second_push_of_an_unchanged_schema_is_empty() {
+    let mut db = TestSchema::new("push");
+    let s: &'static str = Box::leak(db.name.clone().into_boxed_str());
+    let mut desired = PostgresDDL::new();
+    desired.schemas.push(Schema::new(s));
+    enum_type(&mut desired, s, "Status", &["active", "archived"]);
+
+    table(&mut desired, s, "accounts");
+    column(&mut desired, s, "accounts", "id", "INTEGER");
+    col(&mut desired, "accounts", "id").not_null = true;
+    let mut identity = Identity::by_default("accounts_id_seq");
+    identity.cache = Some(5);
+    col(&mut desired, "accounts", "id").identity = Some(identity);
+    pk(&mut desired, s, "accounts", &["id"]);
+    column(&mut desired, s, "accounts", "email", "TEXT");
+    col(&mut desired, "accounts", "email").collate = Some(Cow::Borrowed("C"));
+    unique(
+        &mut desired,
+        s,
+        "accounts",
+        "accounts_email_key",
+        &["email"],
+    );
+    column(&mut desired, s, "accounts", "score", "DOUBLE PRECISION");
+    column(&mut desired, s, "accounts", "ratio", "REAL");
+    column(&mut desired, s, "accounts", "balance", "INTEGER");
+    col(&mut desired, "accounts", "balance").default = Some(Cow::Borrowed("-1"));
+    column(&mut desired, s, "accounts", "active", "BOOLEAN");
+    col(&mut desired, "accounts", "active").default = Some(Cow::Borrowed("TRUE"));
+    column(&mut desired, s, "accounts", "tags", "varchar(10)");
+    col(&mut desired, "accounts", "tags").dimensions = Some(1);
+    column(&mut desired, s, "accounts", "amounts", "numeric(10,2)");
+    col(&mut desired, "accounts", "amounts").dimensions = Some(1);
+    column(
+        &mut desired,
+        s,
+        "accounts",
+        "seen_at",
+        "timestamp(3) with time zone",
+    );
+    column(&mut desired, s, "accounts", "status", "Status");
+    col(&mut desired, "accounts", "status").type_schema = Some(Cow::Owned(s.to_string()));
+    col(&mut desired, "accounts", "status").default = Some(Cow::Borrowed("'active'"));
+    column(&mut desired, s, "accounts", "total", "integer");
+    col(&mut desired, "accounts", "total").generated = stored("balance * 2");
+    desired.checks.push(CheckConstraint::new(
+        s,
+        "accounts",
+        "accounts_status_check",
+        "email <> 'bad' AND balance > -100",
+    ));
+    let mut by_score = Index::new(
+        s,
+        "accounts",
+        "accounts_score_idx",
+        vec![
+            IndexColumn::new("score").desc().nulls_last(),
+            IndexColumn::new("email").with_opclass(Opclass::new("text_pattern_ops")),
+        ],
+    );
+    by_score.where_clause = Some(Cow::Borrowed("score IS NOT NULL"));
+    desired.indexes.push(by_score);
+    let mut concurrent = Index::new(
+        s,
+        "accounts",
+        "accounts_balance_idx",
+        vec![IndexColumn::new("balance")],
+    );
+    concurrent.name_explicit = false;
+    concurrent.concurrently = true;
+    desired.indexes.push(concurrent);
+
+    table(&mut desired, s, "notes");
+    column(&mut desired, s, "notes", "id", "serial");
+    col(&mut desired, "notes", "id").not_null = true;
+    pk(&mut desired, s, "notes", &["id"]);
+    column(&mut desired, s, "notes", "account_id", "integer");
+    fk(
+        &mut desired,
+        s,
+        "notes",
+        "notes_account_id_fkey",
+        &["account_id"],
+        "accounts",
+        &["id"],
+    );
+    let mut policy = Policy::new(s, "notes", "notes_owner");
+    policy.using = Some(Cow::Borrowed("account_id = 1"));
+    desired.policies.push(policy);
+    let mut view = View::new(s, "active_accounts");
+    view.definition = Some(Cow::Owned(format!(
+        "select id, email from \"{s}\".accounts where status = 'active'"
+    )));
+    desired.views.push(view);
+
+    let statements = db.push_twice(&desired);
+    assert!(
+        statements.is_empty(),
+        "second push must not change anything: {statements:#?}"
+    );
+}

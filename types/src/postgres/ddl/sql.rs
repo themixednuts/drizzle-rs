@@ -69,15 +69,20 @@ fn index_column_sql(column: &IndexColumn) -> String {
         let _ = write!(sql, " {op}");
     }
 
-    if !column.asc {
-        sql.push_str(" DESC");
-    }
-
-    if column.nulls_first {
-        sql.push_str(" NULLS FIRST");
-    }
+    sql.push_str(nulls_order_sql(column.asc, column.nulls_first));
 
     sql
+}
+
+/// `DESC` and the NULLS order when it differs from the direction's default
+/// (`ASC NULLS LAST`, `DESC NULLS FIRST`).
+const fn nulls_order_sql(asc: bool, nulls_first: bool) -> &'static str {
+    match (asc, nulls_first) {
+        (true, false) => "",
+        (true, true) => " NULLS FIRST",
+        (false, true) => " DESC",
+        (false, false) => " DESC NULLS LAST",
+    }
 }
 
 // =============================================================================
@@ -671,13 +676,7 @@ impl IndexColumnDef {
             let _ = write!(sql, " {op}");
         }
 
-        if !self.asc {
-            sql.push_str(" DESC");
-        }
-
-        if self.nulls_first {
-            sql.push_str(" NULLS FIRST");
-        }
+        sql.push_str(nulls_order_sql(self.asc, self.nulls_first));
 
         sql
     }
