@@ -11,12 +11,12 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use drizzle_types::mysql::MySQLTypeCategory;
-use drizzle_types::mysql::default::{canonical_default, is_current_timestamp, is_parenthesized};
 use drizzle_types::mysql::ddl::{
     CheckConstraint, Column, ForeignKey, Generated, GeneratedType, Index, IndexColumn, IndexMethod,
     InlineEnum, InlineType, PrimaryKey, ReferentialAction, Table, View, ViewAlgorithm,
     ViewCheckOption, ViewSqlSecurity,
 };
+use drizzle_types::mysql::default::{canonical_default, is_current_timestamp, is_parenthesized};
 
 use super::{MySQLCatalogDefaults, MySQLDDL, MySQLSnapshot, ValidationError};
 
@@ -337,9 +337,13 @@ pub fn assemble_ddl(mut raw: RawIntrospection) -> Result<MySQLDDL, IntrospectErr
                 && foreign_key.name == index.name
                 && !index.unique
                 && index.columns.len() == foreign_key.columns.len()
-                && index.columns.iter().zip(&foreign_key.columns).all(|(part, column)| {
-                    !part.is_expression && part.length.is_none() && part.expression == *column
-                })
+                && index
+                    .columns
+                    .iter()
+                    .zip(&foreign_key.columns)
+                    .all(|(part, column)| {
+                        !part.is_expression && part.length.is_none() && part.expression == *column
+                    })
         });
         if !auto_created {
             ddl.indexes.push(index);
@@ -419,9 +423,8 @@ fn without_charset_default(
     collation: Option<Cow<'static, str>>,
 ) -> Option<Cow<'static, str>> {
     let default = charset.and_then(super::charset::default_collation);
-    collation.filter(|collation| {
-        default.is_none_or(|default| !collation.eq_ignore_ascii_case(default))
-    })
+    collation
+        .filter(|collation| default.is_none_or(|default| !collation.eq_ignore_ascii_case(default)))
 }
 
 fn nonempty(value: Option<String>) -> Option<Cow<'static, str>> {
@@ -1500,18 +1503,48 @@ pub struct Users {
         // (expression defaults carry an extra escaping layer and charset
         // introducers; literal defaults are the raw stored value).
         let cases = [
-            ("d_text", "text", r"_utf8mb4\'hello\'", "DEFAULT_GENERATED", "('hello')"),
-            ("d_json", "json", "json_array()", "DEFAULT_GENERATED", "(json_array())"),
-            ("d_uuid", "varchar(36)", "uuid()", "DEFAULT_GENERATED", "(uuid())"),
+            (
+                "d_text",
+                "text",
+                r"_utf8mb4\'hello\'",
+                "DEFAULT_GENERATED",
+                "('hello')",
+            ),
+            (
+                "d_json",
+                "json",
+                "json_array()",
+                "DEFAULT_GENERATED",
+                "(json_array())",
+            ),
+            (
+                "d_uuid",
+                "varchar(36)",
+                "uuid()",
+                "DEFAULT_GENERATED",
+                "(uuid())",
+            ),
             ("d_blob", "blob", "0xab", "DEFAULT_GENERATED", "(X'AB')"),
             ("d_null_text", "varchar(20)", "null", "", "'null'"),
             ("d_now_text", "varchar(20)", "now()", "", "'now()'"),
             ("d_parens", "varchar(20)", "(none)", "", "'(none)'"),
             ("d_quote", "varchar(20)", "b'c", "", "'b''c'"),
-            ("d_backslash", "varchar(20)", r"back\slash", "", r"'back\\slash'"),
+            (
+                "d_backslash",
+                "varchar(20)",
+                r"back\slash",
+                "",
+                r"'back\\slash'",
+            ),
             ("d_neg_expr", "int", "-(1)", "DEFAULT_GENERATED", "(-(1))"),
             ("d_neg", "int", "-1", "", "-1"),
-            ("d_ts", "datetime", "CURRENT_TIMESTAMP", "DEFAULT_GENERATED", "CURRENT_TIMESTAMP"),
+            (
+                "d_ts",
+                "datetime",
+                "CURRENT_TIMESTAMP",
+                "DEFAULT_GENERATED",
+                "CURRENT_TIMESTAMP",
+            ),
             ("d_now", "datetime", "now()", "DEFAULT_GENERATED", "now()"),
             (
                 "d_escaped",
@@ -1533,13 +1566,10 @@ pub struct Users {
             ("d_spaces", "varchar(10)", " a ", "", "' a '"),
         ];
         let mut raw = raw();
-        raw.columns.extend(
-            cases
-                .iter()
-                .map(|(name, column_type, default, extra, _)| {
-                    catalog_column(name, column_type, default, extra)
-                }),
-        );
+        raw.columns
+            .extend(cases.iter().map(|(name, column_type, default, extra, _)| {
+                catalog_column(name, column_type, default, extra)
+            }));
         let ddl = assemble_ddl(raw).expect("valid catalog");
         for (name, _, _, _, expected) in cases {
             let column = ddl.columns.one(None, "users", name).expect(name);

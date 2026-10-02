@@ -275,7 +275,9 @@ mod tests {
 
     #[test]
     fn keeps_scalar_literals_bare() {
-        for literal in ["1", "-1", "1.5", "1e3", "TRUE", "false", "b'101'", "X'6869'", "0xab"] {
+        for literal in [
+            "1", "-1", "1.5", "1e3", "TRUE", "false", "b'101'", "X'6869'", "0xab",
+        ] {
             assert_eq!(canonical_default("int", literal), literal);
         }
         assert!(!is_literal_default("'a' 'b'"));

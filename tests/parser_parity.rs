@@ -809,13 +809,15 @@ mod mysql_parity {
             foreign_key_names.iter().all(|name| name.len() <= 64),
             "{foreign_key_names:?}"
         );
-        assert!(foreign_key_names.contains(
-            drizzle_types::mysql::names::foreign_key_name(
-                "mysql_parity_organization_membership_invitations",
-                &["inviting_organization_parent_tenant_id"],
+        assert!(
+            foreign_key_names.contains(
+                drizzle_types::mysql::names::foreign_key_name(
+                    "mysql_parity_organization_membership_invitations",
+                    &["inviting_organization_parent_tenant_id"],
+                )
+                .as_str()
             )
-            .as_str()
-        ));
+        );
         assert!(foreign_key_names.contains("mysql_parity_code_pairs_tenant_first_code_fkey"));
         assert!(foreign_key_names.contains("mysql_parity_code_pairs_tenant_second_code_fkey"));
         let default = |table: &str, name: &str| {

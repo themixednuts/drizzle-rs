@@ -25,7 +25,9 @@ pub fn hash(input: &str, len: usize) -> String {
     }
     let mut digits = Vec::with_capacity(len);
     for _ in 0..len {
-        digits.push(char::from(DICTIONARY[usize::try_from(value % dict_len).unwrap_or(0)]));
+        digits.push(char::from(
+            DICTIONARY[usize::try_from(value % dict_len).unwrap_or(0)],
+        ));
         value /= dict_len;
     }
     digits.into_iter().rev().collect()

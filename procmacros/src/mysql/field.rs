@@ -1050,7 +1050,11 @@ fn supports_character_options(ty: &MySQLType) -> bool {
 /// `DEFAULT`: the same canonical spelling the schema parser, introspection
 /// and the migration renderer use (`('text')` for TEXT/BLOB/JSON columns,
 /// `(UUID())` for function calls, bare `CURRENT_TIMESTAMP`).
-pub(crate) fn canonical_default_sql(ty: &MySQLType, args: &[u16], default: &MySQLDefault) -> String {
+pub(crate) fn canonical_default_sql(
+    ty: &MySQLType,
+    args: &[u16],
+    default: &MySQLDefault,
+) -> String {
     let (MySQLDefault::Literal(value) | MySQLDefault::Expression(value)) = default;
     drizzle_types::mysql::canonical_default(&render_type(ty, args), value)
 }

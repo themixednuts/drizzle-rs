@@ -948,10 +948,9 @@ fn mysql_default(spec: &ColumnSpec) -> Option<String> {
     let sql = match spec.default.as_ref()? {
         ParsedDefault::Int(token) | ParsedDefault::Float(token) => token.clone(),
         ParsedDefault::Bool(value) => if *value { "TRUE" } else { "FALSE" }.to_string(),
-        ParsedDefault::Str(value) => format!(
-            "'{}'",
-            value.replace('\\', "\\\\").replace('\'', "''")
-        ),
+        ParsedDefault::Str(value) => {
+            format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
+        }
         ParsedDefault::Sql(sql) => sql.clone(),
     };
     Some(drizzle_types::mysql::canonical_default(

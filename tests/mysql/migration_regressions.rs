@@ -286,8 +286,9 @@ mod sync {
         let mut connection = connect();
         drop_all(&mut connection, &REGRESSION_TABLES);
 
-        let create = drizzle::migrations::diff(&Snapshot::empty(Dialect::MySQL), &schema.to_snapshot())
-            .expect("generate the initial migration");
+        let create =
+            drizzle::migrations::diff(&Snapshot::empty(Dialect::MySQL), &schema.to_snapshot())
+                .expect("generate the initial migration");
         apply(&mut connection, &create.statements);
         let after_generate = pending(&schema);
         assert!(
@@ -424,7 +425,11 @@ pub struct Alter {
         assert!(create.contains("(`qty` < 100)"), "{create}");
         // PRIMARY plus one unique index on email; the dropped foreign key
         // took the index InnoDB created for it along.
-        assert_eq!(index_count(&mut connection, "mysql_regress_alter"), 2, "{create}");
+        assert_eq!(
+            index_count(&mut connection, "mysql_regress_alter"),
+            2,
+            "{create}"
+        );
 
         // Dropping UNIQUE drops its index.
         migrate(

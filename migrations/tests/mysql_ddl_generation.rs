@@ -263,9 +263,21 @@ struct Defaults {
         .unwrap()
         .statements
         .join("\n");
-    assert!(sql.contains("`body` TEXT NOT NULL DEFAULT ('hello')"), "{sql}");
-    assert!(sql.contains("`payload` JSON NOT NULL DEFAULT ('[]')"), "{sql}");
-    assert!(sql.contains("`uid` VARCHAR(36) NOT NULL DEFAULT (UUID())"), "{sql}");
-    assert!(sql.contains("`plain` VARCHAR(10) NOT NULL DEFAULT 'it''s'"), "{sql}");
+    assert!(
+        sql.contains("`body` TEXT NOT NULL DEFAULT ('hello')"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("`payload` JSON NOT NULL DEFAULT ('[]')"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("`uid` VARCHAR(36) NOT NULL DEFAULT (UUID())"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("`plain` VARCHAR(10) NOT NULL DEFAULT 'it''s'"),
+        "{sql}"
+    );
     assert!(sql.contains("`negative` INT NOT NULL DEFAULT -1"), "{sql}");
 }

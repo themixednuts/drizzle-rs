@@ -23,7 +23,10 @@ pub struct MacroContext<'a> {
 
 impl MacroContext<'_> {
     /// SQL names of a table-level foreign key's source columns.
-    pub(crate) fn composite_foreign_key_columns(&self, foreign_key: &CompositeForeignKeyAttr) -> Vec<String> {
+    pub(crate) fn composite_foreign_key_columns(
+        &self,
+        foreign_key: &CompositeForeignKeyAttr,
+    ) -> Vec<String> {
         foreign_key
             .source_columns
             .iter()
@@ -39,7 +42,10 @@ impl MacroContext<'_> {
     /// Default name of the column-level foreign key on `field`; the schema
     /// parser derives the same name.
     pub(crate) fn column_foreign_key_name(&self, field: &FieldInfo) -> String {
-        drizzle_types::mysql::names::foreign_key_name(&self.table_name, &[field.column_name.as_str()])
+        drizzle_types::mysql::names::foreign_key_name(
+            &self.table_name,
+            &[field.column_name.as_str()],
+        )
     }
 
     /// Default name of the `index`-th table-level foreign key: named after
@@ -48,18 +54,16 @@ impl MacroContext<'_> {
     pub(crate) fn composite_foreign_key_name(&self, index: usize) -> String {
         let columns = self.composite_foreign_key_columns(&self.attrs.composite_foreign_keys[index]);
         let first = columns.first();
-        let collides = self
-            .field_infos
-            .iter()
-            .any(|field| field.foreign_key.is_some() && Some(&field.column_name) == first)
-            || self
-                .attrs
-                .composite_foreign_keys
+        let collides =
+            self.field_infos
                 .iter()
-                .enumerate()
-                .any(|(other, foreign_key)| {
-                    other != index && self.composite_foreign_key_columns(foreign_key).first() == first
-                });
+                .any(|field| field.foreign_key.is_some() && Some(&field.column_name) == first)
+                || self.attrs.composite_foreign_keys.iter().enumerate().any(
+                    |(other, foreign_key)| {
+                        other != index
+                            && self.composite_foreign_key_columns(foreign_key).first() == first
+                    },
+                );
         let columns: Vec<&str> = columns.iter().map(String::as_str).collect();
         drizzle_types::mysql::names::foreign_key_name(
             &self.table_name,

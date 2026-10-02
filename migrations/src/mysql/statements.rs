@@ -498,7 +498,10 @@ fn render_column(column: &ColumnDefinition) -> Result<String, RenderError> {
         // bare literal for a TEXT/BLOB/JSON column or an unparenthesized
         // function call; MySQL rejects both (errors 1101 and 1064).
         sql.push_str(" DEFAULT ");
-        sql.push_str(&drizzle_types::mysql::canonical_default(&column_type, default));
+        sql.push_str(&drizzle_types::mysql::canonical_default(
+            &column_type,
+            default,
+        ));
     }
     if let Some(on_update) = &column.on_update {
         sql.push_str(" ON UPDATE ");
@@ -876,7 +879,9 @@ fn render_alter_clauses(operation: &MySQLStatement) -> Result<Vec<String>, Rende
             vec![format!("DROP INDEX {}", quote_identifier(name))]
         }
         MySQLStatement::AddUnique { unique } => vec![format!("ADD {}", render_unique(unique)?)],
-        MySQLStatement::CreateIndex { index } if index.algorithm.is_none() && index.lock.is_none() => {
+        MySQLStatement::CreateIndex { index }
+            if index.algorithm.is_none() && index.lock.is_none() =>
+        {
             vec![render_index_clause(index)?]
         }
         other => {

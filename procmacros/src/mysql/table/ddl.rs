@@ -62,7 +62,10 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
     // so `create_statements()`, generate and push agree on the schema.
     for field in ctx.field_infos {
         if let Some(reference) = &field.foreign_key {
-            let constraint = format!("CONSTRAINT {} ", quoted(&ctx.column_foreign_key_name(field)));
+            let constraint = format!(
+                "CONSTRAINT {} ",
+                quoted(&ctx.column_foreign_key_name(field))
+            );
             let source = quoted(&field.column_name);
             let target = &reference.table;
             let target_column = &reference.column;
