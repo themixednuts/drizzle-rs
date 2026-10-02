@@ -481,6 +481,11 @@ fn convert_recreate_column(st: &RecreateColumnStatement) -> Vec<String> {
     vec![drop, add]
 }
 
+/// `'text'` with embedded quotes doubled.
+fn quote_literal(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
 fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
     let name = &st.to.name;
     let new_table_name = format!("__new_{name}");
@@ -577,6 +582,28 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
         quote_ident(&new_table_name),
         quote_ident(name)
     ));
+
+    // An AUTOINCREMENT table's high-water mark lives in sqlite_sequence;
+    // the copy only raises the new table's to the largest copied id, so ids
+    // of rows deleted before the rebuild would be handed out again. Carry
+    // the old mark over (it moves with the table on RENAME).
+    if st
+        .to
+        .columns
+        .iter()
+        .any(|column| column.autoincrement == Some(true))
+    {
+        let old_name = quote_literal(name);
+        let new_name = quote_literal(&new_table_name);
+        statements.push(format!(
+            "UPDATE sqlite_sequence SET seq = (SELECT seq FROM sqlite_sequence WHERE name = {old_name}) \
+             WHERE name = {new_name} AND EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = {old_name});"
+        ));
+        statements.push(format!(
+            "INSERT INTO sqlite_sequence (name, seq) SELECT {new_name}, seq FROM sqlite_sequence \
+             WHERE name = {old_name} AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = {new_name});"
+        ));
+    }
 
     // 4. Drop old table
     statements.push(format!("DROP TABLE {};", quote_ident(name)));
@@ -1052,6 +1079,52 @@ impl Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rebuild keeps an AUTOINCREMENT table's high-water mark, so ids of
+    /// deleted rows are not handed out again (also when every row was
+    /// deleted).
+    #[test]
+    fn rebuild_keeps_the_autoincrement_high_water_mark() {
+        let table = |strict: bool| {
+            let mut id = Column::new("t", "id", "integer").autoincrement();
+            id.primary_key = Some(true);
+            TableFull {
+                name: "t".into(),
+                columns: vec![id, Column::new("t", "v", "text")],
+                pk: None,
+                fks: vec![],
+                uniques: vec![],
+                checks: vec![],
+                strict,
+                without_rowid: false,
+            }
+        };
+        let rebuild = convert_recreate_table(&RecreateTableStatement {
+            from: table(false),
+            to: table(true),
+            data: None,
+        });
+        for (inserted, deleted, expected_next) in [(3, "id = 3", 4), (2, "1 = 1", 3)] {
+            let db = rusqlite::Connection::open_in_memory().unwrap();
+            db.execute_batch(
+                "CREATE TABLE `t` (`id` INTEGER PRIMARY KEY AUTOINCREMENT, `v` TEXT);",
+            )
+            .unwrap();
+            for _ in 0..inserted {
+                db.execute("INSERT INTO t (v) VALUES ('x')", []).unwrap();
+            }
+            db.execute(&format!("DELETE FROM t WHERE {deleted}"), [])
+                .unwrap();
+            for statement in &rebuild {
+                db.execute_batch(statement).unwrap();
+            }
+            db.execute("INSERT INTO t (v) VALUES ('next')", []).unwrap();
+            let next: i64 = db
+                .query_row("SELECT id FROM t WHERE v = 'next'", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(next, expected_next, "{rebuild:#?}");
+        }
+    }
 
     #[test]
     fn add_column_keeps_foreign_key_actions() {

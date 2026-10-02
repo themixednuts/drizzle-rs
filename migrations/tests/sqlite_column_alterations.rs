@@ -597,7 +597,7 @@ fn test_add_foreign_key() {
 
     let sql = diff_sql(&from, &to);
 
-    assert_eq!(sql.len(), 6, "Expected 6 SQL statements, got: {:?}", sql);
+    assert_eq!(sql.len(), 8, "Expected 8 SQL statements, got: {:?}", sql);
     assert_eq!(sql[0], "PRAGMA foreign_keys=OFF;");
     assert_eq!(
         sql[1],
@@ -607,9 +607,19 @@ fn test_add_foreign_key() {
         sql[2],
         "INSERT INTO `__new_users`(`id`, `report_to`) SELECT `id`, `report_to` FROM `users`;"
     );
-    assert_eq!(sql[3], "DROP TABLE `users`;");
-    assert_eq!(sql[4], "ALTER TABLE `__new_users` RENAME TO `users`;");
-    assert_eq!(sql[5], "PRAGMA foreign_keys=ON;");
+    // Unlike drizzle-kit, the rebuild keeps the AUTOINCREMENT counter, so
+    // ids of deleted rows are not handed out again.
+    assert_eq!(
+        sql[3],
+        "UPDATE sqlite_sequence SET seq = (SELECT seq FROM sqlite_sequence WHERE name = 'users') WHERE name = '__new_users' AND EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'users');"
+    );
+    assert_eq!(
+        sql[4],
+        "INSERT INTO sqlite_sequence (name, seq) SELECT '__new_users', seq FROM sqlite_sequence WHERE name = 'users' AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = '__new_users');"
+    );
+    assert_eq!(sql[5], "DROP TABLE `users`;");
+    assert_eq!(sql[6], "ALTER TABLE `__new_users` RENAME TO `users`;");
+    assert_eq!(sql[7], "PRAGMA foreign_keys=ON;");
 }
 
 // =============================================================================
@@ -791,7 +801,8 @@ fn test_alter_column_multiple_tables() {
 
     let sql = diff_sql(&from, &to);
 
-    // Both tables are recreated: 6 statements per table = 12 total.
+    // Both tables are recreated: 8 statements per table (6 as in
+    // drizzle-kit, plus 2 keeping the AUTOINCREMENT counter) = 16 total.
     // Recreations are emitted in sorted table order (posts before users), so
     // the whole sequence is deterministic and asserted exactly.
     assert_eq!(
@@ -801,6 +812,8 @@ fn test_alter_column_multiple_tables() {
             "PRAGMA foreign_keys=OFF;",
             "CREATE TABLE `__new_posts` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`name` TEXT NOT NULL,\n\t`user_id` INTEGER\n);",
             "INSERT INTO `__new_posts`(`id`, `name`, `user_id`) SELECT `id`, `name`, `user_id` FROM `posts`;",
+            "UPDATE sqlite_sequence SET seq = (SELECT seq FROM sqlite_sequence WHERE name = 'posts') WHERE name = '__new_posts' AND EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'posts');",
+            "INSERT INTO sqlite_sequence (name, seq) SELECT '__new_posts', seq FROM sqlite_sequence WHERE name = 'posts' AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = '__new_posts');",
             "DROP TABLE `posts`;",
             "ALTER TABLE `__new_posts` RENAME TO `posts`;",
             "PRAGMA foreign_keys=ON;",
@@ -808,6 +821,8 @@ fn test_alter_column_multiple_tables() {
             "PRAGMA foreign_keys=OFF;",
             "CREATE TABLE `__new_users` (\n\t`id` INTEGER PRIMARY KEY AUTOINCREMENT,\n\t`name` TEXT\n);",
             "INSERT INTO `__new_users`(`id`, `name`) SELECT `id`, `name` FROM `users`;",
+            "UPDATE sqlite_sequence SET seq = (SELECT seq FROM sqlite_sequence WHERE name = 'users') WHERE name = '__new_users' AND EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'users');",
+            "INSERT INTO sqlite_sequence (name, seq) SELECT '__new_users', seq FROM sqlite_sequence WHERE name = 'users' AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = '__new_users');",
             "DROP TABLE `users`;",
             "ALTER TABLE `__new_users` RENAME TO `users`;",
             "PRAGMA foreign_keys=ON;",
