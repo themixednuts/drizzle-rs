@@ -23,7 +23,10 @@
 //!
 //!    Text is cut to a declared `VARCHAR(n)`/`CHAR(n)` length.
 //!
-//! `UNIQUE` columns and single-column primary keys get distinct values.
+//! `UNIQUE` columns and single-column primary keys get distinct values, and
+//! a row that would repeat a composite primary key or multi-column `UNIQUE`
+//! key (for example two equal `(user_id, post_id)` pairs in a join table)
+//! is dropped.
 //! Parent tables are seeded before their children, and foreign key columns
 //! are overwritten to point at generated parent rows. A child table without
 //! its own count gets `parent rows × relation count` rows (the relation count
@@ -529,6 +532,12 @@ where
                 all_rows.push(row);
             }
 
+            // Foreign key values come from the parent rows, so two rows can
+            // repeat a composite key (`(user_id, post_id)` in a join table).
+            // Drop the repeats instead of emitting an INSERT that fails.
+            drop_composite_key_repeats(table, &col_index_map, &mut all_rows);
+            let count = all_rows.len();
+
             // Store generated values for all columns for FK/composite resolution
             for (col_idx, col) in columns.iter().enumerate() {
                 let vals: Vec<SeedValue> =
@@ -972,6 +981,65 @@ fn unique_column(table: &TableRef, column: &ColumnRef) -> bool {
             constraint.kind == drizzle_core::SQLConstraintKind::Unique
                 && constraint.columns == [column.name]
         })
+}
+
+/// Removes rows that repeat an earlier row's composite primary key or
+/// multi-column `UNIQUE` constraint. Rows with a `NULL` (or `DEFAULT`) in
+/// the key are kept, as the database does not compare those.
+fn drop_composite_key_repeats(
+    table: &TableRef,
+    column_indexes: &HashMap<&'static str, usize>,
+    rows: &mut Vec<Vec<SeedValue>>,
+) {
+    let primary_key = table
+        .primary_key
+        .as_ref()
+        .map(|pk| pk.columns)
+        .unwrap_or_default();
+    let keys: Vec<Vec<usize>> = std::iter::once(primary_key)
+        .chain(
+            table
+                .constraints
+                .iter()
+                .filter(|constraint| constraint.kind == drizzle_core::SQLConstraintKind::Unique)
+                .map(|constraint| constraint.columns),
+        )
+        .filter(|columns| columns.len() > 1)
+        .filter_map(|columns| {
+            columns
+                .iter()
+                .map(|column| column_indexes.get(column).copied())
+                .collect()
+        })
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+    let mut seen: Vec<HashSet<String>> = vec![HashSet::new(); keys.len()];
+    rows.retain(|row| {
+        let tuples: Vec<Option<String>> = keys
+            .iter()
+            .map(|key| {
+                let values: Vec<&SeedValue> = key.iter().map(|&index| &row[index]).collect();
+                values
+                    .iter()
+                    .all(|value| !matches!(value, SeedValue::Null | SeedValue::Default))
+                    .then(|| format!("{values:?}"))
+            })
+            .collect();
+        let repeats = tuples
+            .iter()
+            .zip(&seen)
+            .any(|(tuple, seen)| tuple.as_ref().is_some_and(|tuple| seen.contains(tuple)));
+        if !repeats {
+            for (tuple, seen) in tuples.into_iter().zip(&mut seen) {
+                if let Some(tuple) = tuple {
+                    seen.insert(tuple);
+                }
+            }
+        }
+        !repeats
+    });
 }
 
 /// Returns a value not yet in `seen` for a unique column: regenerate a few

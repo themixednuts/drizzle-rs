@@ -826,6 +826,64 @@ mod executed {
         pub typed: SeedTyped,
     }
 
+    #[SQLiteTable(NAME = "seed_member")]
+    pub struct SeedMember {
+        #[column(PRIMARY)]
+        pub id: i64,
+        pub name: String,
+    }
+
+    #[SQLiteTable(NAME = "seed_group")]
+    pub struct SeedGroup {
+        #[column(PRIMARY)]
+        pub id: i64,
+        pub title: String,
+    }
+
+    #[SQLiteTable(NAME = "seed_membership")]
+    pub struct SeedMembership {
+        #[column(PRIMARY, REFERENCES = SeedMember::id)]
+        pub member_id: i64,
+        #[column(PRIMARY, REFERENCES = SeedGroup::id)]
+        pub group_id: i64,
+    }
+
+    #[derive(SQLiteSchema)]
+    pub struct SeedMembershipSchema {
+        pub member: SeedMember,
+        pub group: SeedGroup,
+        pub membership: SeedMembership,
+    }
+
+    #[drizzle::test]
+    fn join_table_rows_never_repeat_the_composite_key(db: &mut TestDb<SeedMembershipSchema>) {
+        let SeedMembershipSchema {
+            member,
+            group,
+            membership,
+        } = schema;
+        // 2 per member and 5 per group map rows 0 and 1 to the same pair.
+        for statement in SeedConfig::sqlite(&schema)
+            .count(&member, 10)
+            .count(&group, 10)
+            .relation(&member, &membership, 2)
+            .relation(&group, &membership, 5)
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedMembership> = db.select(()).from(membership).all();
+        let mut pairs: Vec<(i64, i64)> = rows
+            .iter()
+            .map(|row| (row.member_id, row.group_id))
+            .collect();
+        assert!(!pairs.is_empty() && pairs.len() < 50);
+        pairs.sort_unstable();
+        pairs.dedup();
+        assert_eq!(pairs.len(), rows.len());
+    }
+
     #[drizzle::test]
     fn seeded_rows_insert_and_decode(db: &mut TestDb<SeedTypedSchema>) {
         let SeedTypedSchema { typed } = schema;
