@@ -321,10 +321,25 @@ pub fn assemble_ddl(mut raw: RawIntrospection) -> Result<MySQLDDL, IntrospectErr
         }
         ddl.pks.push(primary_key);
     }
+    let foreign_keys = group_foreign_keys(raw.foreign_keys, database)?;
     for index in group_indexes(raw.indexes, database)? {
-        ddl.indexes.push(index);
+        // InnoDB creates an index named after a foreign key when no other
+        // key can enforce it. It is part of the constraint, not schema the
+        // user declared (drizzle-kit skips it the same way).
+        let auto_created = foreign_keys.iter().any(|foreign_key| {
+            foreign_key.table == index.table
+                && foreign_key.name == index.name
+                && !index.unique
+                && index.columns.len() == foreign_key.columns.len()
+                && index.columns.iter().zip(&foreign_key.columns).all(|(part, column)| {
+                    !part.is_expression && part.length.is_none() && part.expression == *column
+                })
+        });
+        if !auto_created {
+            ddl.indexes.push(index);
+        }
     }
-    for foreign_key in group_foreign_keys(raw.foreign_keys, database)? {
+    for foreign_key in foreign_keys {
         ddl.fks.push(foreign_key);
     }
     raw.checks
@@ -1537,5 +1552,51 @@ pub struct Users {
         assert_eq!(generated.expression, r"concat(`status`,'it''s \\ x')");
         let check = ddl.checks.list().first().expect("check");
         assert_eq!(check.expression, "((`status` <> 'b''ad') and (`id` > 0))");
+    }
+
+    #[test]
+    fn foreign_key_auto_created_index_is_not_schema() {
+        let mut raw = raw();
+        raw.columns
+            .push(catalog_column("parent_id", "int unsigned", "", ""));
+        raw.columns.last_mut().expect("column").default_value = None;
+        raw.foreign_keys.push(RawForeignKeyPart {
+            database: "app".to_string(),
+            table: "users".to_string(),
+            name: "users_parent_id_fkey".to_string(),
+            column: "parent_id".to_string(),
+            ordinal_position: 1,
+            foreign_database: "app".to_string(),
+            foreign_table: "users".to_string(),
+            foreign_column: "id".to_string(),
+            on_update: "NO ACTION".to_string(),
+            on_delete: "NO ACTION".to_string(),
+        });
+        for name in ["users_parent_id_fkey", "users_parent_idx"] {
+            raw.indexes.push(RawIndexPart {
+                database: "app".to_string(),
+                table: "users".to_string(),
+                name: name.to_string(),
+                non_unique: true,
+                sequence: 1,
+                column_name: Some("parent_id".to_string()),
+                expression: None,
+                prefix_length: None,
+                collation: Some("A".to_string()),
+                index_type: Some("BTREE".to_string()),
+                comment: None,
+                visible: Some(true),
+            });
+        }
+
+        let ddl = assemble_ddl(raw).expect("valid catalog");
+        let names: Vec<_> = ddl
+            .indexes
+            .list()
+            .iter()
+            .map(|index| index.name.as_ref())
+            .collect();
+        assert_eq!(names, ["users_parent_idx"]);
+        assert_eq!(ddl.fks.list().len(), 1);
     }
 }

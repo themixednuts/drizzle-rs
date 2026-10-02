@@ -1869,6 +1869,52 @@ fn foreign_key_touches_columns(
         })
 }
 
+/// Whether `ddl` has a key (other than an index named `except`) whose
+/// leading columns are `columns`, which lets InnoDB enforce a foreign key on
+/// them without creating an index of its own.
+fn has_supporting_key(ddl: &MySQLDDL, table: &str, columns: &[Cow<'static, str>], except: &str) -> bool {
+    let columns: Vec<&str> = columns.iter().map(AsRef::as_ref).collect();
+    ddl.pks.list().iter().any(|primary_key| {
+        primary_key.table == table
+            && named_columns_have_prefix(primary_key.columns.iter(), columns.iter().copied())
+    }) || ddl.uniques.list().iter().any(|unique| {
+        unique.table == table && named_columns_have_prefix(unique.columns.iter(), columns.iter().copied())
+    }) || ddl.indexes.list().iter().any(|index| {
+        index.table == table && index.name != except && index_supports_columns(index, columns.iter().copied())
+    }) || (columns.len() == 1
+        && ddl.columns.list().iter().any(|column| {
+            column.table == table && column.name == columns[0] && (column.unique || column.primary_key)
+        }))
+}
+
+/// Whether dropping `foreign_key` must also drop the index InnoDB created
+/// for it. That index carries the constraint's name and outlives the
+/// constraint (drizzle-kit's `dropAutoIndex`). It exists only when no other
+/// key could enforce the constraint, and it stays when the new schema keeps
+/// an index or a foreign key of that name, or another remaining foreign key
+/// needs it.
+fn drops_auto_created_index(
+    foreign_key: &model::ForeignKey,
+    prev: &MySQLDDL,
+    cur: &MySQLDDL,
+    dropped_tables: &BTreeSet<String>,
+) -> bool {
+    let table = foreign_key.table.as_ref();
+    let name = foreign_key.name.as_ref();
+    if dropped_tables.contains(table)
+        || cur.fks.list().iter().any(|other| other.table == table && other.name == name)
+        || cur.indexes.list().iter().any(|index| index.table == table && index.name == name)
+        || has_supporting_key(prev, table, &foreign_key.columns, name)
+    {
+        return false;
+    }
+    !cur.fks.list().iter().any(|other| {
+        other.table == table
+            && named_columns_have_prefix(foreign_key.columns.iter(), other.columns.iter().map(AsRef::as_ref))
+            && !has_supporting_key(cur, table, &other.columns, name)
+    })
+}
+
 fn foreign_key_uses_index(foreign_key: &model::ForeignKey, index: &model::Index) -> bool {
     (index.table == foreign_key.table
         && index_supports_columns(index, foreign_key.columns.iter().map(AsRef::as_ref)))
@@ -2393,6 +2439,13 @@ pub fn compute_migration_with(
                 kind: "foreign key",
                 name: key.1.clone(),
             });
+            if drops_auto_created_index(foreign_key, &prev, &cur, &dropped_tables) {
+                statements.push(MySQLStatement::DropIndex {
+                    database: database(&foreign_key.database),
+                    table: foreign_key.table.to_string(),
+                    name: foreign_key.name.to_string(),
+                });
+            }
         }
     }
 
@@ -4215,6 +4268,50 @@ mod tests {
             [
                 "ALTER TABLE `tickets` DROP PRIMARY KEY, ADD COLUMN `id` bigint NOT NULL AUTO_INCREMENT, ADD PRIMARY KEY (`id`);"
             ]
+        );
+    }
+
+    #[test]
+    fn dropping_a_foreign_key_drops_the_index_innodb_created_for_it() {
+        let mut with_fk = table_with_columns("parents", &["id"]);
+        with_fk.columns.list_mut()[0].primary_key = true;
+        with_fk.pks.push(primary_key("parents", &["id"]));
+        with_fk.tables.push(model::Table::new("children"));
+        for name in ["id", "parent_id"] {
+            let mut column = model::Column::new("children", name, "bigint");
+            column.not_null = true;
+            with_fk.columns.push(column);
+        }
+        with_fk.pks.push(primary_key("children", &["id"]));
+        with_fk.fks.push(model::ForeignKey::new(
+            "children",
+            "children_parent_id_fkey",
+            ["parent_id"],
+            "parents",
+            ["id"],
+        ));
+        let mut without_fk = with_fk.clone();
+        without_fk.fks.list_mut().clear();
+
+        assert_eq!(
+            compute_migration(&with_fk, &without_fk).unwrap().sql_statements,
+            [
+                "ALTER TABLE `children` DROP FOREIGN KEY `children_parent_id_fkey`;",
+                "ALTER TABLE `children` DROP INDEX `children_parent_id_fkey`;",
+            ]
+        );
+
+        // With another key on the column InnoDB never created an index.
+        let index = model::Index::new(
+            "children",
+            "children_parent_idx",
+            vec![model::IndexColumn::column("parent_id")],
+        );
+        with_fk.indexes.push(index.clone());
+        without_fk.indexes.push(index);
+        assert_eq!(
+            compute_migration(&with_fk, &without_fk).unwrap().sql_statements,
+            ["ALTER TABLE `children` DROP FOREIGN KEY `children_parent_id_fkey`;"]
         );
     }
 }
