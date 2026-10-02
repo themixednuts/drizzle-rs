@@ -16,6 +16,8 @@
 	import Note from '#lib/components/Note.svelte';
 	import Hint from '#lib/components/Hint.svelte';
 	import ApiTag from '#lib/components/ApiTag.svelte';
+	import ArchTag from '#lib/components/ArchTag.svelte';
+	import { targetArchitecture } from '#lib/target-display';
 	import OsBadge from '#lib/components/OsBadge.svelte';
 	import DataTable from '#lib/components/data/DataTable.svelte';
 	import Td from '#lib/components/data/Td.svelte';
@@ -121,6 +123,7 @@
 				<h2 class={cn('text-heading font-semibold', ours && 'text-signal-ink')}>{display.name}</h2>
 				<ApiTag api={display.api} />
 				<span class="text-meta text-foreground-secondary">{display.note}</span>
+				<ArchTag arch={targetArchitecture({ target_id: summary.target_id, target_meta: meta })} />
 				<span class="text-label text-muted-foreground ml-auto font-mono">
 					{view.rangeText(summary)}
 				</span>

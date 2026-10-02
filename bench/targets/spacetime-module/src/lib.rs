@@ -5,10 +5,15 @@
 //!
 //! Tables mirror the Northwind "micro" schema used by all benchmark targets
 //! (customers, employees, suppliers, products, orders, order_details).
+//!
+//! The `route_*` procedures in [`routes`] implement every HTTP contract route
+//! inside the database for the `spacetime-module-rs` target.
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use spacetimedb::{ReducerContext, Table, reducer, table};
+
+mod routes;
 
 const SEED_CUSTOMERS: u32 = 10_000;
 const SEED_EMPLOYEES: u32 = 200;

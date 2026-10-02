@@ -17,7 +17,7 @@
 	 * in `routes/compare`, `routes/repeatability` and `routes/trends`.
 	 */
 	const NAV = [
-		{ href: '/', label: 'Ranking' },
+		{ href: '/', label: 'Results' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/methodology', label: 'Method' },
 	];

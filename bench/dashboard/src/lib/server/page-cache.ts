@@ -42,7 +42,7 @@ const ONE_YEAR = 31_536_000;
  * an arbitrary path segment opt itself in.
  */
 const POLICIES: Record<string, CachePolicy> = {
-	'/': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'db', 'sort'] },
+	'/': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'db', 'os', 'sort'] },
 	'/runs': { ttl: FIVE_MINUTES, params: ['suite', 'status', 'q'] },
 	'/runs/[run_id]': { ttl: ONE_YEAR, params: ['metric'] },
 	'/runs/trends': { ttl: FIVE_MINUTES, params: ['suite', 'target'] },

@@ -273,10 +273,11 @@
       "type": "string",
       "enum": [
         "sql-roundtrip",
-        "in-process-cache"
+        "in-process-cache",
+        "in-database"
       ],
       "default": "sql-roundtrip",
-      "description": "How the target reaches its data. 'in-process-cache' targets answer from a materialized in-process replica and are not directly comparable with SQL round-trip targets. Optional and additive in v1."
+      "description": "How the target reaches its data. 'in-process-cache' targets answer from a materialized in-process replica and are not directly comparable with SQL round-trip targets. 'in-database' targets run each route's query logic inside the database (for example SpacetimeDB module procedures) and only forward requests; they do real per-request database work and are held to the family's harness like SQL round-trip targets. Optional and additive in v1."
     },
     "sql_variant": {
       "type": "string",

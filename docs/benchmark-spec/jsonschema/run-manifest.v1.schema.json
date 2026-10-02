@@ -107,8 +107,8 @@
           },
           "data_access": {
             "type": "string",
-            "enum": ["sql-roundtrip", "in-process-cache"],
-            "description": "How the target reaches its data. `in-process-cache` targets serve from a replicated local cache and are not comparable to SQL-roundtrip targets in a ranked table."
+            "enum": ["sql-roundtrip", "in-process-cache", "in-database"],
+            "description": "How the target reaches its data. `in-process-cache` targets serve from a replicated local cache and are not comparable to SQL-roundtrip targets in a ranked table. `in-database` targets run each route's logic inside the database (e.g. SpacetimeDB module procedures) and do real per-request database work."
           },
           "sql_variant": {
             "type": "string",

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ApiTag from './ApiTag.svelte';
+	import ArchTag from './ArchTag.svelte';
 	import RailMark from './RailMark.svelte';
 	import RampSpark from './RampSpark.svelte';
 	import BoxWhisker from './BoxWhisker.svelte';
@@ -12,7 +13,7 @@
 	import type { QualitativeNote } from '#lib/qualitative';
 	import type { RankingRow, RankingSort } from '#lib/ranking';
 	import type { LatencyView } from '#lib/service-latency';
-	import type { TargetDisplay } from '#lib/target-display';
+	import type { Architecture, TargetDisplay } from '#lib/target-display';
 
 	/**
 	 * One row of the ranking, read like a line on a timing board.
@@ -46,6 +47,7 @@
 		columns,
 		variant = null,
 		harness = null,
+		arch = null,
 		showCapacity = false,
 		showRamp = false,
 		showLatencyLoad = true,
@@ -75,6 +77,8 @@
 		variant?: QualitativeNote | null;
 		/** The harness this row's whole database ran under; `null` when nothing was declared. */
 		harness?: HarnessRow | null;
+		/** Where this target's query logic runs; drawn on the note line beside the database. */
+		arch?: Architecture | null;
 		/** Whether this set measured capacity at all — see `RunsPageState.hasCapacity`. */
 		showCapacity?: boolean;
 		/**
@@ -147,9 +151,12 @@
 				The engine leads the note line, because it is the fact that decides whether two rows are
 				comparable at all, and it used to be a column of repeating words.
 			-->
-			<span class="text-meta text-muted-foreground mt-1 block">
-				<span class="text-foreground-secondary" title={dbDetail}>{db}</span>{#if display.note}
-					· {display.note}{/if}
+			<span class="text-meta text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2">
+				<span
+					><span class="text-foreground-secondary" title={dbDetail}>{db}</span>{#if display.note}
+						· {display.note}{/if}</span
+				>
+				<ArchTag {arch} quiet plain />
 			</span>
 		</span>
 
