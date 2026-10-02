@@ -565,6 +565,7 @@ fn load_migration_set(
 
     // Load migrations from filesystem
     let migrations = drizzle_migrations::MigrationDir::new(migrations_dir)
+        .dialect(dialect.to_base())
         .discover()
         .map_err(|e| CliError::Other(format!("Failed to load migrations: {e}")))?;
     Ok(Migrations::with_tracking(

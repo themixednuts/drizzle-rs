@@ -83,6 +83,10 @@ pub struct Migration {
     created_at: i64,
     /// SQL statements to execute (pre-split if breakpoints were used)
     sql: Vec<String>,
+    /// The file contents, kept only when they had no breakpoints and were
+    /// split without knowing the dialect, so [`Migrations`] can re-split
+    /// them with its dialect's rules.
+    unsplit: Option<String>,
 }
 
 /// SQLite statements prepared for execution by a runtime adapter.
@@ -209,9 +213,17 @@ impl Migration {
     ///
     /// The hash is the SHA-256 of `sql`. `created_at` comes from the tag's
     /// `YYYYMMDDHHMMSS` prefix (UTC millis), a legacy `0000` index prefix, or
-    /// `0` when the tag has neither. The SQL is split on
-    /// `--> statement-breakpoint` lines and top-level semicolons; semicolons
-    /// inside strings, comments, and trigger/function bodies are kept.
+    /// `0` when the tag has neither.
+    ///
+    /// When the SQL contains `--> statement-breakpoint` markers it is split
+    /// on those markers only, like drizzle-orm: each trimmed chunk is one
+    /// statement and runs whole, even if it holds several SQL statements.
+    /// Without markers it is split on top-level semicolons; semicolons inside
+    /// strings, comments, parentheses, and trigger/function bodies are kept.
+    /// The dialect is not known here, so dialect-specific syntax (MySQL
+    /// backslash escapes and `#` comments, for example) is resolved when the
+    /// migration joins a [`Migrations`] set, or up front with
+    /// [`for_dialect`](Self::for_dialect).
     ///
     /// # Examples
     ///
@@ -223,21 +235,56 @@ impl Migration {
     ///     "CREATE TABLE users (id INTEGER);\n--> statement-breakpoint\nCREATE TABLE posts (id INTEGER);",
     /// );
     /// assert_eq!(m.tag(), "20231220143052_init");
-    /// assert_eq!(m.statements().len(), 2);
+    /// assert_eq!(m.statements(), ["CREATE TABLE users (id INTEGER);", "CREATE TABLE posts (id INTEGER);"]);
     /// assert_eq!(m.created_at(), 1_703_082_652_000);
     /// ```
     #[must_use]
     pub fn new(tag: &str, sql: &str) -> Self {
-        let hash = compute_hash(sql);
-        let created_at = parse_timestamp_from_tag(tag);
-        let statements = split_statements(sql);
+        Self::from_sql(tag.to_string(), sql, None)
+    }
 
+    /// Creates a migration like [`new`](Self::new), splitting SQL that has no
+    /// breakpoint markers with `dialect`'s quoting and comment rules.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use drizzle_migrations::Migration;
+    /// use drizzle_types::Dialect;
+    ///
+    /// // MySQL strings take backslash escapes, so the `;` stays quoted.
+    /// let m = Migration::for_dialect(
+    ///     "20231220143052_seed",
+    ///     "INSERT INTO t VALUES ('a\\';b');\nINSERT INTO t VALUES ('c');",
+    ///     Dialect::MySQL,
+    /// );
+    /// assert_eq!(m.statements().len(), 2);
+    /// ```
+    #[must_use]
+    pub fn for_dialect(tag: &str, sql: &str, dialect: Dialect) -> Self {
+        Self::from_sql(tag.to_string(), sql, Some(dialect))
+    }
+
+    /// Hashes and splits a migration file. Without a dialect, a file with no
+    /// breakpoints keeps its text so a [`Migrations`] set can re-split it.
+    pub(crate) fn from_sql(tag: String, sql: &str, dialect: Option<Dialect>) -> Self {
+        let unsplit = (dialect.is_none() && !sql.contains(STATEMENT_BREAKPOINT))
+            .then(|| sql.to_string());
         Self {
-            tag: tag.to_string(),
-            hash,
-            created_at,
-            sql: statements,
+            created_at: parse_timestamp_from_tag(&tag),
+            tag,
+            hash: compute_hash(sql),
+            sql: split_statements_for(sql, dialect),
+            unsplit,
         }
+    }
+
+    /// Re-splits a migration that was split without knowing its dialect.
+    fn resplit_for(mut self, dialect: Dialect) -> Self {
+        if let Some(sql) = self.unsplit.take() {
+            self.sql = split_statements_for(&sql, Some(dialect));
+        }
+        self
     }
 
     /// Creates a migration from already-computed parts.
@@ -254,6 +301,7 @@ impl Migration {
             hash: hash.into(),
             created_at,
             sql,
+            unsplit: None,
         }
     }
 
@@ -471,12 +519,24 @@ pub struct Migrations {
     schema: Option<String>,
 }
 
+/// Re-splits, with `dialect`'s rules, migrations that were split without
+/// knowing it (see [`Migration::new`]).
+fn resplit_for(migrations: Vec<Migration>, dialect: Dialect) -> Vec<Migration> {
+    migrations
+        .into_iter()
+        .map(|migration| migration.resplit_for(dialect))
+        .collect()
+}
+
 impl Migrations {
     /// Creates a set using the default tracking table.
+    ///
+    /// Migrations built by [`Migration::new`] from SQL without breakpoints
+    /// are re-split with `dialect`'s rules.
     #[must_use]
     pub fn new(migrations: Vec<Migration>, dialect: Dialect) -> Self {
         Self {
-            list: migrations,
+            list: resplit_for(migrations, dialect),
             dialect,
             table: "__drizzle_migrations".to_string(),
             schema: match dialect {
@@ -500,7 +560,7 @@ impl Migrations {
     /// ```
     pub fn with_tracking(migrations: Vec<Migration>, dialect: Dialect, tracking: Tracking) -> Self {
         Self {
-            list: migrations,
+            list: resplit_for(migrations, dialect),
             dialect,
             table: tracking.table.into_owned(),
             schema: tracking.schema.map(std::borrow::Cow::into_owned),
@@ -792,6 +852,7 @@ impl Migrations {
     pub fn record_migration_finished_sql(&self, migration: &Migration) -> String {
         let table = self.table_ident();
         let name = escape_sql_string(migration.name());
+        let created_at = migration.created_at();
         let dirty = self.dirty_predicate();
 
         match self.dialect {
@@ -825,7 +886,6 @@ impl Migrations {
     pub fn clear_migration_started_sql(&self, migration: &Migration) -> String {
         let table = self.table_ident();
         let name = escape_sql_string(migration.name());
-        let created_at = migration.created_at();
         let dirty = self.dirty_predicate();
 
         match self.dialect {
@@ -1200,9 +1260,109 @@ pub(crate) fn compute_hash(sql: &str) -> String {
     out
 }
 
-/// Splits SQL content into individual statements.
+/// The marker drizzle-kit writes between generated statements.
+const STATEMENT_BREAKPOINT: &str = "--> statement-breakpoint";
+
+/// Splits SQL content into individual statements without knowing the
+/// dialect. See [`split_statements_for`].
+#[cfg(test)]
 pub(crate) fn split_statements(sql: &str) -> Vec<String> {
-    split_on_semicolons(sql)
+    split_statements_for(sql, None)
+}
+
+/// Splits a migration file into the statements a runner executes.
+///
+/// A file that contains `--> statement-breakpoint` is split on those markers
+/// only, exactly like drizzle-orm's migrator: each chunk is trimmed, empty
+/// chunks are dropped, and a chunk is never split further (runners execute
+/// it whole). A file without markers (hand-written SQL, or generated with
+/// breakpoints off) is split on top-level semicolons using `dialect`'s
+/// quoting and comment rules; `None` uses rules that are safe across
+/// dialects.
+pub(crate) fn split_statements_for(sql: &str, dialect: Option<Dialect>) -> Vec<String> {
+    if sql.contains(STATEMENT_BREAKPOINT) {
+        return sql
+            .split(STATEMENT_BREAKPOINT)
+            .map(str::trim)
+            .filter(|chunk| !chunk.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    split_on_semicolons(sql, SplitRules::for_dialect(dialect))
+}
+
+/// Lexical rules the semicolon splitter applies for one dialect.
+#[derive(Clone, Copy, Debug)]
+struct SplitRules {
+    /// `'...'` and `"..."` strings take backslash escapes (MySQL).
+    backslash_strings: bool,
+    /// `E'...'` strings take backslash escapes (PostgreSQL).
+    escape_string_prefix: bool,
+    /// `$tag$ ... $tag$` quoting (PostgreSQL).
+    dollar_quotes: bool,
+    /// `[identifier]` quoting (SQLite).
+    bracket_identifiers: bool,
+    /// `# ...` line comments (MySQL).
+    hash_comments: bool,
+    /// `--` starts a comment only when followed by whitespace (MySQL).
+    dash_comment_needs_space: bool,
+    /// `/* /* */ */` comments nest (PostgreSQL).
+    nested_block_comments: bool,
+    /// Any `BEGIN` inside a compound body opens a nested block, including
+    /// `DECLARE ... HANDLER FOR ... BEGIN` (MySQL stored programs, where
+    /// `BEGIN` is never a transaction statement).
+    begin_anywhere_nests: bool,
+}
+
+impl SplitRules {
+    const fn for_dialect(dialect: Option<Dialect>) -> Self {
+        match dialect {
+            Some(Dialect::MySQL) => Self {
+                backslash_strings: true,
+                escape_string_prefix: false,
+                dollar_quotes: false,
+                bracket_identifiers: false,
+                hash_comments: true,
+                dash_comment_needs_space: true,
+                nested_block_comments: false,
+                begin_anywhere_nests: true,
+            },
+            Some(Dialect::PostgreSQL) => Self {
+                backslash_strings: false,
+                escape_string_prefix: true,
+                dollar_quotes: true,
+                bracket_identifiers: false,
+                hash_comments: false,
+                dash_comment_needs_space: false,
+                nested_block_comments: true,
+                begin_anywhere_nests: false,
+            },
+            Some(Dialect::SQLite) => Self {
+                backslash_strings: false,
+                escape_string_prefix: false,
+                dollar_quotes: false,
+                bracket_identifiers: true,
+                hash_comments: false,
+                dash_comment_needs_space: false,
+                nested_block_comments: false,
+                begin_anywhere_nests: false,
+            },
+            // Unknown dialect: only rules that cannot misread another
+            // dialect's valid SQL. `E'...'` and `$tag$` only parse in
+            // PostgreSQL; nested comments are a superset for files that never
+            // nest them.
+            None => Self {
+                backslash_strings: false,
+                escape_string_prefix: true,
+                dollar_quotes: true,
+                bracket_identifiers: false,
+                hash_comments: false,
+                dash_comment_needs_space: false,
+                nested_block_comments: true,
+                begin_anywhere_nests: false,
+            },
+        }
+    }
 }
 
 /// Per-statement token context for [`split_on_semicolons`].
@@ -1213,7 +1373,9 @@ pub(crate) fn split_statements(sql: &str) -> Vec<String> {
 /// not treated as statement boundaries. Mirrors SQLite's
 /// `sqlite3_complete()`: a compound body terminates only at an `END` token
 /// that directly follows a body semicolon (which keeps `CASE ... END` inside
-/// the body inert), itself followed by a semicolon.
+/// the body inert), itself followed by a semicolon. `END IF` / `END LOOP` /
+/// `END WHILE` / `END REPEAT` / `END CASE` close MySQL control blocks, not
+/// bodies; `END label` closes a labeled body.
 #[derive(Default)]
 struct StatementState {
     /// First few identifier tokens of the statement (lowercased).
@@ -1231,6 +1393,9 @@ struct StatementState {
     at_body_start: bool,
     /// Previous consumed character was part of a word (guards token starts).
     last_char_wordy: bool,
+    /// Parenthesis nesting; semicolons inside parentheses (PostgreSQL
+    /// `CREATE RULE ... DO ALSO (a; b)`) are not boundaries.
+    paren_depth: usize,
 }
 
 impl StatementState {
@@ -1239,6 +1404,9 @@ impl StatementState {
     /// `CREATE <kind>` statements that never do (guards against objects
     /// merely *named* `function` etc.).
     const PLAIN_KINDS: [&'static str; 5] = ["table", "index", "view", "schema", "virtual"];
+    /// Words that follow `END` when it closes a MySQL control block rather
+    /// than a `BEGIN ... END` body.
+    const END_CONTROL: [&'static str; 5] = ["if", "loop", "while", "repeat", "case"];
 
     /// Record significant (non-whitespace, non-comment) content that is not
     /// an identifier token.
@@ -1249,9 +1417,10 @@ impl StatementState {
     }
 
     /// Process an identifier token encountered in normal state.
-    fn note_token(&mut self, token: &str) {
+    fn note_token(&mut self, token: &str, rules: SplitRules) {
         let lower = token.to_ascii_lowercase();
         let was_pending_begin = self.pending_begin;
+        let was_pending_end = self.pending_end;
         let was_at_body_start = self.at_body_start;
         self.note_significant();
 
@@ -1273,6 +1442,12 @@ impl StatementState {
                 self.compound_depth = 1;
                 self.at_body_start = true;
             }
+            "begin"
+                if self.compound_depth > 0 && (was_at_body_start || rules.begin_anywhere_nests) =>
+            {
+                self.compound_depth += 1;
+                self.at_body_start = true;
+            }
             "begin" => self.pending_begin = true,
             "atomic" if was_pending_begin => {
                 self.compound_depth += 1;
@@ -1281,240 +1456,219 @@ impl StatementState {
             "end" if self.compound_depth > 0 && was_at_body_start => {
                 self.pending_end = true;
             }
+            control if was_pending_end && Self::END_CONTROL.contains(&control) => {}
+            // `END label;` still closes the (labeled) body.
+            _ if was_pending_end => self.pending_end = true,
             _ => {}
         }
         self.last_char_wordy = true;
     }
 }
 
-/// Split SQL on `--> statement-breakpoint` markers and top-level semicolons.
+/// `true` for characters that continue an identifier (`$` included, as in
+/// PostgreSQL and MySQL identifiers such as `a$b`).
+const fn is_word_char(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_' || character == '$'
+}
+
+/// Returns the byte offset just past a quoted run that starts at `pos`
+/// (which holds the opening `quote`), or the end of `sql` when it is
+/// unterminated. A doubled closing quote is an escaped quote; with
+/// `backslash`, `\x` escapes `x`.
+fn skip_quoted(sql: &str, pos: usize, close: char, backslash: bool) -> usize {
+    let mut chars = sql[pos..].char_indices().skip(1).peekable();
+    while let Some((offset, character)) = chars.next() {
+        if backslash && character == '\\' {
+            chars.next();
+            continue;
+        }
+        if character == close {
+            if close != ']' && chars.peek().is_some_and(|&(_, next)| next == close) {
+                chars.next();
+                continue;
+            }
+            return pos + offset + close.len_utf8();
+        }
+    }
+    sql.len()
+}
+
+/// Returns the byte offset just past a block comment starting at `pos`.
+fn skip_block_comment(sql: &str, pos: usize, nested: bool) -> usize {
+    let bytes = sql.as_bytes();
+    let mut depth = 0usize;
+    let mut index = pos;
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'/' && bytes[index + 1] == b'*' && (nested || depth == 0) {
+            depth += 1;
+            index += 2;
+        } else if bytes[index] == b'*' && bytes[index + 1] == b'/' {
+            depth -= 1;
+            index += 2;
+            if depth == 0 {
+                return index;
+            }
+        } else {
+            index += 1;
+        }
+    }
+    sql.len()
+}
+
+/// Parse a starting `PostgreSQL` dollar-quote delimiter at `pos`.
 ///
-/// State-aware: quotes, comments, dollar-quoted bodies, and compound
-/// statement bodies (trigger/procedure/function bodies, `BEGIN ATOMIC`)
-/// keep their internal semicolons.
-fn split_on_semicolons(sql: &str) -> Vec<String> {
-    const BREAKPOINT: &str = "--> statement-breakpoint";
+/// Returns the full delimiter (`$$` or `$tag$`, where the tag starts with a
+/// letter or `_`), or `None` for anything else such as a `$1` parameter.
+fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
+    let rest = sql.get(pos..)?.strip_prefix('$')?;
+    for (offset, character) in rest.char_indices() {
+        if character == '$' {
+            // `$` at `pos`, the tag, then the closing `$` at `pos + 1 + offset`.
+            return Some(&sql[pos..pos + offset + 2]);
+        }
+        let valid = if offset == 0 {
+            character.is_ascii_alphabetic() || character == '_'
+        } else {
+            character.is_ascii_alphanumeric() || character == '_'
+        };
+        if !valid {
+            return None;
+        }
+    }
+    None
+}
 
+/// Split SQL without breakpoints on top-level semicolons.
+///
+/// Quotes, comments, dollar-quoted bodies, parenthesized groups, and compound
+/// statement bodies (trigger/procedure/function bodies, `BEGIN ATOMIC`) keep
+/// their internal semicolons; `rules` selects the dialect's quoting and
+/// comment syntax.
+fn split_on_semicolons(sql: &str, rules: SplitRules) -> Vec<String> {
     let mut statements = Vec::new();
-    let mut current = String::new();
+    let mut start = 0;
     let mut pos = 0;
-
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut in_line_comment = false;
-    let mut block_comment_depth = 0usize;
-    let mut dollar_tag: Option<String> = None;
     let mut state = StatementState::default();
 
+    let push = |statements: &mut Vec<String>, text: &str| {
+        let text = text.trim();
+        if !text.is_empty() {
+            statements.push(text.to_string());
+        }
+    };
+
     while pos < sql.len() {
-        // Line comment state
-        if in_line_comment {
-            let ch = sql[pos..].chars().next().unwrap_or('\0');
-            let ch_len = ch.len_utf8();
-            current.push_str(&sql[pos..pos + ch_len]);
-            pos += ch_len;
-            if ch == '\n' {
-                in_line_comment = false;
-            }
-            continue;
-        }
+        let rest = &sql[pos..];
+        let Some(character) = rest.chars().next() else {
+            break;
+        };
 
-        // Block comment state
-        if block_comment_depth > 0 {
-            if sql[pos..].starts_with("/*") {
-                current.push_str("/*");
-                pos += 2;
-                block_comment_depth += 1;
-                continue;
-            }
-            if sql[pos..].starts_with("*/") {
-                current.push_str("*/");
-                pos += 2;
-                block_comment_depth = block_comment_depth.saturating_sub(1);
-                continue;
-            }
-
-            let ch = sql[pos..].chars().next().unwrap_or('\0');
-            let ch_len = ch.len_utf8();
-            current.push_str(&sql[pos..pos + ch_len]);
-            pos += ch_len;
-            continue;
-        }
-
-        // Dollar-quoted string state ($$...$$ or $tag$...$tag$)
-        if let Some(tag) = dollar_tag.as_deref() {
-            if sql[pos..].starts_with(tag) {
-                current.push_str(tag);
-                pos += tag.len();
-                dollar_tag = None;
-                state.last_char_wordy = true;
-                continue;
-            }
-
-            let ch = sql[pos..].chars().next().unwrap_or('\0');
-            let ch_len = ch.len_utf8();
-            current.push_str(&sql[pos..pos + ch_len]);
-            pos += ch_len;
-            continue;
-        }
-
-        // Single-quoted string state
-        if in_single_quote {
-            if sql[pos..].starts_with("''") {
-                current.push_str("''");
-                pos += 2;
-                continue;
-            }
-            if sql[pos..].starts_with('\'') {
-                current.push('\'');
-                pos += 1;
-                in_single_quote = false;
-                state.last_char_wordy = true;
-                continue;
-            }
-
-            let ch = sql[pos..].chars().next().unwrap_or('\0');
-            let ch_len = ch.len_utf8();
-            current.push_str(&sql[pos..pos + ch_len]);
-            pos += ch_len;
-            continue;
-        }
-
-        // Double-quoted identifier/string state
-        if in_double_quote {
-            if sql[pos..].starts_with("\"\"") {
-                current.push_str("\"\"");
-                pos += 2;
-                continue;
-            }
-            if sql[pos..].starts_with('"') {
-                current.push('"');
-                pos += 1;
-                in_double_quote = false;
-                state.last_char_wordy = true;
-                continue;
-            }
-
-            let ch = sql[pos..].chars().next().unwrap_or('\0');
-            let ch_len = ch.len_utf8();
-            current.push_str(&sql[pos..pos + ch_len]);
-            pos += ch_len;
-            continue;
-        }
-
-        // Enter comment states
-        if sql[pos..].starts_with(BREAKPOINT) && line_prefix_is_whitespace(sql, pos) {
-            let stmt = current.trim().to_string();
-            if !stmt.is_empty() {
-                statements.push(stmt);
-            }
-            current.clear();
-            state = StatementState::default();
-            pos += BREAKPOINT.len();
-            continue;
-        }
-        if sql[pos..].starts_with("--") {
-            current.push_str("--");
-            pos += 2;
-            in_line_comment = true;
-            continue;
-        }
-        if sql[pos..].starts_with("/*") {
-            current.push_str("/*");
-            pos += 2;
-            block_comment_depth = 1;
-            continue;
-        }
-
-        // Enter quote states
-        if sql[pos..].starts_with('\'') {
-            current.push('\'');
-            pos += 1;
-            in_single_quote = true;
-            state.note_significant();
+        // Comments separate tokens but are otherwise ignored.
+        let dash_comment = rest.starts_with("--")
+            && (!rules.dash_comment_needs_space
+                || rest[2..]
+                    .chars()
+                    .next()
+                    .is_none_or(|next| next.is_whitespace() || next.is_control()));
+        if dash_comment || (rules.hash_comments && character == '#') {
+            pos += rest.find('\n').map_or(rest.len(), |index| index + 1);
             state.last_char_wordy = false;
             continue;
         }
-        if sql[pos..].starts_with('"') {
-            current.push('"');
-            pos += 1;
-            in_double_quote = true;
-            state.note_significant();
+        if rest.starts_with("/*") {
+            pos = skip_block_comment(sql, pos, rules.nested_block_comments);
             state.last_char_wordy = false;
             continue;
         }
 
-        // Enter dollar-quoted state if a valid tag starts here.
-        if sql[pos..].starts_with('$')
+        // Quoted strings and identifiers.
+        let quote = match character {
+            '\'' => {
+                let escaped = rules.backslash_strings
+                    || (rules.escape_string_prefix
+                        && pos > 0
+                        && matches!(sql.as_bytes()[pos - 1], b'e' | b'E')
+                        && sql[..pos - 1].chars().next_back().is_none_or(|c| !is_word_char(c)));
+                Some(('\'', escaped))
+            }
+            '"' => Some(('"', rules.backslash_strings)),
+            '`' => Some(('`', false)),
+            '[' if rules.bracket_identifiers => Some((']', false)),
+            _ => None,
+        };
+        if let Some((close, backslash)) = quote {
+            pos = skip_quoted(sql, pos, close, backslash);
+            state.note_significant();
+            state.last_char_wordy = true;
+            continue;
+        }
+
+        if rules.dollar_quotes
+            && character == '$'
+            && !state.last_char_wordy
             && let Some(tag) = parse_dollar_tag_start(sql, pos)
         {
-            current.push_str(tag);
-            pos += tag.len();
-            dollar_tag = Some(tag.to_string());
+            let body = pos + tag.len();
+            pos = sql[body..]
+                .find(tag)
+                .map_or(sql.len(), |index| body + index + tag.len());
             state.note_significant();
-            state.last_char_wordy = false;
+            state.last_char_wordy = true;
             continue;
         }
 
-        // Statement boundary (inert inside compound bodies)
-        if sql[pos..].starts_with(';') {
-            pos += 1;
+        if character == ';' {
+            if state.paren_depth > 0 {
+                pos += 1;
+                state.note_significant();
+                state.last_char_wordy = false;
+                continue;
+            }
             if state.compound_depth > 0 {
                 if state.pending_end {
                     state.pending_end = false;
                     state.compound_depth -= 1;
                 }
                 if state.compound_depth > 0 {
-                    current.push(';');
+                    pos += 1;
                     state.at_body_start = true;
+                    state.pending_begin = false;
                     state.last_char_wordy = false;
                     continue;
                 }
                 // Depth reached zero: this semicolon closes the compound
-                // statement, so fall through to the boundary handling.
+                // statement.
             }
-            let stmt = current.trim().to_string();
-            if !stmt.is_empty() {
-                statements.push(stmt);
-            }
-            current.clear();
+            push(&mut statements, &sql[start..pos]);
+            pos += 1;
+            start = pos;
             state = StatementState::default();
             continue;
         }
 
-        let ch = sql[pos..].chars().next().unwrap_or('\0');
-        if !state.last_char_wordy && (ch.is_ascii_alphabetic() || ch == '_') {
-            let rest = &sql[pos..];
+        if !state.last_char_wordy && (character.is_ascii_alphabetic() || character == '_') {
             let token_len = rest
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .find(|c: char| !is_word_char(c))
                 .unwrap_or(rest.len());
-            current.push_str(&rest[..token_len]);
+            state.note_token(&rest[..token_len], rules);
             pos += token_len;
-            state.note_token(&rest[..token_len]);
             continue;
         }
 
-        let ch_len = ch.len_utf8();
-        current.push_str(&sql[pos..pos + ch_len]);
-        pos += ch_len;
-        if !ch.is_whitespace() {
+        match character {
+            '(' => state.paren_depth += 1,
+            ')' => state.paren_depth = state.paren_depth.saturating_sub(1),
+            _ => {}
+        }
+        if !character.is_whitespace() {
             state.note_significant();
         }
-        state.last_char_wordy = ch.is_ascii_alphanumeric() || ch == '_';
+        state.last_char_wordy = is_word_char(character);
+        pos += character.len_utf8();
     }
 
-    // Don't forget the last statement (might not end with ;)
-    let stmt = current.trim().to_string();
-    if !stmt.is_empty() {
-        statements.push(stmt);
-    }
-
+    push(&mut statements, &sql[start..]);
     statements
-}
-
-fn line_prefix_is_whitespace(sql: &str, pos: usize) -> bool {
-    let line_start = sql[..pos].rfind('\n').map_or(0, |index| index + 1);
-    sql[line_start..pos].chars().all(char::is_whitespace)
 }
 
 /// Matches legacy tracking rows (no `name` column) to local migrations.
@@ -1593,30 +1747,6 @@ pub fn match_applied_migration_metadata(
 
 fn escape_sql_string(value: &str) -> String {
     value.replace('\'', "''")
-}
-
-/// Parse a starting `PostgreSQL` dollar-quote delimiter at `pos`.
-///
-/// Returns the full delimiter (e.g. "$$" or "$func$") when valid.
-fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
-    if !sql[pos..].starts_with('$') {
-        return None;
-    }
-
-    let mut i = pos + 1;
-    while i < sql.len() {
-        let ch = sql[i..].chars().next()?;
-        if ch == '$' {
-            return Some(&sql[pos..=i]);
-        }
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            i += ch.len_utf8();
-            continue;
-        }
-        return None;
-    }
-
-    None
 }
 
 /// Parses `created_at` from a migration tag.
@@ -1739,7 +1869,7 @@ mod tests {
     use super::{
         AppliedMigrationMetadata, Migration, Migrations, SqliteMigrationExecutionError,
         compute_hash, is_postgres_concurrent_index_statement, match_applied_migration_metadata,
-        parse_timestamp_from_tag, split_on_semicolons, split_statements,
+        parse_timestamp_from_tag, split_statements, split_statements_for,
     };
     use crate::config::Tracking;
     use crate::dir::MigrationDir;
@@ -1756,7 +1886,7 @@ mod tests {
         assert!(execution.suspends_foreign_keys());
         assert_eq!(
             execution.statements().collect::<Vec<_>>(),
-            vec!["CREATE TABLE records (id INTEGER)"]
+            vec!["CREATE TABLE records (id INTEGER);"]
         );
     }
 
@@ -1804,7 +1934,7 @@ mod tests {
         assert!(execution.suspends_foreign_keys());
         assert_eq!(
             execution.statements().collect::<Vec<_>>(),
-            vec!["CREATE TABLE records (id INTEGER)"]
+            vec!["CREATE TABLE records (id INTEGER);"]
         );
     }
 
@@ -1854,7 +1984,7 @@ mod tests {
             CREATE TABLE posts(id INTEGER);\
         ";
 
-        let stmts = split_on_semicolons(sql);
+        let stmts = split_statements(sql);
         assert_eq!(stmts.len(), 3, "unexpected split: {stmts:?}");
         assert_eq!(
             stmts[0],
@@ -1881,7 +2011,7 @@ mod tests {
             CREATE TABLE t(id INTEGER);\
         ";
 
-        let stmts = split_on_semicolons(sql);
+        let stmts = split_statements(sql);
         assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
         assert_eq!(
             stmts[0],
@@ -1901,7 +2031,7 @@ mod tests {
             CREATE TABLE tagged(id INTEGER);\
         ";
 
-        let stmts = split_on_semicolons(sql);
+        let stmts = split_statements(sql);
         assert_eq!(stmts.len(), 2, "unexpected split: {stmts:?}");
         assert_eq!(stmts[0], "DO $body$\nBEGIN\nPERFORM 1;\nEND;\n$body$");
         assert_eq!(stmts[1], "CREATE TABLE tagged(id INTEGER)");
@@ -2002,31 +2132,150 @@ mod tests {
         assert_eq!(stmts.len(), 3, "unexpected split: {stmts:?}");
         assert!(stmts[1].starts_with("CREATE TRIGGER trg"));
         assert!(
-            stmts[1].ends_with("END"),
+            stmts[1].ends_with("END;"),
             "trigger body truncated: {}",
             stmts[1]
         );
     }
 
     #[test]
-    fn breakpoints_split_only_at_top_level_marker_lines() {
-        let sql = r#"
-            CREATE TABLE notes(value TEXT DEFAULT '--> statement-breakpoint');
-            -- ordinary comment containing --> statement-breakpoint
-            CREATE FUNCTION marker_text() RETURNS text AS $$
-            BEGIN
-              RETURN '--> statement-breakpoint';
-            END;
-            $$ LANGUAGE plpgsql;
-            --> statement-breakpoint
-            CREATE TABLE users(id INTEGER);
-        "#;
+    fn breakpoint_files_split_only_on_markers_like_drizzle_orm() {
+        // drizzle-orm: `query.split('--> statement-breakpoint')`, each chunk
+        // run whole. Semicolons inside a chunk never split it.
+        let sql = "CREATE TABLE a (id int);\nCREATE TABLE b (id int);\n--> statement-breakpoint\n\
+                   CREATE PROCEDURE p()\nBEGIN\n  DECLARE x INT;\n  BEGIN\n    SET x = 1;\n  END;\nEND;";
+        assert_eq!(
+            split_statements(sql),
+            [
+                "CREATE TABLE a (id int);\nCREATE TABLE b (id int);",
+                "CREATE PROCEDURE p()\nBEGIN\n  DECLARE x INT;\n  BEGIN\n    SET x = 1;\n  END;\nEND;",
+            ]
+        );
 
-        let statements = split_statements(sql);
-        assert_eq!(statements.len(), 3, "unexpected split: {statements:?}");
-        assert!(statements[1].contains("ordinary comment containing"));
-        assert!(statements[1].contains("RETURN '--> statement-breakpoint'"));
-        assert_eq!(statements[2], "CREATE TABLE users(id INTEGER)");
+        // Same line, CRLF, no semicolons, and empty chunks.
+        assert_eq!(
+            split_statements("CREATE TABLE a (id int);--> statement-breakpoint\nCREATE TABLE b (id int)"),
+            ["CREATE TABLE a (id int);", "CREATE TABLE b (id int)"]
+        );
+        assert_eq!(
+            split_statements(
+                "CREATE TABLE a (id int);\r\n--> statement-breakpoint\r\n\r\n--> statement-breakpoint\r\nCREATE TABLE b (id int);\r\n"
+            ),
+            ["CREATE TABLE a (id int);", "CREATE TABLE b (id int);"]
+        );
+
+        // Every dialect splits a breakpoint file the same way.
+        for dialect in [Dialect::SQLite, Dialect::PostgreSQL, Dialect::MySQL] {
+            assert_eq!(split_statements_for(sql, Some(dialect)), split_statements(sql));
+        }
+    }
+
+    #[test]
+    fn mysql_split_handles_backslashes_comments_and_nested_blocks() {
+        let mysql = |sql: &str| split_statements_for(sql, Some(Dialect::MySQL));
+
+        assert_eq!(
+            mysql("INSERT INTO t VALUES ('a\\';b');\nINSERT INTO t VALUES (\"c\\\";d\");"),
+            ["INSERT INTO t VALUES ('a\\';b')", "INSERT INTO t VALUES (\"c\\\";d\")"]
+        );
+        assert_eq!(
+            mysql("# it's a comment; really\nCREATE TABLE a (id int);\nCREATE TABLE b (id int);"),
+            ["# it's a comment; really\nCREATE TABLE a (id int)", "CREATE TABLE b (id int)"]
+        );
+        // `--` needs trailing whitespace to start a MySQL comment.
+        assert_eq!(
+            mysql("UPDATE t SET a = a--1;\nUPDATE t SET b = 1;-- trailing; comment\n"),
+            ["UPDATE t SET a = a--1", "UPDATE t SET b = 1", "-- trailing; comment"]
+        );
+        assert_eq!(
+            mysql("CREATE TABLE `it's` (id int);\nCREATE TABLE `a;b` (id int);"),
+            ["CREATE TABLE `it's` (id int)", "CREATE TABLE `a;b` (id int)"]
+        );
+
+        let nested = "CREATE PROCEDURE p()\nBEGIN\n  DECLARE x INT;\n  BEGIN\n    SET x = 1;\n  END;\n  \
+                      IF x = 1 THEN SELECT 1; END IF;\n  SELECT x;\nEND;\nCREATE TABLE after_proc (id int);";
+        let statements = mysql(nested);
+        assert_eq!(statements.len(), 2, "{statements:?}");
+        assert!(statements[0].ends_with("SELECT x;\nEND"), "{statements:?}");
+        assert_eq!(statements[1], "CREATE TABLE after_proc (id int)");
+
+        let handler = "CREATE PROCEDURE p()\nBEGIN\n  DECLARE CONTINUE HANDLER FOR SQLEXCEPTION\n  BEGIN\n    \
+                       SET @err = 1;\n  END;\n  INSERT INTO t VALUES (1);\nEND;\nSELECT 2;";
+        let statements = mysql(handler);
+        assert_eq!(statements.len(), 2, "{statements:?}");
+        assert_eq!(statements[1], "SELECT 2");
+
+        let labeled = "CREATE PROCEDURE p()\nouter_block: BEGIN\n  inner_block: BEGIN\n    SELECT 1;\n  \
+                       END inner_block;\n  SELECT 2;\nEND outer_block;\nSELECT 3;";
+        let statements = mysql(labeled);
+        assert_eq!(statements.len(), 2, "{statements:?}");
+        assert_eq!(statements[1], "SELECT 3");
+    }
+
+    #[test]
+    fn postgres_split_handles_escape_strings_rules_and_dollar_identifiers() {
+        let postgres = |sql: &str| split_statements_for(sql, Some(Dialect::PostgreSQL));
+
+        assert_eq!(
+            postgres("INSERT INTO t VALUES (E'it\\'s; here');\nSELECT 1;"),
+            ["INSERT INTO t VALUES (E'it\\'s; here')", "SELECT 1"]
+        );
+        // A standard string keeps its backslash literal: 'a\' ends there.
+        assert_eq!(
+            postgres("SELECT 'a\\';\nSELECT 2;"),
+            ["SELECT 'a\\'", "SELECT 2"]
+        );
+        assert_eq!(
+            postgres(
+                "CREATE RULE r AS ON INSERT TO t DO ALSO (INSERT INTO log VALUES (1); INSERT INTO log VALUES (2));\nSELECT 1;"
+            ),
+            [
+                "CREATE RULE r AS ON INSERT TO t DO ALSO (INSERT INTO log VALUES (1); INSERT INTO log VALUES (2))",
+                "SELECT 1"
+            ]
+        );
+        assert_eq!(
+            postgres("SELECT a$b$c FROM t; SELECT 'x';"),
+            ["SELECT a$b$c FROM t", "SELECT 'x'"]
+        );
+        assert_eq!(
+            postgres("PREPARE p AS SELECT $1; SELECT 2;"),
+            ["PREPARE p AS SELECT $1", "SELECT 2"]
+        );
+        assert_eq!(
+            postgres("/* outer /* inner */ still ; comment */ SELECT 1; SELECT 2;"),
+            ["/* outer /* inner */ still ; comment */ SELECT 1", "SELECT 2"]
+        );
+        assert_eq!(
+            postgres("CREATE INDEX i ON event (begin);\nCREATE TABLE z (id int);"),
+            ["CREATE INDEX i ON event (begin)", "CREATE TABLE z (id int)"]
+        );
+    }
+
+    #[test]
+    fn sqlite_split_handles_brackets_and_backticks() {
+        let sqlite = |sql: &str| split_statements_for(sql, Some(Dialect::SQLite));
+        assert_eq!(
+            sqlite("CREATE TABLE [a;b] (id int);\nCREATE TABLE `it's` (id int);\nSELECT 'x\\';"),
+            ["CREATE TABLE [a;b] (id int)", "CREATE TABLE `it's` (id int)", "SELECT 'x\\'"]
+        );
+    }
+
+    #[test]
+    fn migrations_set_resplits_with_its_dialect() {
+        let sql = "INSERT INTO t VALUES ('a\\';b');\nINSERT INTO t VALUES ('c');";
+        let migration = Migration::new("20240101000000_seed", sql);
+        let set = Migrations::new(vec![migration.clone()], Dialect::MySQL);
+        assert_eq!(
+            set.all()[0].statements(),
+            ["INSERT INTO t VALUES ('a\\';b')", "INSERT INTO t VALUES ('c')"]
+        );
+        // The hash always covers the original file.
+        assert_eq!(set.all()[0].hash(), migration.hash());
+        assert_eq!(
+            Migration::for_dialect("20240101000000_seed", sql, Dialect::MySQL).statements(),
+            set.all()[0].statements()
+        );
     }
 
     #[test]
