@@ -752,3 +752,53 @@ fn multi_file_concatenation() {
     assert_eq!(fk.table_to.as_ref(), "users_tbl");
     assert_eq!(fk.name.as_ref(), "fk_posts_author_id_users_tbl_id_fk");
 }
+
+/// Numeric `DEFAULT` literals are SQL numbers, not Rust source spellings:
+/// digit separators, radix prefixes, and type suffixes must not reach the
+/// generated DDL (the table macros already emit the decimal value).
+#[test]
+fn numeric_default_literals_render_as_decimal_sql() {
+    for (dialect, attribute) in [
+        (Dialect::SQLite, "SQLiteTable"),
+        (Dialect::PostgreSQL, "PostgresTable"),
+        (Dialect::MySQL, "MySQLTable"),
+    ] {
+        let code = format!(
+            r#"
+#[{attribute}]
+pub struct Numbers {{
+    #[column(primary)]
+    pub id: i64,
+    #[column(default = 1_000)]
+    pub separated: i64,
+    #[column(default = 0x10)]
+    pub hex: i64,
+    #[column(default = 5i64)]
+    pub suffixed: i64,
+    #[column(default = 1_000.5f64)]
+    pub float: f64,
+}}
+"#
+        );
+        let result = SchemaParser::parse(&code);
+        assert!(
+            result.errors.is_empty(),
+            "{dialect:?} parse errors: {:?}",
+            result.errors
+        );
+        let snapshot = Snapshot::from_parse_result(&result, dialect, None);
+        let sql = drizzle_migrations::diff(&Snapshot::empty(dialect), &snapshot)
+            .expect("diff")
+            .statements
+            .join("\n");
+        for expected in ["DEFAULT 1000", "DEFAULT 16", "DEFAULT 5", "DEFAULT 1000.5"] {
+            assert!(sql.contains(expected), "{dialect:?}: {expected} in\n{sql}");
+        }
+        for forbidden in ["1_000", "0x10", "5i64", "f64"] {
+            assert!(
+                !sql.contains(forbidden),
+                "{dialect:?}: {forbidden} leaked into\n{sql}"
+            );
+        }
+    }
+}
