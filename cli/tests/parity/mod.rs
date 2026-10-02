@@ -725,6 +725,10 @@ pub fn non_postgres_filters_warn_and_are_ignored<B: LiveDriverCase>() {
             "--url",
             &B::database_url(root),
             "--explain",
+            // Only this test's table: others in the shared database would
+            // read as dropped and raise rename questions.
+            "--tablesFilter",
+            &table,
             "--schemaFilters",
             "public",
             "--extensionsFilters",
