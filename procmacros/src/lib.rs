@@ -1721,7 +1721,7 @@ pub fn PostgresPolicy(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Derive a `MySQL` inline `ENUM` column type for a fieldless enum.
 ///
 /// The column stores the variant names, as written and in declaration order:
-/// `ENUM('Draft', 'Published')`. Mark the column with `#[column(enum)]` in a
+/// `ENUM('Draft', 'Published')`. Mark the column with `#[column(ENUM)]` in a
 /// [`MySQLTable`]. Unlike `PostgreSQL`, there is no separate type to create,
 /// so the enum does not go in the [`MySQLSchema`].
 ///
@@ -1754,13 +1754,13 @@ pub fn PostgresPolicy(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// struct Posts {
 ///     #[column(primary, auto_increment)]
 ///     id: u64,
-///     #[column(enum)]
+///     #[column(ENUM)]
 ///     status: Status,
 /// }
 ///
 /// assert_eq!(Status::Published.to_string(), "Published");
 /// assert_eq!("Draft".parse::<Status>().unwrap(), Status::Draft);
-/// assert!(Posts::ddl_sql().contains("`status` ENUM('Draft', 'Published') NOT NULL"));
+/// assert!(Posts::create_table_sql().contains("`status` ENUM('Draft', 'Published') NOT NULL"));
 /// # }
 /// # #[cfg(not(feature = "mysql"))]
 /// # fn main() {}
@@ -1820,7 +1820,7 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 /// | `unique` | `UNIQUE` constraint. |
 /// | `auto_increment` | `AUTO_INCREMENT`. Only on an integer column that is `primary` or `unique`, at most one per table, and not with `default` or `generated`. |
 /// | `serial` | `BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE`, on a `u64` field. |
-/// | `enum` | The field's type derives [`MySQLEnum`]; the column is an inline `ENUM(...)`. |
+/// | `ENUM` (uppercase only) | The field's type derives [`MySQLEnum`]; the column is an inline `ENUM(...)`. |
 /// | `set("a", "b")` | A `SET('a', 'b')` column, with 1 to 64 values. |
 /// | `json` | A `JSON` column. A `serde` payload type needs the `serde` feature. |
 /// | SQL type keys | Override the SQL type inferred from the Rust type: `varchar(n)`, `char(n)`, `text`, `longtext`, `binary(n)`, `varbinary(n)`, `blob`, `tinyint`, `int`, `bigint`, `decimal(p, s)`, `double`, `date`, `datetime`, `timestamp`, `year` and more, with `_unsigned` variants for the numeric types (`int_unsigned`). The signedness must match the Rust type. |

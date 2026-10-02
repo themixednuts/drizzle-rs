@@ -329,7 +329,7 @@
 //! - [`core`]: the dialect-independent traits, expressions ([`core::expr`]),
 //!   and SQL building blocks.
 //! - [`migrations`]: embedded migrations and schema snapshots.
-//! - [`error`]: [`DrizzleError`](error::DrizzleError).
+//! - [`error`]: the [`DrizzleError`](error::DrizzleError) type.
 //!
 //! The project README covers migrations, relational queries, prepared
 //! statements, and the CLI in more depth.
@@ -688,7 +688,7 @@ pub mod postgres {
     #[doc(inline)]
     pub use drizzle_postgres::aws_data_api;
 
-    /// Blocking PostgreSQL driver over a [`postgres::Client`](::postgres::Client).
+    /// Blocking PostgreSQL driver over a [`postgres::Client`].
     ///
     /// Query methods take `&mut Drizzle`, because the client needs mutable
     /// access to run statements.
