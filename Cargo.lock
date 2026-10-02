@@ -2531,7 +2531,6 @@ dependencies = [
  "hashbrown 0.16.1",
  "jiff",
  "libsql",
- "paste",
  "percent-encoding",
  "postgres",
  "puffin",
