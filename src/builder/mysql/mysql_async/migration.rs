@@ -1,8 +1,21 @@
-use drizzle_core::error::Result;
+use drizzle_core::error::{QueryContext, Result, ResultExt};
 use drizzle_migrations::{MigrateOutcome, Migration, Tracking};
+use mysql_async::prelude::Queryable;
 
-use super::{Conn, execute_request, initialize_session, query_request};
+use super::{Conn, driver_error, initialize_session, query_request};
 use crate::builder::mysql::migration::{Effect, Session, Step};
+
+/// Runs migration SQL through the text protocol. The prepared-statement
+/// protocol rejects stored-program DDL (`CREATE PROCEDURE`, `DROP TRIGGER`,
+/// ...) with error 1295, and migration SQL never has parameters.
+async fn execute_text(connection: &mut Conn, sql: &str) -> Result<()> {
+    drizzle_core::drizzle_trace_query!(sql, 0);
+    connection
+        .query_drop(sql)
+        .await
+        .map_err(driver_error)
+        .with_query(|| QueryContext::new::<()>(sql, &[]))
+}
 
 pub(super) struct Runner<'a> {
     connection: &'a mut Conn,
@@ -32,9 +45,9 @@ impl<'a> Runner<'a> {
                 Effect::Initialize => initialize_session(self.connection)
                     .await
                     .map(|()| Vec::new()),
-                Effect::Execute(sql) => execute_request(self.connection, &sql, &[])
+                Effect::Execute(sql) => execute_text(self.connection, &sql)
                     .await
-                    .map(|_| Vec::new()),
+                    .map(|()| Vec::new()),
                 Effect::Query(sql) => query_request(self.connection, &sql, &[]).await,
             };
             step = self.session.resume(result);
