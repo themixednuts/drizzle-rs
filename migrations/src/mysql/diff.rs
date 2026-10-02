@@ -207,6 +207,10 @@ pub enum MySQLWarning {
         table: String,
         column: String,
     },
+    AddNotNullColumn {
+        table: String,
+        column: String,
+    },
     RemoveOrReorderInlineValues {
         table: String,
         column: String,
@@ -249,6 +253,10 @@ impl std::fmt::Display for MySQLWarning {
             Self::TightenNullability { table, column } => write!(
                 formatter,
                 "making {table}.{column} NOT NULL can fail when rows contain NULL"
+            ),
+            Self::AddNotNullColumn { table, column } => write!(
+                formatter,
+                "adding NOT NULL column {table}.{column} without a DEFAULT fills existing rows with its type's implicit default"
             ),
             Self::RemoveOrReorderInlineValues { table, column } => write!(
                 formatter,
@@ -2404,8 +2412,12 @@ pub fn compute_migration_with(
             table: key.0.clone(),
             column: column_definition_for_ddl(column, &cur),
         });
-        if column.not_null && column.default.is_none() && column.generated.is_none() {
-            warnings.insert(MySQLWarning::TightenNullability {
+        if column.not_null
+            && column.default.is_none()
+            && column.generated.is_none()
+            && !column.autoincrement
+        {
+            warnings.insert(MySQLWarning::AddNotNullColumn {
                 table: key.0.clone(),
                 column: key.1.clone(),
             });
@@ -3816,6 +3828,35 @@ mod tests {
         assert_eq!(
             modified,
             ["ALTER TABLE `users` MODIFY COLUMN `email` int NOT NULL;"]
+        );
+    }
+
+    #[test]
+    fn adding_columns_does_not_claim_a_nullability_change() {
+        let prev = table_with_columns("users", &["id"]);
+        let mut cur = prev.clone();
+        let mut serial = model::Column::new("users", "seq", "bigint");
+        serial.not_null = true;
+        serial.autoincrement = true;
+        serial.unique = true;
+        cur.columns.push(serial);
+        let mut required = model::Column::new("users", "required", "int");
+        required.not_null = true;
+        cur.columns.push(required);
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+        assert_eq!(
+            migration.typed_warnings,
+            [MySQLWarning::AddNotNullColumn {
+                table: "users".to_string(),
+                column: "required".to_string(),
+            }]
+        );
+        assert!(
+            migration
+                .warnings
+                .iter()
+                .all(|warning| !warning.contains("can fail when rows contain NULL"))
         );
     }
 }
