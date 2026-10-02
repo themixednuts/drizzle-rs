@@ -213,6 +213,7 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                                         generated_expression,
                                         generated_stored,
                                         collate,
+                                        ..
                                     } => (
                                         autoincrement,
                                         default,

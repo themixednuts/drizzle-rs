@@ -1163,6 +1163,7 @@ where
                 generated_expression: None,
                 generated_stored: false,
                 collate: None,
+                enum_variants: None,
             },
         };
         inference::infer_generator(&col_ref).generate(rng, index, sql_type)
@@ -1337,6 +1338,7 @@ mod tests {
                 generated_expression: Some("LENGTH(app_default)"),
                 generated_stored: true,
                 collate: None,
+                enum_variants: None,
             },
             ColumnDialect::PostgreSQL {
                 postgres_type: "INTEGER",
@@ -1350,6 +1352,7 @@ mod tests {
                 generated_stored: true,
                 collate: None,
                 comment: None,
+                enum_variants: None,
             },
             ColumnDialect::MySQL {
                 auto_increment: false,
@@ -1416,6 +1419,7 @@ mod tests {
                 generated_stored: false,
                 collate: None,
                 comment: None,
+                enum_variants: None,
             },
         };
 
@@ -1448,6 +1452,7 @@ mod tests {
                     generated_stored: false,
                     collate: None,
                     comment: None,
+                    enum_variants: None,
                 },
             };
             let sql = seed_value_to_postgres_sql(&SeedValue::Integer(value), &col);

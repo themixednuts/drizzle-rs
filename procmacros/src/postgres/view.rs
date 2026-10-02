@@ -462,6 +462,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
                         generated_stored: false,
                         collate: ::core::option::Option::None,
                         comment: #comment,
+                        enum_variants: ::core::option::Option::None,
                     },
                 }
             }

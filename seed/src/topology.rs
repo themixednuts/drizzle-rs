@@ -178,6 +178,7 @@ mod tests {
                 generated_expression: None,
                 generated_stored: false,
                 collate: None,
+                enum_variants: None,
             },
         }
     }

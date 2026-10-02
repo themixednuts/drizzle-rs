@@ -175,6 +175,17 @@ pub fn generate_table_impls(
                 || quote! { ::core::option::Option::None },
                 |collate| quote! { ::core::option::Option::Some(#collate) },
             );
+            let enum_variants = if f.is_enum {
+                let base_type = f.base_type;
+                let sql_enum_variants = core_paths::sql_enum_variants();
+                quote! {
+                    ::core::option::Option::Some(
+                        <#base_type as #sql_enum_variants>::VARIANTS
+                    )
+                }
+            } else {
+                quote! { ::core::option::Option::None }
+            };
             let flags = crate::common::ref_gen::ColumnRefFlags::new()
                 .with(
                     crate::common::ref_gen::ColumnRefFlags::NOT_NULL,
@@ -203,6 +214,7 @@ pub fn generate_table_impls(
                         generated_expression: #generated_expression,
                         generated_stored: #generated_stored,
                         collate: #collate,
+                        enum_variants: #enum_variants,
                     }
                 },
             }
