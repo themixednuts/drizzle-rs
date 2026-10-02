@@ -211,6 +211,7 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
         Some(cur),
     ));
     collect_enum_removal_warnings(&mut warnings, &schema_diff);
+    collect_new_enum_value_use_warnings(&mut warnings, &schema_diff);
     collect_generated_recreate_warnings(&mut warnings, &schema_diff);
     collect_table_storage_warnings(&mut warnings, &schema_diff);
 
@@ -254,6 +255,64 @@ fn collect_enum_removal_warnings(warnings: &mut Vec<String>, schema_diff: &Schem
                 "PostgreSQL cannot drop enum value '{}.{}.{value}' in place; the migration recreates the enum type, and rows still holding the removed value will fail the conversion. Rewrite dependent data first.",
                 old.schema, old.name
             ));
+        }
+    }
+}
+
+/// Warn when a column default uses an enum value added in the same
+/// migration: PostgreSQL rejects a value added by `ALTER TYPE ... ADD
+/// VALUE` until that transaction commits ("unsafe use of new value"), and
+/// each migration runs in one transaction.
+fn collect_new_enum_value_use_warnings(warnings: &mut Vec<String>, schema_diff: &SchemaDiff) {
+    use crate::postgres::collection::normalize_default_for_compare;
+
+    for diff in schema_diff
+        .diffs
+        .iter()
+        .filter(|diff| diff.diff_type == DiffType::Alter && diff.kind == EntityKind::Enum)
+    {
+        let (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new))) =
+            (diff.left.as_ref(), diff.right.as_ref())
+        else {
+            continue;
+        };
+        let added: Vec<&str> = new
+            .values
+            .iter()
+            .filter(|value| !old.values.contains(value))
+            .map(AsRef::as_ref)
+            .collect();
+        if added.is_empty() {
+            continue;
+        }
+
+        for column_diff in schema_diff.diffs.iter().filter(|d| {
+            d.kind == EntityKind::Column
+                && matches!(d.diff_type, DiffType::Create | DiffType::Alter)
+        }) {
+            let Some(PostgresEntity::Column(column)) = column_diff.right.as_ref() else {
+                continue;
+            };
+            if column.sql_type != new.name
+                || column.type_schema.as_deref().unwrap_or("public") != new.schema.as_ref()
+            {
+                continue;
+            }
+            let Some(default) = column.default.as_deref() else {
+                continue;
+            };
+            let default = normalize_default_for_compare(default);
+            if let Some(value) = added
+                .iter()
+                .find(|value| default == format!("'{}'", value.replace('\'', "''")))
+            {
+                warnings.push(format!(
+                    "Column {}.{} defaults to enum value '{value}', which this migration adds to {}; PostgreSQL cannot use a new enum value in the transaction that adds it, so apply the ALTER TYPE ... ADD VALUE in an earlier migration.",
+                    qualified_name(&column.schema, &column.table),
+                    quote_ident(&column.name),
+                    qualified_name(&new.schema, &new.name),
+                ));
+            }
         }
     }
 }
@@ -1477,6 +1536,38 @@ mod tests {
             migration.sql_statements[0],
             "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'active';"
         );
+    }
+
+    #[test]
+    fn default_using_a_newly_added_enum_value_emits_warning() {
+        let mut prev_ddl = postgres_table_with_id("public", "users");
+        prev_ddl.enums.push(Enum::from_strings(
+            "public".to_string(),
+            "mood".to_string(),
+            vec!["a".to_string(), "b".to_string()],
+        ));
+        let mut mood = Column::new("public", "users", "mood", "mood");
+        mood.type_schema = Some("public".into());
+        prev_ddl.columns.push(mood);
+
+        let mut cur_ddl = prev_ddl.clone();
+        cur_ddl.enums.list_mut()[0].values.to_mut().push("c".into());
+        cur_ddl.columns.list_mut()[1].default = Some("'c'".into());
+
+        let migration = compute_migration(&prev_ddl, &cur_ddl);
+        assert!(
+            migration
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("defaults to enum value 'c'")),
+            "{:?}",
+            migration.warnings
+        );
+
+        // A default on an existing value is fine.
+        cur_ddl.columns.list_mut()[1].default = Some("'a'".into());
+        let migration = compute_migration(&prev_ddl, &cur_ddl);
+        assert!(migration.warnings.is_empty(), "{:?}", migration.warnings);
     }
 
     #[test]
