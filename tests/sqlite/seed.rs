@@ -862,3 +862,58 @@ mod executed {
         }
     }
 }
+
+#[test]
+fn rows_output_matches_generated_statements() {
+    let schema = ContractRelatedSchema::new();
+    let config = SeedConfig::sqlite(&schema)
+        .seed(5)
+        .count(&schema.parent, 3)
+        .relation(&schema.parent, &schema.child, 2);
+
+    let tables = config.try_generate_rows().unwrap();
+    let names: Vec<&str> = tables.iter().map(|rows| rows.table).collect();
+    assert_eq!(names, ["seed_parent", "seed_child"]);
+    assert_eq!(tables[0].columns, ["id", "name"]);
+    assert_eq!(tables[1].rows.len(), 6);
+
+    // Same values, in the same order, as the bound parameters.
+    let params: Vec<OwnedSQLiteValue> = config
+        .generate()
+        .into_iter()
+        .flat_map(|statement| statement.build().1)
+        .collect();
+    let values: Vec<&SeedValue> = tables
+        .iter()
+        .flat_map(|table| table.rows.iter().flatten())
+        .collect();
+    assert_eq!(params.len(), values.len());
+    for (param, value) in params.iter().zip(values) {
+        match (param, value) {
+            (OwnedSQLiteValue::Integer(a), SeedValue::Integer(b)) => assert_eq!(a, b),
+            (OwnedSQLiteValue::Text(a), SeedValue::Text(b)) => assert_eq!(a, b),
+            other => panic!("unexpected pair {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn generators_module_plugs_into_columns() {
+    use drizzle_seed::generators::{self, GeneratorExt};
+
+    let schema = ContractSimpleSchema::new();
+    let statements = SeedConfig::sqlite(&schema)
+        .count(&schema.simple, 4)
+        .generator(
+            &schema.simple.name,
+            generators::one_of(["ada", "grace"]).nullable(0.0),
+        )
+        .generate();
+    let (_, params) = statements[0].build();
+    let names: Vec<&OwnedSQLiteValue> = params.iter().skip(1).step_by(2).collect();
+    assert_eq!(names.len(), 4);
+    assert!(names.iter().all(|name| matches!(
+        name,
+        OwnedSQLiteValue::Text(text) if text == "ada" || text == "grace"
+    )));
+}

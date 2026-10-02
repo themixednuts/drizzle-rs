@@ -224,7 +224,9 @@ macro_rules! dialect_seed_config {
                 self
             }
 
-            /// Uses a custom [`Generator`] for `column`. Wins over
+            /// Uses `generator` for `column`: one from
+            /// [`generators`](crate::generators), a
+            /// [`GeneratorKind`], or your own [`Generator`]. Wins over
             /// [`kind`](Self::kind).
             ///
             /// A foreign key column that references a seeded table is still
@@ -242,7 +244,11 @@ macro_rules! dialect_seed_config {
 
             /// Generates the INSERT statements for every table not skipped,
             /// parents first. Large tables are split over several statements
-            /// to stay under the bind-parameter limit.
+            /// to stay under the bind-parameter limit. On `PostgreSQL`, a
+            /// table's rows can be followed by a `SELECT setval(...)` that
+            /// moves its `SERIAL`/`IDENTITY` sequences past the seeded ids.
+            ///
+            /// Execute every statement, in order.
             ///
             /// # Panics
             ///
@@ -265,6 +271,22 @@ macro_rules! dialect_seed_config {
             /// exceeds the parameter limit.
             pub fn try_generate(&self) -> Result<Vec<$seed_statement>, crate::SeedError> {
                 crate::Seeder::new(self).$generate()
+            }
+
+            /// Generates the rows without rendering SQL: per table, the
+            /// column names and one `Vec` of [`SeedValue`](crate::SeedValue)s
+            /// per row, parents first and foreign keys resolved.
+            ///
+            /// Use this to insert with any database driver, or to write
+            /// fixtures. Values follow the same rules as
+            /// [`generate`](Self::generate) for this dialect.
+            ///
+            /// # Errors
+            ///
+            /// The same as [`try_generate`](Self::try_generate), except that
+            /// no parameter limit applies.
+            pub fn try_generate_rows(&self) -> Result<Vec<crate::SeedRows>, crate::SeedError> {
+                crate::Seeder::new(self).generate_rows()
             }
 
             /// Returns statements that empty the non-skipped tables, children

@@ -1,21 +1,40 @@
 //! Deterministic test data for drizzle-rs schemas.
 //!
-//! [`SeedConfig`] turns a schema into INSERT statements. The same seed always
-//! gives the same rows.
+//! [`SeedConfig`] turns a schema into INSERT statements, or into plain rows
+//! with [`try_generate_rows`](SeedConfig::try_generate_rows) for use with
+//! any driver. The same seed and crate version always give the same rows.
 //!
 //! How values are chosen, per column:
-//! 1. a [`Generator`] set with `.generator(...)`, else
-//! 2. a [`GeneratorKind`] set with `.kind(...)`, else
-//! 3. `DEFAULT` when the column has a default (and is not the primary key), else
-//! 4. an inferred generator: integer primary keys count up from 1; otherwise
-//!    the column name decides when it is recognized (`email` gets emails,
-//!    `first_name` gets first names, and so on), then the SQL type.
+//! 1. a [`Generator`] set with `.generator(...)`: one from [`generators`]
+//!    (`generators::int(18..=90)`, `generators::one_of([...])`,
+//!    `generators::from_fn(...)`, ...), a [`GeneratorKind`], or your own
+//!    type; else
+//! 2. a [`GeneratorKind`] set with `.kind(...)`; else
+//! 3. `DEFAULT` when the column has a default (and is not the primary key),
+//!    or is a non-key `PostgreSQL` identity column; else
+//! 4. an inferred generator:
+//!    - integer primary keys count up from 1;
+//!    - enum columns pick one of their variants;
+//!    - MySQL columns follow their declared domain (integer ranges, inline
+//!      `ENUM`/`SET` labels, `DECIMAL` precision, ...);
+//!    - otherwise the column name decides when a whole word is recognized
+//!      (`email`, `first_name`, `created_at`, `is_active`, ...) and the
+//!      generated values fit the column type, then the SQL type alone.
 //!
+//!    Text is cut to a declared `VARCHAR(n)`/`CHAR(n)` length.
+//!
+//! `UNIQUE` columns and single-column primary keys get distinct values.
 //! Parent tables are seeded before their children, and foreign key columns
 //! are overwritten to point at generated parent rows. A child table without
 //! its own count gets `parent rows × relation count` rows (the relation count
 //! defaults to 1; with several parents, the largest product wins).
 //! `reset_plan` returns `DELETE` statements in child-before-parent order.
+//!
+//! On `PostgreSQL`, text values for non-text columns (`uuid`, `jsonb`,
+//! enums, arrays, ...) are cast to the column type, `GENERATED ALWAYS`
+//! identity keys are inserted with `OVERRIDING SYSTEM VALUE`, and each
+//! table's `SERIAL`/`IDENTITY` sequences are moved past the seeded ids with
+//! a `SELECT setval(...)` statement after its rows.
 //!
 //! The crate has no default dialect: enable `sqlite`, `postgres`, and/or
 //! `mysql`.
@@ -116,9 +135,14 @@ mod mysql_seed;
 pub(crate) mod rng;
 pub(crate) mod topology;
 
+pub mod generators;
+
 pub use config::SeedConfig;
 pub use error::SeedError;
 pub use generator::{Generator, GeneratorKind, RngCore, SeedValue};
+/// Re-export of `rand::Rng`, for drawing values from the RNG a
+/// [`Generator`] receives (`rng.random_range(..)`, `rng.random_bool(..)`).
+pub use rand::Rng;
 
 use drizzle_core::{ColumnRef, TableRef};
 use rand::rngs::StdRng;
@@ -126,7 +150,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
-use drizzle_core::{ColumnDialect, OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
+use drizzle_core::{OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
+
+#[cfg(any(
+    feature = "postgres",
+    all(test, any(feature = "sqlite", feature = "mysql"))
+))]
+use drizzle_core::ColumnDialect;
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use std::borrow::Cow;
@@ -332,6 +362,28 @@ mod statement {
 }
 
 // ---------------------------------------------------------------------------
+// Dialect-free output
+// ---------------------------------------------------------------------------
+
+/// The generated rows for one table, before any SQL is rendered.
+///
+/// Returned by `SeedConfig::try_generate_rows`, in insert order (parents
+/// before children), with foreign keys already pointing at parent rows. Use
+/// it to insert with any driver, write fixtures, or inspect what a seed
+/// produces. Generated (computed) columns are left out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeedRows {
+    /// The table's schema, if it has one.
+    pub schema: Option<&'static str>,
+    /// The table name.
+    pub table: &'static str,
+    /// Column names, in the order of each row's values.
+    pub columns: Vec<&'static str>,
+    /// One `Vec` of values per row, in `columns` order.
+    pub rows: Vec<Vec<SeedValue>>,
+}
+
+// ---------------------------------------------------------------------------
 // Internal: generated data awaiting SQL rendering
 // ---------------------------------------------------------------------------
 
@@ -509,6 +561,41 @@ where
         }
 
         Ok(chunks_out)
+    }
+
+    fn generate_rows(&self) -> Result<Vec<SeedRows>, SeedError> {
+        let mut out: Vec<SeedRows> = Vec::new();
+        for chunk in self.generate_chunks(usize::MAX)? {
+            let kept: Vec<usize> = chunk
+                .table
+                .columns
+                .iter()
+                .enumerate()
+                .filter(|(_, column)| generated_expression(column).is_none())
+                .map(|(index, _)| index)
+                .collect();
+            let rows = chunk
+                .rows
+                .into_iter()
+                .map(|row| kept.iter().map(|&index| row[index].clone()).collect());
+            match out.last_mut() {
+                Some(last)
+                    if last.table == chunk.table.name && last.schema == chunk.table.schema =>
+                {
+                    last.rows.extend(rows);
+                }
+                _ => out.push(SeedRows {
+                    schema: chunk.table.schema,
+                    table: chunk.table.name,
+                    columns: kept
+                        .iter()
+                        .map(|&index| chunk.table.columns[index].name)
+                        .collect(),
+                    rows: rows.collect(),
+                }),
+            }
+        }
+        Ok(out)
     }
 
     fn reset_tables(&self) -> Result<Vec<&'static TableRef>, SeedError> {
@@ -834,6 +921,24 @@ fn statement_table(table: &TableRef) -> TableRef {
     table
 }
 
+/// The expression of a generated (computed) column, which INSERTs leave out.
+const fn generated_expression(column: &ColumnRef) -> Option<&'static str> {
+    match column.dialect {
+        drizzle_core::ColumnDialect::SQLite {
+            generated_expression,
+            ..
+        }
+        | drizzle_core::ColumnDialect::PostgreSQL {
+            generated_expression,
+            ..
+        }
+        | drizzle_core::ColumnDialect::MySQL {
+            generated_expression,
+            ..
+        } => generated_expression,
+    }
+}
+
 /// A `PostgreSQL` identity column (`GENERATED ... AS IDENTITY`).
 const fn is_postgres_identity(column: &ColumnRef) -> bool {
     matches!(
@@ -972,7 +1077,8 @@ fn batch_ranges_by_param_limit(
 // Per-dialect rendering: SeedValue → SQL fragments, assembled via core's SQL
 // ---------------------------------------------------------------------------
 
-#[cfg(any(feature = "sqlite", feature = "mysql"))]
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+#[cfg_attr(not(any(feature = "sqlite", feature = "mysql")), allow(dead_code))]
 fn build_insert_sql<V>(table: &TableRef, rows: &[Vec<SQL<'static, V>>]) -> OwnedSQL<V>
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
@@ -995,23 +1101,7 @@ where
         .columns
         .iter()
         .enumerate()
-        .filter(|(_, column)| {
-            let generated_expression = match column.dialect {
-                ColumnDialect::SQLite {
-                    generated_expression,
-                    ..
-                }
-                | ColumnDialect::PostgreSQL {
-                    generated_expression,
-                    ..
-                }
-                | ColumnDialect::MySQL {
-                    generated_expression,
-                    ..
-                } => generated_expression,
-            };
-            generated_expression.is_none()
-        })
+        .filter(|(_, column)| generated_expression(column).is_none())
         .collect::<Vec<_>>();
 
     let column_idents = SQL::join(
@@ -1426,21 +1516,6 @@ where
 
     fn name(&self) -> &'static str {
         "Column"
-    }
-}
-
-/// Delegates to the shared generator.
-impl Generator for Arc<dyn Generator> {
-    fn generate(
-        &self,
-        rng: &mut dyn generator::RngCore,
-        index: usize,
-        sql_type: &str,
-    ) -> SeedValue {
-        (**self).generate(rng, index, sql_type)
-    }
-    fn name(&self) -> &'static str {
-        (**self).name()
     }
 }
 
