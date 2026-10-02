@@ -177,6 +177,12 @@ pub use row::{
 #[doc(hidden)]
 pub use row::{MaybeNull, ProjectionIn};
 pub use schema::{OrderBy, OrderTerm, Ordered, asc, desc};
+// With both PostgreSQL drivers enabled, the row conversions take the shared
+// `postgres-types` items from `tokio_postgres`; `postgres` is still a needed
+// dependency for `postgres-sync`-only builds.
+#[cfg(all(feature = "postgres-sync", feature = "tokio-postgres"))]
+use ::postgres as _;
+
 pub use scope::{
     AliasKey, FromMarker, FullJoin, HasScope, InnerJoin, JoinStep, Lateral, LeftJoin, OuterJoined,
     RightJoin, ScopeContains, ScopeEntry, Scoped, SelectSources, SetOperand, Src,

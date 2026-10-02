@@ -66,6 +66,17 @@ mysql-async *ARGS:
     cargo test -p drizzle --no-default-features --features "mysql-async,{{_mysql-ext}}" {{ARGS}}
     cargo test -p drizzle-cli --no-default-features --features mysql-async --test parity_integration {{ARGS}}
 
+# Build every crate that supports no_std without its `std` feature, for a
+# bare-metal target that has no `std` at all. Needs the target installed:
+# `rustup target add thumbv7em-none-eabihf`.
+no-std target="thumbv7em-none-eabihf":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for crate in drizzle-core drizzle-types drizzle-sqlite drizzle-postgres drizzle-mysql drizzle; do
+        echo "=== $crate"
+        cargo check -p "$crate" --no-default-features --target "{{target}}"
+    done
+
 # Run bench-runner tests once outside feature-matrix unification
 bench-runner *ARGS:
     cargo test -p bench-runner {{ARGS}}

@@ -16,7 +16,7 @@ extern crate alloc;
 pub(crate) mod prelude {
     #[cfg(feature = "std")]
     pub use std::{
-        borrow::Cow,
+        borrow::{Cow, ToOwned},
         boxed::Box,
         format,
         rc::Rc,
@@ -28,7 +28,7 @@ pub(crate) mod prelude {
 
     #[cfg(not(feature = "std"))]
     pub use alloc::{
-        borrow::Cow,
+        borrow::{Cow, ToOwned},
         boxed::Box,
         format,
         rc::Rc,
