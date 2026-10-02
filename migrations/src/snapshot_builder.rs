@@ -586,7 +586,9 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
             schema_entities.push(schema);
         }
     }
-    for schema in schema_entities {
+    // `public` always exists; drizzle-kit never models it as a schema
+    // entity (it would render `CREATE SCHEMA "public"`).
+    for schema in schema_entities.into_iter().filter(|s| s != "public") {
         snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema)));
     }
 

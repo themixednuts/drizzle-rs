@@ -373,10 +373,22 @@ pub struct EntityDiff {
     pub right: Option<PostgresEntity>,
 }
 
+/// Schemas that take part in the diff: `public` always exists in
+/// `PostgreSQL`, so it is never created or dropped (drizzle-kit filters it
+/// the same way). Older snapshots may still carry a `public` entity.
+fn diffable_schemas(ddl: &PostgresDDL) -> Vec<Schema> {
+    ddl.schemas
+        .list()
+        .iter()
+        .filter(|schema| schema.name != "public")
+        .cloned()
+        .collect()
+}
+
 fn diff_top_level_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<EntityDiff>) {
     diff_entity_type(
-        left.schemas.list(),
-        right.schemas.list(),
+        &diffable_schemas(left),
+        &diffable_schemas(right),
         |e| e.name.to_string(),
         |e| PostgresEntity::Schema(e.clone()),
         EntityKind::Schema,

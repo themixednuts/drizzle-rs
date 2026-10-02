@@ -192,7 +192,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                             let table_name = table_ref.name;
                             let table_schema = table_ref.schema.unwrap_or("public");
                             // Add schema entity if not already added
-                            if seen_schemas.insert(table_schema) {
+                            if table_schema != "public" && seen_schemas.insert(table_schema) {
                                 snapshot.add_entity(MigEntity::Schema(MigSchema::new(table_schema)));
                             }
                             let mut table = MigTable::new(table_schema, table_name);
@@ -338,7 +338,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                             // too — an enum may be the schema's only occupant
                             // and CREATE TYPE needs CREATE SCHEMA first.
                             let enum_schema = <#field_types_for_snapshot as #postgres_item_ddl>::ENUM_SCHEMA;
-                            if seen_schemas.insert(enum_schema) {
+                            if enum_schema != "public" && seen_schemas.insert(enum_schema) {
                                 snapshot.add_entity(MigEntity::Schema(MigSchema::new(enum_schema)));
                             }
                             snapshot.add_entity(MigEntity::Enum(MigEnum::from_strings(
@@ -349,7 +349,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                         }
                         #postgres_schema_type::View(view_info) => {
                             let view_schema = #sql_table_info::schema(view_info).unwrap_or("public");
-                            if seen_schemas.insert(view_schema) {
+                            if view_schema != "public" && seen_schemas.insert(view_schema) {
                                 snapshot.add_entity(MigEntity::Schema(MigSchema::new(view_schema)));
                             }
                             let mut view = MigView::new(view_schema, #sql_table_info::name(view_info));
@@ -369,7 +369,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
                         #postgres_schema_type::Policy(policy_info) => {
                             let table_ref = #sql_policy_info::table(policy_info);
                             let table_schema = table_ref.schema.unwrap_or("public");
-                            if seen_schemas.insert(table_schema) {
+                            if table_schema != "public" && seen_schemas.insert(table_schema) {
                                 snapshot.add_entity(MigEntity::Schema(MigSchema::new(table_schema)));
                             }
 

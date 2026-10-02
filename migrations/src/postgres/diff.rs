@@ -378,16 +378,19 @@ fn detect_and_apply_schema_renames(
     rename_statements: &mut Vec<JsonStatement>,
     warnings: &mut Vec<String>,
 ) {
+    // `public` always exists and is never renamed implicitly.
     let prev_schemas: Vec<String> = prev
         .schemas
         .list()
         .iter()
+        .filter(|schema| schema.name != "public")
         .map(|schema| schema.name.to_string())
         .collect();
     let cur_schemas: Vec<String> = cur
         .schemas
         .list()
         .iter()
+        .filter(|schema| schema.name != "public")
         .map(|schema| schema.name.to_string())
         .collect();
 
@@ -1015,6 +1018,24 @@ mod tests {
             migration.sql_statements,
             vec!["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
         );
+    }
+
+    #[test]
+    fn public_schema_is_never_created_or_dropped() {
+        let mut cur = postgres_table_with_id("public", "users");
+        let statements = compute_migration(&PostgresDDL::new(), &cur).sql_statements;
+        assert!(
+            statements.iter().all(|s| !s.contains("SCHEMA")),
+            "{statements:#?}"
+        );
+
+        // Dropping the last `public` table (an older snapshot may still
+        // carry a `public` schema entity) leaves the schema alone.
+        cur.schemas.push(Schema::new("keep"));
+        let mut next = PostgresDDL::new();
+        next.schemas.push(Schema::new("keep"));
+        let statements = compute_migration(&cur, &next).sql_statements;
+        assert_eq!(statements, ["DROP TABLE \"users\";"]);
     }
 
     #[test]
