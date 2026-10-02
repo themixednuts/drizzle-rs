@@ -686,6 +686,7 @@ pub fn diff_with(
     current: &Snapshot,
     options: &DiffOptions,
 ) -> Result<Plan, MigrationError> {
+    let mut preserved_names = Vec::new();
     let (statements, warnings) = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
             if options.mysql_catalog_defaults.is_some() {
@@ -735,6 +736,7 @@ pub fn diff_with(
                 options.infer_renames,
             );
             statements.extend(diff.sql_statements);
+            preserved_names = diff.preserved_names;
             (statements, diff.warnings)
         }
         (Snapshot::MySQL(p), Snapshot::MySQL(c)) => {
@@ -766,6 +768,11 @@ pub fn diff_with(
     // empty baseline (no entities, still pointing at the origin) keeps the
     // origin marker instead of adopting the baseline's throwaway id.
     let mut snapshot = current.clone();
+    // Kept constraint names are what the database has; record them, as
+    // drizzle-kit does, so later migrations address them correctly.
+    if let Snapshot::Postgres(snapshot) = &mut snapshot {
+        record_preserved_names(snapshot, &preserved_names);
+    }
     let prev_is_origin_baseline =
         prev.is_empty() && matches!(prev.prev_ids(), [only] if only == ORIGIN_UUID);
     if prev_is_origin_baseline {
@@ -779,6 +786,53 @@ pub fn diff_with(
         warnings,
         snapshot,
     })
+}
+
+/// Renames, in `snapshot`, each entity in `preserved` from its derived name
+/// to the name it keeps.
+fn record_preserved_names(
+    snapshot: &mut crate::postgres::PostgresSnapshot,
+    preserved: &[crate::postgres::diff::PreservedName],
+) {
+    use crate::postgres::diff::PreservedKind;
+    use drizzle_types::postgres::ddl::PostgresEntity;
+
+    for kept in preserved {
+        let matches = |schema: &str, table: &str, name: &str| {
+            schema == kept.schema && table == kept.table && name == kept.derived
+        };
+        for entity in &mut snapshot.ddl {
+            let name = match (kept.kind, entity) {
+                (PreservedKind::Unique, PostgresEntity::UniqueConstraint(u))
+                    if matches(&u.schema, &u.table, &u.name) =>
+                {
+                    &mut u.name
+                }
+                (PreservedKind::Check, PostgresEntity::CheckConstraint(c))
+                    if matches(&c.schema, &c.table, &c.name) =>
+                {
+                    &mut c.name
+                }
+                (PreservedKind::Index, PostgresEntity::Index(i))
+                    if matches(&i.schema, &i.table, &i.name) =>
+                {
+                    &mut i.name
+                }
+                (PreservedKind::PrimaryKey, PostgresEntity::PrimaryKey(p))
+                    if matches(&p.schema, &p.table, &p.name) =>
+                {
+                    &mut p.name
+                }
+                (PreservedKind::ForeignKey, PostgresEntity::ForeignKey(f))
+                    if matches(&f.schema, &f.table, &f.name) =>
+                {
+                    &mut f.name
+                }
+                _ => continue,
+            };
+            *name = kept.kept.clone().into();
+        }
+    }
 }
 
 /// Diffs two [`Schema`] values (for example two `#[SQLiteSchema]` structs).
