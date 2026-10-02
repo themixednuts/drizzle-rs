@@ -881,6 +881,263 @@ fn reconcile_default_spellings(current: &mut MySQLDDL, desired: &MySQLDDL) {
     }
 }
 
+/// `ON DELETE`/`ON UPDATE` omitted means `NO ACTION`. The catalog also
+/// reports `RESTRICT`, which InnoDB enforces identically, for constraints
+/// declared without an action, so a push treats all three alike.
+fn reconcile_foreign_key_actions(current: &mut MySQLDDL, desired: &MySQLDDL, push: bool) {
+    let equivalent = |left: Option<model::ReferentialAction>, right: Option<model::ReferentialAction>| {
+        let normalize = |action: Option<model::ReferentialAction>| match action {
+            None | Some(model::ReferentialAction::NoAction) => None,
+            Some(model::ReferentialAction::Restrict) if push => None,
+            other => other,
+        };
+        normalize(left) == normalize(right)
+    };
+    for foreign_key in current.fks.list_mut() {
+        let Some(desired) = desired.fks.list().iter().find(|desired| {
+            desired.table == foreign_key.table && desired.name == foreign_key.name
+        }) else {
+            continue;
+        };
+        if equivalent(foreign_key.on_delete, desired.on_delete) {
+            foreign_key.on_delete = desired.on_delete;
+        }
+        if equivalent(foreign_key.on_update, desired.on_update) {
+            foreign_key.on_update = desired.on_update;
+        }
+    }
+}
+
+/// A literal default value, for comparing differently spelled literals.
+#[derive(Debug, PartialEq)]
+enum LiteralValue {
+    Number(String),
+    Bytes(Vec<u8>),
+}
+
+fn literal_value(sql: &str) -> Option<LiteralValue> {
+    let sql = sql.trim();
+    if sql.eq_ignore_ascii_case("true") {
+        return Some(LiteralValue::Number("1".to_string()));
+    }
+    if sql.eq_ignore_ascii_case("false") {
+        return Some(LiteralValue::Number("0".to_string()));
+    }
+    if let Some(bits) = sql
+        .strip_prefix("b'")
+        .or_else(|| sql.strip_prefix("B'"))
+        .and_then(|bits| bits.strip_suffix('\''))
+    {
+        return u128::from_str_radix(bits, 2)
+            .ok()
+            .map(|value| LiteralValue::Number(value.to_string()));
+    }
+    let hex = sql
+        .strip_prefix("X'")
+        .or_else(|| sql.strip_prefix("x'"))
+        .and_then(|digits| digits.strip_suffix('\''))
+        .or_else(|| sql.strip_prefix("0x"));
+    if let Some(digits) = hex {
+        if digits.len() % 2 != 0 {
+            return None;
+        }
+        return (0..digits.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&digits[index..index + 2], 16).ok())
+            .collect::<Option<Vec<_>>>()
+            .map(LiteralValue::Bytes);
+    }
+    if let Some(inner) = sql.strip_prefix('\'').and_then(|rest| rest.strip_suffix('\'')) {
+        let mut value = Vec::new();
+        let mut characters = inner.chars();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' => value.push(characters.next()?),
+                '\'' => {
+                    characters.next().filter(|next| *next == '\'')?;
+                    value.push('\'');
+                }
+                other => value.push(other),
+            }
+        }
+        return Some(LiteralValue::Bytes(
+            value.into_iter().collect::<String>().into_bytes(),
+        ));
+    }
+    let number: f64 = sql.parse().ok()?;
+    Some(LiteralValue::Number(number.to_string()))
+}
+
+/// SQL text compared without case, whitespace, identifier quotes and one
+/// pair of enclosing parentheses (string literals are kept as written).
+fn comparable_sql(sql: &str) -> String {
+    let mut sql = sql.trim();
+    if drizzle_types::mysql::default::is_parenthesized(sql) {
+        sql = &sql[1..sql.len() - 1];
+    }
+    let mut output = String::with_capacity(sql.len());
+    let mut characters = sql.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\'' | '"' => {
+                output.push(character);
+                while let Some(next) = characters.next() {
+                    output.push(next);
+                    if next == '\\' {
+                        if let Some(escaped) = characters.next() {
+                            output.push(escaped);
+                        }
+                    } else if next == character {
+                        if characters.peek() == Some(&character) {
+                            output.push(character);
+                            characters.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+            '`' => {}
+            character if character.is_whitespace() => {}
+            character => output.extend(character.to_lowercase()),
+        }
+    }
+    output
+}
+
+fn current_timestamp_precision(sql: &str) -> Option<String> {
+    let sql = comparable_sql(sql);
+    let precision = sql
+        .strip_prefix("current_timestamp")
+        .or_else(|| sql.strip_prefix("now"))
+        .or_else(|| sql.strip_prefix("localtimestamp"))
+        .or_else(|| sql.strip_prefix("localtime"))?;
+    let precision = match precision.strip_prefix('(') {
+        Some(rest) => rest.strip_suffix(')')?,
+        None if precision.is_empty() => "",
+        None => return None,
+    };
+    precision
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| precision.trim_start_matches('0').to_string())
+}
+
+/// Whether two `DEFAULT` spellings mean the same default: `TRUE` and `1`,
+/// `X'61'` and `'a'`, `('hello')` and `'hello'`, `NOW()` and
+/// `CURRENT_TIMESTAMP` (drizzle-kit's commutative default check).
+fn defaults_equivalent(sql_type: &str, left: &str, right: &str) -> bool {
+    let left = drizzle_types::mysql::canonical_default(sql_type, left);
+    let right = drizzle_types::mysql::canonical_default(sql_type, right);
+    if left == right {
+        return true;
+    }
+    let unwrap = |sql: &str| {
+        let sql = sql.trim();
+        if drizzle_types::mysql::default::is_parenthesized(sql) {
+            sql[1..sql.len() - 1].trim().to_string()
+        } else {
+            sql.to_string()
+        }
+    };
+    let (left_inner, right_inner) = (unwrap(&left), unwrap(&right));
+    if let (Some(left), Some(right)) = (literal_value(&left_inner), literal_value(&right_inner)) {
+        return left == right;
+    }
+    if let (Some(left), Some(right)) = (
+        current_timestamp_precision(&left),
+        current_timestamp_precision(&right),
+    ) {
+        return left == right;
+    }
+    comparable_sql(&left) == comparable_sql(&right)
+}
+
+/// Push compares a live catalog with a schema. MySQL rewrites expressions
+/// when it stores them, so like drizzle-kit, push compares those by name or
+/// by meaning instead of by text: CHECK constraints are only created and
+/// dropped by name, generated-column and view definitions are not
+/// compared, and defaults, index expressions and access methods are
+/// compared by meaning.
+fn reconcile_catalog_representations(current: &mut MySQLDDL, desired: &MySQLDDL) {
+    for column in current.columns.list_mut() {
+        let Some(desired_column) =
+            desired
+                .columns
+                .one(column.database.as_deref(), column.table.as_ref(), column.name.as_ref())
+        else {
+            continue;
+        };
+        if let (Some(live), Some(wanted)) = (&column.default, &desired_column.default)
+            && live != wanted
+            && defaults_equivalent(&desired_column.sql_type, live, wanted)
+        {
+            column.default = desired_column.default.clone();
+        }
+        if let (Some(live), Some(wanted)) = (&mut column.generated, &desired_column.generated)
+            && live.generation_type == wanted.generation_type
+        {
+            live.expression = wanted.expression.clone();
+        }
+        if let (Some(live), Some(wanted)) = (&column.on_update, &desired_column.on_update)
+            && live != wanted
+            && current_timestamp_precision(live).is_some()
+            && current_timestamp_precision(live) == current_timestamp_precision(wanted)
+        {
+            column.on_update = desired_column.on_update.clone();
+        }
+    }
+    for check in current.checks.list_mut() {
+        if let Some(wanted) = desired
+            .checks
+            .list()
+            .iter()
+            .find(|wanted| wanted.table == check.table && wanted.name == check.name)
+        {
+            check.expression = wanted.expression.clone();
+            // The catalog reports the default ENFORCED explicitly.
+            if check.enforced.unwrap_or(true) == wanted.enforced.unwrap_or(true) {
+                check.enforced = wanted.enforced;
+            }
+        }
+    }
+    for index in current.indexes.list_mut() {
+        let Some(wanted) = desired
+            .indexes
+            .list()
+            .iter()
+            .find(|wanted| wanted.table == index.table && wanted.name == index.name)
+        else {
+            continue;
+        };
+        // InnoDB silently builds a BTREE for `USING HASH`.
+        if matches!(
+            (index.using, wanted.using),
+            (None | Some(model::IndexMethod::Btree), Some(model::IndexMethod::Hash))
+        ) {
+            index.using = wanted.using;
+        }
+        if index.columns.len() == wanted.columns.len() {
+            for (live, wanted) in index.columns.iter_mut().zip(&wanted.columns) {
+                if live.is_expression
+                    && wanted.is_expression
+                    && comparable_sql(&live.expression) == comparable_sql(&wanted.expression)
+                {
+                    live.expression = wanted.expression.clone();
+                }
+            }
+        }
+    }
+    for view in current.views.list_mut() {
+        if let Some(wanted) = desired.views.list().iter().find(|wanted| wanted.name == view.name)
+            && view.definition.is_some()
+            && wanted.definition.is_some()
+        {
+            view.definition = wanted.definition.clone();
+        }
+    }
+}
+
 fn validate_foreign_key_targets(ddl: &MySQLDDL) -> Result<(), DiffError> {
     for foreign_key in ddl.fks.list() {
         let target: Vec<&str> = foreign_key
@@ -2260,6 +2517,10 @@ pub fn compute_migration_with(
     reconcile_primary_key_nullability(&mut prev, &cur);
     reconcile_column_type_spellings(&mut prev, &cur);
     reconcile_default_spellings(&mut prev, &cur);
+    reconcile_foreign_key_actions(&mut prev, &cur, options.catalog_defaults.is_some());
+    if options.catalog_defaults.is_some() {
+        reconcile_catalog_representations(&mut prev, &cur);
+    }
     if let Some(defaults) = &options.catalog_defaults {
         reconcile_catalog_defaults(&mut prev, &cur, defaults);
     }
@@ -4570,5 +4831,111 @@ mod tests {
                 .statements
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn push_compares_catalog_rewritten_definitions_by_meaning() {
+        let mut desired = table_with_columns("items", &["id", "low", "high"]);
+        desired.columns.list_mut()[0].primary_key = true;
+        desired.pks.push(primary_key("items", &["id"]));
+        let mut column = |name: &str, sql_type: &str, default: &str| {
+            let mut column = model::Column::new("items", name.to_string(), sql_type.to_string());
+            column.default = Some(default.to_string().into());
+            desired.columns.push(column);
+        };
+        column("flag", "BOOLEAN", "TRUE");
+        column("ratio", "decimal(10,2)", "1.5");
+        column("body", "TEXT", "('hello')");
+        column("created", "TIMESTAMP", "NOW()");
+        column("bytes", "VARBINARY(10)", "'abc'");
+        column("bits", "bit(3)", "5");
+        let mut doubled = model::Column::new("items", "doubled", "bigint");
+        doubled.generated = Some(model::Generated {
+            expression: "low * 2".into(),
+            generation_type: model::GeneratedType::Stored,
+        });
+        desired.columns.push(doubled);
+        desired
+            .checks
+            .push(model::CheckConstraint::new("items", "items_chk", "low < high"));
+        let mut hashed = model::Index::new(
+            "items",
+            "items_low_idx",
+            vec![model::IndexColumn::expression("lower(low)")],
+        );
+        hashed.using = Some(model::IndexMethod::Hash);
+        desired.indexes.push(hashed);
+        desired.tables.push(model::Table::new("parents"));
+        desired.columns.push(model::Column::new("parents", "id", "bigint"));
+        desired.pks.push(primary_key("parents", &["id"]));
+        desired.fks.push(model::ForeignKey::new(
+            "items",
+            "items_high_fkey",
+            ["high"],
+            "parents",
+            ["id"],
+        ));
+        desired
+            .views
+            .push(model::View::new("lows", "SELECT low FROM items"));
+
+        // The same schema as MySQL reports it back.
+        let mut live = desired.clone();
+        let defaults = [
+            ("flag", "1"),
+            ("ratio", "1.50"),
+            ("body", "('hello')"),
+            ("created", "CURRENT_TIMESTAMP"),
+            ("bytes", "X'616263'"),
+            ("bits", "b'101'"),
+        ];
+        for (name, default) in defaults {
+            live.columns
+                .list_mut()
+                .iter_mut()
+                .find(|column| column.name == name)
+                .expect(name)
+                .default = Some(default.into());
+        }
+        live.columns
+            .list_mut()
+            .iter_mut()
+            .find(|column| column.name == "doubled")
+            .and_then(|column| column.generated.as_mut())
+            .expect("generated")
+            .expression = "(`low` * 2)".into();
+        live.checks.list_mut()[0].expression = "(`low` < `high`)".into();
+        live.checks.list_mut()[0].enforced = Some(true);
+        live.indexes.list_mut()[0].using = Some(model::IndexMethod::Btree);
+        live.indexes.list_mut()[0].columns[0].expression = "lower(`low`)".into();
+        live.fks.list_mut()[0].on_delete = Some(model::ReferentialAction::NoAction);
+        live.fks.list_mut()[0].on_update = Some(model::ReferentialAction::Restrict);
+        live.views.list_mut()[0].definition =
+            Some("select `items`.`low` AS `low` from `items`".into());
+
+        let push = DiffOptions {
+            catalog_defaults: Some(MySQLCatalogDefaults::new().engine("InnoDB")),
+            ..DiffOptions::default()
+        };
+        let plan = compute_migration_with(&live, &desired, &push).unwrap();
+        assert!(plan.statements.is_empty(), "{:#?}", plan.sql_statements);
+
+        // Real changes are still planned.
+        let mut changed = desired.clone();
+        changed.checks.list_mut()[0].name = "items_range_chk".into();
+        changed
+            .columns
+            .list_mut()
+            .iter_mut()
+            .find(|column| column.name == "flag")
+            .expect("flag")
+            .default = Some("FALSE".into());
+        let sql = compute_migration_with(&live, &changed, &push)
+            .unwrap()
+            .sql_statements
+            .join("\n");
+        assert!(sql.contains("DROP CHECK `items_chk`"), "{sql}");
+        assert!(sql.contains("ADD CONSTRAINT `items_range_chk`"), "{sql}");
+        assert!(sql.contains("MODIFY COLUMN `flag` BOOLEAN NULL DEFAULT FALSE"), "{sql}");
     }
 }
