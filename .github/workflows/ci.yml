@@ -370,8 +370,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Compile every workspace target with every feature
-        # Turso remains experimental and has its own non-blocking runtime job.
-        # This still proves that its feature unifies with every stable driver.
+        # Turso's runtime tests run in the SQLite matrix. This proves that its
+        # feature unifies with every other driver.
         run: cargo test --workspace --all-features --no-run
 
       - name: Run all-feature library and driver-neutral contracts
@@ -388,94 +388,6 @@ jobs:
           --features
           "rusqlite,libsql,postgres-sync,tokio-postgres,mysql-sync,mysql-async,query,serde,uuid,chrono,time,jiff,rust-decimal,arrayvec,compact-str,bytes,smallvec-types,cidr,geo-types,bit-vec"
           -- --test-threads=1
-
-  test-turso:
-    name: Test (Turso - Experimental)
-    runs-on: ubuntu-latest
-    needs: lint
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: stable
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Run tests
-        id: test
-        run: |
-          mkdir -p test-output
-          cargo test --workspace --features "turso,query,uuid,serde" 2>&1 | tee test-output/output.txt || true
-
-          if grep -q "FAILED" test-output/output.txt; then
-            echo "has_failures=true" >> $GITHUB_OUTPUT
-            echo "::warning::Turso tests failed (expected - turso is experimental)"
-          else
-            echo "has_failures=false" >> $GITHUB_OUTPUT
-            echo "::notice::Turso tests passed"
-          fi
-
-      - name: Extract failure reports
-        id: extract
-        if: steps.test.outputs.has_failures == 'true'
-        run: |
-          python3 -c "
-          import sys
-
-          text = open('test-output/output.txt').read()
-          reports = []
-          in_report = False
-          buffer = []
-          prev_line = ''
-          box_chars = set('╔═╗║╚╝├─┤│')
-
-          for line in text.splitlines(True):
-              if 'TEST FAILURE REPORT' in line:
-                  in_report = True
-                  buffer = []
-                  if any(c in box_chars for c in prev_line):
-                      buffer.append(prev_line)
-                  buffer.append(line)
-              elif in_report:
-                  if line.strip() == '' or any(c in box_chars for c in line):
-                      buffer.append(line)
-                  else:
-                      reports.append(''.join(buffer))
-                      buffer = []
-                      in_report = False
-              prev_line = line
-
-          if buffer:
-              reports.append(''.join(buffer))
-
-          if reports:
-              with open('test-output/failure-reports.txt', 'w') as f:
-                  for i, report in enumerate(reports):
-                      if i > 0:
-                          f.write('\n' + '=' * 80 + '\n\n')
-                      f.write(report)
-              print(f'Extracted {len(reports)} failure report(s)')
-          else:
-              print('No structured failure reports found in output')
-          "
-
-          # Set output based on whether the file was created
-          if [ -f test-output/failure-reports.txt ]; then
-            echo "has_reports=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Upload failure reports
-        if: steps.extract.outputs.has_reports == 'true'
-        uses: actions/upload-artifact@v7
-        with:
-          name: turso-failure-reports
-          path: test-output/failure-reports.txt
-          retention-days: 7
 
   docs:
     name: Documentation

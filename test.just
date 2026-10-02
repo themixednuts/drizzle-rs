@@ -88,6 +88,9 @@ sqlite-matrix:
     # libsql: bare then full
     cargo test --workspace --exclude bench-runner --features libsql
     cargo test --workspace --exclude bench-runner --features "libsql,{{_sqlite-ext}}"
+    # turso: bare then full
+    cargo test --workspace --exclude bench-runner --features turso
+    cargo test --workspace --exclude bench-runner --features "turso,{{_sqlite-ext}}"
 
 # Run full PostgreSQL matrix
 pg-matrix:
@@ -121,7 +124,7 @@ mysql-matrix: mysql-sync mysql-async
 # Output SQLite feature matrix as JSON array
 [no-exit-message]
 sqlite-matrix-json:
-    @echo '["rusqlite","rusqlite,{{_sqlite-ext}}","libsql","libsql,{{_sqlite-ext}}"]'
+    @echo '["rusqlite","rusqlite,{{_sqlite-ext}}","libsql","libsql,{{_sqlite-ext}}","turso","turso,{{_sqlite-ext}}"]'
 
 # Output PostgreSQL feature matrix as JSON array
 [no-exit-message]
