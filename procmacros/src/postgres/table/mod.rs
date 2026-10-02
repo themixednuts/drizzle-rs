@@ -127,6 +127,8 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 
     // Get the table name from the context for use in generated code
     let table_name = &ctx.table_name;
+    let ddl_qualified_name =
+        ddl::ddl_qualified_name(attrs.schema.as_deref().unwrap_or("public"), table_name);
 
     // -------------------
     // 3. Assembly Phase
@@ -152,6 +154,11 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
             /// This respects the `name = "..."` attribute if specified,
             /// otherwise uses the snake_case version of the struct name.
             pub const TABLE_NAME: &'static str = #table_name;
+
+            /// The quoted, schema-qualified table name as DDL references it
+            /// (`"app"."users"`, or `"users"` in `public`).
+            #[doc(hidden)]
+            pub const __DDL_QUALIFIED_NAME: &'static str = #ddl_qualified_name;
 
             /// Table metadata in drizzle-kit compatible JSON format.
             ///

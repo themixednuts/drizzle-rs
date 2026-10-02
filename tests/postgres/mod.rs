@@ -19,6 +19,7 @@ pub mod index;
 pub mod insert;
 pub mod joins;
 pub mod migrations;
+pub mod push_roundtrip;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod schema;

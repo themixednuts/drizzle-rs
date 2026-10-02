@@ -239,7 +239,9 @@ pub(super) fn generate_table_impls(
                 );
             ColumnRefInput {
                 column_name: f.column_name.clone(),
-                sql_type: f.sql_type_expr(),
+                // As DDL spells it: a native enum is quoted and
+                // schema-qualified, so casts to it (seeding) resolve.
+                sql_type: f.ddl_type_expr(),
                 flags,
                 dialect: quote! {
                     #column_dialect::PostgreSQL {

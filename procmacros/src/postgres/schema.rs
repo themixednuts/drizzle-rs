@@ -439,6 +439,7 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
     let postgres_schema_type = postgres_paths::postgres_schema_type();
     let schema_item_tables = core_paths::schema_item_tables();
     let policy_ddl = mig_paths::postgres::policy();
+    let postgres_item_ddl = crate::paths::ddl::postgres::postgres_item_ddl();
 
     // Extract field names and types for easier iteration
     #[allow(unused_variables)]
@@ -459,6 +460,9 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         let mut policy_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
         let mut enums: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
         let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
+        // Non-`public` schemas the tables, enums and views live in, in
+        // first-use order: each needs `CREATE SCHEMA` before anything in it.
+        let mut schema_names: ::std::vec::Vec<&'static str> = ::std::vec::Vec::new();
 
         // Collect all tables, indexes, and enums
         #(
@@ -469,6 +473,9 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                     let table_name = table_ref.qualified_name.to_string();
                     let table_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
                     let schema = table_ref.schema.unwrap_or("public");
+                    if schema != "public" && !schema_names.contains(&schema) {
+                        schema_names.push(schema);
+                    }
                     let quote_ident = |ident: &str| -> ::std::string::String {
                         ::std::format!("\"{}\"", ident.replace('"', "\"\""))
                     };
@@ -525,11 +532,19 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
                         .push(index_sql);
                 }
                 #postgres_schema_type::Enum(_enum_info) => {
+                    let enum_schema = <#field_types as #postgres_item_ddl>::ENUM_SCHEMA;
+                    if enum_schema != "public" && !schema_names.contains(&enum_schema) {
+                        schema_names.push(enum_schema);
+                    }
                     let enum_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
                     enums.push(enum_sql);
                 }
                 #postgres_schema_type::View(view_info) => {
                     if !view_info.is_existing() {
+                        let view_schema = #sql_table_info::schema(view_info).unwrap_or("public");
+                        if view_schema != "public" && !schema_names.contains(&view_schema) {
+                            schema_names.push(view_schema);
+                        }
                         let sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL;
                         let view_sql = if sql.is_empty() {
                             // Expression-based views have empty const SQL; reconstruct from view_info
@@ -699,7 +714,14 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Build final SQL statements: enums first, then tables in dependency order, then their indexes
         let mut sql_statements = ::std::vec::Vec::<::std::string::String>::new();
 
-        // Add all enums first (they must be created before tables that use them)
+        // Schemas first, then enums (both must exist before the tables that
+        // use them).
+        for schema_name in schema_names {
+            sql_statements.push(::std::format!(
+                "CREATE SCHEMA \"{}\";",
+                schema_name.replace('"', "\"\"")
+            ));
+        }
         sql_statements.extend(enums);
 
         // Add tables and their indexes

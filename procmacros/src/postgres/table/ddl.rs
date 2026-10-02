@@ -18,8 +18,9 @@ use syn::Ident;
 
 /// A single piece of a `concatcp!`-emitted CREATE TABLE statement.
 ///
-/// `TableNameOf` expands to `<RefTable>::TABLE_NAME` so referenced-table
-/// names resolve at compile time; everything else is a plain literal.
+/// `TableNameOf` expands to `<RefTable>::__DDL_QUALIFIED_NAME` (the quoted,
+/// schema-qualified name) so referenced tables resolve at compile time, in
+/// whatever schema they live; everything else is a plain literal.
 enum DdlPiece {
     Literal(String),
     Expr(TokenStream),
@@ -31,18 +32,23 @@ impl DdlPiece {
         match self {
             Self::Literal(s) => quote! { #s },
             Self::Expr(expr) => quote! { #expr },
-            Self::TableNameOf(ident) => quote! { <#ident>::TABLE_NAME },
+            Self::TableNameOf(ident) => quote! { <#ident>::__DDL_QUALIFIED_NAME },
         }
     }
 }
 
-/// Format a `"schema"."table"` prefix (empty when schema is `"public"`).
+/// Format a `"schema".` prefix (empty when schema is `"public"`).
 fn schema_prefix(schema: &str) -> String {
     if schema == "public" {
         String::new()
     } else {
-        format!("\"{schema}\".")
+        format!("{}.", quote_ident(schema))
     }
+}
+
+/// The quoted, schema-qualified name DDL uses for a table.
+pub(crate) fn ddl_qualified_name(schema: &str, table: &str) -> String {
+    format!("{}{}", schema_prefix(schema), quote_ident(table))
 }
 
 fn quote_ident(ident: &str) -> String {
@@ -126,8 +132,8 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
 
     let mut pieces: Vec<DdlPiece> = Vec::new();
     pieces.push(DdlPiece::Literal(format!(
-        "CREATE {table_kind}TABLE {prefix}\"{table_name}\" (\n",
-        prefix = schema_prefix(schema_name)
+        "CREATE {table_kind}TABLE {name} (\n",
+        name = ddl_qualified_name(schema_name, table_name)
     )));
 
     let mut lines: Vec<Vec<DdlPiece>> = Vec::new();
@@ -162,11 +168,11 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             let ref_column_expr = ref_column_name_expr(&fk.table, &fk.column);
             let mut line = Vec::new();
             line.push(DdlPiece::Literal(format!(
-                "\tCONSTRAINT \"{}\" FOREIGN KEY (\"{}\") REFERENCES \"",
+                "\tCONSTRAINT \"{}\" FOREIGN KEY (\"{}\") REFERENCES ",
                 fk_name, field.column_name
             )));
             line.push(DdlPiece::TableNameOf(fk.table.clone()));
-            line.push(DdlPiece::Literal("\"(\"".to_string()));
+            line.push(DdlPiece::Literal("(\"".to_string()));
             line.push(DdlPiece::Expr(ref_column_expr));
             let mut suffix = "\")".to_string();
             if let Some(ref on_delete) = fk.on_delete {
@@ -219,10 +225,10 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
 
         let mut line = Vec::new();
         line.push(DdlPiece::Literal(format!(
-            "\tCONSTRAINT \"{fk_name}\" FOREIGN KEY ({src_str}) REFERENCES \""
+            "\tCONSTRAINT \"{fk_name}\" FOREIGN KEY ({src_str}) REFERENCES "
         )));
         line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
-        line.push(DdlPiece::Literal("\"(".to_string()));
+        line.push(DdlPiece::Literal("(".to_string()));
         for (idx, expr) in target_col_exprs.iter().enumerate() {
             line.push(DdlPiece::Literal(
                 if idx == 0 { "\"" } else { ", \"" }.to_string(),
@@ -422,7 +428,7 @@ fn column_to_sql_pieces(field: &FieldInfo) -> Vec<DdlPiece> {
 
     let mut pieces = vec![
         DdlPiece::Literal(format!("\"{}\" ", field.column_name)),
-        DdlPiece::Expr(field.sql_type_expr()),
+        DdlPiece::Expr(field.ddl_type_expr()),
     ];
     if !suffix.is_empty() {
         pieces.push(DdlPiece::Literal(suffix.to_string()));

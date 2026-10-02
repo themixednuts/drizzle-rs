@@ -69,20 +69,27 @@ pub fn generate_enum_impl(
     let enum_schema = parse_enum_schema(attrs)?;
     let type_schema = enum_schema.as_deref().unwrap_or("public");
 
-    // Build the CREATE TYPE SQL at macro time as a string literal. The type
-    // reference is schema-qualified when the enum lives outside `public`
-    // (identifier quoting style matches the rest of this const: unquoted, so
-    // PostgreSQL's case folding stays consistent with column type references).
+    // Build the CREATE TYPE SQL at macro time as a string literal. Like the
+    // migration generator (and drizzle-kit), the type name is quoted — so a
+    // mixed-case name keeps its case — and schema-qualified outside
+    // `public`. Column types in CREATE TABLE use the same spelling
+    // (`DrizzlePostgresColumn::DDL_TYPE`).
     let variants_sql = variant_idents
         .iter()
         .map(|v| format!("'{}'", v.to_string().replace('\'', "''")))
         .collect::<Vec<_>>()
         .join(", ");
+    let quote_ident = |ident: &str| format!("\"{}\"", ident.replace('"', "\"\""));
     let qualified_type_name = if type_schema == "public" {
-        name.to_string()
+        quote_ident(&name.to_string())
     } else {
-        format!("{type_schema}.{name}")
+        format!(
+            "{}.{}",
+            quote_ident(type_schema),
+            quote_ident(&name.to_string())
+        )
     };
+    let ddl_type_literal = qualified_type_name.as_str();
     let create_type_sql = format!("CREATE TYPE {qualified_type_name} AS ENUM ({variants_sql})");
     let create_type_sql_literal = create_type_sql.as_str();
 
@@ -524,6 +531,7 @@ pub fn generate_enum_impl(
             impl #drizzle_postgres_column for #name {
                 type SQLType = #postgres_types::Enum;
                 const SQL_TYPE: &'static str = stringify!(#name);
+                const DDL_TYPE: &'static str = #ddl_type_literal;
                 const NEEDS_CREATE_TYPE: bool = true;
                 const SCHEMA: &'static str = #type_schema;
 
@@ -546,6 +554,7 @@ pub fn generate_enum_impl(
             impl #drizzle_postgres_column for #name {
                 type SQLType = #postgres_types::Enum;
                 const SQL_TYPE: &'static str = stringify!(#name);
+                const DDL_TYPE: &'static str = #ddl_type_literal;
                 const NEEDS_CREATE_TYPE: bool = true;
                 const SCHEMA: &'static str = #type_schema;
 
