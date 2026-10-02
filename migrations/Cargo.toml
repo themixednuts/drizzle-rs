@@ -13,7 +13,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
 thiserror = { workspace = true }
-regex = { workspace = true, optional = true }
 heck = { workspace = true }
 # Schema-file parsing: the parser walks real Rust syntax with syn instead of
 # re-implementing a lexer. `span-locations` lets us slice original source text
@@ -32,4 +31,4 @@ tempfile = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["regex"]
+std = []

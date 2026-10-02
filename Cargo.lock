@@ -2584,7 +2584,6 @@ dependencies = [
  "postgres",
  "proc-macro2",
  "quote",
- "regex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2622,7 +2621,6 @@ name = "drizzle-postgres"
 version = "0.2.1"
 dependencies = [
  "arrayvec",
- "aws-config",
  "aws-sdk-rdsdata",
  "bit-vec",
  "bytes",

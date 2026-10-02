@@ -29,7 +29,6 @@ paste = { workspace = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 aws-sdk-rdsdata = { workspace = true, optional = true }
-aws-config = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 bytes = { version = "1.11", optional = true }
 
@@ -126,6 +125,5 @@ tokio-postgres = [
 aws-data-api = [
     "std",
     "dep:aws-sdk-rdsdata",
-    "dep:aws-config",
     "dep:tokio",
 ]

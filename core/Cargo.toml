@@ -18,7 +18,6 @@ time = { workspace = true, optional = true }
 jiff = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rusqlite = { workspace = true, optional = true }
-paste = { workspace = true }
 smallvec = { workspace = true }
 compact_str = { workspace = true }
 hashbrown = { workspace = true }

@@ -66,7 +66,6 @@ drizzle-sqlite = { path = "./sqlite", version = "=0.2.1", default-features = fal
 drizzle-migrations = { path = "./migrations", version = "=0.2.1" }
 drizzle-types = { path = "./types", version = "=0.2.1", default-features = false }
 drizzle-seed = { path = "./seed", version = "=0.2.1", default-features = false }
-regex = { version = "1.12" }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env", "color"] }
 bytes = { version = "1.11.1" }
@@ -444,7 +443,6 @@ arrayvec = { workspace = true, optional = true }
 libsql = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
-worker = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 js-sys = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
@@ -462,6 +460,11 @@ aws-sdk-rdsdata = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 const_format = { workspace = true }
+
+# The Cloudflare drivers (`d1`, `durable`, `hyperdrive`) only compile for
+# wasm32, so other targets do not build `worker` at all.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { workspace = true, optional = true }
 
 [profile.bench]
 debug = true
