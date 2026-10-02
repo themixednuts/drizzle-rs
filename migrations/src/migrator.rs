@@ -1520,7 +1520,9 @@ fn line_prefix_is_whitespace(sql: &str, pos: usize) -> bool {
 /// Matches legacy tracking rows (no `name` column) to local migrations.
 ///
 /// Used when upgrading an old tracking table. Rows are matched by
-/// `created_at`, falling back to `hash` when that is missing or ambiguous.
+/// `created_at` truncated to whole seconds (as drizzle-orm does: legacy rows
+/// store the journal's millisecond timestamp, folder names only seconds),
+/// falling back to `hash` when that is missing or ambiguous.
 ///
 /// # Errors
 ///
@@ -1547,7 +1549,16 @@ pub fn match_applied_migration_metadata(
     let mut unmatched = Vec::new();
 
     for row in applied_rows {
-        let migration = match by_created_at.get(&row.created_at) {
+        // drizzle-orm's upgrade drops the last three digits of the stored
+        // value (`substring(0, len - 3) + '000'`): legacy rows hold the
+        // journal's millisecond `when`, while folder names only carry
+        // seconds. Integer division truncates toward zero exactly like that
+        // string slice does.
+        let truncated = (row.created_at / 1000) * 1000;
+        let candidates = by_created_at
+            .get(&truncated)
+            .or_else(|| by_created_at.get(&row.created_at));
+        let migration = match candidates {
             Some(candidates) if candidates.len() == 1 => Some(candidates[0]),
             Some(candidates) if candidates.len() > 1 => {
                 candidates.iter().copied().find(|m| m.hash() == row.hash)
@@ -2622,6 +2633,36 @@ mod tests {
                 .to_string()
                 .contains("old drizzle-kit migration folders")
         );
+    }
+
+    #[test]
+    fn match_applied_metadata_truncates_legacy_millis_to_seconds() {
+        // A drizzle-kit journal `when` keeps milliseconds; the converted
+        // folder name (and so the local created_at) only has seconds.
+        let migrations = vec![
+            super::Migration::new("20230331141203_alpha", "SELECT 1;"),
+            super::Migration::new("20230331141204_beta", "SELECT 2;"),
+        ];
+        let matched = match_applied_migration_metadata(
+            &migrations,
+            &[
+                AppliedMigrationMetadata {
+                    id: Some(1),
+                    hash: "stale_hash_a".to_string(),
+                    created_at: 1_680_271_923_987,
+                },
+                AppliedMigrationMetadata {
+                    id: Some(2),
+                    hash: "stale_hash_b".to_string(),
+                    created_at: 1_680_271_924_001,
+                },
+            ],
+        )
+        .expect("legacy millisecond rows match their second-precision folders");
+        assert_eq!(matched[0].name, "20230331141203_alpha");
+        assert_eq!(matched[1].name, "20230331141204_beta");
+        // The stored value is kept as-is for the backfill's WHERE clause.
+        assert_eq!(matched[0].created_at, 1_680_271_923_987);
     }
 
     #[test]
