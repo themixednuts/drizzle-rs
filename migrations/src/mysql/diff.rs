@@ -1263,6 +1263,29 @@ fn column_definition(column: &model::Column) -> ColumnDefinition {
     }
 }
 
+/// Whether two versions of a column need `MODIFY COLUMN` (or a recreate).
+/// Key membership is excluded: primary keys, unique constraints and the
+/// column-level UNIQUE index are separate key steps.
+fn columns_differ_structurally(old: &model::Column, new: &model::Column) -> bool {
+    let mut old = old.clone();
+    let mut new = new.clone();
+    old.unique = false;
+    new.unique = false;
+    old.primary_key = false;
+    new.primary_key = false;
+    old != new
+}
+
+/// Whether `column` carries MySQL's column-level unique index (named after
+/// the column) rather than a named single-column unique constraint.
+fn column_unique_index(ddl: &MySQLDDL, column: &model::Column) -> bool {
+    column.unique
+        && !column.primary_key
+        && !ddl.uniques.list().iter().any(|unique| {
+            unique.table == column.table && unique.columns.len() == 1 && unique.columns[0] == column.name
+        })
+}
+
 fn column_definition_for_ddl(column: &model::Column, ddl: &MySQLDDL) -> ColumnDefinition {
     let mut definition = column_definition(column);
     if ddl.pks.list().iter().any(|primary_key| {
@@ -1927,7 +1950,7 @@ pub fn compute_migration_with(
         .filter_map(|(key, old)| {
             cur_columns
                 .get(key)
-                .filter(|new| *old != **new)
+                .filter(|new| columns_differ_structurally(old, new))
                 .map(|new| (key.clone(), *old, *new))
         })
         .collect();
@@ -1958,6 +1981,22 @@ pub fn compute_migration_with(
             column: column.clone(),
         });
     }
+
+    // A column-level UNIQUE is MySQL's index named after the column. It is
+    // added and dropped as an index step, never through MODIFY COLUMN (which
+    // would add another index each time and could never remove one).
+    let column_unique_changes: Vec<_> = prev_columns
+        .iter()
+        .filter_map(|(key, old)| {
+            let new = cur_columns.get(key)?;
+            if recreated_columns.contains(key) {
+                return None;
+            }
+            let old_unique = column_unique_index(&prev, old);
+            let new_unique = column_unique_index(&cur, new);
+            (old_unique != new_unique).then(|| (key.clone(), *old, *new, new_unique))
+        })
+        .collect();
 
     let dropped_columns: BTreeSet<_> = prev_columns
         .keys()
@@ -2018,6 +2057,12 @@ pub fn compute_migration_with(
                 .keys()
                 .filter(|key| !cur_uniques.contains_key(*key))
                 .map(|key| key.0.clone()),
+        )
+        .chain(
+            column_unique_changes
+                .iter()
+                .filter(|(_, _, _, added)| !added)
+                .map(|(key, _, _, _)| key.0.clone()),
         )
         .collect();
 
@@ -2190,6 +2235,21 @@ pub fn compute_migration_with(
         let unique = prev_uniques[key];
         statements.push(MySQLStatement::DropUnique {
             database: database(&unique.database),
+            table: key.0.clone(),
+            name: key.1.clone(),
+        });
+        warnings.insert(MySQLWarning::DropConstraint {
+            table: key.0.clone(),
+            kind: "unique constraint",
+            name: key.1.clone(),
+        });
+    }
+    for (key, old, _, _) in column_unique_changes
+        .iter()
+        .filter(|(_, _, _, added)| !added)
+    {
+        statements.push(MySQLStatement::DropUnique {
+            database: database(&old.database),
             table: key.0.clone(),
             name: key.1.clone(),
         });
@@ -2374,7 +2434,7 @@ pub fn compute_migration_with(
         if rename_generated_dependents.contains(&key) {
             continue;
         }
-        let definition = column_definition_for_ddl(new, &cur);
+        let mut definition = column_definition_for_ddl(new, &cur);
         let statement = if recreated_columns.contains(&key) {
             MySQLStatement::RecreateColumn {
                 database: database(&new.database),
@@ -2382,6 +2442,10 @@ pub fn compute_migration_with(
                 column: definition,
             }
         } else {
+            // Keys are separate steps: an inline UNIQUE or PRIMARY KEY in
+            // MODIFY COLUMN adds a duplicate index or a second primary key.
+            definition.unique = false;
+            definition.primary_key = false;
             MySQLStatement::ModifyColumn {
                 database: database(&new.database),
                 table: key.0.clone(),
@@ -2410,6 +2474,23 @@ pub fn compute_migration_with(
                 unique: unique_definition(unique),
             });
         }
+    }
+    for (key, _, new, _) in column_unique_changes
+        .iter()
+        .filter(|(_, _, _, added)| *added)
+    {
+        statements.push(MySQLStatement::AddUnique {
+            unique: UniqueDefinition {
+                database: database(&new.database),
+                table: key.0.clone(),
+                name: key.1.clone(),
+                columns: vec![IndexColumnDefinition::Column {
+                    name: key.1.clone(),
+                    length: None,
+                    order: None,
+                }],
+            },
+        });
     }
     for (key, index) in &cur_indexes {
         if !prev_indexes.contains_key(key) || drop_indexes.contains(key) {
@@ -3709,6 +3790,32 @@ mod tests {
         assert_eq!(
             sql,
             ["ALTER TABLE `docs` MODIFY COLUMN `body` text NULL DEFAULT ('bye');"]
+        );
+    }
+
+    #[test]
+    fn column_unique_changes_are_index_steps_not_modify_clauses() {
+        let mut prev = table_with_columns("users", &["id", "email"]);
+        prev.pks.push(primary_key("users", &["id"]));
+        let mut cur = prev.clone();
+        cur.columns.list_mut()[1].unique = true;
+
+        let added = compute_migration(&prev, &cur).unwrap().sql_statements;
+        assert_eq!(
+            added,
+            ["ALTER TABLE `users` ADD CONSTRAINT `email` UNIQUE (`email`);"]
+        );
+
+        let removed = compute_migration(&cur, &prev).unwrap().sql_statements;
+        assert_eq!(removed, ["ALTER TABLE `users` DROP INDEX `email`;"]);
+
+        // A type change on a unique column must not add another index.
+        let mut retyped = cur.clone();
+        retyped.columns.list_mut()[1].sql_type = "int".into();
+        let modified = compute_migration(&cur, &retyped).unwrap().sql_statements;
+        assert_eq!(
+            modified,
+            ["ALTER TABLE `users` MODIFY COLUMN `email` int NOT NULL;"]
         );
     }
 }
