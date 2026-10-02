@@ -580,6 +580,57 @@ fn concurrent_index_recreate_drops_without_concurrently() {
 }
 
 #[test]
+fn rename_keeps_default_named_constraints_by_renaming_them() {
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    posts(&mut prev, "users");
+    let mut cur = PostgresDDL::new();
+    table(&mut cur, "accounts");
+    column(&mut cur, "accounts", "id", "integer");
+    col(&mut cur, "accounts", "id").not_null = true;
+    pk(&mut cur, "accounts", &["id"]);
+    posts(&mut cur, "accounts");
+    assert_eq!(
+        sql(&prev, &cur),
+        [
+            "ALTER TABLE \"users\" RENAME TO \"accounts\";",
+            "ALTER TABLE \"accounts\" RENAME CONSTRAINT \"users_pkey\" TO \"accounts_pkey\";",
+        ]
+    );
+
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    column(&mut prev, "users", "email", "text");
+    unique(&mut prev, "users", "users_email_key", &["email"]);
+    prev.uniques.list_mut()[0].name_explicit = false;
+    prev.indexes.push(Index::new(
+        "public",
+        "users",
+        "users_email_idx",
+        vec![IndexColumn::new("email")],
+    ));
+    let mut cur = PostgresDDL::new();
+    users(&mut cur);
+    column(&mut cur, "users", "mail", "text");
+    unique(&mut cur, "users", "users_mail_key", &["mail"]);
+    cur.uniques.list_mut()[0].name_explicit = false;
+    cur.indexes.push(Index::new(
+        "public",
+        "users",
+        "users_mail_idx",
+        vec![IndexColumn::new("mail")],
+    ));
+    assert_eq!(
+        sql(&prev, &cur),
+        [
+            "ALTER TABLE \"users\" RENAME COLUMN \"email\" TO \"mail\";",
+            "ALTER TABLE \"users\" RENAME CONSTRAINT \"users_email_key\" TO \"users_mail_key\";",
+            "ALTER INDEX \"users_email_idx\" RENAME TO \"users_mail_idx\";",
+        ]
+    );
+}
+
+#[test]
 fn equivalent_spellings_do_not_produce_alters() {
     let mut prev = PostgresDDL::new();
     users(&mut prev);

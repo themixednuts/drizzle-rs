@@ -467,6 +467,54 @@ fn drop_table_and_the_unique_its_fk_references() {
 }
 
 #[test]
+fn table_rename_keeps_the_primary_key_an_fk_depends_on() {
+    let mut db = TestSchema::new("rename_pk");
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    posts(&mut prev, "users");
+    let mut cur = PostgresDDL::new();
+    table(&mut cur, "public", "accounts");
+    column(&mut cur, "public", "accounts", "id", "integer");
+    col(&mut cur, "accounts", "id").not_null = true;
+    pk(&mut cur, "public", "accounts", &["id"]);
+    posts(&mut cur, "accounts");
+    let statements = db.apply(&prev, &cur, "INSERT INTO users VALUES (1);");
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"users\" RENAME TO \"accounts\";",
+            "ALTER TABLE \"accounts\" RENAME CONSTRAINT \"users_pkey\" TO \"accounts_pkey\";",
+        ]
+    );
+
+    // Column rename with a default-named unique.
+    let mut db = TestSchema::new("rename_unique");
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    column(&mut prev, "public", "users", "email", "text");
+    let mut unique_email = UniqueConstraint::from_strings(
+        "public".into(),
+        "users".into(),
+        "users_email_key".into(),
+        vec!["email".into()],
+    );
+    unique_email.name_explicit = false;
+    prev.uniques.push(unique_email);
+    let mut cur = PostgresDDL::new();
+    users(&mut cur);
+    column(&mut cur, "public", "users", "mail", "text");
+    let mut unique_mail = UniqueConstraint::from_strings(
+        "public".into(),
+        "users".into(),
+        "users_mail_key".into(),
+        vec!["mail".into()],
+    );
+    unique_mail.name_explicit = false;
+    cur.uniques.push(unique_mail);
+    db.apply(&prev, &cur, "INSERT INTO users VALUES (1, 'a@b');");
+}
+
+#[test]
 fn view_definition_change_with_column_drop_and_type_change() {
     let mut db = TestSchema::new("view_alter");
     let mut prev = PostgresDDL::new();

@@ -197,6 +197,8 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
         &mut rename_statements,
     );
 
+    rename_default_named_constraints(&mut prev_normalized, cur, &mut rename_statements);
+
     let schema_diff = diff_collections(&prev_normalized, cur);
     let generator = Generator::new();
     let mut sql_statements = rename_statements
@@ -599,6 +601,126 @@ fn detect_and_apply_column_renames(
     }
 }
 
+/// Keeps default-named keys, foreign keys and indexes across a table or
+/// column rename (drizzle-kit `preserveEntityNames`).
+///
+/// After a rename, a constraint whose name was derived (`users_pkey`) is
+/// still the same constraint, but the current schema derives a new name for
+/// it (`accounts_pkey`). Dropping and re-adding it fails when other objects
+/// depend on it (an FK on a primary key) and needlessly rebuilds indexes,
+/// so when exactly one current entity of the same kind is otherwise
+/// identical, the old one is renamed in place instead.
+fn rename_default_named_constraints(
+    prev: &mut PostgresDDL,
+    cur: &PostgresDDL,
+    rename_statements: &mut Vec<JsonStatement>,
+) {
+    use crate::postgres::collection::{
+        foreign_keys_equivalent, indexes_equivalent, pks_equivalent, uniques_equivalent,
+    };
+
+    /// Index into `cur` of the single non-explicit entity matching `old`
+    /// under another name, if there is exactly one.
+    fn single_match<T>(
+        old: &T,
+        cur: &[T],
+        name: impl Fn(&T) -> &str,
+        explicit: impl Fn(&T) -> bool,
+        same_but_name: impl Fn(&T, &T) -> bool,
+    ) -> Option<usize> {
+        if explicit(old) || cur.iter().any(|c| name(c) == name(old)) {
+            return None;
+        }
+        let mut matches = cur
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !explicit(c) && same_but_name(old, c));
+        let (index, _) = matches.next()?;
+        matches.next().is_none().then_some(index)
+    }
+
+    let renamed =
+        |schema: &str, table: &str, from: &str, to: &str| JsonStatement::RenameConstraint {
+            schema: schema.to_string(),
+            table: table.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+        };
+
+    for pk in prev.pks.list_mut() {
+        if let Some(i) = single_match(
+            pk,
+            cur.pks.list(),
+            |p| &p.name,
+            |p| p.name_explicit,
+            |old, new| {
+                let mut old = old.clone();
+                old.name.clone_from(&new.name);
+                pks_equivalent(&old, new)
+            },
+        ) {
+            let to = cur.pks.list()[i].name.clone();
+            rename_statements.push(renamed(&pk.schema, &pk.table, &pk.name, &to));
+            pk.name = to;
+        }
+    }
+    for unique in prev.uniques.list_mut() {
+        if let Some(i) = single_match(
+            unique,
+            cur.uniques.list(),
+            |u| &u.name,
+            |u| u.name_explicit,
+            |old, new| {
+                let mut old = old.clone();
+                old.name.clone_from(&new.name);
+                uniques_equivalent(&old, new)
+            },
+        ) {
+            let to = cur.uniques.list()[i].name.clone();
+            rename_statements.push(renamed(&unique.schema, &unique.table, &unique.name, &to));
+            unique.name = to;
+        }
+    }
+    for fk in prev.fks.list_mut() {
+        if let Some(i) = single_match(
+            fk,
+            cur.fks.list(),
+            |f| &f.name,
+            |f| f.name_explicit,
+            |old, new| {
+                let mut old = old.clone();
+                old.name.clone_from(&new.name);
+                foreign_keys_equivalent(&old, new)
+            },
+        ) {
+            let to = cur.fks.list()[i].name.clone();
+            rename_statements.push(renamed(&fk.schema, &fk.table, &fk.name, &to));
+            fk.name = to;
+        }
+    }
+    for index in prev.indexes.list_mut() {
+        if let Some(i) = single_match(
+            index,
+            cur.indexes.list(),
+            |x| &x.name,
+            |x| x.name_explicit,
+            |old, new| {
+                let mut old = old.clone();
+                old.name.clone_from(&new.name);
+                indexes_equivalent(&old, new)
+            },
+        ) {
+            let to = cur.indexes.list()[i].name.clone();
+            rename_statements.push(JsonStatement::RenameIndex {
+                schema: index.schema.to_string(),
+                from: index.name.to_string(),
+                to: to.to_string(),
+            });
+            index.name = to;
+        }
+    }
+}
+
 fn rewrite_cow(value: &mut Cow<'static, str>, from: &str, to: &str) {
     if value.as_ref() == from {
         *value = to.to_string().into();
@@ -901,6 +1023,24 @@ mod tests {
     }
 
     #[test]
+    fn public_schema_is_never_created_or_dropped() {
+        let mut cur = postgres_table_with_id("public", "users");
+        let statements = compute_migration(&PostgresDDL::new(), &cur).sql_statements;
+        assert!(
+            statements.iter().all(|s| !s.contains("SCHEMA")),
+            "{statements:#?}"
+        );
+
+        // Dropping the last `public` table (an older snapshot may still
+        // carry a `public` schema entity) leaves the schema alone.
+        cur.schemas.push(Schema::new("keep"));
+        let mut next = PostgresDDL::new();
+        next.schemas.push(Schema::new("keep"));
+        let statements = compute_migration(&cur, &next).sql_statements;
+        assert_eq!(statements, ["DROP TABLE \"users\";"]);
+    }
+
+    #[test]
     fn test_schema_creation() {
         let prev = Vec::new();
         let cur = vec![PostgresEntity::Schema(Schema::new("myschema"))];
@@ -1022,24 +1162,6 @@ mod tests {
             migration.sql_statements,
             vec!["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
         );
-    }
-
-    #[test]
-    fn public_schema_is_never_created_or_dropped() {
-        let mut cur = postgres_table_with_id("public", "users");
-        let statements = compute_migration(&PostgresDDL::new(), &cur).sql_statements;
-        assert!(
-            statements.iter().all(|s| !s.contains("SCHEMA")),
-            "{statements:#?}"
-        );
-
-        // Dropping the last `public` table (an older snapshot may still
-        // carry a `public` schema entity) leaves the schema alone.
-        cur.schemas.push(Schema::new("keep"));
-        let mut next = PostgresDDL::new();
-        next.schemas.push(Schema::new("keep"));
-        let statements = compute_migration(&cur, &next).sql_statements;
-        assert_eq!(statements, ["DROP TABLE \"users\";"]);
     }
 
     #[test]
