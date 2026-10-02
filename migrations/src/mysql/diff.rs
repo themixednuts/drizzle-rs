@@ -22,7 +22,7 @@ use super::statements::{
     GeneratedKind, IndexAlgorithm, IndexColumnDefinition, IndexDefinition, IndexLock, IndexUsing,
     MySQLStatement, PrimaryKeyDefinition, ReferentialAction, RenderError, SortOrder,
     TableDefinition, UniqueDefinition, ViewAlgorithm, ViewCheckOption, ViewDefinition,
-    ViewSecurity, render_statements,
+    ViewSecurity, render_column_type, render_statements,
 };
 
 /// Explicit table rename within the selected database.
@@ -793,6 +793,32 @@ fn reconcile_column_type_spellings(current: &mut MySQLDDL, desired: &MySQLDDL) {
         };
         if equivalent {
             current_column.sql_type = desired_column.sql_type.clone();
+        }
+    }
+}
+
+fn canonical_column_default(column: &model::Column) -> Option<String> {
+    let default = column.default.as_deref()?;
+    let column_type = render_column_type(&column_type(column)).unwrap_or_default();
+    Some(drizzle_types::mysql::canonical_default(&column_type, default))
+}
+
+/// Treats defaults that render to the same canonical `DEFAULT` clause as
+/// unchanged, so snapshots written before defaults were canonicalized (a bare
+/// `'hello'` on a TEXT column, an unparenthesized `UUID()`) do not churn.
+fn reconcile_default_spellings(current: &mut MySQLDDL, desired: &MySQLDDL) {
+    for current_column in current.columns.list_mut() {
+        let Some(desired_column) = desired.columns.one(
+            current_column.database.as_deref(),
+            current_column.table.as_ref(),
+            current_column.name.as_ref(),
+        ) else {
+            continue;
+        };
+        if current_column.default != desired_column.default
+            && canonical_column_default(current_column) == canonical_column_default(desired_column)
+        {
+            current_column.default = desired_column.default.clone();
         }
     }
 }
@@ -1845,6 +1871,7 @@ pub fn compute_migration_with(
     reconcile_unique_index_representations(&mut prev, &cur);
     reconcile_primary_key_nullability(&mut prev, &cur);
     reconcile_column_type_spellings(&mut prev, &cur);
+    reconcile_default_spellings(&mut prev, &cur);
     if let Some(defaults) = &options.catalog_defaults {
         reconcile_catalog_defaults(&mut prev, &cur, defaults);
     }
@@ -3658,5 +3685,30 @@ mod tests {
         assert!(sql.contains("CHECK (amount > 0 AND qty < 100)"), "{sql}");
         assert!(!sql.contains("amount + 1"), "{sql}");
         assert!(!sql.contains("amount < 100"), "{sql}");
+    }
+
+    #[test]
+    fn legacy_unparenthesized_defaults_do_not_churn() {
+        let mut prev = table_with_columns("docs", &["id"]);
+        let mut body = model::Column::new("docs", "body", "text");
+        body.default = Some("'hello'".into());
+        prev.columns.push(body);
+        let mut uid = model::Column::new("docs", "uid", "varchar(36)");
+        uid.default = Some("UUID()".into());
+        prev.columns.push(uid);
+
+        let mut cur = prev.clone();
+        cur.columns.list_mut()[1].default = Some("('hello')".into());
+        cur.columns.list_mut()[2].default = Some("(UUID())".into());
+
+        assert!(compute_migration(&prev, &cur).unwrap().statements.is_empty());
+
+        // A real default change still renders an accepted clause.
+        cur.columns.list_mut()[1].default = Some("('bye')".into());
+        let sql = compute_migration(&prev, &cur).unwrap().sql_statements;
+        assert_eq!(
+            sql,
+            ["ALTER TABLE `docs` MODIFY COLUMN `body` text NULL DEFAULT ('bye');"]
+        );
     }
 }

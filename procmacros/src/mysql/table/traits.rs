@@ -1,7 +1,7 @@
 use super::context::MacroContext;
 use crate::common::ref_gen::{self, ColumnRefInput, ConstraintRefInput, ForeignKeyRefInput};
 use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
-use crate::mysql::field::{FieldInfo, MySQLDefault};
+use crate::mysql::field::FieldInfo;
 use crate::mysql::generators::{
     SQLTableConfig, generate_mysql_table, generate_sql_schema, generate_sql_table, generate_to_sql,
 };
@@ -200,9 +200,11 @@ pub(super) fn generate_table_impls(
                 f.default.as_ref().map_or_else(
                     || quote! { ::core::option::Option::None },
                     |default| {
-                        let default_str = match default {
-                            MySQLDefault::Literal(s) | MySQLDefault::Expression(s) => s.clone(),
-                        };
+                        let default_str = crate::mysql::field::canonical_default_sql(
+                            &f.column_type,
+                            &f.type_args,
+                            default,
+                        );
                         quote! { ::core::option::Option::Some(#default_str) }
                     },
                 )

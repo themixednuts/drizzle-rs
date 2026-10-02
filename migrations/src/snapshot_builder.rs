@@ -937,22 +937,27 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
 // MySQL
 // =============================================================================
 
-/// SQL default string for a `MySQL` column, matching
-/// `mysql::field::default_from_expr`. Generated and auto-increment columns
-/// have no SQL default.
+/// SQL default string for a `MySQL` column, matching the table macro's
+/// snapshot default (`drizzle_types::mysql::canonical_default` of the
+/// rendered literal or expression). Generated and auto-increment columns have
+/// no SQL default.
 fn mysql_default(spec: &ColumnSpec) -> Option<String> {
     if spec.generated.is_some() || spec.autoincrement {
         return None;
     }
-    match spec.default.as_ref()? {
-        ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
-        ParsedDefault::Bool(value) => Some(if *value { "TRUE" } else { "FALSE" }.to_string()),
-        ParsedDefault::Str(value) => Some(format!(
+    let sql = match spec.default.as_ref()? {
+        ParsedDefault::Int(token) | ParsedDefault::Float(token) => token.clone(),
+        ParsedDefault::Bool(value) => if *value { "TRUE" } else { "FALSE" }.to_string(),
+        ParsedDefault::Str(value) => format!(
             "'{}'",
             value.replace('\\', "\\\\").replace('\'', "''")
-        )),
-        ParsedDefault::Sql(sql) => Some(sql.clone()),
-    }
+        ),
+        ParsedDefault::Sql(sql) => sql.clone(),
+    };
+    Some(drizzle_types::mysql::canonical_default(
+        spec.mysql_type.as_deref().unwrap_or_default(),
+        &sql,
+    ))
 }
 
 fn mysql_referential_action(action: Option<&str>) -> Option<crate::mysql::ReferentialAction> {

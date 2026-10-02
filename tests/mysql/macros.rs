@@ -853,6 +853,30 @@ fn text_blob_and_json_defaults_are_rendered_as_mysql_expressions() {
 }
 
 #[test]
+fn snapshot_defaults_use_the_rendered_mysql_expressions() {
+    // The runtime push snapshot must carry the same DEFAULT text the
+    // CREATE TABLE path renders; a bare literal on TEXT/BLOB/JSON or an
+    // unparenthesized call is rejected by MySQL (errors 1101 and 1064).
+    let defaults = <ExpressionDefaults as DrizzleTable>::TABLE_REF
+        .columns
+        .iter()
+        .filter_map(|column| match column.dialect {
+            ColumnDialect::MySQL { default, .. } => default.map(|default| (column.name, default)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        defaults,
+        [
+            ("label", "('draft')"),
+            ("payload", "(X'6279746573')"),
+            ("metadata", "('{}')"),
+            ("normalized_label", "(lower('DRAFT'))"),
+        ]
+    );
+}
+
+#[test]
 fn numeric_metadata_preserves_arguments_unsigned_and_real() {
     let table = &<NumericDeclarations as DrizzleTable>::TABLE_REF;
     let sql_types = table

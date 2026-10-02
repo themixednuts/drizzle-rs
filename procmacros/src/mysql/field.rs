@@ -1047,19 +1047,13 @@ fn supports_character_options(ty: &MySQLType) -> bool {
     )
 }
 
-fn requires_expression_default(ty: &MySQLType) -> bool {
-    matches!(
-        ty,
-        MySQLType::Tinytext
-            | MySQLType::Text
-            | MySQLType::Mediumtext
-            | MySQLType::Longtext
-            | MySQLType::Tinyblob
-            | MySQLType::Blob
-            | MySQLType::Mediumblob
-            | MySQLType::Longblob
-            | MySQLType::Json
-    )
+/// The column default as stored in migration snapshots and rendered after
+/// `DEFAULT`: the same canonical spelling the schema parser, introspection
+/// and the migration renderer use (`('text')` for TEXT/BLOB/JSON columns,
+/// `(UUID())` for function calls, bare `CURRENT_TIMESTAMP`).
+pub(crate) fn canonical_default_sql(ty: &MySQLType, args: &[u16], default: &MySQLDefault) -> String {
+    let (MySQLDefault::Literal(value) | MySQLDefault::Expression(value)) = default;
+    drizzle_types::mysql::canonical_default(&render_type(ty, args), value)
 }
 
 struct SqlDefinition<'a> {
@@ -1137,24 +1131,7 @@ fn build_sql_definition(definition: SqlDefinition<'_>) -> String {
     if generated.is_none()
         && let Some(default) = default
     {
-        match default {
-            MySQLDefault::Literal(value) => {
-                if requires_expression_default(ty) {
-                    let _ = write!(sql, " DEFAULT ({value})");
-                } else {
-                    let _ = write!(sql, " DEFAULT {value}");
-                }
-            }
-            MySQLDefault::Expression(value) => {
-                if matches!(ty, MySQLType::Datetime | MySQLType::Timestamp)
-                    && value.eq_ignore_ascii_case("CURRENT_TIMESTAMP")
-                {
-                    let _ = write!(sql, " DEFAULT {value}");
-                } else {
-                    let _ = write!(sql, " DEFAULT ({value})");
-                }
-            }
-        }
+        let _ = write!(sql, " DEFAULT {}", canonical_default_sql(ty, args, default));
     }
     if let Some(on_update) = on_update {
         let _ = write!(sql, " ON UPDATE {on_update}");

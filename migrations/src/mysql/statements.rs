@@ -394,7 +394,7 @@ pub enum RenderError {
     },
 }
 
-fn render_column_type(column_type: &ColumnType) -> Result<String, RenderError> {
+pub(crate) fn render_column_type(column_type: &ColumnType) -> Result<String, RenderError> {
     match column_type {
         ColumnType::Sql { sql } if sql.trim().is_empty() => Err(RenderError::EmptySql {
             field: "column type",
@@ -450,11 +450,8 @@ fn render_column(column: &ColumnDefinition) -> Result<String, RenderError> {
             },
         });
     }
-    let mut sql = format!(
-        "{} {}",
-        quote_identifier(&column.name),
-        render_column_type(&column.column_type)?
-    );
+    let column_type = render_column_type(&column.column_type)?;
+    let mut sql = format!("{} {}", quote_identifier(&column.name), column_type);
     if let Some(charset) = &column.charset {
         sql.push_str(" CHARACTER SET ");
         sql.push_str(bare_option("character set", charset)?);
@@ -483,8 +480,11 @@ fn render_column(column: &ColumnDefinition) -> Result<String, RenderError> {
         " NULL"
     });
     if let Some(default) = &column.default {
+        // Snapshots written before defaults were canonicalized can hold a
+        // bare literal for a TEXT/BLOB/JSON column or an unparenthesized
+        // function call; MySQL rejects both (errors 1101 and 1064).
         sql.push_str(" DEFAULT ");
-        sql.push_str(default);
+        sql.push_str(&drizzle_types::mysql::canonical_default(&column_type, default));
     }
     if let Some(on_update) = &column.on_update {
         sql.push_str(" ON UPDATE ");
@@ -1040,6 +1040,29 @@ mod tests {
             generated: None,
             comment: None,
         }
+    }
+
+    #[test]
+    fn renders_expression_only_and_function_defaults_in_parentheses() {
+        let render = |sql: &str, default: &str| {
+            let mut definition = column("value");
+            definition.column_type = ColumnType::Sql {
+                sql: sql.to_string(),
+            };
+            definition.default = Some(default.to_string());
+            render_column(&definition).unwrap()
+        };
+
+        // Legacy snapshots stored these unwrapped; MySQL rejects them with
+        // errors 1101 (literal on TEXT/BLOB/JSON) and 1064 (bare call).
+        assert!(render("text", "'hello'").ends_with("DEFAULT ('hello')"));
+        assert!(render("json", "'[]'").ends_with("DEFAULT ('[]')"));
+        assert!(render("geometry", "'x'").ends_with("DEFAULT ('x')"));
+        assert!(render("varchar(36)", "UUID()").ends_with("DEFAULT (UUID())"));
+        assert!(render("varchar(36)", "(UUID())").ends_with("DEFAULT (UUID())"));
+        assert!(render("varchar(10)", "'hello'").ends_with("DEFAULT 'hello'"));
+        assert!(render("timestamp", "CURRENT_TIMESTAMP").ends_with("DEFAULT CURRENT_TIMESTAMP"));
+        assert!(render("int", "-1").ends_with("DEFAULT -1"));
     }
 
     #[test]
