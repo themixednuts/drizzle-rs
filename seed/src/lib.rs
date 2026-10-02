@@ -141,8 +141,9 @@
 //! [`Schema::from_snapshot`](schema::Schema::from_snapshot) (the
 //! `migrations` feature) builds the schema from what a drizzle driver's
 //! `introspect()` reads, or from a migration folder's `snapshot.json`, so a
-//! database described nowhere in Rust can be seeded. The `drizzle seed` CLI
-//! command does this for the configured database.
+//! database described nowhere in Rust can be seeded (on PostgreSQL,
+//! `introspect_schemas(&["app"])` reads only the schemas named). The
+//! `drizzle seed` CLI command does this for the configured database.
 //!
 //! ```text
 //! use drizzle_seed::{SeedConfig, schema::Schema};

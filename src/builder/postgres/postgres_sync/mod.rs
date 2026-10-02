@@ -1247,6 +1247,33 @@ impl<Schema> Drizzle<Schema> {
         self.introspect_impl(None)
     }
 
+    /// Like [`introspect`](Self::introspect), but reads only the named
+    /// schemas (and the roles and privileges, which belong to none).
+    ///
+    /// Prefer it when other sessions may be changing other schemas at the
+    /// same time: some catalog functions PostgreSQL offers (such as
+    /// `pg_get_indexdef`) are not MVCC-safe and fail when a relation they
+    /// reach is dropped concurrently, which this keeps out of reach.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when one of the catalog queries fails.
+    pub fn introspect_schemas<S: AsRef<str>>(
+        &mut self,
+        schemas: &[S],
+    ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
+        let names: Vec<String> = schemas
+            .iter()
+            .map(|name| name.as_ref().to_owned())
+            .collect();
+        Ok(match self.introspect_impl(Some(&names))? {
+            drizzle_migrations::schema::Snapshot::Postgres(snapshot) => {
+                drizzle_migrations::schema::Snapshot::Postgres(snapshot.scoped_to_schemas(&names))
+            }
+            other => other,
+        })
+    }
+
     /// Inner introspection with optional schema filter.
     ///
     /// When `schema_filter` is `Some`, queries that use `pg_get_indexdef()` or

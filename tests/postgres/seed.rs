@@ -482,10 +482,10 @@ mod executed {
             db.execute(SQL::raw(statement));
         }
         let Text(namespace) = result!(db.get(SQL::raw("SELECT current_schema()::text"))).unwrap();
-        let snapshot = result!(db.introspect()).expect("introspect");
-        let schema = Schema::from_snapshot(&snapshot).unwrap().retain(|table| {
-            table.namespace() == Some(namespace.as_str()) && table.name().starts_with("live_")
-        });
+        let snapshot = result!(db.introspect_schemas(&[namespace.as_str()])).expect("introspect");
+        let schema = Schema::from_snapshot(&snapshot)
+            .unwrap()
+            .retain(|table| table.name().starts_with("live_"));
         assert_eq!(schema.tables().len(), 2);
 
         let config = SeedConfig::postgres(&schema)
