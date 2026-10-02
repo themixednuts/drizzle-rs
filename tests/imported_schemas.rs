@@ -131,7 +131,7 @@ fn imported_postgres_schemas_match_drizzle_kit() {
         "CONSTRAINT \"post_tags_post_id_tag_id_pk\" PRIMARY KEY(\"post_id\", \"tag_id\")",
         "CONSTRAINT \"post_tags_tag_fk\" FOREIGN KEY (\"tag_id\")",
         "CONSTRAINT \"post_tag_votes_post_id_tag_id_post_tags_post_id_tag_id_fk\" FOREIGN KEY (\"post_id\", \"tag_id\")",
-        "CREATE TYPE auth.account_status AS ENUM ('active', 'disabled')",
+        "CREATE TYPE \"auth\".\"account_status\" AS ENUM ('active', 'disabled')",
     ] {
         assert!(ddl.contains(expected), "missing `{expected}` in:\n{ddl}");
     }

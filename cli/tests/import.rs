@@ -471,8 +471,24 @@ fn upgrade_flag_converts_the_journal_layout_in_place() {
         .stdout(predicate::str::contains("drizzle up").not());
 
     assert!(!migrations.join("meta").exists());
-    assert!(migrations.join("0000_init/migration.sql").exists());
-    assert!(migrations.join("0001_full/snapshot.json").exists());
+    // `drizzle up` names each folder `<journal time, UTC>_<tag without index>`.
+    let folder = |tag: &str| {
+        fs::read_dir(&migrations)
+            .expect("read migrations")
+            .map(|entry| entry.expect("entry").path())
+            .find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| name.strip_suffix(tag))
+                    .and_then(|stamp| stamp.strip_suffix('_'))
+                    .is_some_and(|stamp| {
+                        stamp.len() == 14 && stamp.bytes().all(|b| b.is_ascii_digit())
+                    })
+            })
+            .unwrap_or_else(|| panic!("no converted folder for {tag}"))
+    };
+    assert!(folder("init").join("migration.sql").exists());
+    assert!(folder("full").join("snapshot.json").exists());
     assert!(dir.path().join("src/schema.rs").exists());
 
     // `--upgrade` cannot share stdout with the schema.
