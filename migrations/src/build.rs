@@ -52,6 +52,7 @@ pub struct Config {
     breakpoints: bool,
     prefix_mode: PrefixMode,
     custom_name: Option<String>,
+    ignore_conflicts: bool,
     url: Option<ConfigValue>,
     tracking: Tracking,
     /// Path of the TOML config this was loaded from (if any). Watched by
@@ -101,6 +102,7 @@ impl Config {
             breakpoints: true,
             prefix_mode: PrefixMode::Timestamp,
             custom_name: None,
+            ignore_conflicts: false,
             url: None,
             tracking: default_tracking(dialect),
             config_path: None,
@@ -239,6 +241,16 @@ impl Config {
     #[must_use]
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.custom_name = Some(name.into());
+        self
+    }
+
+    /// When migration branches merged into the output folder change the same
+    /// objects, diff against the newest snapshot instead of failing
+    /// (drizzle-kit's `--ignore-conflicts`). See
+    /// [`history::load_merge_base`](crate::history::load_merge_base).
+    #[must_use]
+    pub const fn ignore_conflicts(mut self, ignore: bool) -> Self {
+        self.ignore_conflicts = ignore;
         self
     }
 
@@ -534,6 +546,11 @@ pub enum BuildError {
     #[error("failed to generate migration diff: {0}")]
     Migration(#[from] crate::writer::MigrationError),
 
+    /// Migration branches merged into the output folder conflict, or their
+    /// snapshots could not be read.
+    #[error(transparent)]
+    History(#[from] crate::history::HistoryError),
+
     /// The TOML config file does not exist.
     #[error("config file not found: {}", .0.display())]
     ConfigNotFound(PathBuf),
@@ -599,7 +616,9 @@ fn load_sqlite_rebuild_data_plan(
 /// Writes a new migration folder if the schema changed since the last snapshot.
 ///
 /// Steps: parse the schema files, diff against the newest `snapshot.json`
-/// in the output folder (or an empty schema), apply any
+/// in the output folder (or an empty schema; after a branch merge left
+/// several open heads, against their merged state — see
+/// [`history::load_merge_base`](crate::history::load_merge_base)), apply any
 /// [`transform_statements`](Config::transform_statements) hook, then write
 /// `<out>/<tag>/migration.sql` and `snapshot.json`. Parse and diff warnings
 /// are printed as `cargo:warning=` lines. Returns [`Output::NoChanges`] when
@@ -626,8 +645,8 @@ fn load_sqlite_rebuild_data_plan(
 ///
 /// Returns a [`BuildError`] if the config has no schema files, both a SQLite
 /// rebuild-data plan and a statement transform are set, the schema has parse
-/// errors, diffing fails, the generated tag already exists, or a file
-/// read/write fails.
+/// errors, merged migration branches conflict, diffing fails, the generated
+/// tag already exists, or a file read/write fails.
 pub fn run(config: &Config) -> Result<Output, BuildError> {
     if config.files.is_empty() {
         return Err(BuildError::MissingSchemaFiles);
@@ -653,7 +672,12 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
 
     let current_snapshot =
         Snapshot::from_parse_result(&parse_result, config.dialect, config.casing);
-    let previous_snapshot = load_previous_snapshot(&config.out_dir, config.dialect)?;
+    let merge_base = crate::history::load_merge_base(
+        &config.out_dir,
+        config.dialect,
+        config.ignore_conflicts,
+    )?;
+    let previous_snapshot = merge_base.snapshot;
     let sqlite_rebuild_data = config
         .sqlite_rebuild_data
         .as_ref()
@@ -664,6 +688,10 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
         None => DiffOptions::new(),
     };
     let mut generated = diff_with(&previous_snapshot, &current_snapshot, &options)?;
+    // After a branch merge the new snapshot follows every open head.
+    if let Some(prev_ids) = merge_base.prev_ids {
+        generated.snapshot.set_prev_ids(prev_ids);
+    }
 
     // App-level statement policy runs before the emptiness check, so a
     // transform that filters everything out reports NoChanges instead of
@@ -724,20 +752,6 @@ fn parse_files(files: &[PathBuf]) -> Result<crate::parser::ParseResult, BuildErr
     Ok(SchemaParser::parse(&combined))
 }
 
-fn load_previous_snapshot(out_dir: &Path, dialect: Dialect) -> Result<Snapshot, BuildError> {
-    let v3_entries = collect_v3_migration_dirs(out_dir)?;
-    // Take the newest folder that actually has a snapshot; custom migrations
-    // (`generate --custom`) publish migration.sql without snapshot.json and
-    // must not reset the diff baseline to an empty schema.
-    for (_, migration_dir) in v3_entries.iter().rev() {
-        let snapshot_path = migration_dir.join("snapshot.json");
-        if snapshot_path.exists() {
-            return Snapshot::load(&snapshot_path, dialect).map_err(BuildError::from);
-        }
-    }
-
-    Ok(Snapshot::empty(dialect))
-}
 
 fn next_migration_index(out_dir: &Path) -> Result<u32, BuildError> {
     let entries = collect_v3_migration_dirs(out_dir)?;
@@ -840,6 +854,79 @@ pub struct Users {{
 
             let second = run(&cfg).expect("second generation should succeed");
             assert_eq!(second, Output::NoChanges, "{dialect:?} must stabilize");
+        }
+    }
+
+    #[test]
+    fn generate_after_a_branch_merge_diffs_against_both_branches() {
+        for (dialect, table_attribute) in [
+            (Dialect::SQLite, "SQLiteTable"),
+            (Dialect::PostgreSQL, "PostgresTable"),
+            (Dialect::MySQL, "MySQLTable"),
+        ] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let schema_path = dir.path().join("schema.rs");
+            let main_out = dir.path().join("main");
+            let other_out = dir.path().join("other");
+            let schema = |tables: &[&str]| {
+                let body: String = tables
+                    .iter()
+                    .map(|table| {
+                        format!(
+                            "#[{table_attribute}]\npub struct {table} {{\n    #[column(primary)]\n    pub id: i64,\n}}\n"
+                        )
+                    })
+                    .collect();
+                std::fs::write(&schema_path, body).expect("write schema");
+            };
+            let generate = |out: &Path, name: &str| {
+                run(&Config::new(dialect).file(&schema_path).out(out).name(name))
+                    .expect("generate")
+            };
+            let copy_folders = |from: &Path, to: &Path| {
+                for entry in std::fs::read_dir(from).expect("read") {
+                    let entry = entry.expect("entry");
+                    let target = to.join(entry.file_name());
+                    std::fs::create_dir_all(&target).expect("mkdir");
+                    for file in std::fs::read_dir(entry.path()).expect("read") {
+                        let file = file.expect("file");
+                        std::fs::copy(file.path(), target.join(file.file_name())).expect("copy");
+                    }
+                }
+            };
+
+            schema(&["Users"]);
+            assert!(generate(&main_out, "0_base").is_generated());
+            std::fs::create_dir_all(&other_out).expect("mkdir");
+            copy_folders(&main_out, &other_out);
+
+            // Two branches each add a table, then git merges the folders.
+            schema(&["Users", "Alpha"]);
+            assert!(generate(&main_out, "1_alpha").is_generated());
+            schema(&["Users", "Beta"]);
+            assert!(generate(&other_out, "2_beta").is_generated());
+            copy_folders(&other_out, &main_out);
+
+            // The merged schema is what both branches produce: no changes,
+            // instead of re-emitting the other branch's CREATE TABLE.
+            schema(&["Users", "Alpha", "Beta"]);
+            assert_eq!(generate(&main_out, "3_noop"), Output::NoChanges, "{dialect:?}");
+
+            schema(&["Users", "Alpha", "Beta", "Gamma"]);
+            let Output::Generated { path, .. } = generate(&main_out, "4_gamma") else {
+                panic!("{dialect:?}: adding a table must generate");
+            };
+            let sql = std::fs::read_to_string(path.join("migration.sql")).expect("sql");
+            assert!(sql.to_lowercase().contains("gamma"), "{dialect:?}: {sql}");
+            assert!(!sql.to_lowercase().contains("alpha"), "{dialect:?}: {sql}");
+            assert!(!sql.to_lowercase().contains("beta"), "{dialect:?}: {sql}");
+
+            // The new snapshot follows both heads, closing the fork.
+            let merged = Snapshot::load(&path.join("snapshot.json"), dialect).expect("snapshot");
+            assert_eq!(merged.prev_ids().len(), 2, "{dialect:?}");
+            let base = crate::history::load_merge_base(&main_out, dialect, false).expect("base");
+            assert_eq!(base.prev_ids, None, "{dialect:?}: one head again");
+            assert_eq!(base.snapshot.id(), merged.id());
         }
     }
 

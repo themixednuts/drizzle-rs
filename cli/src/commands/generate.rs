@@ -42,11 +42,21 @@ pub struct GenerateOptions {
     /// Override breakpoints setting
     #[arg(long)]
     pub breakpoints: Option<bool>,
+
+    /// When merged migration branches change the same objects, diff against
+    /// the newest snapshot instead of failing
+    #[arg(long)]
+    pub ignore_conflicts: bool,
 }
 
 /// Runs `drizzle generate`: diffs the schema files against the newest
 /// `snapshot.json` in the migrations folder and writes
 /// `<out>/<tag>/migration.sql` plus `snapshot.json`.
+///
+/// After a git merge leaves several open heads in the snapshot history, the
+/// diff runs against the merged state of every branch instead (see
+/// [`drizzle_migrations::history::load_merge_base`]) and the new snapshot's
+/// `prevIds` lists every head, as drizzle-kit does.
 ///
 /// Prints a note and writes nothing when the schema has no tables or indexes
 /// or nothing changed. With `--custom`, writes a `migration.sql` holding only
@@ -58,7 +68,8 @@ pub struct GenerateOptions {
 ///
 /// Returns [`CliError`] if `db_name` does not match the config, the folder
 /// still uses the legacy `meta/_journal.json` layout (run `drizzle up`), no
-/// schema files are found or they have parse errors, the diff fails, or the
+/// schema files are found or they have parse errors, merged migration
+/// branches conflict (unless `--ignore-conflicts`), the diff fails, or the
 /// migration folder cannot be written (including when its tag already
 /// exists).
 pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Result<(), CliError> {
@@ -136,11 +147,27 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     // Build current snapshot from parsed schema (use config dialect, not parser-detected)
     let current_snapshot = Snapshot::from_parse_result(&parse_result, dialect, effective_casing);
 
-    // Load previous snapshot if exists
-    let prev_snapshot = load_previous_snapshot(&out_dir, dialect)?;
+    // The schema the existing migrations produce: the newest snapshot, or
+    // every branch's changes merged after a git merge.
+    let merge_base =
+        drizzle_migrations::history::load_merge_base(&out_dir, dialect, opts.ignore_conflicts)
+            .map_err(|error| match error {
+                drizzle_migrations::history::HistoryError::Io(error) => {
+                    CliError::IoError(error.to_string())
+                }
+                conflicts => CliError::MigrationError(conflicts.to_string()),
+            })?;
 
     // Generate diff
-    let generated = generate_diff(&prev_snapshot, &current_snapshot)?;
+    let mut generated = generate_diff(&merge_base.snapshot, &current_snapshot)?;
+    if let Some(prev_ids) = merge_base.prev_ids {
+        println!(
+            "  {} {} migration branches",
+            output::label("Merging"),
+            prev_ids.len()
+        );
+        generated.snapshot.set_prev_ids(prev_ids);
+    }
 
     if generated.is_empty() {
         println!("{}", output::warning("No schema changes detected 😴"));
@@ -307,21 +334,6 @@ const fn map_prefix_mode(p: MigrationPrefix) -> drizzle_migrations::PrefixMode {
     }
 }
 
-/// Load the previous snapshot from the migration directory
-fn load_previous_snapshot(
-    out_dir: &Path,
-    dialect: drizzle_types::Dialect,
-) -> Result<drizzle_migrations::schema::Snapshot, CliError> {
-    use drizzle_migrations::schema::Snapshot;
-
-    if let Some(snapshot_path) = latest_v3_snapshot_path(out_dir)? {
-        return Snapshot::load(&snapshot_path, dialect)
-            .map_err(|e| CliError::IoError(e.to_string()));
-    }
-
-    // No previous snapshot, return empty
-    Ok(Snapshot::empty(dialect))
-}
 
 fn next_migration_index(out_dir: &Path) -> Result<u32, CliError> {
     let entries = collect_v3_migration_tags(out_dir)?;
@@ -377,37 +389,6 @@ fn collect_v3_migration_tags(out_dir: &Path) -> Result<Vec<String>, CliError> {
 
     tags.sort();
     Ok(tags)
-}
-
-fn latest_v3_snapshot_path(out_dir: &Path) -> Result<Option<std::path::PathBuf>, CliError> {
-    if !out_dir.exists() {
-        return Ok(None);
-    }
-
-    let mut tags = Vec::new();
-    for entry in std::fs::read_dir(out_dir).map_err(|e| CliError::IoError(e.to_string()))? {
-        let entry = entry.map_err(|e| CliError::IoError(e.to_string()))?;
-        if !entry
-            .file_type()
-            .map_err(|e| CliError::IoError(e.to_string()))?
-            .is_dir()
-        {
-            continue;
-        }
-
-        let tag = entry.file_name().to_string_lossy().to_string();
-        if tag == "meta" {
-            continue;
-        }
-
-        let snapshot_path = entry.path().join("snapshot.json");
-        if snapshot_path.exists() {
-            tags.push((tag, snapshot_path));
-        }
-    }
-
-    tags.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(tags.pop().map(|(_, path)| path))
 }
 
 /// Write a `migrations.js` bundle index at the root of the migrations output

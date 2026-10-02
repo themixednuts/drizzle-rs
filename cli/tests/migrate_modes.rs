@@ -293,3 +293,112 @@ fn migrate_rejects_conflicting_safe_and_plan_flags() {
         .failure()
         .stderr(contains("--safe can't be combined with --plan"));
 }
+
+fn write_tables(root: &Path, tables: &[&str]) {
+    let schema: String = tables
+        .iter()
+        .map(|table| {
+            format!("#[SQLiteTable]\npub struct {table} {{\n    #[column(primary)]\n    pub id: i64,\n}}\n")
+        })
+        .collect();
+    fs::write(root.join("schema.rs"), schema).expect("write schema");
+}
+
+fn generate(root: &Path, name: &str, out: &Path) -> assert_cmd::assert::Assert {
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["generate", "--name", name, "--out"])
+        .arg(out)
+        .assert()
+        .success()
+}
+
+/// After a git merge brings in another branch's migration folder, `generate`
+/// diffs against both branches (drizzle-kit's leaf handling) instead of only
+/// the newest folder, which re-emitted the other branch's DDL.
+#[test]
+fn generate_after_a_branch_merge_does_not_repeat_the_other_branch() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let db_path = root.join("dev.db");
+    let migrations_dir = root.join("migrations");
+    let other_branch = root.join("other_branch");
+    write_config(root, &db_path, &migrations_dir);
+
+    write_tables(root, &["Users"]);
+    generate(root, "a_base", &migrations_dir);
+    let base = migration_tags(&migrations_dir).pop().expect("base tag");
+    fs::create_dir_all(other_branch.join(&base)).expect("mkdir");
+    for file in ["migration.sql", "snapshot.json"] {
+        fs::copy(
+            migrations_dir.join(&base).join(file),
+            other_branch.join(&base).join(file),
+        )
+        .expect("copy base");
+    }
+
+    write_tables(root, &["Users", "Alpha"]);
+    generate(root, "b_alpha", &migrations_dir);
+    write_tables(root, &["Users", "Beta"]);
+    generate(root, "c_beta", &other_branch);
+    let beta = migration_tags(&other_branch).pop().expect("beta tag");
+    assert!(beta.ends_with("c_beta"), "{beta}");
+    fs::create_dir_all(migrations_dir.join(&beta)).expect("mkdir");
+    for file in ["migration.sql", "snapshot.json"] {
+        fs::copy(
+            other_branch.join(&beta).join(file),
+            migrations_dir.join(&beta).join(file),
+        )
+        .expect("merge beta");
+    }
+
+    write_tables(root, &["Users", "Alpha", "Beta"]);
+    generate(root, "d_noop", &migrations_dir).stdout(contains("No schema changes"));
+    assert_eq!(migration_tags(&migrations_dir).len(), 3);
+
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["migrate"])
+        .assert()
+        .success();
+    let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
+    assert_eq!(table_exists(&conn, "alpha"), 1);
+    assert_eq!(table_exists(&conn, "beta"), 1);
+}
+
+#[test]
+fn generate_rejects_conflicting_branches_unless_told_to_ignore_them() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let migrations_dir = root.join("migrations");
+    write_config(root, &root.join("dev.db"), &migrations_dir);
+
+    // Both branches create the same table from an empty history.
+    write_tables(root, &["Users"]);
+    generate(root, "a_left", &migrations_dir);
+    let other_branch = root.join("other_branch");
+    generate(root, "b_right", &other_branch);
+    let right = migration_tags(&other_branch).pop().expect("right tag");
+    fs::create_dir_all(migrations_dir.join(&right)).expect("mkdir");
+    for file in ["migration.sql", "snapshot.json"] {
+        fs::copy(
+            other_branch.join(&right).join(file),
+            migrations_dir.join(&right).join(file),
+        )
+        .expect("merge right");
+    }
+
+    write_tables(root, &["Users", "Extra"]);
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["generate", "--name", "c_next"])
+        .assert()
+        .failure()
+        .stderr(contains("non-commutative migrations"));
+
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["generate", "--name", "c_next", "--ignore-conflicts"])
+        .assert()
+        .success();
+}
