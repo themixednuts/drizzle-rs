@@ -885,10 +885,17 @@ fn normalize_policy(policy: &mut Policy) {
             .unwrap_or("ALL")
             .to_ascii_uppercase(),
     ));
+    // A policy without TO applies to PUBLIC.
+    if policy.to.as_ref().is_none_or(Vec::is_empty) {
+        policy.to = Some(vec![Cow::Borrowed("PUBLIC")]);
+    }
     if let Some(roles) = policy.to.as_mut() {
         for role in roles {
-            if role.eq_ignore_ascii_case("public") {
-                *role = Cow::Borrowed("PUBLIC");
+            if ["public", "current_user", "current_role", "session_user"]
+                .iter()
+                .any(|keyword| role.eq_ignore_ascii_case(keyword))
+            {
+                *role = Cow::Owned(role.to_ascii_uppercase());
             }
         }
     }

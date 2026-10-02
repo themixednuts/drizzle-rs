@@ -971,8 +971,14 @@ impl Policy {
             let to_roles = to
                 .iter()
                 .map(|r| {
-                    if r.eq_ignore_ascii_case("public") {
-                        "PUBLIC".to_string()
+                    // `PUBLIC` and the role-name functions are keywords, not
+                    // role identifiers: quoting them names a role that does
+                    // not exist.
+                    if ["public", "current_user", "current_role", "session_user"]
+                        .iter()
+                        .any(|keyword| r.eq_ignore_ascii_case(keyword))
+                    {
+                        r.to_ascii_uppercase()
                     } else {
                         quote_ident(r)
                     }
@@ -1236,6 +1242,22 @@ mod tests {
         assert_eq!(
             policy.create_policy_sql(),
             "CREATE POLICY \"users_policy\" ON \"users\" AS PERMISSIVE TO PUBLIC;"
+        );
+    }
+
+    #[test]
+    fn test_policy_role_keywords_are_not_quoted() {
+        let mut policy = Policy::new("public", "users", "own_rows");
+        policy.to = Some(vec![
+            Cow::Borrowed("current_user"),
+            Cow::Borrowed("session_user"),
+            Cow::Borrowed("CURRENT_ROLE"),
+            Cow::Borrowed("app_user"),
+        ]);
+
+        assert_eq!(
+            policy.create_policy_sql(),
+            "CREATE POLICY \"own_rows\" ON \"users\" AS PERMISSIVE TO CURRENT_USER, SESSION_USER, CURRENT_ROLE, \"app_user\";"
         );
     }
 }
