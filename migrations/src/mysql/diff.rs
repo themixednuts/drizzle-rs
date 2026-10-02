@@ -672,6 +672,30 @@ fn reconcile_catalog_defaults(
         {
             table.collation = desired_table.collation.clone();
         }
+        // The same effective character set and collation, spelled
+        // differently (`CHARSET latin1` vs `latin1_swedish_ci`).
+        let live_charset = table.charset.as_deref().or(defaults.charset.as_deref());
+        let desired_charset = desired_table
+            .charset
+            .as_deref()
+            .or(defaults.charset.as_deref());
+        let live_collation = super::charset::effective_collation(
+            table.charset.as_deref(),
+            table.collation.as_deref(),
+            defaults.collation.as_deref(),
+        );
+        let desired_collation = super::charset::effective_collation(
+            desired_table.charset.as_deref(),
+            desired_table.collation.as_deref(),
+            defaults.collation.as_deref(),
+        );
+        if same_option(live_charset, desired_charset)
+            && live_collation.is_some()
+            && live_collation == desired_collation
+        {
+            table.charset = desired_table.charset.clone();
+            table.collation = desired_table.collation.clone();
+        }
     }
 
     for column in current.columns.list_mut() {
@@ -689,15 +713,41 @@ fn reconcile_catalog_defaults(
             continue;
         };
         let inherited_charset = table.charset.as_deref().or(defaults.charset.as_deref());
-        let inherited_collation = table.collation.as_deref().or(defaults.collation.as_deref());
+        let inherited_collation = super::charset::effective_collation(
+            table.charset.as_deref(),
+            table.collation.as_deref(),
+            defaults.collation.as_deref(),
+        );
         if column.charset.is_none()
             && same_option(desired_column.charset.as_deref(), inherited_charset)
         {
             column.charset = desired_column.charset.clone();
         }
         if column.collation.is_none()
-            && same_option(desired_column.collation.as_deref(), inherited_collation)
+            && same_option(
+                desired_column.collation.as_deref(),
+                inherited_collation.as_deref(),
+            )
         {
+            column.collation = desired_column.collation.clone();
+        }
+        let live_charset = column.charset.as_deref().or(inherited_charset);
+        let desired_charset = desired_column.charset.as_deref().or(inherited_charset);
+        let live_collation = super::charset::effective_collation(
+            column.charset.as_deref(),
+            column.collation.as_deref(),
+            inherited_collation.as_deref(),
+        );
+        let desired_collation = super::charset::effective_collation(
+            desired_column.charset.as_deref(),
+            desired_column.collation.as_deref(),
+            inherited_collation.as_deref(),
+        );
+        if same_option(live_charset, desired_charset)
+            && live_collation.is_some()
+            && live_collation == desired_collation
+        {
+            column.charset = desired_column.charset.clone();
             column.collation = desired_column.collation.clone();
         }
     }
@@ -1269,6 +1319,33 @@ fn column_definition(column: &model::Column) -> ColumnDefinition {
             }),
         comment: column.comment.as_deref().map(str::to_string),
     }
+}
+
+/// Whether a character column takes its character set and collation from
+/// its table.
+fn inherits_character_options(column: &model::Column) -> bool {
+    column.charset.is_none()
+        && column.collation.is_none()
+        && (column.inline_type.is_some()
+            || matches!(
+                drizzle_types::mysql::MySQLTypeCategory::classify(&column.sql_type),
+                drizzle_types::mysql::MySQLTypeCategory::Char
+                    | drizzle_types::mysql::MySQLTypeCategory::Varchar
+                    | drizzle_types::mysql::MySQLTypeCategory::TinyText
+                    | drizzle_types::mysql::MySQLTypeCategory::Text
+                    | drizzle_types::mysql::MySQLTypeCategory::MediumText
+                    | drizzle_types::mysql::MySQLTypeCategory::LongText
+                    | drizzle_types::mysql::MySQLTypeCategory::Enum
+                    | drizzle_types::mysql::MySQLTypeCategory::Set
+            ))
+}
+
+fn apply_inherited_character_options(
+    definition: &mut ColumnDefinition,
+    (charset, collation): &(Option<String>, Option<String>),
+) {
+    definition.charset.clone_from(charset);
+    definition.collation.clone_from(collation);
 }
 
 /// Whether two versions of a column need `MODIFY COLUMN` (or a recreate).
@@ -2605,6 +2682,8 @@ pub fn compute_migration_with(
         });
     }
 
+    let mut inherited_character_options: BTreeMap<String, (Option<String>, Option<String>)> =
+        BTreeMap::new();
     for (name, old) in &prev_tables {
         let Some(new) = cur_tables.get(name) else {
             continue;
@@ -2639,11 +2718,48 @@ pub fn compute_migration_with(
                 option: "collation without also resetting character set",
             });
         }
-        if old.charset != new.charset || old.collation != new.collation {
+        let catalog = options.catalog_defaults.as_ref();
+        // `DEFAULT CHARACTER SET = DEFAULT` is not MySQL syntax: going back to
+        // the database default needs the database default's name.
+        let (charset, collation) = if old.charset.is_some() && new.charset.is_none() {
+            let Some(charset) = catalog.and_then(|defaults| defaults.charset.clone()) else {
+                return Err(DiffError::CannotUnsetTableOption {
+                    table: name.clone(),
+                    option: "character set",
+                });
+            };
+            let collation = new
+                .collation
+                .as_deref()
+                .map(str::to_string)
+                .or_else(|| catalog.and_then(|defaults| defaults.collation.clone()));
+            (Some(charset), collation)
+        } else {
+            (
+                (old.charset != new.charset)
+                    .then(|| new.charset.as_deref().map(str::to_string))
+                    .flatten(),
+                (old.collation != new.collation)
+                    .then(|| new.collation.as_deref().map(str::to_string))
+                    .flatten(),
+            )
+        };
+        let character_options_changed = old.charset != new.charset || old.collation != new.collation;
+        if character_options_changed {
             warnings.insert(MySQLWarning::ChangeCharsetOrCollation {
                 table: name.clone(),
                 column: None,
             });
+            // Changing a table default does not convert existing columns.
+            // Columns that inherit it get the new character set explicitly,
+            // or the live table would keep the old one.
+            inherited_character_options.insert(
+                name.clone(),
+                (
+                    charset.clone().or_else(|| new.charset.as_deref().map(str::to_string)),
+                    collation.clone().or_else(|| new.collation.as_deref().map(str::to_string)),
+                ),
+            );
         }
         statements.push(MySQLStatement::AlterTableOptions {
             database: database(&new.database),
@@ -2651,20 +2767,40 @@ pub fn compute_migration_with(
             engine: (old.engine != new.engine)
                 .then(|| new.engine.as_deref().map(str::to_string))
                 .flatten(),
-            charset: (old.charset != new.charset).then(|| {
-                new.charset
-                    .as_deref()
-                    .map_or_else(|| "DEFAULT".to_string(), str::to_string)
-            }),
-            collation: (old.collation != new.collation)
-                .then(|| new.collation.as_deref().map(str::to_string))
-                .flatten(),
+            charset,
+            collation,
             comment: (old.comment != new.comment).then(|| {
                 new.comment
                     .as_deref()
                     .map_or_else(String::new, str::to_string)
             }),
         });
+        if character_options_changed {
+            for column in cur.columns.list().iter().filter(|column| {
+                column.table == name.as_str()
+                    && inherits_character_options(column)
+                    && prev_columns.contains_key(&(name.clone(), column.name.to_string()))
+                    && !altered_columns
+                        .iter()
+                        .any(|(key, _, _)| key.0 == *name && key.1 == column.name.as_ref())
+                    && !rename_generated_dependents
+                        .contains(&(name.clone(), column.name.to_string()))
+            }) {
+                let mut definition = column_definition_for_ddl(column, &cur);
+                definition.unique = false;
+                definition.primary_key = false;
+                apply_inherited_character_options(&mut definition, &inherited_character_options[name]);
+                warnings.insert(MySQLWarning::ChangeCharsetOrCollation {
+                    table: name.clone(),
+                    column: Some(column.name.to_string()),
+                });
+                statements.push(MySQLStatement::ModifyColumn {
+                    database: database(&column.database),
+                    table: name.clone(),
+                    column: definition,
+                });
+            }
+        }
     }
 
     let added_in_order = order_by_generated_dependencies(
@@ -2732,6 +2868,11 @@ pub fn compute_migration_with(
             // MODIFY COLUMN adds a duplicate index or a second primary key.
             definition.unique = false;
             definition.primary_key = false;
+            if inherits_character_options(new)
+                && let Some(options) = inherited_character_options.get(&key.0)
+            {
+                apply_inherited_character_options(&mut definition, options);
+            }
             MySQLStatement::ModifyColumn {
                 database: database(&new.database),
                 table: key.0.clone(),
@@ -4312,6 +4453,95 @@ mod tests {
         assert_eq!(
             compute_migration(&with_fk, &without_fk).unwrap().sql_statements,
             ["ALTER TABLE `children` DROP FOREIGN KEY `children_parent_id_fkey`;"]
+        );
+    }
+
+    fn charset_table(charset: Option<&str>) -> MySQLDDL {
+        let mut ddl = MySQLDDL::new();
+        let mut table = model::Table::new("notes");
+        table.charset = charset.map(|charset| charset.to_string().into());
+        ddl.tables.push(table);
+        let mut id = model::Column::new("notes", "id", "int");
+        id.not_null = true;
+        ddl.columns.push(id);
+        let mut body = model::Column::new("notes", "body", "varchar(20)");
+        body.not_null = true;
+        ddl.columns.push(body);
+        let mut pinned = model::Column::new("notes", "pinned", "varchar(20)");
+        pinned.charset = Some("ascii".into());
+        ddl.columns.push(pinned);
+        ddl
+    }
+
+    #[test]
+    fn removing_a_table_charset_needs_the_database_default() {
+        let error = compute_migration(&charset_table(Some("latin1")), &charset_table(None))
+            .expect_err("DEFAULT CHARACTER SET=DEFAULT is not MySQL syntax");
+        assert!(matches!(
+            error,
+            DiffError::CannotUnsetTableOption {
+                option: "character set",
+                ..
+            }
+        ));
+
+        let options = DiffOptions {
+            catalog_defaults: Some(
+                MySQLCatalogDefaults::new()
+                    .charset("utf8mb4")
+                    .collation("utf8mb4_0900_ai_ci"),
+            ),
+            ..DiffOptions::default()
+        };
+        let sql = compute_migration_with(&charset_table(Some("latin1")), &charset_table(None), &options)
+            .unwrap()
+            .sql_statements;
+        assert_eq!(
+            sql,
+            [
+                "ALTER TABLE `notes` DEFAULT CHARACTER SET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;",
+                "ALTER TABLE `notes` MODIFY COLUMN `body` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL;",
+            ]
+        );
+    }
+
+    #[test]
+    fn changing_a_table_charset_converts_inheriting_columns() {
+        let sql = compute_migration(&charset_table(Some("latin1")), &charset_table(Some("utf8mb4")))
+            .unwrap()
+            .sql_statements;
+        // `pinned` declares its own character set and keeps it; `id` has none.
+        assert_eq!(
+            sql,
+            [
+                "ALTER TABLE `notes` DEFAULT CHARACTER SET=utf8mb4;",
+                "ALTER TABLE `notes` MODIFY COLUMN `body` varchar(20) CHARACTER SET utf8mb4 NOT NULL;",
+            ]
+        );
+    }
+
+    #[test]
+    fn push_compares_effective_character_sets() {
+        // A table and column declaring only CHARACTER SET are reported with
+        // that character set's default collation.
+        let mut live = charset_table(Some("latin1"));
+        live.tables.list_mut()[0].collation = Some("latin1_swedish_ci".into());
+        live.columns.list_mut()[2].collation = Some("ascii_general_ci".into());
+        let desired = charset_table(Some("latin1"));
+        let options = DiffOptions {
+            catalog_defaults: Some(
+                MySQLCatalogDefaults::new()
+                    .engine("InnoDB")
+                    .charset("utf8mb4")
+                    .collation("utf8mb4_0900_ai_ci"),
+            ),
+            ..DiffOptions::default()
+        };
+        assert!(
+            compute_migration_with(&live, &desired, &options)
+                .unwrap()
+                .statements
+                .is_empty()
         );
     }
 }

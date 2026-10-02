@@ -257,7 +257,10 @@ pub fn assemble_ddl(mut raw: RawIntrospection) -> Result<MySQLDDL, IntrospectErr
         entity.database = Some(Cow::Owned(database.to_string()));
         entity.engine = different(table.engine, raw.database.default_engine.as_deref());
         entity.charset = different(table.charset, raw.database.default_charset.as_deref());
-        entity.collation = different(table.collation, raw.database.default_collation.as_deref());
+        entity.collation = without_charset_default(
+            entity.charset.as_deref(),
+            different(table.collation, raw.database.default_collation.as_deref()),
+        );
         entity.comment = nonempty(table.comment);
         ddl.tables.push(entity);
     }
@@ -290,7 +293,10 @@ pub fn assemble_ddl(mut raw: RawIntrospection) -> Result<MySQLDDL, IntrospectErr
                 raw.database.default_collation.as_deref(),
             ));
         column.charset = different(raw_column.charset, table_charset);
-        column.collation = different(raw_column.collation, table_collation);
+        column.collation = without_charset_default(
+            column.charset.as_deref(),
+            different(raw_column.collation, table_collation),
+        );
         column.comment = nonempty(raw_column.comment);
         ddl.columns.push(column);
     }
@@ -402,6 +408,19 @@ fn different(value: Option<String>, inherited: Option<&str>) -> Option<Cow<'stat
     value
         .filter(|value| !value.is_empty() && Some(value.as_str()) != inherited)
         .map(Cow::Owned)
+}
+
+/// Drops a collation that only restates the default of an explicitly kept
+/// character set: `CHARACTER SET latin1` alone is reported with
+/// `latin1_swedish_ci`, and keeping it would read as an explicit COLLATE.
+fn without_charset_default(
+    charset: Option<&str>,
+    collation: Option<Cow<'static, str>>,
+) -> Option<Cow<'static, str>> {
+    let default = charset.and_then(super::charset::default_collation);
+    collation.filter(|collation| {
+        default.is_none_or(|default| !collation.eq_ignore_ascii_case(default))
+    })
 }
 
 fn nonempty(value: Option<String>) -> Option<Cow<'static, str>> {
@@ -1598,5 +1617,32 @@ pub struct Users {
             .collect();
         assert_eq!(names, ["users_parent_idx"]);
         assert_eq!(ddl.fks.list().len(), 1);
+    }
+
+    #[test]
+    fn collation_restating_the_charset_default_is_not_explicit() {
+        let mut raw = raw();
+        raw.tables[0].charset = Some("latin1".to_string());
+        raw.tables[0].collation = Some("latin1_swedish_ci".to_string());
+        for (name, collation) in [("plain", "ascii_general_ci"), ("binary", "ascii_bin")] {
+            let mut column = catalog_column(name, "varchar(10)", "", "");
+            column.default_value = None;
+            column.charset = Some("ascii".to_string());
+            column.collation = Some(collation.to_string());
+            raw.columns.push(column);
+        }
+        raw.columns[1].charset = Some("latin1".to_string());
+        raw.columns[1].collation = Some("latin1_swedish_ci".to_string());
+
+        let ddl = assemble_ddl(raw).expect("valid catalog");
+        let table = ddl.tables.list().first().expect("table");
+        assert_eq!(table.charset.as_deref(), Some("latin1"));
+        assert_eq!(table.collation, None);
+        let column = |name| ddl.columns.one(None, "users", name).expect(name);
+        assert_eq!(column("status").charset, None);
+        assert_eq!(column("status").collation, None);
+        assert_eq!(column("plain").charset.as_deref(), Some("ascii"));
+        assert_eq!(column("plain").collation, None);
+        assert_eq!(column("binary").collation.as_deref(), Some("ascii_bin"));
     }
 }
