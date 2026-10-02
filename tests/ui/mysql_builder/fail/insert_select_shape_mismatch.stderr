@@ -6,8 +6,8 @@ error[E0277]: the trait bound `Cons<Name, Nil>: drizzle_core::builder::insert_se
    |                                   |
    |                                   required by a bound introduced by this call
    |
-help: the trait `InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Nil>` is not implemented for `Cons<Name, Nil>`
-      but trait `InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Cons<_, Nil>>` is implemented for it
+help: the trait `InsertSelectColumns<'_, MySQLValue<'_>, Nil>` is not implemented for `Cons<Name, Nil>`
+      but trait `InsertSelectColumns<'_, MySQLValue<'_>, Cons<_, Nil>>` is implemented for it
   --> core/src/builder/insert_select.rs
    |
    | / impl<'a, V, TargetExpr, TargetTail, SourceExpr, SourceTail>

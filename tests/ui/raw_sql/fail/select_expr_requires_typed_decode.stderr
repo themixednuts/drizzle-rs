@@ -36,14 +36,7 @@ error[E0277]: cannot deserialize `()` from a database row
    = help: the trait `for<'r> FromDrizzleRow<Row<'r>>` is not implemented for `()`
    = note: derive #[SQLiteFromRow], #[PostgresFromRow], or #[MySQLFromRow]
    = help: the following other types implement trait `FromDrizzleRow<Row>`:
-             (T0, T1)
-             (T0, T1, T2)
-             (T0, T1, T2, T3)
-             (T0, T1, T2, T3, T4)
-             (T0, T1, T2, T3, T4, T5)
-             (T0, T1, T2, T3, T4, T5, T6)
-             (T0, T1, T2, T3, T4, T5, T6, T7)
-             (T0,)
+             (T₁, T₂, …, Tₙ) for tuples of arity 1 up to and including 8
    = note: required for `SelectExpr` to implement `for<'r> DecodeSelectedRef<&'r Row<'r>, ()>`
    = note: 1 redundant requirement hidden
    = note: required for `Scoped<SelectExpr, Cons<User, Nil>>` to implement `for<'r> DecodeSelectedRef<&'r Row<'r>, ()>`

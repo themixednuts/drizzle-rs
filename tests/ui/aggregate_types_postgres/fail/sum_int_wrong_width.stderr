@@ -6,5 +6,5 @@ error[E0308]: mismatched types
    |            |
    |            expected due to this
    |
-   = note: expected enum `std::option::Option<i32>`
-              found enum `std::option::Option<i64>`
+   = note: expected enum `Option<i32>`
+              found enum `Option<i64>`
