@@ -2536,6 +2536,21 @@ pub fn compute_migration(prev: &MySQLDDL, cur: &MySQLDDL) -> Result<MigrationDif
     compute_migration_with(prev, cur, &DiffOptions::default())
 }
 
+/// Returns `prev` with the rename hints in `options` applied, the way
+/// [`compute_migration_with`] applies them before diffing, plus a validated
+/// copy of `cur`. Used to ask rename questions on the renamed state.
+pub(crate) fn apply_rename_hints_for_questions(
+    prev: &MySQLDDL,
+    cur: &MySQLDDL,
+    options: &DiffOptions,
+) -> Result<(MySQLDDL, MySQLDDL), DiffError> {
+    let mut prev = MySQLDDL::try_from_entities(prev.to_entities())?;
+    let cur = MySQLDDL::try_from_entities(cur.to_entities())?;
+    let selected = selected_database(&prev, &cur)?;
+    apply_rename_hints(&mut prev, &cur, selected.as_deref(), options)?;
+    Ok((prev, cur))
+}
+
 /// Computes a deterministic, dependency-phased MySQL migration from `prev` to
 /// `cur`.
 ///

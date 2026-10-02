@@ -162,8 +162,25 @@ pub struct MigrationDiff {
 }
 
 /// Computes the migration (diff plus SQL) between two PostgreSQL DDL states.
+///
+/// Schema, table, and column renames are inferred heuristically; use rename
+/// hints ([`DiffOptions`](crate::DiffOptions)) for the rest.
 #[must_use]
 pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff {
+    compute_migration_with_inference(prev, cur, true)
+}
+
+/// [`compute_migration`] with heuristic rename detection switched on or off.
+///
+/// With `infer_renames == false`, a dropped and a created schema, table, or
+/// column stay a drop plus a create even when they are otherwise identical;
+/// only renames already applied to `prev` (rename hints) survive.
+#[must_use]
+pub fn compute_migration_with_inference(
+    prev: &PostgresDDL,
+    cur: &PostgresDDL,
+    infer_renames: bool,
+) -> MigrationDiff {
     // Heuristic rename detection (non-interactive):
     // - detect exact schema/table renames before normal diffing
     // - detect simple column renames: one dropped + one created column in the same table
@@ -175,27 +192,29 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
     let mut rename_statements: Vec<JsonStatement> = Vec::new();
     let mut warnings = Vec::new();
 
-    detect_and_apply_schema_renames(
-        &mut prev_normalized,
-        cur,
-        &mut schema_renames,
-        &mut rename_statements,
-        &mut warnings,
-    );
-    detect_and_apply_table_renames(
-        &mut prev_normalized,
-        cur,
-        &mut table_renames,
-        &mut rename_statements,
-        &mut warnings,
-    );
+    if infer_renames {
+        detect_and_apply_schema_renames(
+            &mut prev_normalized,
+            cur,
+            &mut schema_renames,
+            &mut rename_statements,
+            &mut warnings,
+        );
+        detect_and_apply_table_renames(
+            &mut prev_normalized,
+            cur,
+            &mut table_renames,
+            &mut rename_statements,
+            &mut warnings,
+        );
 
-    detect_and_apply_column_renames(
-        &mut prev_normalized,
-        cur,
-        &mut column_renames,
-        &mut rename_statements,
-    );
+        detect_and_apply_column_renames(
+            &mut prev_normalized,
+            cur,
+            &mut column_renames,
+            &mut rename_statements,
+        );
+    }
 
     rename_default_named_constraints(&mut prev_normalized, cur, &mut rename_statements);
 

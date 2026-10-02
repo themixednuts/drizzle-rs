@@ -131,6 +131,7 @@ pub mod mysql;
 pub mod naming;
 pub mod parser;
 pub mod postgres;
+pub mod renames;
 pub mod repair;
 pub mod schema;
 pub mod snapshot;
@@ -182,9 +183,13 @@ pub use schema::{Schema, Snapshot};
 
 // Programmatic migration generation
 pub use generate::{
-    ColumnRenameHint, DiffOptions, Plan, RenameHints, SchemaRenameHint, TableRenameHint,
-    ViewRenameHint, diff, diff_schemas, diff_schemas_with, diff_with,
+    ColumnRenameHint, DiffOptions, EnumRenameHint, IndexRenameHint, Plan, RenameHints,
+    SchemaRenameHint, TableRenameHint, ViewRenameHint, diff, diff_schemas, diff_schemas_with,
+    diff_with,
 };
+
+// Rename-or-create questions (what `drizzle generate`/`push` prompt for)
+pub use renames::{CreateHint, RenameAnswer, RenameKind, RenameQuestion, rename_questions};
 
 // Build-time generation helpers (no CLI)
 pub use build::{BuildError, Casing, Config, Output, run};
