@@ -140,7 +140,7 @@ pub(crate) fn load(path: &Path) -> io::Result<MySQLSnapshot> {
 
     let version = required_string(object, "version")?;
     let value = match version {
-        MYSQL_SNAPSHOT_VERSION => value,
+        MYSQL_SNAPSHOT_VERSION => crate::upgrade::normalize_mysql_v6(value),
         "5" => {
             validate_v5_shape(object)?;
             crate::upgrade::upgrade_mysql_v5_to_v6(value)

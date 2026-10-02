@@ -2731,9 +2731,15 @@ pub fn compute_migration_with(
         .map(|(key, _)| key.clone())
         .collect();
 
+    // A MySQL primary key is always named `PRIMARY`, so a recorded name
+    // (drizzle-kit writes one) is not a change.
     let altered_key_tables: BTreeSet<_> = prev_pks
         .iter()
-        .filter(|(table, old)| cur_pks.get(*table).is_none_or(|new| **old != *new))
+        .filter(|(table, old)| {
+            cur_pks
+                .get(*table)
+                .is_none_or(|new| primary_key_definition(old) != primary_key_definition(new))
+        })
         .map(|(table, _)| table.clone())
         .chain(prev_uniques.iter().filter_map(|(key, old)| {
             cur_uniques
@@ -2960,7 +2966,9 @@ pub fn compute_migration_with(
         .iter()
         .filter(|(table, old)| {
             !dropped_tables.contains(*table)
-                && (cur_pks.get(*table).is_none_or(|new| **old != *new)
+                && (cur_pks
+                    .get(*table)
+                    .is_none_or(|new| primary_key_definition(old) != primary_key_definition(new))
                     || depends_on_recreated_column(
                         table,
                         old.columns.iter().map(ToString::to_string),

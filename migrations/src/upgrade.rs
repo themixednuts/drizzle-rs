@@ -425,8 +425,16 @@ pub fn upgrade_mysql_v5_to_v6(json: Value) -> Value {
                 bool_of(column, "autoincrement") || bool_of(column, "autoIncrement");
             entity.primary_key = bool_of(column, "primaryKey");
             entity.unique = bool_of(column, "unique");
-            entity.default = column.get("default").and_then(default_literal);
-            entity.on_update = mysql_optional_string_any(column, &["onUpdate", "on_update"]);
+            entity.default = column
+                .get("default")
+                .and_then(default_literal)
+                .map(mysql_boolean_default);
+            // drizzle-kit writes `.onUpdateNow()` as `"onUpdate": true`.
+            entity.on_update = match column.get("onUpdate") {
+                Some(Value::Bool(true)) => Some(Cow::Borrowed("CURRENT_TIMESTAMP")),
+                Some(Value::Bool(false)) => None,
+                _ => mysql_optional_string_any(column, &["onUpdate", "on_update"]),
+            };
             entity.generated = column
                 .get("generated")
                 .and_then(Value::as_object)
@@ -435,6 +443,7 @@ pub fn upgrade_mysql_v5_to_v6(json: Value) -> Value {
             entity.charset = mysql_optional_string_any(column, &["charset", "characterSet"]);
             entity.collation = mysql_optional_string_any(column, &["collation", "collate"]);
             entity.comment = mysql_optional_string(column, "comment");
+            expand_mysql_serial(&mut entity);
             if entity.primary_key {
                 inline_primary_key_columns.push(entity.name.to_string());
             }
@@ -578,6 +587,113 @@ pub fn upgrade_mysql_v5_to_v6(json: Value) -> Value {
 
     snapshot.ddl = ddl.to_entities();
     serde_json::to_value(snapshot).unwrap_or(Value::Null)
+}
+
+/// drizzle-kit's `serial` is MySQL shorthand for `BIGINT UNSIGNED NOT NULL
+/// AUTO_INCREMENT UNIQUE`. drizzle-rs records the column the way MySQL
+/// reports it; the implicit unique key is not in drizzle-kit's snapshot
+/// either.
+fn expand_mysql_serial(column: &mut mysql::Column) {
+    if column.sql_type.trim().eq_ignore_ascii_case("serial") {
+        column.sql_type = Cow::Borrowed("bigint unsigned");
+        column.not_null = true;
+        column.autoincrement = true;
+    }
+}
+
+/// Rewrites a MySQL v6 document written by drizzle-kit into the field
+/// spelling drizzle-rs reads. Documents written by drizzle-rs pass through
+/// unchanged.
+///
+/// Both use version 6 and the same entity array, but drizzle-kit names some
+/// fields differently (`autoIncrement`, `charSet`, `isUnique`, `tableTo` /
+/// `columnsTo`, `withCheckOption`, check and index-column `value`), writes
+/// `.onUpdateNow()` as `onUpdateNow` / `onUpdateNowFsp`, and keeps inline
+/// `enum(...)` / `set(...)` only in the column type.
+#[must_use]
+pub fn normalize_mysql_v6(mut json: Value) -> Value {
+    let Some(entities) = json.get_mut("ddl").and_then(Value::as_array_mut) else {
+        return json;
+    };
+    for entity in entities {
+        let Some(obj) = entity.as_object_mut() else {
+            continue;
+        };
+        match obj.get("entityType").and_then(Value::as_str) {
+            Some("columns") => normalize_kit_mysql_column(obj),
+            Some("indexes") => {
+                rename_key(obj, "isUnique", "unique");
+                if let Some(columns) = obj.get_mut("columns").and_then(Value::as_array_mut) {
+                    for column in columns.iter_mut().filter_map(Value::as_object_mut) {
+                        rename_key(column, "value", "expression");
+                    }
+                }
+            }
+            Some("fks") => {
+                rename_key(obj, "tableTo", "foreignTable");
+                rename_key(obj, "columnsTo", "foreignColumns");
+            }
+            Some("checks") => rename_key(obj, "value", "expression"),
+            Some("views") => rename_key(obj, "withCheckOption", "checkOption"),
+            _ => {}
+        }
+    }
+    json
+}
+
+/// drizzle-kit writes boolean defaults as `true` / `false`; MySQL reports
+/// and drizzle-rs writes the keywords as `TRUE` / `FALSE`.
+fn mysql_boolean_default(default: Cow<'static, str>) -> Cow<'static, str> {
+    if default.eq_ignore_ascii_case("true") {
+        Cow::Borrowed("TRUE")
+    } else if default.eq_ignore_ascii_case("false") {
+        Cow::Borrowed("FALSE")
+    } else {
+        default
+    }
+}
+
+fn rename_key(obj: &mut Map<String, Value>, from: &str, to: &str) {
+    if !obj.contains_key(to)
+        && let Some(value) = obj.remove(from)
+    {
+        obj.insert(to.to_string(), value);
+    }
+}
+
+fn normalize_kit_mysql_column(obj: &mut Map<String, Value>) {
+    rename_key(obj, "autoIncrement", "autoincrement");
+    rename_key(obj, "charSet", "charset");
+
+    let on_update_now = obj.remove("onUpdateNow").and_then(|v| v.as_bool());
+    let fsp = obj.remove("onUpdateNowFsp").and_then(|v| v.as_u64());
+    if on_update_now == Some(true) && !obj.contains_key("onUpdate") {
+        let expression = fsp.map_or_else(
+            || "CURRENT_TIMESTAMP".to_string(),
+            |fsp| format!("CURRENT_TIMESTAMP({fsp})"),
+        );
+        obj.insert("onUpdate".to_string(), Value::String(expression));
+    }
+
+    if let Some(Value::String(default)) = obj.get_mut("default") {
+        *default = mysql_boolean_default(Cow::Owned(std::mem::take(default))).into_owned();
+    }
+
+    let sql_type = str_of(obj, "type").unwrap_or_default().to_string();
+    if sql_type.trim().eq_ignore_ascii_case("serial") {
+        obj.insert(
+            "type".to_string(),
+            Value::String("bigint unsigned".to_string()),
+        );
+        obj.insert("notNull".to_string(), Value::Bool(true));
+        obj.insert("autoincrement".to_string(), Value::Bool(true));
+    }
+    if !obj.contains_key("inlineType")
+        && let Some(inline) = mysql_inline_type(&sql_type)
+        && let Ok(inline) = serde_json::to_value(inline)
+    {
+        obj.insert("inlineType".to_string(), inline);
+    }
 }
 
 fn split_mysql_table_key(key: &str) -> (Option<&str>, &str) {
@@ -1560,6 +1676,8 @@ pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
         Dialect::MySQL => {
             if version == "5" {
                 current = upgrade_mysql_v5_to_v6(current);
+            } else if version == MYSQL_SNAPSHOT_VERSION {
+                current = normalize_mysql_v6(current);
             }
             current
         }
@@ -2652,5 +2770,74 @@ mod tests {
 
         let current = serde_json::to_value(MySQLSnapshot::new()).unwrap();
         assert_eq!(upgrade_to_latest(current.clone(), Dialect::MySQL), current);
+    }
+
+    #[test]
+    fn drizzle_kit_mysql_v6_documents_load() {
+        // Entities as drizzle-kit 1.x writes them.
+        let kit = json!({
+            "version": "6",
+            "dialect": "mysql",
+            "id": "00000000-0000-0000-0000-000000000002",
+            "prevIds": ["00000000-0000-0000-0000-000000000001"],
+            "ddl": [
+                {"entityType": "tables", "name": "users"},
+                {"entityType": "columns", "table": "users", "name": "id", "type": "serial",
+                 "notNull": true, "autoIncrement": true, "default": null, "onUpdateNow": false,
+                 "onUpdateNowFsp": null, "charSet": null, "collation": null, "generated": null},
+                {"entityType": "columns", "table": "users", "name": "active", "type": "boolean",
+                 "notNull": true, "autoIncrement": false, "default": "true", "onUpdateNow": false,
+                 "onUpdateNowFsp": null, "charSet": null, "collation": null, "generated": null},
+                {"entityType": "columns", "table": "users", "name": "role",
+                 "type": "enum('admin','member')", "notNull": true, "autoIncrement": false,
+                 "default": "'member'", "onUpdateNow": false, "onUpdateNowFsp": null,
+                 "charSet": "utf8mb4", "collation": null, "generated": null},
+                {"entityType": "columns", "table": "users", "name": "updated_at",
+                 "type": "timestamp(3)", "notNull": false, "autoIncrement": false, "default": null,
+                 "onUpdateNow": true, "onUpdateNowFsp": 3, "charSet": null, "collation": null,
+                 "generated": null},
+                {"entityType": "pks", "table": "users", "name": "PRIMARY", "columns": ["id"]},
+                {"entityType": "indexes", "table": "users", "name": "role_idx",
+                 "columns": [{"value": "role", "isExpression": false}], "isUnique": true,
+                 "using": null, "algorithm": null, "lock": null, "nameExplicit": true},
+                {"entityType": "fks", "table": "users", "name": "users_id_users_id_fkey",
+                 "columns": ["id"], "tableTo": "users", "columnsTo": ["id"],
+                 "onUpdate": "NO ACTION", "onDelete": "CASCADE", "nameExplicit": false},
+                {"entityType": "checks", "table": "users", "name": "role_check",
+                 "value": "`role` <> ''"},
+                {"entityType": "views", "name": "v", "definition": "select 1",
+                 "algorithm": "undefined", "sqlSecurity": "definer", "withCheckOption": "local"}
+            ]
+        });
+
+        let upgraded = upgrade_to_latest(kit, Dialect::MySQL);
+        let snapshot: MySQLSnapshot = serde_json::from_value(upgraded).expect("loads");
+        let ddl = MySQLDDL::try_from_entities(snapshot.ddl).expect("valid");
+
+        let id = ddl.columns.one(None, "users", "id").expect("id");
+        assert_eq!(id.sql_type, "bigint unsigned", "serial is spelled out");
+        assert!(id.autoincrement && id.not_null);
+        let active = ddl.columns.one(None, "users", "active").expect("active");
+        assert_eq!(active.default.as_deref(), Some("TRUE"));
+        let role = ddl.columns.one(None, "users", "role").expect("role");
+        assert!(matches!(role.inline_type, Some(mysql::InlineType::Enum(_))));
+        assert_eq!(role.charset.as_deref(), Some("utf8mb4"));
+        let updated = ddl
+            .columns
+            .one(None, "users", "updated_at")
+            .expect("updated_at");
+        assert_eq!(updated.on_update.as_deref(), Some("CURRENT_TIMESTAMP(3)"));
+
+        let index = &ddl.indexes.list()[0];
+        assert!(index.unique);
+        assert_eq!(index.columns[0].expression, "role");
+        let fk = &ddl.fks.list()[0];
+        assert_eq!(fk.foreign_table, "users");
+        assert_eq!(fk.foreign_columns, vec![Cow::Borrowed("id")]);
+        assert_eq!(ddl.checks.list()[0].expression, "`role` <> ''");
+        assert_eq!(
+            ddl.views.list()[0].check_option,
+            Some(mysql::ViewCheckOption::Local)
+        );
     }
 }
