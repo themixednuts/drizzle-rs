@@ -173,7 +173,8 @@ use drizzle_postgres::values::PostgresValue;
 use crate::builder::postgres::common;
 use crate::builder::postgres::rows::DecodeRows;
 
-/// Tokio-postgres-specific drizzle builder
+/// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
+/// `.all()`, `.get()`, or `.rows()`.
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, &'a Drizzle<Schema>, Schema, Builder, State>;
 
@@ -186,13 +187,17 @@ impl<Schema> common::RelationalPreparedDriver for &Drizzle<Schema> {
 
 crate::drizzle_prepare_impl!();
 
-/// Async `PostgreSQL` database wrapper using [`tokio_postgres::Client`].
+/// The async PostgreSQL database handle: a [`tokio_postgres::Client`] plus
+/// the schema's table handles.
 ///
-/// Provides query building methods (`select`, `insert`, `update`, `delete`)
-/// and execution methods (`execute`, `all`, `get`, `transaction`).
+/// Create it with [`Drizzle::new`], then build queries with `select`,
+/// `insert`, `update`, and `delete`. Statements run through a per-client
+/// statement cache.
 ///
-/// The client is stored behind an [`Arc`], making `Drizzle` cheaply cloneable
-/// for sharing across tasks (e.g. with `tokio::spawn`).
+/// The client is stored behind an [`Arc`], so `Drizzle` is cheap to clone
+/// and share across tasks (for example with `tokio::spawn`).
+/// [`transaction`](Self::transaction) and [`migrate`](Self::migrate) need
+/// the only handle, though, and fail while clones exist.
 #[derive(Debug)]
 pub struct Drizzle<Schema = ()> {
     client: Arc<Client>,
@@ -215,7 +220,7 @@ impl<S: Clone> Clone for Drizzle<S> {
     }
 }
 
-/// Lazy decoded row cursor for tokio-postgres queries.
+/// Rows returned by `.rows()`: fetched up front, decoded as you iterate.
 pub type Rows<R> = DecodeRows<Row, R>;
 
 pub(crate) fn tokio_postgres_materialize_params<'p>(
@@ -295,21 +300,20 @@ impl<S> AsRef<Self> for Drizzle<S> {
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Gets a reference to the underlying connection.
+    /// Returns the wrapped client, for calls drizzle does not cover.
     #[inline]
     pub fn conn(&self) -> &Client {
         &self.client
     }
 
-    /// Gets a mutable reference to the underlying connection.
-    ///
-    /// Returns `None` if there are outstanding clones of this `Drizzle` instance.
+    /// Returns the wrapped client mutably, or `None` while clones of this
+    /// handle exist.
     #[inline]
     pub fn conn_mut(&mut self) -> Option<&mut Client> {
         Arc::get_mut(&mut self.client)
     }
 
-    /// Gets a reference to the schema.
+    /// Returns the schema value this handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
@@ -355,11 +359,17 @@ impl<Schema> Drizzle<Schema> {
 
     postgres_builder_constructors!();
 
-    /// Execute a statement and return the number of affected rows.
+    /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, and
+    /// returns the number of rows it changed.
+    ///
+    /// Prefer the builder's own `.execute()`. This method takes anything that
+    /// renders to SQL, so it skips the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns a [`tokio_postgres::Error`] if the database connection fails or the SQL is invalid.
+    /// Returns the [`tokio_postgres::Error`] when the server rejects the
+    /// statement or the connection fails. Unlike the builder methods, the
+    /// error has no SQL attached.
     pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, tokio_postgres::Error>
     where
         T: ToSQL<'a, PostgresValue<'a>>,
@@ -381,11 +391,18 @@ impl<Schema> Drizzle<Schema> {
         .await
     }
 
-    /// Runs the query and returns all matching rows (for SELECT queries)
+    /// Runs any SQL value and collects its rows into `C` (for example
+    /// `Vec<R>`).
+    ///
+    /// Each row is decoded with `R: TryFrom<&Row>`, which the generated
+    /// `Select*` models and `PostgresFromRow` types implement. Prefer the
+    /// builder's own `.all()`: this method skips its compile-time scope and
+    /// `NULL` checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails or row decoding fails.
+    /// Returns an error when the query fails or a row cannot be decoded into
+    /// `R`.
     pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -398,11 +415,15 @@ impl<Schema> Drizzle<Schema> {
             .collect::<drizzle_core::error::Result<C>>()
     }
 
-    /// Runs the query and returns a lazy row cursor.
+    /// Runs any SQL value and returns its rows, decoded into `R` as you
+    /// iterate.
+    ///
+    /// Every row is fetched before this returns. Like [`all`](Self::all),
+    /// this skips the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails.
+    /// Returns an error when the query fails. Decoding errors surface per row.
     pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -431,11 +452,14 @@ impl<Schema> Drizzle<Schema> {
         Ok(Rows::new(rows))
     }
 
-    /// Runs the query and returns a single row (for SELECT queries)
+    /// Runs any SQL value and decodes its single row into `R`.
+    ///
+    /// Like [`all`](Self::all), this skips the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails, no rows match, or row decoding fails.
+    /// Returns an error when the query does not return exactly one row (none
+    /// or several), when it fails, or when the row cannot be decoded into `R`.
     pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -464,7 +488,11 @@ impl<Schema> Drizzle<Schema> {
         R::try_from(&row).map_err(Into::into)
     }
 
-    /// Creates a relational query builder for the given table.
+    /// Starts a relational query on `table` (requires the `query` feature).
+    ///
+    /// Relations come from foreign keys: `#[column(references = Users::id)]` on
+    /// `Posts::author_id` gives `users.posts()` (one-to-many) and
+    /// `posts.author()` (many-to-one). Results nest the related rows as fields.
     #[cfg(feature = "query")]
     pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
     where
@@ -524,16 +552,24 @@ impl<Schema> Drizzle<Schema> {
         ))
     }
 
-    /// Executes a transaction with the given callback.
+    /// Runs the async closure `f` inside a transaction and returns its value.
     ///
-    /// The transaction is committed when the callback returns `Ok` and
-    /// rolled back on `Err`. Requires `&mut self` because the underlying
-    /// client must not be shared during a transaction.
+    /// The transaction commits when `f` returns `Ok` and rolls back when it
+    /// returns `Err`. If the future is dropped before it finishes,
+    /// tokio-postgres rolls the transaction back. `config` sets the isolation
+    /// level, access mode, and `DEFERRABLE`; the default keeps the server's
+    /// defaults.
+    ///
+    /// This needs exclusive access to the client, so it takes `&mut self` and
+    /// fails while clones of this handle exist.
     ///
     /// # Errors
     ///
-    /// Returns an error if there are outstanding clones of this `Drizzle` instance,
-    /// since exclusive access to the underlying client is required for transactions.
+    /// Returns an error when clones of this handle exist, the error from `f`,
+    /// or an error when `BEGIN`, `COMMIT`, or `ROLLBACK` fails. When the
+    /// rollback after an `Err` also fails, both errors are reported together.
+    ///
+    /// # Examples
     ///
     /// ```no_run
     /// # use drizzle::postgres::prelude::*;
@@ -594,11 +630,17 @@ impl<Schema> Drizzle<Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create schema objects from `SQLSchemaImpl`.
+    /// Creates every table, index, and view in the schema.
+    ///
+    /// Useful for tests and throwaway databases; use `migrate` to evolve a
+    /// real one.
+    ///
+    /// The statements run one by one, outside a transaction.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if any CREATE statement fails to execute.
+    /// Returns an error when the database rejects one of the statements;
+    /// earlier statements stay applied.
     pub async fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements = schema.create_statements()?;
@@ -612,14 +654,17 @@ where
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Apply pending migrations from an embedded migration slice.
+    /// Applies the migrations that have not run yet.
     ///
-    /// Creates the drizzle schema if needed and runs pending migrations in a transaction.
+    /// Creates the tracking table (and its schema) if needed, then runs each
+    /// pending migration in its own transaction together with its tracking
+    /// row. When one fails, it rolls back and the migrations before it stay
+    /// applied. Migrations that already ran are skipped. An advisory lock
+    /// (`pg_advisory_lock`) keeps concurrent `migrate` calls from overlapping.
     ///
-    /// # Errors
+    /// Load the migrations with [`include_migrations!`](crate::include_migrations)
+    /// or [`MigrationDir`](drizzle_migrations::MigrationDir).
     ///
-    /// Returns an error if there are outstanding clones of this `Drizzle` instance,
-    /// since exclusive access to the underlying client is required for the migration transaction.
     /// # Two-phase tracking on the CONCURRENTLY path
     ///
     /// A migration containing `CREATE/DROP INDEX CONCURRENTLY` cannot run
@@ -633,6 +678,13 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// Non-concurrent migrations keep the single-transaction flow (statements
     /// and tracking insert commit together), which is already atomic.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a migration statement fails, when the tracking
+    /// table holds an unfinished ("dirty") row left by an interrupted run (use
+    /// [`migrate_with_repair`](Self::migrate_with_repair)), or when a
+    /// non-concurrent migration is pending while clones of this handle exist.
     pub async fn migrate(
         &mut self,
         migrations: &[drizzle_migrations::Migration],
@@ -641,7 +693,8 @@ impl<Schema> Drizzle<Schema> {
         self.migrate_inner(migrations, tracking, false).await
     }
 
-    /// Apply pending migrations, first reconciling any interrupted migration.
+    /// Finishes any interrupted migration, then applies pending ones like
+    /// [`migrate`](Self::migrate).
     ///
     /// For each migration marked dirty by the two-phase CONCURRENTLY flow in
     /// [`Self::migrate`], this introspects the live catalogs and classifies
@@ -653,8 +706,9 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if repair cannot reconcile every statement, or
-    /// if any remaining statement fails.
+    /// Returns an error listing what needs manual attention when a statement
+    /// cannot be proven applied or not applied, and for the same failures as
+    /// [`migrate`](Self::migrate).
     pub async fn migrate_with_repair(
         &mut self,
         migrations: &[drizzle_migrations::Migration],
@@ -1275,15 +1329,17 @@ async fn pg_async_query_policies(
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Introspect the connected `PostgreSQL` database and return a [`Snapshot`](drizzle_migrations::schema::Snapshot).
+    /// Reads the live database's schema into a
+    /// [`Snapshot`](drizzle_migrations::schema::Snapshot).
     ///
-    /// Queries the `pg_catalog` and `information_schema` to extract tables, columns,
-    /// indexes, foreign keys, primary keys, unique/check constraints, enums, sequences,
-    /// views, roles, and policies.
+    /// Queries `pg_catalog` and `information_schema` for tables, columns,
+    /// indexes, foreign keys, primary keys, unique and check constraints,
+    /// enums, sequences, views, roles, and policies, and returns them as
+    /// `Snapshot::Postgres(..)`.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the underlying introspection queries fail.
+    /// Returns an error when one of the catalog queries fails.
     pub async fn introspect(
         &self,
     ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
@@ -1347,14 +1403,18 @@ impl<Schema> Drizzle<Schema> {
         Ok(drizzle_migrations::schema::Snapshot::Postgres(snap))
     }
 
-    /// Introspect the live database, diff against the desired schema, and
-    /// execute the SQL statements needed to bring the database in sync.
+    /// Changes the live database to match `schema`, without migration files.
     ///
-    /// This is a no-op if the database already matches.
+    /// Introspects the database, diffs it against `schema`, and runs the
+    /// resulting statements. Does nothing when they already match. Meant for
+    /// local development: nothing is recorded in the migration tracking
+    /// table.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if introspection, diff, or applying statements fails.
+    /// Returns an error when introspection or diffing fails, or when a
+    /// statement fails. The statements do not run in a transaction, so the
+    /// ones before a failure stay applied.
     pub async fn push<S: drizzle_migrations::Schema>(
         &self,
         schema: &S,
@@ -1400,7 +1460,17 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Runs the query and returns the number of affected rows
+    /// Runs the statement and returns the number of rows it changed.
+    ///
+    /// Use it for `INSERT`, `UPDATE`, and `DELETE`. With a `RETURNING`
+    /// clause, the returned rows are counted, not decoded (use
+    /// [`all`](Self::all) to read them).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the server rejects the statement, for example on
+    /// a constraint violation. The error carries the SQL and its parameters
+    /// ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = {
             #[cfg(feature = "profiling")]
@@ -1420,7 +1490,30 @@ where
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
-    /// Runs the query and returns all matching rows using the builder's row type.
+    /// Runs the query and decodes every row into `R`.
+    ///
+    /// `R` is usually the generated `Select*` model (for `select(())`), a
+    /// tuple matching the selected columns, or a type deriving
+    /// `PostgresFromRow`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded into
+    /// `R`. Query errors carry the SQL and its parameters
+    /// ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
+    ///
+    /// # Compile-time checks
+    ///
+    /// The call does not compile unless:
+    ///
+    /// - every column the query reads (in `SELECT`, `WHERE`, `ORDER BY`, ...)
+    ///   belongs to a table in its `FROM`/`JOIN` list;
+    /// - `R` matches the selection: one field per selected column, with a
+    ///   compatible type, and `Option<T>` wherever the value can be `NULL`
+    ///   (a nullable column, or any column of an outer-joined table);
+    /// - with `GROUP BY`, each column in a selected tuple is grouped or
+    ///   aggregated;
+    /// - a raw `sql!` selection carries an explicit result type.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
@@ -1457,7 +1550,21 @@ where
         Ok(decoded)
     }
 
-    /// Runs the query and returns a lazy row cursor using the builder's row type.
+    /// Runs the query and returns its rows, decoded into the row type the
+    /// query infers from its selection.
+    ///
+    /// Unlike [`all`](Self::all), you do not pick the row type: `select(())`
+    /// yields the table's `Select*` model and a column tuple yields a tuple.
+    /// Every row is fetched before this returns; each is decoded as you
+    /// iterate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails. Decoding errors surface per row.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The same scope and grouping checks as [`all`](Self::all).
     pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
         for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -1489,7 +1596,19 @@ where
         Ok(Rows::new(rows))
     }
 
-    /// Runs the query and returns a single row using the builder's row type.
+    /// Runs the query and decodes its single row into `R`.
+    ///
+    /// The query must return exactly one row; add `.limit(1)` if it could
+    /// match more.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query returns no row or more than one, when
+    /// it fails, or when the row cannot be decoded into `R`.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
@@ -1543,7 +1662,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -1631,7 +1755,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -1668,9 +1799,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations, in the table's `PartialSelect*` shape.
     ///
-    /// Base columns are deserialized from a JSON `"__base"` column.
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -1759,7 +1893,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -1784,7 +1925,13 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, Client, T, Rels, drizzle_core::query::AllColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_many<const N: usize>(
         &self,
         client: &Client,
@@ -1851,9 +1998,16 @@ impl<'a, T, Rels>
         Ok(results)
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_first<const N: usize>(
         &self,
         client: &Client,
@@ -1881,7 +2035,13 @@ impl<'a, T, Rels>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, Client, T, Rels, drizzle_core::query::PartialColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_many<const N: usize>(
         &self,
         client: &Client,
@@ -1947,9 +2107,16 @@ impl<'a, T, Rels>
         Ok(results)
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_first<const N: usize>(
         &self,
         client: &Client,

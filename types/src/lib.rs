@@ -1,24 +1,24 @@
-//! Shared type definitions for Drizzle ORM
+//! SQL type definitions shared by the drizzle crates.
 //!
-//! This crate provides common type definitions used across multiple Drizzle crates,
-//! including:
-//!
-//! - [`Dialect`] - Database dialect enum (`SQLite`, `PostgreSQL`, `MySQL`)
-//! - `SQLite` types in the [`sqlite`] module
-//! - `PostgreSQL` types in the [`postgres`] module
-//! - `MySQL` types in the [`mysql`] module
+//! - [`sql`]: compile-time SQL type markers' capabilities ([`DataType`],
+//!   [`Compatible`], [`Assignable`], [`Numeric`], [`Textual`], ...), also
+//!   re-exported at the crate root.
+//! - [`sqlite`], [`postgres`], [`mysql`]: each dialect's type markers, column
+//!   types and DDL definitions.
+//! - [`Dialect`]: names a database.
+//! - [`MigrationTracking`], [`ConfigValue`], [`Casing`]: migration settings.
 //!
 //! # Features
 //!
-//! - `std` - Standard library support (enabled by default)
-//! - `alloc` - Allocator support for `no_std` environments
-//! - `uuid` - Enable UUID type support
-//! - `serde` - Enable serde serialization/deserialization
-//! - `chrono` - Enable chrono date/time type support
-//! - `time` - Enable time crate type support
-//! - `geo-types` - Enable geometric type support
-//! - `cidr` - Enable network address type support
-//! - `bit-vec` - Enable bit vector type support
+//! - `std` (default): standard library support.
+//! - `alloc`: `no_std` with an allocator. Without `std` or `alloc`, only
+//!   [`Dialect`] is available.
+//! - `serde`, `schemars`: serialization and JSON Schema for the DDL types.
+//! - `uuid`, `chrono`, `geo-types`, `cidr`, `bit-vec`: add the column types
+//!   and Rust type mappings for those crates. `time` is accepted but
+//!   currently adds nothing.
+//! - `col16`, `col32`, `col64`, `col128`, `col200`: allow row-value tuples of
+//!   up to that many columns (8 by default).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -71,7 +71,7 @@ pub use migration::{Casing, ConfigValue, MigrationTracking};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use sql::*;
 
-/// Prelude module for commonly used types
+/// The dialect enum and each dialect's column-type and category enums.
 pub mod prelude {
     pub use crate::Dialect;
     #[cfg(any(feature = "std", feature = "alloc"))]

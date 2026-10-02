@@ -1,4 +1,8 @@
-//! MySQL v6 entity-array snapshot.
+//! [`MySQLSnapshot`], the MySQL v6 entity-array snapshot, and push
+//! preparation.
+//!
+//! [`Snapshot::load`](crate::Snapshot::load) reads MySQL files through this
+//! module, which also upgrades legacy v5 documents and validates the result.
 
 use super::{MySQLDDL, ValidationError, ddl::MySQLEntity};
 use crate::snapshot::{Snapshot, SnapshotEntity};
@@ -22,10 +26,14 @@ pub type MySQLSnapshot = Snapshot<MySQLEntity>;
 /// A live MySQL snapshot cannot be prepared safely for `push`.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PushError {
+    /// The live or desired snapshot fails [`MySQLDDL`] validation.
     #[error(transparent)]
     InvalidSnapshot(#[from] ValidationError),
+    /// The schema names a database other than the connection's selected one.
     #[error("MySQL schema targets database `{schema}`, but the connection selected `{selected}`")]
     Database { selected: String, schema: String },
+    /// The schema declares a temporary table, which only lives as long as one
+    /// connection.
     #[error(
         "MySQL push cannot manage temporary table `{table}` because temporary tables are connection-local"
     )]

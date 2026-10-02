@@ -42,9 +42,9 @@ async fn turso_transaction_query_cached(
     statement.query(params).await
 }
 
-/// Turso-specific transaction builder. See
-/// `TransactionBuilder` for the
-/// typestate-advancing methods; executor methods live below in this module.
+/// A query being built inside a [`Transaction`]. It has the same clause
+/// methods as the connection's builder; run it with `.execute()`, `.all()`,
+/// `.get()`, or `.rows()`.
 pub type TransactionBuilder<'tx, 'conn, Schema, Builder, State> =
     crate::transaction::sqlite::typestate::TransactionBuilder<
         'tx,
@@ -59,7 +59,14 @@ use drizzle_core::prepared::prepare_render;
 
 crate::drizzle_tx_prepare_impl!('conn);
 
-/// Transaction wrapper that provides the same query building capabilities as Drizzle
+/// An open turso transaction, passed to the closure given to `transaction`.
+///
+/// It has the same query methods as the database handle (`select`,
+/// `insert`, `update`, `delete`, `with`), plus `savepoint` for nested
+/// rollback points. It commits or rolls back when the closure returns.
+///
+/// If a savepoint future is cancelled or its cleanup fails, every later
+/// query on the transaction returns `DrizzleError::TransactionError`.
 #[derive(Debug)]
 pub struct Transaction<'conn, Schema = ()> {
     tx: turso::transaction::Transaction<'conn>,
@@ -69,7 +76,7 @@ pub struct Transaction<'conn, Schema = ()> {
 }
 
 impl<'conn, Schema> Transaction<'conn, Schema> {
-    /// Creates a new transaction wrapper
+    /// Wraps a driver transaction that has already begun.
     pub(crate) fn new(
         tx: turso::transaction::Transaction<'conn>,
         tx_type: SQLiteTransactionType,
@@ -83,19 +90,21 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         }
     }
 
-    /// Gets a reference to the schema.
+    /// Returns the schema value the database handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    /// Gets a reference to the underlying transaction
+    /// Returns the driver's transaction, for calls drizzle does not cover,
+    /// such as running a prepared statement inside this transaction.
     #[inline]
     pub const fn inner(&self) -> &turso::transaction::Transaction<'conn> {
         &self.tx
     }
 
-    /// Gets the transaction type
+    /// Returns the mode the transaction was started with (`DEFERRED`,
+    /// `IMMEDIATE`, or `EXCLUSIVE`).
     #[inline]
     pub const fn tx_type(&self) -> SQLiteTransactionType {
         self.tx_type
@@ -108,7 +117,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Ok(())
     }
 
-    /// Executes a nested savepoint within this transaction.
+    /// Runs `f` inside a savepoint nested in this transaction.
     ///
     /// The callback receives a reference to this transaction for executing
     /// queries. If the callback returns `Ok`, the savepoint is released.
@@ -116,6 +125,8 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// The outer transaction is unaffected either way.
     ///
     /// Savepoints can be nested — each level gets its own savepoint name.
+    ///
+    /// # Examples
     ///
     /// ```no_run
     /// # use drizzle::sqlite::turso::Drizzle;
@@ -146,7 +157,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the savepoint cannot be created/released, or the inner closure returns an error.
+    /// Returns the error from `f`, or an error when `SAVEPOINT`, `RELEASE`, or
+    /// `ROLLBACK TO` fails. When cleanup after an `Err` also fails, both
+    /// errors are reported together.
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
@@ -161,11 +174,15 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
     sqlite_transaction_constructors!('conn);
 
-    /// Executes a raw query within the transaction
+    /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, inside
+    /// the transaction and returns the number of rows it changed.
+    ///
+    /// Prefer the builder's own `.execute()`. This method skips the builder's
+    /// compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the database call fails or the SQL is invalid.
+    /// Returns an error when turso cannot prepare or run the statement.
     pub async fn execute<'q, T>(&self, query: T) -> Result<u64, DrizzleError>
     where
         T: ToSQL<'q, SQLiteValue<'q>>,
@@ -179,11 +196,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Ok(turso_transaction_execute_cached(&self.tx, &sql_str, params).await?)
     }
 
-    /// Runs a query and returns all matching rows within the transaction
+    /// Runs any SQL value inside the transaction and decodes every row into
+    /// `R` with `TryFrom<&Row>`, skipping the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails or row decoding fails.
+    /// Returns an error when turso cannot prepare or run the query, or when a
+    /// row cannot be decoded into `R`.
     pub async fn all<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -193,11 +212,13 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         self.rows(query).await?.collect().await
     }
 
-    /// Runs a query and returns a row cursor within the transaction.
+    /// Runs any SQL value inside the transaction and returns its rows, fetched
+    /// and decoded into `R` as you call `next().await`.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails.
+    /// Returns an error when turso cannot prepare or run the query. Decoding
+    /// errors surface per row.
     pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -214,11 +235,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Ok(Rows::new(rows))
     }
 
-    /// Runs a query and returns a single row within the transaction
+    /// Runs any SQL value inside the transaction and decodes its first row
+    /// into `R`.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when turso cannot prepare or run the query or the row cannot be decoded
+    /// into `R`.
     pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -239,7 +263,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         .await
     }
 
-    /// Commits the transaction (turso transactions are auto-committed)
+    /// Commits the transaction.
     ///
     /// # Errors
     ///
@@ -252,7 +276,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         Ok(self.tx.commit().await?)
     }
 
-    /// Rolls back the transaction
+    /// Rolls back the transaction.
     ///
     /// # Errors
     ///
@@ -268,7 +292,13 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Runs the query and returns the number of affected rows
+    /// Runs the statement inside the transaction and returns the number of rows
+    /// it changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when turso cannot prepare or run the statement, for
+    /// example on a constraint violation.
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
@@ -278,7 +308,21 @@ where
         Ok(turso_transaction_execute_cached(&self.runner.tx, &sql_str, params).await?)
     }
 
-    /// Runs the query and returns all matching rows using the builder's row type.
+    /// Runs the query inside the transaction and decodes every row into `R`.
+    ///
+    /// Reads see the transaction's own uncommitted writes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when turso cannot prepare or run the query, or when a
+    /// row cannot be decoded into `R`.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The call does not compile unless every column the query reads belongs to
+    /// a table in its `FROM`/`JOIN` list, `R` matches the selection (with
+    /// `Option<T>` wherever a value can be `NULL`), and, with `GROUP BY`, each
+    /// column in a selected tuple is grouped or aggregated.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
@@ -302,7 +346,17 @@ where
         Ok(decoded)
     }
 
-    /// Runs the query and returns a row cursor using the builder's row type.
+    /// Runs the query inside the transaction and returns its rows, decoded into
+    /// the row type the query infers from its selection.
+    ///
+    /// Rows are fetched lazily as you call `next().await`. Unlike
+    /// [`all`](Self::all), this method does not check scope or grouping at
+    /// compile time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when turso cannot prepare or run the query. Decoding
+    /// errors surface per row.
     pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
         Rw: for<'r> TryFrom<&'r Row>,
@@ -317,7 +371,18 @@ where
         Ok(Rows::new(rows))
     }
 
-    /// Runs the query and returns a single row using the builder's row type.
+    /// Runs the query inside the transaction and decodes its first row into
+    /// `R`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// when no row matches, and an error when turso cannot prepare or run
+    /// the query or the row cannot be decoded into `R`.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The same checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
@@ -347,9 +412,8 @@ use crate::builder::sqlite::common;
 
 #[cfg(feature = "query")]
 impl<'conn, Schema> Transaction<'conn, Schema> {
-    /// Creates a relational query builder scoped to this transaction.
-    ///
-    /// Rows read here observe the transaction's uncommitted state.
+    /// Starts a relational query inside this transaction, like the database
+    /// handle's `query`. It sees the transaction's uncommitted writes.
     pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
     where
         T: drizzle_core::query::QueryTable,
@@ -381,7 +445,12 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -419,7 +488,14 @@ impl<'db, 'a, 'conn, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -456,9 +532,12 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations, in the table's `PartialSelect*` shape.
     ///
-    /// Base columns are deserialized from a JSON `"__base"` column.
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -498,7 +577,14 @@ impl<'db, 'a, 'conn, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<

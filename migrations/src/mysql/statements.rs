@@ -974,18 +974,24 @@ pub fn render_statements(statements: &[MySQLStatement]) -> Result<Vec<String>, R
         })
 }
 
-/// MySQL SQL generator used by the dialect integration.
+/// Renders MySQL operations and joins them into `migration.sql` text.
+///
+/// Note that `Generator::default()` has breakpoints off, while
+/// [`Generator::new`] turns them on.
 #[derive(Debug, Clone, Default)]
 pub struct Generator {
+    /// Join statements with `--> statement-breakpoint` lines.
     pub breakpoints: bool,
 }
 
 impl Generator {
+    /// Creates a generator with breakpoints on.
     #[must_use]
     pub const fn new() -> Self {
         Self { breakpoints: true }
     }
 
+    /// Sets [`breakpoints`](Self::breakpoints).
     #[must_use]
     pub const fn with_breakpoints(mut self, breakpoints: bool) -> Self {
         self.breakpoints = breakpoints;
@@ -1001,7 +1007,8 @@ impl Generator {
         render_statements(statements)
     }
 
-    /// Joins independently executed DDL statements for a migration file.
+    /// Joins statements with `--> statement-breakpoint` lines, or with
+    /// newlines when breakpoints are off.
     #[must_use]
     pub fn statements_to_sql(&self, statements: &[String]) -> String {
         if self.breakpoints {

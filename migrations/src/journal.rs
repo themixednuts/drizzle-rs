@@ -1,12 +1,30 @@
-//! Journal types for tracking migrations
+//! The legacy drizzle-kit migration journal (`meta/_journal.json`).
 //!
-//! The journal (_journal.json) tracks all applied migrations in order.
+//! Older drizzle-kit folders list every *generated* migration here, in order.
+//! The current folder layout (one subfolder per migration) has no journal;
+//! `drizzle up` converts old folders. It does not record which migrations
+//! were applied to a database: that lives in the tracking table.
 
 use crate::version::{JOURNAL_VERSION, snapshot_version};
 use drizzle_types::Dialect;
 use serde::{Deserialize, Serialize};
 
-/// Migration journal - tracks all migrations
+/// A parsed `_journal.json`: format version, dialect, and entries.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::Journal;
+/// use drizzle_types::Dialect;
+///
+/// let mut journal = Journal::new(Dialect::SQLite);
+/// journal.add_entry("0000_init".to_string(), true);
+///
+/// let parsed = Journal::from_json(&journal.to_json()?)?;
+/// assert_eq!(parsed.entries[0].idx, 0);
+/// assert_eq!(parsed.entries[0].tag, "0000_init");
+/// # Ok::<(), drizzle_migrations::serde_json::Error>(())
+/// ```
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Journal {
     /// Journal format version
@@ -17,7 +35,7 @@ pub struct Journal {
     pub entries: Vec<JournalEntry>,
 }
 
-/// A single migration entry in the journal
+/// One migration listed in the journal.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JournalEntry {
     /// Migration index (0-based)
@@ -26,14 +44,14 @@ pub struct JournalEntry {
     pub version: String,
     /// Unix timestamp in milliseconds when migration was created
     pub when: u64,
-    /// Migration tag/name (e.g., "`0000_initial_migration`")
+    /// Migration tag (folder/file name), e.g. `0000_initial_migration`.
     pub tag: String,
     /// Whether SQL statement breakpoints are enabled
     pub breakpoints: bool,
 }
 
 impl Journal {
-    /// Create a new journal for the given dialect
+    /// Creates an empty journal for `dialect`.
     #[must_use]
     pub fn new(dialect: Dialect) -> Self {
         Self {
@@ -43,13 +61,13 @@ impl Journal {
         }
     }
 
-    /// Get the next migration index
+    /// Returns the index the next entry will get.
     #[must_use]
     pub fn next_idx(&self) -> u32 {
         u32::try_from(self.entries.len()).unwrap_or(u32::MAX)
     }
 
-    /// Add a new entry to the journal
+    /// Appends an entry stamped with the next index and the current time.
     pub fn add_entry(&mut self, tag: String, breakpoints: bool) -> &JournalEntry {
         self.entries.push(JournalEntry {
             idx: self.next_idx(),
@@ -62,7 +80,7 @@ impl Journal {
         &self.entries[last_idx]
     }
 
-    /// Load journal from a JSON string
+    /// Parses a journal from JSON.
     ///
     /// # Errors
     ///
@@ -71,7 +89,7 @@ impl Journal {
         serde_json::from_str(json)
     }
 
-    /// Serialize journal to JSON string
+    /// Serializes the journal to pretty-printed JSON.
     ///
     /// # Errors
     ///
@@ -80,7 +98,7 @@ impl Journal {
         serde_json::to_string_pretty(self)
     }
 
-    /// Load journal from file
+    /// Reads a journal from `path`.
     ///
     /// # Errors
     ///
@@ -92,7 +110,8 @@ impl Journal {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
-    /// Load journal from file, or create new if doesn't exist
+    /// Reads a journal from `path`, or returns an empty one if the file does
+    /// not exist.
     ///
     /// # Errors
     ///
@@ -106,7 +125,7 @@ impl Journal {
         }
     }
 
-    /// Save journal to file
+    /// Writes the journal to `path`, creating parent folders.
     ///
     /// # Errors
     ///

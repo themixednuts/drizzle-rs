@@ -1,8 +1,4 @@
-//! `PostgreSQL` View DDL types
-//!
-//! This module provides two complementary types:
-//! - [`ViewDef`] - A const-friendly definition type for compile-time schema definitions
-//! - [`View`] - A runtime type for serde serialization/deserialization
+//! `PostgreSQL` views: [`ViewDef`] (const) and [`View`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -13,7 +9,7 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // ViewWithOption Types
 // =============================================================================
 
-/// Const-friendly view WITH options definition
+/// A view WITH options definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ViewWithOptionDef {
     /// CHECK OPTION ('local' | 'cascaded')
@@ -61,7 +57,7 @@ pub struct ViewWithOptionDef {
 }
 
 impl ViewWithOptionDef {
-    /// Create a new view WITH options definition
+    /// Creates a view WITH options definition.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -278,7 +274,7 @@ impl ViewWithOptionDef {
         }
     }
 
-    /// Convert to runtime type
+    /// Converts to the runtime [`ViewWithOption`].
     #[must_use]
     pub const fn into_view_with_option(self) -> ViewWithOption {
         ViewWithOption {
@@ -327,7 +323,7 @@ impl Default for ViewWithOptionDef {
     }
 }
 
-/// Runtime view WITH options entity
+/// A view WITH options, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -447,14 +443,14 @@ impl From<ViewWithOptionDef> for ViewWithOption {
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly view definition
+/// A view definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ViewDef {
     /// Schema name
     pub schema: &'static str,
     /// View name
     pub name: &'static str,
-    /// View definition (AS SELECT ...)
+    /// The view's `SELECT` statement (the part after `AS`)
     pub definition: Option<&'static str>,
     /// Is this a materialized view?
     pub materialized: bool,
@@ -471,7 +467,7 @@ pub struct ViewDef {
 }
 
 impl ViewDef {
-    /// Create a new view definition
+    /// Creates a view definition.
     #[must_use]
     pub const fn new(schema: &'static str, name: &'static str) -> Self {
         Self {
@@ -550,7 +546,7 @@ impl ViewDef {
         }
     }
 
-    /// Convert to runtime [`View`] type
+    /// Converts to the runtime [`View`].
     ///
     /// Note: This method cannot be const because it needs to convert nested Option types
     /// (with options) which require runtime method calls.
@@ -580,7 +576,7 @@ impl Default for ViewDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime view entity
+/// A view, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -593,7 +589,7 @@ pub struct View {
     #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
     pub name: Cow<'static, str>,
 
-    /// View definition (AS SELECT ...)
+    /// The view's `SELECT` statement (the part after `AS`)
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -647,7 +643,7 @@ pub struct View {
 }
 
 impl View {
-    /// Create a new view
+    /// Creates a view.
     #[must_use]
     pub fn new(schema: impl Into<Cow<'static, str>>, name: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -663,14 +659,14 @@ impl View {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the view name
+    /// Returns the view name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

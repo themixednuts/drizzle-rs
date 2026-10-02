@@ -1,7 +1,7 @@
-//! Schema Parser for Drizzle Rust Schema Code
+//! Parses drizzle Rust schema source without compiling it.
 //!
-//! Parses Rust schema source with [`syn`] into structured data used for
-//! validation, analysis, and snapshot generation. Entities are recognized by
+//! Uses [`syn`] to turn schema source into structured data for validation,
+//! analysis, and snapshot generation. Entities are recognized by
 //! the *last segment* of their attribute / derive paths, so both
 //! `#[SQLiteTable]` and `#[drizzle::SQLiteTable]` forms work. Supports
 //! `SQLite`, `PostgreSQL`, and `MySQL` schema code.
@@ -21,7 +21,7 @@
 //!   view definitions, `cfg`-divergent duplicates, trait-deferred column
 //!   types) record [`ParseResult::warnings`].
 //!
-//! # Example
+//! # Examples
 //!
 //! ```rust
 //! use drizzle_migrations::parser::SchemaParser;
@@ -56,12 +56,15 @@ use drizzle_types::Dialect;
 // Schema Parser
 // =============================================================================
 
-/// Parser for Drizzle Rust schema code
+/// Entry point for parsing drizzle schema source; see [`SchemaParser::parse`].
 pub struct SchemaParser;
 
 impl SchemaParser {
-    /// Parse Rust schema code into structured data.
-    /// Automatically detects `SQLite` / `PostgreSQL` / `MySQL` entities.
+    /// Parses Rust schema source into a [`ParseResult`].
+    ///
+    /// SQLite, PostgreSQL, and MySQL entities are detected from their
+    /// attributes. Never panics; problems are reported in
+    /// [`ParseResult::errors`] and [`ParseResult::warnings`].
     ///
     /// The input may be a concatenation of several schema files (the
     /// build-time and CLI flows join files with newlines); inner doc

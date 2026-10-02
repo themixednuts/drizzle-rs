@@ -1,4 +1,4 @@
-//! Driver-neutral PostgreSQL transaction options.
+//! Driver-neutral `PostgreSQL` transaction options ([`TransactionConfig`]).
 
 use core::marker::PhantomData;
 
@@ -46,12 +46,35 @@ impl core::fmt::Display for AccessMode {
     }
 }
 
-/// Options applied when starting a PostgreSQL transaction.
+/// Options for starting a `PostgreSQL` transaction: isolation level, access
+/// mode and `DEFERRABLE`.
 ///
 /// The default leaves every choice to the server. Use [`Self::builder`] when
-/// choices are known statically; its typestate only exposes `DEFERRABLE` for
-/// `SERIALIZABLE READ ONLY` transactions, the combination where PostgreSQL
-/// gives the option meaning.
+/// the choices are known in code; it only offers `.deferrable()` after
+/// `.serializable().read_only()`, the only combination where `PostgreSQL`
+/// gives `DEFERRABLE` a meaning. Use the setters on this type for choices
+/// made at runtime.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_postgres::{AccessMode, IsolationLevel, TransactionConfig};
+///
+/// let config = TransactionConfig::builder()
+///     .serializable()
+///     .read_only()
+///     .deferrable()
+///     .build();
+/// assert_eq!(config.isolation(), Some(IsolationLevel::Serializable));
+/// assert_eq!(config.access(), Some(AccessMode::ReadOnly));
+/// assert!(config.is_deferrable());
+///
+/// // Runtime choices:
+/// let config = TransactionConfig::new().isolation_level(IsolationLevel::RepeatableRead);
+/// assert_eq!(config.access(), None); // server default
+/// ```
+///
+/// # Compile-time checks
 ///
 /// ```compile_fail
 /// use drizzle_postgres::TransactionConfig;
@@ -82,12 +105,14 @@ impl TransactionConfig {
         }
     }
 
-    /// Starts a typestated transaction configuration.
+    /// Starts a [`ConfigBuilder`], which checks option combinations at compile time.
     pub const fn builder() -> ConfigBuilder {
         ConfigBuilder::new()
     }
 
-    /// Selects an isolation level supplied at runtime.
+    /// Sets the isolation level.
+    ///
+    /// Any level other than `SERIALIZABLE` turns `DEFERRABLE` off.
     #[must_use]
     pub const fn isolation_level(mut self, level: IsolationLevel) -> Self {
         self.isolation_level = Some(level);
@@ -98,7 +123,9 @@ impl TransactionConfig {
         self
     }
 
-    /// Selects an access mode supplied at runtime.
+    /// Sets the access mode.
+    ///
+    /// `READ WRITE` turns `DEFERRABLE` off.
     #[must_use]
     pub const fn access_mode(mut self, mode: AccessMode) -> Self {
         self.access_mode = Some(mode);
@@ -108,11 +135,11 @@ impl TransactionConfig {
         self
     }
 
-    /// Requests a deferrable transaction for runtime-derived configuration.
+    /// Makes the transaction `SERIALIZABLE READ ONLY DEFERRABLE`.
     ///
-    /// PostgreSQL only gives `DEFERRABLE` meaning for a `SERIALIZABLE READ
-    /// ONLY` transaction, so this establishes that valid combination. Prefer
-    /// the typestated builder when the choices are known in code.
+    /// `DEFERRABLE` only has a meaning for a serializable, read-only
+    /// transaction, so this also sets those two options. Prefer the builder
+    /// when the choices are known in code.
     #[must_use]
     pub const fn deferrable(mut self) -> Self {
         self.isolation_level = Some(IsolationLevel::Serializable);
@@ -122,19 +149,19 @@ impl TransactionConfig {
         self
     }
 
-    /// Configured isolation level, or `None` to use the server default.
+    /// Returns the isolation level, or `None` for the server default.
     #[must_use]
     pub const fn isolation(&self) -> Option<IsolationLevel> {
         self.isolation_level
     }
 
-    /// Configured access mode, or `None` to use the server default.
+    /// Returns the access mode, or `None` for the server default.
     #[must_use]
     pub const fn access(&self) -> Option<AccessMode> {
         self.access_mode
     }
 
-    /// Whether `DEFERRABLE` was requested.
+    /// Returns `true` if `DEFERRABLE` is set.
     #[must_use]
     pub const fn is_deferrable(&self) -> bool {
         self.deferrable
@@ -165,9 +192,11 @@ impl From<PostgresTransactionType> for TransactionConfig {
     }
 }
 
-/// Typestated builder for [`TransactionConfig`].
+/// Builds a [`TransactionConfig`], rejecting meaningless combinations at compile time.
 ///
-/// State parameters are inferred and do not need to be named by callers.
+/// Start with [`TransactionConfig::builder`], pick an isolation level and an
+/// access mode in either order, then call [`build`](Self::build). The type
+/// parameters track the choices and are inferred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct ConfigBuilder<Isolation = state::ServerDefault, Access = state::ServerDefault> {
@@ -251,7 +280,7 @@ impl<Isolation, Access> ConfigBuilder<Isolation, Access> {
         self.access(AccessMode::ReadWrite)
     }
 
-    /// Finishes the configuration.
+    /// Returns the finished [`TransactionConfig`].
     #[must_use]
     pub const fn build(self) -> TransactionConfig {
         self.config
@@ -259,8 +288,10 @@ impl<Isolation, Access> ConfigBuilder<Isolation, Access> {
 }
 
 impl ConfigBuilder<state::Serializable, state::ReadOnly> {
-    /// Defers the initial serializable snapshot until it can run without risk
-    /// of a serialization failure.
+    /// Adds `DEFERRABLE`: the transaction waits for a snapshot that cannot
+    /// cause a serialization failure, then runs without that risk.
+    ///
+    /// Only available after `.serializable()` and `.read_only()`.
     pub const fn deferrable(mut self) -> Self {
         self.config.deferrable = true;
         self

@@ -1,6 +1,10 @@
-//! `PostgreSQL` support for drizzle-rs
+//! `PostgreSQL` support for drizzle-rs: values, query builders,
+//! `PostgreSQL`-only operators and the traits the `#[PostgresTable]` family of
+//! macros implement.
 //!
-//! This crate provides PostgreSQL-specific types, query builders, and utilities.
+//! Most code uses this crate through the `drizzle` crate, which re-exports it
+//! as `drizzle::postgres` and adds the database drivers. On its own, this
+//! crate builds SQL without running it.
 
 #![allow(unexpected_cfgs)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -41,6 +45,8 @@ pub mod expr;
 pub mod helpers;
 pub mod traits;
 pub mod transaction;
+/// SQL type markers for `PostgreSQL` (`Int4`, `Text`, `Jsonb`, ...), from
+/// `drizzle_types`.
 pub mod types {
     pub use drizzle_types::postgres::types::*;
 }

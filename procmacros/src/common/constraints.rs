@@ -1,4 +1,5 @@
-//! Shared constraint generation code for `SQLite` and `PostgreSQL` table macros.
+//! Shared constraint generation for the `SQLite`, `PostgreSQL` and `MySQL` table
+//! macros.
 //!
 //! These functions generate primary key, unique, foreign key, constraint capability,
 //! and relation impls. They are generic over `ConstraintFieldInfo` and `ForeignKeyRef`

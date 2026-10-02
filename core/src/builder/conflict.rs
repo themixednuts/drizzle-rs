@@ -8,8 +8,9 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::BooleanLike;
 
-/// Converts a dialect conflict target into an `ON CONFLICT ...` SQL fragment.
+/// A conflict target that renders as `ON CONFLICT ...`.
 pub trait ConflictTargetSql<'a, V: SQLParam> {
+    /// Renders the target, followed by `WHERE target_where` when given.
     fn into_target_sql(self, target_where: Option<SQL<'a, V>>) -> SQL<'a, V>;
 }
 
@@ -20,6 +21,7 @@ pub struct ConflictColumnsTarget<'a, V: SQLParam> {
 }
 
 impl<'a, V: SQLParam> ConflictColumnsTarget<'a, V> {
+    /// Creates a target from a comma-separated column list.
     #[inline]
     #[must_use]
     pub fn new(columns: SQL<'a, V>) -> Self {
@@ -42,17 +44,21 @@ impl<'a, V: SQLParam> ConflictTargetSql<'a, V> for ConflictColumnsTarget<'a, V> 
 /// PostgreSQL conflict target, including `ON CONSTRAINT`.
 #[derive(Debug, Clone)]
 pub enum PostgresConflictTarget<'a, V: SQLParam> {
+    /// `ON CONFLICT (col1, col2)`.
     Columns(Box<ConflictColumnsTarget<'a, V>>),
+    /// `ON CONFLICT ON CONSTRAINT "name"`. Takes no `WHERE`.
     Constraint(&'static str),
 }
 
 impl<'a, V: SQLParam> PostgresConflictTarget<'a, V> {
+    /// Creates a column-list target.
     #[inline]
     #[must_use]
     pub fn columns(columns: SQL<'a, V>) -> Self {
         Self::Columns(Box::new(ConflictColumnsTarget::new(columns)))
     }
 
+    /// Creates a named-constraint target.
     #[inline]
     #[must_use]
     pub const fn constraint(name: &'static str) -> Self {
@@ -72,16 +78,24 @@ impl<'a, V: SQLParam> ConflictTargetSql<'a, V> for PostgresConflictTarget<'a, V>
     }
 }
 
-/// Dialect adapter for producing the concrete insert builder type.
+/// Builds the dialect's insert builder after an `ON CONFLICT` clause.
 pub trait OnConflictOutput<'a, V: SQLParam, Schema, Table> {
+    /// Builder returned by `.do_nothing()`.
     type OnConflictSet;
+    /// Builder returned by `.do_update(...)`.
     type DoUpdateSet;
 
+    /// Wraps the SQL so far in [`Self::OnConflictSet`].
     fn on_conflict(sql: SQL<'a, V>) -> Self::OnConflictSet;
+    /// Wraps the SQL so far in [`Self::DoUpdateSet`].
     fn do_update(sql: SQL<'a, V>) -> Self::DoUpdateSet;
 }
 
-/// Intermediate builder for typed `ON CONFLICT` clause construction.
+/// Builder for the `ON CONFLICT` clause of an INSERT, returned by the
+/// dialect's `.on_conflict(...)`.
+///
+/// Finish it with [`do_nothing`](Self::do_nothing) or
+/// [`do_update`](Self::do_update).
 #[derive(Debug, Clone)]
 pub struct OnConflictBuilder<'a, V, Schema, Table, Target, Output>
 where
@@ -101,6 +115,7 @@ where
     Target: ConflictTargetSql<'a, V>,
     Output: OnConflictOutput<'a, V, Schema, Table>,
 {
+    /// Starts a conflict clause for the INSERT `sql` with the given target.
     #[inline]
     #[must_use]
     pub fn new(sql: SQL<'a, V>, target: Target) -> Self {
@@ -122,11 +137,18 @@ where
         self
     }
 
-    /// Adds a WHERE clause to the conflict target for partial index matching.
+    /// Adds a `WHERE` to the conflict target, to match a partial unique
+    /// index.
     ///
-    /// A typed partial-index target supplies its declared predicate automatically.
-    /// Calling this method after selecting such a target replaces that predicate,
-    /// so the replacement must still identify the same unique index.
+    /// A typed partial-index target already supplies its declared predicate.
+    /// Calling this replaces it, so the new predicate must still identify the
+    /// same unique index.
+    ///
+    /// # Compile-time checks
+    ///
+    /// The condition must be boolean and may only read columns of the
+    /// inserted table; reading another table fails with "is not in this
+    /// query's FROM/JOIN scope".
     #[must_use]
     pub fn r#where<E, ScopeProof>(mut self, condition: E) -> Self
     where
@@ -142,14 +164,15 @@ where
         (self.sql, self.target.into_target_sql(self.target_where))
     }
 
-    /// Resolves the conflict by doing nothing.
+    /// Finishes the clause with `DO NOTHING`.
     #[must_use]
     pub fn do_nothing(self) -> Output::OnConflictSet {
         let (sql, target) = self.into_parts();
         Output::on_conflict(sql.append(target.push(Token::DO).push(Token::NOTHING)))
     }
 
-    /// Resolves the conflict by updating the existing row.
+    /// Finishes the clause with `DO UPDATE SET <set>`, updating the
+    /// existing row.
     pub fn do_update(self, set: impl ToSQL<'a, V>) -> Output::DoUpdateSet {
         let (sql, target) = self.into_parts();
         let conflict = target

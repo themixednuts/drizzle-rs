@@ -21,7 +21,13 @@ use drizzle_mysql::{
     values::MySQLValue,
 };
 
-/// A MySQL dialect builder attached to a concrete driver runner.
+/// A query being built against a MySQL `Drizzle` handle or transaction.
+///
+/// Start one with `select`, `insert`, `update`, or `delete`, chain clauses,
+/// then run it with the adapter's `.execute()`, `.all()`, `.get()`, or
+/// `.rows()`. Each clause method is only available where it is valid SQL.
+/// The builder implements `ToSQL`, so `.to_sql().sql()` shows the SQL it will
+/// run.
 #[derive(Debug)]
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleBuilder<'db, Runner, Schema, Builder, State> {
@@ -30,7 +36,13 @@ pub struct DrizzleBuilder<'db, Runner, Schema, Builder, State> {
     pub(crate) state: PhantomData<(Schema, State, &'db ())>,
 }
 
-/// MySQL relational query attached to a connection, pool, or transaction.
+/// A relational query (`db.query(table)`), which loads rows together with
+/// their related rows in one SQL statement.
+///
+/// Add relations with [`with`](Self::with), narrow it with
+/// [`r#where`](Self::r#where), [`order_by`](Self::order_by),
+/// [`limit`](Self::limit), and [`offset`](Self::offset), then run it with
+/// the adapter's `find_many()` or `find_first()`. Each clause can be set once.
 #[cfg(feature = "query")]
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleQueryBuilder<
@@ -49,7 +61,12 @@ pub struct DrizzleQueryBuilder<
     pub(crate) state: PhantomData<(&'db (), Schema)>,
 }
 
-/// Detached prepared MySQL relational query.
+/// A relational query rendered once, made by
+/// [`DrizzleQueryBuilder::prepare`].
+///
+/// It is detached from the connection: the adapter's `find_many` and
+/// `find_first` take the connection and the placeholder bindings on each
+/// call.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone)]
 pub struct DrizzlePreparedQuery<'q, Driver, Table, Relations, Columns> {
@@ -61,11 +78,13 @@ pub struct DrizzlePreparedQuery<'q, Driver, Table, Relations, Columns> {
 impl<Driver, Table, Relations, Columns>
     DrizzlePreparedQuery<'_, Driver, Table, Relations, Columns>
 {
+    /// Returns the rendered SQL, with `?` placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
+    /// Returns how many placeholder bindings each run expects.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.inner.external_param_count()
@@ -225,6 +244,10 @@ where
 impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Clauses>
     DrizzleQueryBuilder<'db, 'q, Runner, Schema, Table, Relations, Columns, Clauses>
 {
+    /// Loads a relation with each row, such as `users.posts()`.
+    ///
+    /// Relation handles can nest their own `.with(..)` and clauses. Call `with`
+    /// again to load more relations.
     #[allow(clippy::type_complexity)]
     pub fn with<Relation, Cardinality, ChildColumns, RelationClauses>(
         self,
@@ -280,6 +303,10 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Order, Limit>
         drizzle_core::query::Clauses<drizzle_core::query::NoWhere, Order, Limit>,
     >
 {
+    /// Filters the root rows. Combine conditions with a tuple (`AND`), `and`,
+    /// or `or`; this can be called once.
+    ///
+    /// The condition may only read the queried table's columns.
     pub fn r#where<Expr, ScopeProof>(
         self,
         condition: Expr,
@@ -320,6 +347,8 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Where, Limit>
         drizzle_core::query::Clauses<Where, drizzle_core::query::NoOrderBy, Limit>,
     >
 {
+    /// Orders the root rows. This can be called once; pass a tuple to order by
+    /// several columns.
     pub fn order_by<Expr, ScopeProof>(
         self,
         expression: Expr,
@@ -359,6 +388,7 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Where, Order>
         drizzle_core::query::Clauses<Where, Order, drizzle_core::query::NoLimit>,
     >
 {
+    /// Returns at most `n` root rows. This can be called once.
     pub fn limit<Arg>(
         self,
         limit: Arg,
@@ -396,6 +426,7 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Columns, Where, Order>
         drizzle_core::query::Clauses<Where, Order, drizzle_core::query::HasLimit>,
     >
 {
+    /// Skips the first `n` root rows. Call [`limit`](Self::limit) first.
     pub fn offset<Arg>(
         self,
         offset: Arg,
@@ -435,6 +466,10 @@ impl<'db, 'q, Runner, Schema, Table, Relations, Clauses>
 where
     Table: drizzle_core::query::QueryTable,
 {
+    /// Loads only the listed columns.
+    ///
+    /// Rows then use the table's `PartialSelect*` model, where every field is an
+    /// `Option` and unselected ones are `None`.
     pub fn columns<Selection: drizzle_core::query::IntoColumnSelection>(
         self,
         selection: Selection,
@@ -455,6 +490,10 @@ where
         }
     }
 
+    /// Loads every column except the listed ones.
+    ///
+    /// Rows then use the table's `PartialSelect*` model, where every field is an
+    /// `Option` and omitted ones are `None`.
     pub fn omit<Selection: drizzle_core::query::IntoColumnSelection>(
         self,
         selection: Selection,
@@ -551,6 +590,7 @@ impl<'db, 'q, Runner, Schema>
         builder::CTEInit,
     >
 {
+    /// Starts the `SELECT` that follows the `WITH` clause.
     pub fn select<T>(
         self,
         columns: T,
@@ -567,6 +607,7 @@ impl<'db, 'q, Runner, Schema>
         self.map(|builder| builder.select(columns))
     }
 
+    /// Starts the `SELECT DISTINCT` that follows the `WITH` clause.
     pub fn select_distinct<T>(
         self,
         columns: T,
@@ -583,6 +624,7 @@ impl<'db, 'q, Runner, Schema>
         self.map(|builder| builder.select_distinct(columns))
     }
 
+    /// Starts the `UPDATE` that follows the `WITH` clause.
     pub fn update<Table>(
         self,
         table: Table,
@@ -599,6 +641,7 @@ impl<'db, 'q, Runner, Schema>
         self.map(|builder| builder.update(table))
     }
 
+    /// Starts the `DELETE` that follows the `WITH` clause.
     pub fn delete<Table>(
         self,
         table: Table,
@@ -615,6 +658,7 @@ impl<'db, 'q, Runner, Schema>
         self.map(|builder| builder.delete(table))
     }
 
+    /// Adds another common table expression to the `WITH` clause.
     pub fn with<C>(self, cte: &C) -> Self
     where
         C: builder::CTEDefinition<'q>,
@@ -632,6 +676,11 @@ impl<'db, 'q, Runner, Schema, M>
         SelectInitial,
     >
 {
+    /// Sets the table (or other source) the query reads from.
+    ///
+    /// The source decides the row type for `select(())` and brings its columns
+    /// into scope for the rest of the query. It can be a table, a table alias, a
+    /// CTE, or a derived table made with `.alias(..)`.
     pub fn from<T>(
         self,
         table: T,
@@ -659,6 +708,12 @@ impl<'db, 'q, Runner, Schema, M>
 
 macro_rules! select_method {
     (where) => {
+        /// Adds a `WHERE` condition.
+        ///
+        /// Combine conditions with a tuple (`AND`), `and`/`or`, or `|`. An `Option`
+        /// element of a tuple that is `None` is left out, which makes optional
+        /// filters easy. Columns in the condition must come from the query's tables;
+        /// this is checked when the query runs.
         pub fn r#where<E>(
             self,
             condition: E,
@@ -686,6 +741,10 @@ macro_rules! select_method {
         }
     };
     (group_by) => {
+        /// Adds a `GROUP BY` clause. Pass a column, an expression, or a tuple.
+        ///
+        /// Each column in a selected tuple must then be grouped or aggregated; this
+        /// is checked when the query runs.
         pub fn group_by<Gr>(
             self,
             columns: Gr,
@@ -712,6 +771,7 @@ macro_rules! select_method {
         }
     };
     (having) => {
+        /// Adds a `HAVING` condition, which filters groups after `GROUP BY`.
         pub fn having<E>(
             self,
             condition: E,
@@ -739,6 +799,10 @@ macro_rules! select_method {
         }
     };
     (order_by) => {
+        /// Adds an `ORDER BY` clause.
+        ///
+        /// Pass a column (ascending), `asc(..)`/`desc(..)` from the MySQL prelude,
+        /// or a tuple of them.
         pub fn order_by<O>(
             self,
             order: O,
@@ -765,6 +829,14 @@ macro_rules! select_method {
         }
     };
     (limit) => {
+        /// Returns at most `limit` rows (`LIMIT ?`).
+        ///
+        /// Integers are sent as bound parameters, so the SQL text stays the same
+        /// from page to page. An integer placeholder is bound when the query runs.
+        ///
+        /// # Panics
+        ///
+        /// Panics when an integer `limit` is negative or does not fit in `usize`.
         pub fn limit<P>(
             self,
             limit: P,
@@ -782,6 +854,13 @@ macro_rules! select_method {
         }
     };
     (offset) => {
+        /// Skips the first `offset` rows (`OFFSET ?`). MySQL has no bare
+        /// `OFFSET`, so without a `LIMIT` this renders
+        /// `LIMIT 9223372036854775807 OFFSET ?`.
+        ///
+        /// # Panics
+        ///
+        /// Panics when an integer `offset` is negative or does not fit in `usize`.
         pub fn offset<P>(
             self,
             offset: P,
@@ -799,6 +878,12 @@ macro_rules! select_method {
         }
     };
     (joins) => {
+        /// Adds a `JOIN` (an inner join).
+        ///
+        /// Pass a table to join on its foreign key to the previous table (the
+        /// `FROM` table, or the table joined last), or a `(table, condition)` pair
+        /// to give the `ON` condition yourself. The joined table's columns come
+        /// into scope.
         pub fn join<J>(
             self,
             arg: J,
@@ -834,6 +919,7 @@ macro_rules! select_method {
             self.map(|builder| builder.join(arg))
         }
 
+        /// Adds an `INNER JOIN`. Takes the same arguments as [`join`](Self::join).
         pub fn inner_join<J>(
             self,
             arg: J,
@@ -869,6 +955,8 @@ macro_rules! select_method {
             self.map(|builder| builder.inner_join(arg))
         }
 
+        /// Adds a `CROSS JOIN`: every row paired with every row of `arg`, with no
+        /// `ON` condition.
         pub fn cross_join<Arg>(
             self,
             arg: Arg,
@@ -904,6 +992,8 @@ macro_rules! select_method {
             self.map(|builder| builder.cross_join(arg))
         }
 
+        /// Adds `INNER JOIN LATERAL (subquery) AS name ON condition`. The subquery
+        /// can read columns of the tables before it. Requires MySQL 8.0.14 or later.
         pub fn inner_join_lateral<Arg>(
             self,
             arg: Arg,
@@ -944,6 +1034,9 @@ macro_rules! select_method {
             self.map(|builder| builder.inner_join_lateral(arg))
         }
 
+        /// Adds `LEFT JOIN LATERAL (subquery) AS name ON condition`, which keeps
+        /// rows with no match. The selection must allow the lateral columns to be
+        /// missing (`NULL`).
         pub fn left_join_lateral<Arg, SelectionProof>(
             self,
             arg: Arg,
@@ -984,6 +1077,7 @@ macro_rules! select_method {
             self.map(|builder| builder.left_join_lateral(arg))
         }
 
+        /// Adds `CROSS JOIN LATERAL (subquery) AS name`, with no `ON` condition.
         pub fn cross_join_lateral<Source>(
             self,
             source: Source,
@@ -1021,6 +1115,9 @@ macro_rules! select_method {
             self.map(|builder| builder.cross_join_lateral(source))
         }
 
+        /// Adds a `LEFT JOIN`. Takes the same arguments as [`join`](Self::join);
+        /// the joined table's columns decode as `Option<T>`, which is checked when
+        /// the query runs.
         pub fn left_join<J>(
             self,
             arg: J,
@@ -1056,6 +1153,8 @@ macro_rules! select_method {
             self.map(|builder| builder.left_join(arg))
         }
 
+        /// Adds a `LEFT OUTER JOIN`, the same join as
+        /// [`left_join`](Self::left_join).
         pub fn left_outer_join<J>(
             self,
             arg: J,
@@ -1091,6 +1190,9 @@ macro_rules! select_method {
             self.map(|builder| builder.left_outer_join(arg))
         }
 
+        /// Adds a `RIGHT JOIN`. Takes the same arguments as [`join`](Self::join);
+        /// the columns of the tables before it decode as `Option<T>`, which is
+        /// checked when the query runs.
         pub fn right_join<J>(
             self,
             arg: J,
@@ -1126,6 +1228,8 @@ macro_rules! select_method {
             self.map(|builder| builder.right_join(arg))
         }
 
+        /// Adds a `RIGHT OUTER JOIN`, the same join as
+        /// [`right_join`](Self::right_join).
         pub fn right_outer_join<J>(
             self,
             arg: J,
@@ -1207,6 +1311,8 @@ impl<'db, 'q, Runner, Schema, T, M, R, G>
         SelectSetOpSet,
     >
 {
+    /// Orders a compound query (`UNION`, `INTERSECT`, ...) by its output
+    /// columns.
     pub fn order_by<O, Proof>(
         self,
         order: O,
@@ -1238,6 +1344,8 @@ impl<'db, 'q, Runner, Schema, T, M, R, G>
 where
     T: MySQLTable<'q>,
 {
+    /// Adds `USE INDEX (index)` to the `FROM` table, which asks MySQL to pick
+    /// among only these indexes.
     pub fn use_index<Index>(
         self,
         index: Index,
@@ -1254,6 +1362,8 @@ where
         self.map(|builder| builder.use_index(index))
     }
 
+    /// Adds `FORCE INDEX (index)` to the `FROM` table, which tells MySQL to
+    /// scan the table only when this index cannot be used.
     pub fn force_index<Index>(
         self,
         index: Index,
@@ -1278,6 +1388,8 @@ where
         self.map(|builder| builder.force_index(index))
     }
 
+    /// Adds `IGNORE INDEX (index)` to the `FROM` table, which keeps MySQL from
+    /// using this index.
     pub fn ignore_index<Index>(
         self,
         index: Index,
@@ -1308,6 +1420,11 @@ impl<'db, 'q, Runner, Schema, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
+    /// Combines this query's rows with `other`'s and drops duplicates
+    /// (`UNION`).
+    ///
+    /// Both queries must select the same row type. Use
+    /// [`union_all`](Self::union_all) to keep duplicates.
     #[allow(clippy::type_complexity)]
     pub fn union<O>(
         self,
@@ -1334,6 +1451,8 @@ where
         self.map(|builder| builder.union(other))
     }
 
+    /// Combines this query's rows with `other`'s, keeping duplicates
+    /// (`UNION ALL`).
     #[allow(clippy::type_complexity)]
     pub fn union_all<O>(
         self,
@@ -1360,6 +1479,8 @@ where
         self.map(|builder| builder.union_all(other))
     }
 
+    /// Keeps only rows that `other` also returns (`INTERSECT`). Requires MySQL
+    /// 8.0.31 or later.
     #[allow(clippy::type_complexity)]
     pub fn intersect<O>(
         self,
@@ -1386,6 +1507,8 @@ where
         self.map(|builder| builder.intersect(other))
     }
 
+    /// Keeps rows that `other` also returns, with duplicates (`INTERSECT ALL`).
+    /// Requires MySQL 8.0.31 or later.
     #[allow(clippy::type_complexity)]
     pub fn intersect_all<O>(
         self,
@@ -1412,6 +1535,8 @@ where
         self.map(|builder| builder.intersect_all(other))
     }
 
+    /// Keeps only rows that `other` does not return (`EXCEPT`). Requires MySQL
+    /// 8.0.31 or later.
     #[allow(clippy::type_complexity)]
     pub fn except<O>(
         self,
@@ -1438,6 +1563,8 @@ where
         self.map(|builder| builder.except(other))
     }
 
+    /// Keeps rows that `other` does not return, with duplicates
+    /// (`EXCEPT ALL`). Requires MySQL 8.0.31 or later.
     #[allow(clippy::type_complexity)]
     pub fn except_all<O>(
         self,
@@ -1485,10 +1612,14 @@ impl<Runner, Schema, State, T, M, R, G>
 where
     State: builder::ExecutableState,
 {
+    /// Adds a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment in front of the query.
     pub fn comment(self, text: impl AsRef<str>) -> Self {
         self.map(|builder| builder.comment(text))
     }
 
+    /// Adds a key-value [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment, such as `/*route='users'*/`, in front of the query.
     pub fn comment_tags<I, K, V>(self, pairs: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
@@ -1505,6 +1636,10 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> + builder::ExecutableState,
     T: SQLTable<'q, MySQLSchemaType, MySQLValue<'q>>,
 {
+    /// Turns this query into a common table expression named after `Tag`.
+    ///
+    /// Pass the result to the handle's `with` and select from it. Its columns
+    /// are reachable as fields, like a table's.
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
     ) -> CTEView<
@@ -1521,7 +1656,10 @@ impl<'db, 'q, Runner, Schema, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
-    /// Names this completed projection for use as a derived table.
+    /// Names this query so it can be used as a table: `(SELECT ...) AS name`.
+    ///
+    /// `tag` is a tag type (see the `tag!` macro). `.fields()` on the result
+    /// returns its output columns.
     ///
     /// # Panics
     ///
@@ -1557,6 +1695,7 @@ macro_rules! insert_sources {
         where
             Table: MySQLTable<'q>,
         {
+            /// Inserts one row from an `Insert*` model.
             pub fn value<T>(
                 self,
                 value: Table::Insert<T>,
@@ -1570,6 +1709,10 @@ macro_rules! insert_sources {
                 self.map(|builder| builder.value(value))
             }
 
+            /// Inserts several rows from `Insert*` models in one statement.
+            ///
+            /// Every row must set the same optional fields (the same `with_*` calls);
+            /// mixing them does not compile, because all rows share one column list.
             pub fn values<I, T>(
                 self,
                 values: I,
@@ -1586,6 +1729,10 @@ macro_rules! insert_sources {
                 self.map(|builder| builder.values(values))
             }
 
+            /// Inserts the rows of a `SELECT` query: `INSERT INTO t SELECT ...`.
+            ///
+            /// The query's columns must match the table's insert columns in order and
+            /// type; this is checked at compile time.
             pub fn select<Q, R, ScopeProof, AggProof>(
                 self,
                 query: Q,
@@ -1606,6 +1753,8 @@ macro_rules! insert_sources {
                 self.map(|builder| builder.select(query))
             }
 
+            /// Inserts the rows of any SQL value, such as a raw `sql!` query, with no
+            /// compile-time column checks.
             pub fn select_raw<Q>(
                 self,
                 query: Q,
@@ -1622,7 +1771,10 @@ macro_rules! insert_sources {
                 self.map(|builder| builder.select_raw(query))
             }
 
-            /// Chooses an explicit ordered target-column list for an INSERT SELECT.
+            /// Names the columns an `INSERT ... SELECT` fills, before `select(..)`.
+            ///
+            /// The list must include every required column (`NOT NULL` with no
+            /// default); this is checked by the following `select(..)`.
             ///
             /// # Panics
             ///
@@ -1660,6 +1812,12 @@ impl<'db, 'q, Runner, Schema, Table, Targets>
 where
     Table: MySQLTable<'q>,
 {
+    /// Inserts the rows of a `SELECT` query into the columns named by
+    /// `columns(..)`.
+    ///
+    /// The query's output must match those columns in order and type, and the
+    /// columns must include every required one; both are checked at compile
+    /// time.
     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
         self,
         query: Q,
@@ -1681,6 +1839,8 @@ where
         self.map(|builder| builder.select(query))
     }
 
+    /// Inserts the rows of any SQL value into the columns named by
+    /// `columns(..)`, with no compile-time check on the query's output.
     pub fn select_raw<Q, RequiredProof>(
         self,
         query: Q,
@@ -1711,6 +1871,9 @@ impl<'db, 'q, Runner, Schema, Table>
 where
     Table: MySQLTable<'q>,
 {
+    /// Makes this an `INSERT IGNORE`, which skips rows that would duplicate a
+    /// primary or unique key instead of failing (MySQL also downgrades some
+    /// other errors to warnings).
     pub fn ignore(
         self,
     ) -> DrizzleBuilder<
@@ -1735,6 +1898,15 @@ impl<'db, 'q, Runner, Schema, Table, M, R>
 where
     Table: MySQLTable<'q>,
 {
+    /// Adds `ON DUPLICATE KEY UPDATE`, which updates the existing row when the
+    /// new one would duplicate any primary or unique key.
+    ///
+    /// `values` is the table's `Update*` model. MySQL picks the conflicting key
+    /// itself, so there is no conflict target.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `values` sets no column.
     pub fn on_duplicate_key_update(
         self,
         values: Table::Update,
@@ -1760,6 +1932,9 @@ impl<'db, 'q, Runner, Schema, Table>
 where
     Table: SQLTable<'q, MySQLSchemaType, MySQLValue<'q>>,
 {
+    /// Sets the columns to change, from an `Update*` model.
+    ///
+    /// Only the fields set with `with_*` are written.
     pub fn set(
         self,
         values: Table::Update,
@@ -1779,6 +1954,7 @@ macro_rules! mutation_method {
         impl<'db, 'q, Runner, Schema, Table>
             DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
         {
+            /// Changes or deletes only rows matching `condition`.
             pub fn r#where<E, ScopeProof>(
                 self,
                 condition: E,
@@ -1800,6 +1976,8 @@ macro_rules! mutation_method {
         impl<'db, 'q, Runner, Schema, Table>
             DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
         {
+            /// Adds an `ORDER BY`, which decides which rows a following `.limit(..)`
+            /// reaches.
             pub fn order_by<O, ScopeProof>(
                 self,
                 order: O,
@@ -1820,6 +1998,11 @@ macro_rules! mutation_method {
         impl<'db, 'q, Runner, Schema, Table>
             DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
         {
+            /// Changes or deletes at most `limit` rows (`LIMIT ?`).
+            ///
+            /// # Panics
+            ///
+            /// Panics when an integer `limit` is negative or does not fit in `usize`.
             pub fn limit<P>(
                 self,
                 limit: P,
@@ -1852,6 +2035,8 @@ impl<'db, 'q, Runner, Schema, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
 {
+    /// Locks the selected rows against changes by other transactions until
+    /// this one ends (`FOR UPDATE`).
     pub fn for_update(
         self,
     ) -> DrizzleBuilder<
@@ -1864,6 +2049,8 @@ where
         self.map(|builder| builder.for_update())
     }
 
+    /// Takes shared locks on the selected rows: other transactions can read
+    /// them but not change them (`FOR SHARE`).
     pub fn for_share(
         self,
     ) -> DrizzleBuilder<
@@ -1886,6 +2073,8 @@ impl<'db, 'q, Runner, Schema, Strength, T, M, R, G>
         SelectForSet<Strength, Wait>,
     >
 {
+    /// Fails right away instead of waiting when a row is already locked
+    /// (`NOWAIT`).
     pub fn nowait(
         self,
     ) -> DrizzleBuilder<
@@ -1897,6 +2086,8 @@ impl<'db, 'q, Runner, Schema, Strength, T, M, R, G>
     > {
         self.map(|builder| builder.nowait())
     }
+    /// Leaves out rows that are already locked instead of waiting for them
+    /// (`SKIP LOCKED`).
     pub fn skip_locked(
         self,
     ) -> DrizzleBuilder<

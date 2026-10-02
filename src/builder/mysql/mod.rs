@@ -2,7 +2,11 @@
 
 macro_rules! mysql_builder_constructors {
     ($runner:ty, [$($receiver:tt)*], $this:ident) => {
-        /// Creates a typed `SELECT` query.
+        /// Starts a `SELECT` query.
+        ///
+        /// `columns` is what to select: `()` for every column of the `FROM` table, a
+        /// column, a tuple of columns and expressions, or a `FromRow` type's
+        /// `::Select` marker. Follow it with `.from(..)`.
         pub fn select<'db, 'q, T>(
             $($receiver)*,
             columns: T,
@@ -19,7 +23,7 @@ macro_rules! mysql_builder_constructors {
             DrizzleBuilder::new($this, QueryBuilder::new::<Schema>().select(columns))
         }
 
-        /// Creates a typed `SELECT DISTINCT` query.
+        /// Starts a `SELECT DISTINCT` query, which drops duplicate rows.
         pub fn select_distinct<'db, 'q, T>(
             $($receiver)*,
             columns: T,
@@ -36,7 +40,10 @@ macro_rules! mysql_builder_constructors {
             DrizzleBuilder::new($this, QueryBuilder::new::<Schema>().select_distinct(columns))
         }
 
-        /// Creates a typed `INSERT` query.
+        /// Starts an `INSERT` into `table`.
+        ///
+        /// Follow it with `.values(..)` and `Insert*` models, or with `.select(..)`
+        /// to insert a query's rows.
         pub fn insert<'db, 'q, Table>(
             $($receiver)*,
             table: Table,
@@ -53,7 +60,10 @@ macro_rules! mysql_builder_constructors {
             DrizzleBuilder::new($this, QueryBuilder::new::<Schema>().insert(table))
         }
 
-        /// Creates a typed `UPDATE` query.
+        /// Starts an `UPDATE` of `table`.
+        ///
+        /// Follow it with `.set(..)` and an `Update*` model. Without `.r#where(..)`,
+        /// every row is updated.
         pub fn update<'db, 'q, Table>(
             $($receiver)*,
             table: Table,
@@ -70,7 +80,8 @@ macro_rules! mysql_builder_constructors {
             DrizzleBuilder::new($this, QueryBuilder::new::<Schema>().update(table))
         }
 
-        /// Creates a typed `DELETE` query.
+        /// Starts a `DELETE` from `table`. Without `.r#where(..)`, every row is
+        /// deleted.
         pub fn delete<'db, 'q, Table>(
             $($receiver)*,
             table: Table,
@@ -87,7 +98,7 @@ macro_rules! mysql_builder_constructors {
             DrizzleBuilder::new($this, QueryBuilder::new::<Schema>().delete(table))
         }
 
-        /// Starts a query with a common table expression.
+        /// Starts a query with a common table expression: `WITH name AS (...)`.
         pub fn with<'db, 'q, C>(
             $($receiver)*,
             cte: &C,

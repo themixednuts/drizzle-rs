@@ -1,6 +1,6 @@
-//! `SQLite` value types and conversions
-//!
-//! This module contains the core `SQLiteValue` type and all its conversions.
+//! `SQLite` values: [`SQLiteValue`] (bound parameters and decoded cells),
+//! its owned and borrowed forms, and the insert and update field types used
+//! by generated models.
 
 mod conversions;
 mod drivers;
@@ -24,7 +24,11 @@ use drizzle_core::{dialect::Dialect, error::DrizzleError, sql::SQL, traits::SQLP
 // SQLiteValue Definition
 //------------------------------------------------------------------------------
 
-/// Represents a `SQLite` value
+/// A value in one of `SQLite`'s five storage classes.
+///
+/// Used for bound parameters and for values read from a row. Text and blob
+/// payloads may borrow for `'a`; see [`OwnedSQLiteValue`] for an owned
+/// form. Booleans are stored as `Integer(0)` / `Integer(1)`.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub enum SQLiteValue<'a> {
     /// Integer value (i64)
@@ -183,28 +187,27 @@ impl SQLiteValue<'_> {
         self.into()
     }
 
-    /// Convert this `SQLite` value to a Rust type using the `FromSQLiteValue` trait.
+    /// Decodes this value into `T` with [`FromSQLiteValue`].
     ///
-    /// This provides a unified conversion interface for all types that implement
-    /// `FromSQLiteValue`, including primitives and enum types.
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use drizzle_sqlite::values::SQLiteValue;
+    /// let num: i64 = SQLiteValue::Integer(42).convert()?;
+    /// assert_eq!(num, 42);
+    /// # Ok::<(), drizzle_core::error::DrizzleError>(())
+    /// ```
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] when the stored variant cannot
     /// be decoded into `T`.
-    ///
-    /// # Example
-    /// ```rust
-    /// # let _ = r####"
-    /// let value = SQLiteValue::Integer(42);
-    /// let num: i64 = value.convert()?;
-    /// # "####;
-    /// ```
     pub fn convert<T: FromSQLiteValue>(self) -> Result<T, DrizzleError> {
         T::from_sqlite_ref(self.as_ref())
     }
 
-    /// Convert a reference to this `SQLite` value to a Rust type.
+    /// Decodes this value into `T` without consuming it. See
+    /// [`convert`](Self::convert).
     ///
     /// # Errors
     ///

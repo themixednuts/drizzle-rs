@@ -1,3 +1,8 @@
+//! The SELECT builder: [`SelectBuilder`] and its states.
+//!
+//! Start a SELECT with [`QueryBuilder::select`](super::QueryBuilder::select).
+//! [`SelectBuilder`] documents the order in which clauses can be added.
+
 use crate::helpers::{self, JoinArg};
 use crate::values::SQLiteValue;
 use core::marker::PhantomData;
@@ -37,7 +42,7 @@ impl SelectClause<drizzle_core::clause::OrderBy> for SelectGroupSet {}
 // `SelectSetOpSet` takes no plain ORDER BY: a compound query orders by its
 // output columns, which the dedicated `order_by` on that state renders.
 
-/// `SQLite` clause marker: `OFFSET` without a preceding `LIMIT`.
+/// Clause marker for `OFFSET` without a preceding `LIMIT`.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct StandaloneOffset;
@@ -69,8 +74,10 @@ macro_rules! join_impl {
     };
     (@natural $type:ident, $join_expr:expr, $kind:ty) => {
         paste! {
-            /// Adds a NATURAL join. The database matches the columns both
-            /// sides share by name, so it takes a source and no ON condition.
+            #[doc = concat!("Adds a `", stringify!($type), "` join (`NATURAL`).")]
+            ///
+            /// A natural join matches the columns both sides share by name,
+            /// so it takes a table or derived table and no ON condition.
             #[allow(clippy::type_complexity)]
             pub fn [<$type _join>]<J: helpers::JoinSource<'a>>(
                 self,
@@ -98,6 +105,11 @@ macro_rules! join_impl {
     };
     ($type:ident, $join_expr:expr, $kind:ty) => {
         paste! {
+            #[doc = concat!("Adds a `", stringify!($type), "` join.")]
+            ///
+            /// Pass `(table, condition)` for an explicit ON condition, or a
+            /// bare table to join on its foreign key to the previous table.
+            /// See [`join`](Self::join) for an example.
             #[allow(clippy::type_complexity)]
             pub fn [<$type _join>]<J: JoinArg<'a, T>>(
                 self,
@@ -125,24 +137,38 @@ macro_rules! join_impl {
 // SelectBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds a SELECT query specifically for `SQLite`.
+/// A SELECT query being built for `SQLite`.
 ///
-/// `SelectBuilder` provides a type-safe, fluent API for constructing SELECT statements
-/// with compile-time verification of query structure and table relationships.
+/// This is [`QueryBuilder`](super::QueryBuilder) in one of the `Select*`
+/// states. Start it with [`QueryBuilder::select`](super::QueryBuilder::select)
+/// or [`select_distinct`](super::QueryBuilder::select_distinct), then call
+/// [`from`](Self::from).
 ///
-/// ## Type Parameters
+/// # Clause order
 ///
-/// - `Schema`: The database schema type, ensuring only valid tables can be referenced
-/// - `State`: The current builder state, enforcing proper query construction order
-/// - `Table`: The primary table being queried (when applicable)
+/// Clauses must be added in SQL order. Each method is only available in the
+/// states listed here:
 ///
-/// ## Query Building Flow
+/// | After | You can call |
+/// |---|---|
+/// | `select` | `from` |
+/// | `from` | joins, `where`, `group_by`, `order_by`, `limit`, `offset`, set operations |
+/// | a join | more joins, `where`, `group_by`, `order_by`, `limit`, set operations |
+/// | `where` | `group_by`, `order_by`, `limit`, set operations |
+/// | `group_by` | `having`, `order_by`, `limit`, set operations |
+/// | `having` | `having`, `order_by`, `limit`, set operations |
+/// | `order_by` | `limit`, set operations |
+/// | `limit` | `offset`, set operations |
+/// | `offset` | set operations |
+/// | a set operation | more set operations, `order_by`, `limit`, `offset` |
 ///
-/// 1. Start with `QueryBuilder::select()` to specify columns
-/// 2. Add `from()` to specify the source table
-/// 3. Optionally add joins, conditions, grouping, ordering, and limits
+/// `offset` without `limit` is only offered right after `from` or a set
+/// operation; elsewhere, add a `limit` first. Every state after `from` can
+/// be executed, used as a subquery, or named as a derived table with
+/// [`alias`](Self::alias). Every state except a compound query can become a
+/// CTE with [`into_cte`](Self::into_cte).
 ///
-/// ## Basic Usage
+/// # Examples
 ///
 /// ```rust
 /// # mod drizzle {
@@ -202,7 +228,7 @@ macro_rules! join_impl {
 /// );
 /// ```
 ///
-/// ## Advanced Queries
+/// Joins:
 ///
 /// ```rust
 /// # mod drizzle {
@@ -239,7 +265,13 @@ macro_rules! join_impl {
 ///     .select((user.name, post.title))
 ///     .from(user)
 ///     .join((post, eq(user.id, post.user_id)));
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"SELECT "users"."name", "posts"."title" FROM "users" JOIN "posts" ON "users"."id" = "posts"."user_id""#
+/// );
 /// ```
+///
+/// Ordering and pagination:
 ///
 /// ```rust
 /// # mod drizzle {
@@ -274,8 +306,57 @@ macro_rules! join_impl {
 ///     .select(user.name)
 ///     .from(user)
 ///     .order_by(asc(user.name))
-///     .limit(10);
+///     .limit(10)
+///     .offset(20);
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"SELECT "users"."name" FROM "users" ORDER BY "users"."name" ASC LIMIT 10 OFFSET 20"#
+/// );
 /// ```
+///
+/// # Compile-time checks
+///
+/// A clause added out of order does not compile:
+///
+/// ```rust,compile_fail
+/// # mod drizzle {
+/// #     pub mod core { pub use drizzle_core::*; }
+/// #     pub mod error { pub use drizzle_core::error::*; }
+/// #     pub mod types { pub use drizzle_types::*; }
+/// #     pub mod migrations { pub use drizzle_migrations::*; }
+/// #     pub use drizzle_types::Dialect;
+/// #     pub use drizzle_types as ddl;
+/// #     pub mod sqlite {
+/// #         pub use drizzle_sqlite::*;
+/// #         #[cfg(feature = "rusqlite")]
+/// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+/// #         #[cfg(feature = "libsql")]
+/// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+/// #         #[cfg(feature = "turso")]
+/// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+/// #         pub mod prelude {
+/// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+/// #             pub use drizzle_sqlite::{*, attrs::*};
+/// #             pub use drizzle_core::*;
+/// #         }
+/// #     }
+/// # }
+/// # use drizzle::sqlite::prelude::*;
+/// # use drizzle::core::expr::gt;
+/// # use drizzle::sqlite::builder::QueryBuilder;
+/// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+/// # #[derive(SQLiteSchema)] struct Schema { user: User }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { user } = Schema::new();
+/// // WHERE cannot follow LIMIT.
+/// let query = builder.select(user.name).from(user).limit(10).r#where(gt(user.id, 1));
+/// ```
+///
+/// `having` needs a `group_by` first, and a WHERE or HAVING condition must
+/// be a boolean expression. Column references are scope-checked: a query
+/// that names a table missing from its FROM and JOIN clauses is rejected when
+/// it is executed (`.all()`, `.get()`, ...), used as a derived table, or used
+/// as an INSERT source.
 pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Grouped = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>;
 
@@ -284,13 +365,12 @@ pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Gro
 //------------------------------------------------------------------------------
 
 impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
-    /// Specifies the table or subquery to select FROM.
+    /// Sets the FROM source: a table, a CTE, or a derived table made with
+    /// [`alias`](Self::alias).
     ///
-    /// This method transitions the builder from the initial state to the FROM state,
-    /// enabling subsequent WHERE, JOIN, ORDER BY, and other clauses.
-    ///
-    /// The row type `R` is resolved from the select marker `M` and the table `T`
-    /// via the `ResolveRow` trait.
+    /// The result row type is inferred from the selected columns and this
+    /// source. With `select(())`, the row is the table's generated select
+    /// model.
     ///
     /// # Examples
     ///
@@ -366,11 +446,23 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Join>,
 {
-    /// Adds an INNER JOIN clause to the query.
+    /// Adds a `JOIN` (an inner join).
     ///
-    /// Joins another table to the current query using the specified condition.
-    /// The joined table must be part of the schema and the condition should
-    /// relate columns from both tables.
+    /// Pass `(table, condition)` for an explicit ON condition, or a bare table
+    /// to join on its foreign key to the previous table. A derived table
+    /// (see [`alias`](Self::alias)) also works in the tuple form.
+    ///
+    /// The other join methods (`left_join`, `right_join`, `full_join`,
+    /// `inner_join`, the `_outer` and `natural_` variants, and
+    /// [`cross_join`](Self::cross_join)) take the same arguments. After a
+    /// LEFT, RIGHT or FULL join, selected columns of the side that may be
+    /// missing decode as `Option`; with `select(())`, that side's whole
+    /// model is an `Option` in the row.
+    ///
+    /// The condition may only read tables already in the query; this is
+    /// checked when the query is executed.
+    ///
+    /// # Examples
     ///
     /// ```rust
     /// # mod drizzle {
@@ -444,10 +536,10 @@ where
 
     join_impl!();
 
-    /// Adds a cross join.
+    /// Adds a `CROSS JOIN`, which pairs every row with every row of `arg`.
     ///
-    /// A bare source renders `CROSS JOIN`. For backwards compatibility,
-    /// `(source, predicate)` renders the equivalent `INNER JOIN ... ON ...`.
+    /// A bare table renders `CROSS JOIN`. For backwards compatibility,
+    /// `(table, condition)` renders the equivalent `INNER JOIN ... ON ...`.
     #[allow(clippy::type_complexity)]
     pub fn cross_join<Arg: helpers::CrossJoinArg<'a, T>>(
         self,
@@ -491,7 +583,12 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectClause<drizzle_core::clause::Where>,
 {
-    /// Adds a WHERE clause to filter query results.
+    /// Adds a WHERE clause.
+    ///
+    /// The condition must be a boolean expression. Combine conditions with
+    /// `and` and `or` from `drizzle_core::expr`.
+    ///
+    /// # Examples
     ///
     /// ```rust
     /// # mod drizzle {
@@ -538,6 +635,10 @@ where
     ///     .select(user.name)
     ///     .from(user)
     ///     .r#where(and(gt(user.id, 10), eq(user.name, "Alice")));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"SELECT "users"."name" FROM "users" WHERE ("users"."id" > ? AND "users"."name" = ?)"#
+    /// );
     /// ```
     #[inline]
     #[allow(clippy::type_complexity)]
@@ -575,14 +676,58 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy>,
 {
-    /// Adds a GROUP BY clause to the query.
+    /// Adds a GROUP BY clause. Pass one expression or a tuple.
     ///
-    /// Non-aggregate columns in SELECT must appear in the GROUP BY list, with
-    /// one exception: grouping by a table's single-column primary key
-    /// functionally determines the whole row (SQL:1999), so any scalar column
-    /// of that table may be selected. Prefer `.group_by(table.pk)` over
-    /// listing every selected column — it also lets `SQLite` stream groups in
-    /// key order instead of sorting through a temp B-tree.
+    /// Every selected column that is not inside an aggregate must appear in
+    /// the GROUP BY list; this is checked when the query is executed. One
+    /// exception: grouping by a table's single-column primary key determines
+    /// the whole row, so any column of that table may be selected. Prefer
+    /// `.group_by(table.pk)` over listing every selected column; it also
+    /// lets `SQLite` read groups in key order instead of sorting them in a
+    /// temporary B-tree.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::core::expr::{count, gt};
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "posts")] struct Post { #[column(primary)] id: i32, user_id: i32, title: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { post: Post }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { post } = Schema::new();
+    /// let query = builder
+    ///     .select((post.user_id, count(post.id)))
+    ///     .from(post)
+    ///     .group_by(post.user_id)
+    ///     .having(gt(count(post.id), 5));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"SELECT "posts"."user_id", COUNT ("posts"."id") FROM "posts" GROUP BY "posts"."user_id" HAVING COUNT ("posts"."id")> ?"#
+    /// );
+    /// ```
     #[allow(clippy::type_complexity)]
     pub fn group_by<Gr>(
         self,
@@ -617,7 +762,11 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Having>,
 {
-    /// Adds a HAVING clause after GROUP BY.
+    /// Adds a HAVING clause, which filters groups.
+    ///
+    /// Only available after [`group_by`](Self::group_by). The condition must
+    /// be a boolean expression and may use aggregates. See `group_by` for an
+    /// example.
     #[allow(clippy::type_complexity)]
     pub fn having<E>(
         self,
@@ -653,7 +802,51 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectClause<drizzle_core::clause::OrderBy>,
 {
-    /// Sorts the query results.
+    /// Adds an ORDER BY clause.
+    ///
+    /// Pass one ordering term or a tuple. Wrap a column in `asc` or `desc`
+    /// to set the direction.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder
+    ///     .select(user.name)
+    ///     .from(user)
+    ///     .order_by((desc(user.name), asc(user.id)));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"SELECT "users"."name" FROM "users" ORDER BY "users"."name" DESC, "users"."id" ASC"#
+    /// );
+    /// ```
     #[inline]
     pub fn order_by<TOrderBy>(
         self,
@@ -687,8 +880,11 @@ where
 // ordering terms are rendered as output column names.
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
     /// Sorts a compound (`UNION` / `INTERSECT` / `EXCEPT`) result by its
-    /// output columns. Column references are rendered unqualified, which is
-    /// the only spelling PostgreSQL and turso accept here.
+    /// output columns.
+    ///
+    /// Column references are written without their table name, because the
+    /// combined rows no longer belong to one table (turso rejects the
+    /// qualified form). See [`union`](Self::union) for an example.
     #[inline]
     pub fn order_by<TOrderBy>(
         self,
@@ -716,7 +912,11 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Limit>,
 {
-    /// Limits the number of rows returned.
+    /// Adds a LIMIT clause.
+    ///
+    /// Pass a non-negative integer, which is written into the SQL, or an
+    /// integer placeholder, which is bound when the query runs. See
+    /// [`SelectBuilder`] for an example.
     ///
     /// # Panics
     ///
@@ -746,10 +946,47 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<StandaloneOffset>,
 {
-    /// Sets the offset for the query results.
+    /// Skips the first `offset` rows without limiting the row count.
     ///
     /// `SQLite` only accepts `OFFSET` after a `LIMIT`, so this renders
-    /// `LIMIT -1 OFFSET n`; a negative limit means no limit.
+    /// `LIMIT -1 OFFSET n`; a negative limit means no limit. Only available
+    /// right after `from` or a set operation; elsewhere call
+    /// [`limit`](Self::limit) first.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder.select(user.name).from(user).offset(5);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users" LIMIT -1 OFFSET 5"#);
+    /// ```
     ///
     /// # Panics
     ///
@@ -776,7 +1013,7 @@ where
 
 // OFFSET after LIMIT
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
-    /// Sets the offset for the query results.
+    /// Adds an OFFSET clause after LIMIT.
     ///
     /// # Panics
     ///
@@ -810,7 +1047,12 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
     M: drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, crate::common::SQLiteSchemaType, T>,
 {
-    /// Names this completed query so it can be used as a derived source.
+    /// Names this query so it can be used as a derived table in `from` or a
+    /// join.
+    ///
+    /// `name` is a value of a [`Tag`](drizzle_core::Tag) type; its `NAME`
+    /// becomes the SQL alias. The result exposes the selected columns, so
+    /// the outer query can reference them with typed accessors.
     ///
     /// # Panics
     ///
@@ -856,7 +1098,13 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
     T: SQLTable<'a, crate::common::SQLiteSchemaType, SQLiteValue<'a>>,
 {
-    /// Converts this SELECT query into a typed CTE using alias tag name.
+    /// Turns this SELECT into a common table expression named `Tag::NAME`.
+    ///
+    /// The result derefs to an aliased copy of the FROM table, so you can
+    /// select its columns with the usual field access. Pass it to
+    /// [`QueryBuilder::with`](super::QueryBuilder::with) and then use it in
+    /// `from`. Not available on a compound query (after a set operation).
+    /// See [`QueryBuilder::with`](super::QueryBuilder::with) for an example.
     #[inline]
     #[must_use]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
@@ -883,7 +1131,56 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
-    /// Combines this query with another using UNION.
+    /// Combines this query with `other` using UNION, which drops duplicate
+    /// rows.
+    ///
+    /// Both queries must select the same row type. After a set operation you
+    /// can chain more set operations, then `order_by`, `limit` and `offset`
+    /// for the combined result.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # mod drizzle {
+    /// #     pub mod core { pub use drizzle_core::*; }
+    /// #     pub mod error { pub use drizzle_core::error::*; }
+    /// #     pub mod types { pub use drizzle_types::*; }
+    /// #     pub mod migrations { pub use drizzle_migrations::*; }
+    /// #     pub use drizzle_types::Dialect;
+    /// #     pub use drizzle_types as ddl;
+    /// #     pub mod sqlite {
+    /// #         pub use drizzle_sqlite::*;
+    /// #         #[cfg(feature = "rusqlite")]
+    /// #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+    /// #         #[cfg(feature = "libsql")]
+    /// #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+    /// #         #[cfg(feature = "turso")]
+    /// #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+    /// #         pub mod prelude {
+    /// #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+    /// #             pub use drizzle_sqlite::{*, attrs::*};
+    /// #             pub use drizzle_core::*;
+    /// #         }
+    /// #     }
+    /// # }
+    /// # use drizzle::sqlite::prelude::*;
+    /// # use drizzle::core::expr::{eq, gt};
+    /// # use drizzle::sqlite::builder::QueryBuilder;
+    /// # #[SQLiteTable(name = "users")] struct User { #[column(primary)] id: i32, name: String }
+    /// # #[derive(SQLiteSchema)] struct Schema { user: User }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { user } = Schema::new();
+    /// let query = builder
+    ///     .select(user.name)
+    ///     .from(user)
+    ///     .r#where(eq(user.id, 1))
+    ///     .union(builder.select(user.name).from(user).r#where(gt(user.id, 100)))
+    ///     .order_by(asc(user.name));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"SELECT "users"."name" FROM "users" WHERE "users"."id" = ? UNION SELECT "users"."name" FROM "users" WHERE "users"."id" > ? ORDER BY "name" ASC"#
+    /// );
+    /// ```
     #[allow(clippy::type_complexity)]
     pub fn union<M2>(
         self,
@@ -903,7 +1200,8 @@ where
         }
     }
 
-    /// Combines this query with another using UNION ALL.
+    /// Combines this query with `other` using UNION ALL, which keeps
+    /// duplicate rows. See [`union`](Self::union).
     #[allow(clippy::type_complexity)]
     pub fn union_all<M2>(
         self,
@@ -923,7 +1221,8 @@ where
         }
     }
 
-    /// Combines this query with another using INTERSECT.
+    /// Keeps only rows that `other` also returns (INTERSECT). See
+    /// [`union`](Self::union).
     #[allow(clippy::type_complexity)]
     pub fn intersect<M2>(
         self,
@@ -943,7 +1242,8 @@ where
         }
     }
 
-    /// Combines this query with another using EXCEPT.
+    /// Keeps only rows that `other` does not return (EXCEPT). See
+    /// [`union`](Self::union).
     #[allow(clippy::type_complexity)]
     pub fn except<M2>(
         self,
@@ -996,11 +1296,16 @@ where
 // IntoSelect conversion trait
 //------------------------------------------------------------------------------
 
-/// Conversion trait for types that can become a `SelectBuilder`.
-/// Used by set operations to accept both raw `SelectBuilder` and `DrizzleBuilder`.
+/// A query that can be the right-hand side of a set operation.
+///
+/// Implemented for completed [`SelectBuilder`]s and for the driver
+/// builders in the `drizzle` crate that wrap one.
 pub trait IntoSelect<'a, S, M, R> {
+    /// Builder state of the converted query.
     type State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>;
+    /// FROM table of the converted query.
     type Table;
+    /// Returns the underlying [`SelectBuilder`].
     fn into_select(self) -> SelectBuilder<'a, S, Self::State, Self::Table, M, R>;
 }
 

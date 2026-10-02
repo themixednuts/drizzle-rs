@@ -1,12 +1,4 @@
-//! `PostgreSQL` JSON/JSONB operators.
-//!
-//! Provides type-safe access to `PostgreSQL` JSON operators:
-//! - `->` (get JSON object field by key, returns JSON)
-//! - `->>` (get JSON object field by key, returns text)
-//! - `#>` (get JSON object at path, returns JSON)
-//! - `#>>` (get JSON object at path, returns text)
-//! - `@>` (JSON contains)
-//! - `?` (JSON key exists)
+//! `PostgreSQL` JSON and JSONB operators. Documented in [`crate::expr`].
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
@@ -15,12 +7,7 @@ use drizzle_core::expr::{AggregateKind, Expr, NonNull, Null, SQLExpr};
 use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk, Token};
 
-/// `CAST($n AS type)` around an operator argument.
-///
-/// PostgreSQL infers untyped parameters at prepare time and picks the `text`
-/// overload of `->` / `->>` / `#>`; without the cast the driver binds an
-/// integer or array where the server expects text and the query fails.
-/// `CAST(operand AS JSONB)` for containment operands.
+/// Wraps a containment operand in `CAST(operand AS JSONB)`.
 ///
 /// A bound `serde_json::Value` is declared as `json` by the drivers and a text
 /// literal as `text`; neither resolves `jsonb @> ...` without the cast.
@@ -28,6 +15,11 @@ fn jsonb_operand<'a>(operand: SQL<'a, PostgresValue<'a>>) -> SQL<'a, PostgresVal
     SQL::func("CAST", operand.push(Token::AS).append(SQL::raw("JSONB")))
 }
 
+/// Binds `value` as `CAST($n AS type_name)`.
+///
+/// PostgreSQL infers untyped parameters at prepare time and picks the `text`
+/// overload of `->` / `->>` / `#>`; without the cast the driver binds an
+/// integer or array where the server expects text and the query fails.
 fn typed_param<'a>(
     value: PostgresValue<'a>,
     type_name: &'static str,
@@ -43,12 +35,28 @@ fn typed_param<'a>(
 use drizzle_types::postgres::types::{Any, Boolean, Json, Jsonb, Text, Varchar};
 
 /// SQL types the JSON access operators (`->`, `->>`, `#>`, `#>>`) accept.
+///
+/// Implemented for `json`, `jsonb`, and untyped SQL ([`Any`], treated as
+/// `json`). Text columns are rejected even when they hold JSON; cast them first.
+///
+/// # Type safety
+///
+/// ```compile_fail
+/// use drizzle_core::expr::raw_non_null;
+/// use drizzle_postgres::expr::json_get_text;
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Text;
+///
+/// let raw = raw_non_null::<PostgresValue, Text>("raw");
+/// let _ = json_get_text(raw, "name"); // `text` is not a JSON type
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a PostgreSQL JSON type",
     label = "JSON operators need a `json` or `jsonb` operand"
 )]
 pub trait JsonType {
-    /// The type `->` and `#>` return: `json` for `json`, `jsonb` for `jsonb`.
+    /// The SQL type `->` and `#>` return: `json` for `json`, `jsonb` for `jsonb`,
+    /// and `json` for untyped SQL.
     type Field: drizzle_types::DataType;
 }
 
@@ -62,7 +70,23 @@ impl JsonType for Any {
     type Field = Json;
 }
 
-/// SQL types the JSONB-only operators (`@>`, `<@`, `?`, `?|`, `?&`) accept.
+/// SQL types the JSONB-only operators (`@>`, `<@`, `?`, `?|`, `?&`) accept
+/// as their left operand.
+///
+/// Implemented for `jsonb` and untyped SQL ([`Any`]). PostgreSQL has none of
+/// these operators for `json`, so a `json` column is rejected.
+///
+/// # Type safety
+///
+/// ```compile_fail
+/// use drizzle_core::expr::raw_non_null;
+/// use drizzle_postgres::expr::jsonb_exists_key;
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Json;
+///
+/// let data = raw_non_null::<PostgresValue, Json>("data");
+/// let _ = jsonb_exists_key(data, "name"); // `json`, not `jsonb`
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not `jsonb`",
     label = "this operator exists only for `jsonb`",
@@ -73,8 +97,24 @@ pub trait JsonbType {}
 impl JsonbType for Jsonb {}
 impl JsonbType for Any {}
 
-/// Right operand types of `@>` / `<@`. The operand is cast to `jsonb`, so JSON
-/// text is accepted as well.
+/// SQL types accepted as the right operand of [`jsonb_contains`] (`@>`) and
+/// [`jsonb_contained`] (`<@`).
+///
+/// The operand is rendered as `CAST(operand AS JSONB)`, so it may be `json`,
+/// `jsonb`, JSON text (`text`, `varchar`, such as a `&str` literal), or
+/// untyped SQL ([`Any`]). Other types, such as integers, are rejected.
+///
+/// # Type safety
+///
+/// ```compile_fail
+/// use drizzle_core::expr::raw_non_null;
+/// use drizzle_postgres::expr::jsonb_contains;
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let _ = jsonb_contains(data, 42_i32); // an integer is not JSON
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be cast to `jsonb` for a containment check",
     label = "expected a JSON value, JSON text, or untyped SQL"
@@ -87,17 +127,23 @@ impl JsonbOperand for Text {}
 impl JsonbOperand for Varchar {}
 impl JsonbOperand for Any {}
 
-/// `PostgreSQL` `->` operator - get JSON object field by key, returns JSON.
+/// Gets an object field by key (`->`), keeping the JSON type.
 ///
-/// # Example
+/// The operand must be `json` or `jsonb` ([`JsonType`]); the result has the
+/// same type, so calls can be chained. The result is NULL when the key is
+/// missing.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::json_get;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let field = json_get(data, "name");
-/// assert!(field.to_sql().sql().contains("->"));
+/// use drizzle_postgres::expr::json_get;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let address = json_get(data, "address"); // a `jsonb` expression
+/// assert_eq!(address.to_sql().sql(), "data -> CAST ($1 AS TEXT)");
 /// ```
 pub fn json_get<'a, E>(
     expr: E,
@@ -114,17 +160,22 @@ where
     )
 }
 
-/// `PostgreSQL` `->` operator with integer index - get JSON array element.
+/// Gets an array element by zero-based index (`->`), keeping the JSON type.
 ///
-/// # Example
+/// Negative indexes count from the end. The operand must be `json` or `jsonb`
+/// ([`JsonType`]). The result is NULL when the index is out of range.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::json_get_idx;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let elem = json_get_idx(data, 0);
-/// assert!(elem.to_sql().sql().contains("->"));
+/// use drizzle_postgres::expr::json_get_idx;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let first = json_get_idx(data, 0);
+/// assert_eq!(first.to_sql().sql(), "data -> CAST ($1 AS INTEGER)");
 /// ```
 pub fn json_get_idx<'a, E>(
     expr: E,
@@ -141,17 +192,22 @@ where
     )
 }
 
-/// `PostgreSQL` `->>` operator - get JSON object field as text.
+/// Gets an object field by key as `text` (`->>`).
 ///
-/// # Example
+/// The operand must be `json` or `jsonb` ([`JsonType`]). The result is NULL
+/// when the key is missing or the value is JSON `null`.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::json_get_text;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let name = json_get_text(data, "name");
-/// assert!(name.to_sql().sql().contains("->>"));
+/// use drizzle_postgres::expr::json_get_text;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let name = json_get_text(data, "name"); // a `text` expression
+/// assert_eq!(name.to_sql().sql(), "data ->> CAST ($1 AS TEXT)");
 /// ```
 pub fn json_get_text<'a, E>(
     expr: E,
@@ -168,17 +224,22 @@ where
     )
 }
 
-/// `PostgreSQL` `->>` operator with integer index - get JSON array element as text.
+/// Gets an array element by zero-based index as `text` (`->>`).
 ///
-/// # Example
+/// The operand must be `json` or `jsonb` ([`JsonType`]). The result is NULL
+/// when the index is out of range.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::json_get_text_idx;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let elem = json_get_text_idx(data, 0);
-/// assert!(elem.to_sql().sql().contains("->>"));
+/// use drizzle_postgres::expr::json_get_text_idx;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let first = json_get_text_idx(data, 0);
+/// assert_eq!(first.to_sql().sql(), "data ->> CAST ($1 AS INTEGER)");
 /// ```
 pub fn json_get_text_idx<'a, E>(
     expr: E,
@@ -195,17 +256,23 @@ where
     )
 }
 
-/// `PostgreSQL` `#>` operator - get JSON object at specified path, returns JSON.
+/// Gets the value at a path (`#>`), keeping the JSON type.
 ///
-/// # Example
+/// `path` is a `PostgreSQL` text-array literal such as `"{address,city}"`;
+/// array indexes go in the path as numbers (`"{tags,0}"`). The operand must be
+/// `json` or `jsonb` ([`JsonType`]). The result is NULL when the path does not exist.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::json_get_path;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let nested = json_get_path(data, "{a,b}");
-/// assert!(nested.to_sql().sql().contains("#>"));
+/// use drizzle_postgres::expr::json_get_path;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let city = json_get_path(data, "{address,city}");
+/// assert_eq!(city.to_sql().sql(), "data #> CAST ($1 AS TEXT[])");
 /// ```
 pub fn json_get_path<'a, E>(
     expr: E,
@@ -222,17 +289,23 @@ where
     )
 }
 
-/// `PostgreSQL` `#>>` operator - get JSON object at specified path as text.
+/// Gets the value at a path as `text` (`#>>`).
 ///
-/// # Example
+/// `path` is a `PostgreSQL` text-array literal such as `"{address,city}"`.
+/// The operand must be `json` or `jsonb` ([`JsonType`]). The result is NULL
+/// when the path does not exist.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::json_get_path_text;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let nested = json_get_path_text(data, "{a,b}");
-/// assert!(nested.to_sql().sql().contains("#>>"));
+/// use drizzle_postgres::expr::json_get_path_text;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let city = json_get_path_text(data, "{address,city}");
+/// assert_eq!(city.to_sql().sql(), "data #>> CAST ($1 AS TEXT[])");
 /// ```
 pub fn json_get_path_text<'a, E>(
     expr: E,
@@ -249,17 +322,23 @@ where
     )
 }
 
-/// `PostgreSQL` `@>` operator for JSONB - left JSON contains right JSON.
+/// Tests whether the left `jsonb` value contains the right one (`@>`).
 ///
-/// # Example
+/// The left operand must be `jsonb` ([`JsonbType`]). The right operand may be
+/// `json`, `jsonb`, or JSON text ([`JsonbOperand`]); it is cast to `jsonb`.
+/// The result is NULL when either operand is NULL.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::jsonb_contains;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let cond = jsonb_contains(data, r#"{"key": "value"}"#);
-/// assert!(cond.to_sql().sql().contains("@>"));
+/// use drizzle_postgres::expr::jsonb_contains;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let cond = jsonb_contains(data, r#"{"role": "admin"}"#);
+/// assert_eq!(cond.to_sql().sql(), "data @> CAST ($1 AS JSONB)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn jsonb_contains<'a, L, R>(
@@ -286,17 +365,23 @@ where
     )
 }
 
-/// `PostgreSQL` `<@` operator for JSONB - left JSON is contained by right JSON.
+/// Tests whether the left `jsonb` value is contained in the right one (`<@`).
 ///
-/// # Example
+/// The left operand must be `jsonb` ([`JsonbType`]). The right operand may be
+/// `json`, `jsonb`, or JSON text ([`JsonbOperand`]); it is cast to `jsonb`.
+/// The result is NULL when either operand is NULL.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::jsonb_contained;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let cond = jsonb_contained(data, r#"{"key": "value", "other": 1}"#);
-/// assert!(cond.to_sql().sql().contains("<@"));
+/// use drizzle_postgres::expr::jsonb_contained;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let cond = jsonb_contained(data, r#"{"role": "admin", "active": true}"#);
+/// assert_eq!(cond.to_sql().sql(), "data <@ CAST ($1 AS JSONB)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn jsonb_contained<'a, L, R>(
@@ -323,17 +408,22 @@ where
     )
 }
 
-/// `PostgreSQL` `?` operator for JSONB - does the key exist in the JSON object?
+/// Tests whether a key exists at the top level of a `jsonb` value (`?`).
 ///
-/// # Example
+/// The operand must be `jsonb` ([`JsonbType`]). For a `jsonb` array, the
+/// test matches string elements instead. The result is NULL when the operand is NULL.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::jsonb_exists_key;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let cond = jsonb_exists_key(data, "name");
-/// assert!(cond.to_sql().sql().contains("?"));
+/// use drizzle_postgres::expr::jsonb_exists_key;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let cond = jsonb_exists_key(data, "email");
+/// assert_eq!(cond.to_sql().sql(), "data ? CAST ($1 AS TEXT)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn jsonb_exists_key<'a, E>(
@@ -351,17 +441,22 @@ where
     )
 }
 
-/// `PostgreSQL` `?|` operator for JSONB - do any of the keys exist?
+/// Tests whether any of the keys exists at the top level of a `jsonb` value (`?|`).
 ///
-/// # Example
+/// The operand must be `jsonb` ([`JsonbType`]). The keys are bound as one
+/// `text[]` parameter. The result is NULL when the operand is NULL.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::jsonb_exists_any;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
-/// let cond = jsonb_exists_any(data, &["name", "email"]);
-/// assert!(cond.to_sql().sql().contains("?|"));
+/// use drizzle_postgres::expr::jsonb_exists_any;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
+/// let cond = jsonb_exists_any(data, &["email", "phone"]);
+/// assert_eq!(cond.to_sql().sql(), "data ?| $1");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn jsonb_exists_any<'a, E>(
@@ -383,17 +478,22 @@ where
     )
 }
 
-/// `PostgreSQL` `?&` operator for JSONB - do all of the keys exist?
+/// Tests whether all of the keys exist at the top level of a `jsonb` value (`?&`).
 ///
-/// # Example
+/// The operand must be `jsonb` ([`JsonbType`]). The keys are bound as one
+/// `text[]` parameter. The result is NULL when the operand is NULL.
+///
+/// # Examples
 ///
 /// ```
-/// # use drizzle_postgres::expr::jsonb_exists_all;
-/// # use drizzle_core::{SQL, ToSQL};
-/// # use drizzle_postgres::values::PostgresValue;
-/// let data = SQL::<PostgresValue>::raw("data");
+/// use drizzle_postgres::expr::jsonb_exists_all;
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let data = raw_non_null::<PostgresValue, Jsonb>("data");
 /// let cond = jsonb_exists_all(data, &["name", "email"]);
-/// assert!(cond.to_sql().sql().contains("?&"));
+/// assert_eq!(cond.to_sql().sql(), "data ?& $1");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn jsonb_exists_all<'a, E>(
@@ -415,9 +515,27 @@ where
     )
 }
 
-/// Extension trait providing method-based JSON operators for `PostgreSQL` expressions.
+/// Method forms of the JSON operators, available on every `PostgreSQL` expression.
+///
+/// Each method calls the free function of the same name and has the same
+/// operand rules ([`JsonType`], [`JsonbType`], [`JsonbOperand`]).
+/// `?|` and `?&` have no method form; use [`jsonb_exists_any`] and
+/// [`jsonb_exists_all`].
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{ToSQL, expr::raw_non_null};
+/// use drizzle_postgres::expr::JsonExprExt;
+/// use drizzle_postgres::values::PostgresValue;
+/// use drizzle_types::postgres::types::Jsonb;
+///
+/// let settings = raw_non_null::<PostgresValue, Jsonb>("settings");
+/// let theme = settings.json_get_path_text("{ui,theme}");
+/// assert_eq!(theme.to_sql().sql(), "settings #>> CAST ($1 AS TEXT[])");
+/// ```
 pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
-    /// Get JSON object field by key (`->` operator), returns JSON.
+    /// Gets an object field by key (`->`), keeping the JSON type. See [`json_get`].
     fn json_get(
         self,
         key: &'a str,
@@ -435,7 +553,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         json_get(self, key)
     }
 
-    /// Get JSON array element by index (`->` operator), returns JSON.
+    /// Gets an array element by index (`->`), keeping the JSON type. See [`json_get_idx`].
     fn json_get_idx(
         self,
         index: i32,
@@ -453,7 +571,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         json_get_idx(self, index)
     }
 
-    /// Get JSON object field as text (`->>` operator).
+    /// Gets an object field by key as `text` (`->>`). See [`json_get_text`].
     fn json_get_text(
         self,
         key: &'a str,
@@ -464,7 +582,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         json_get_text(self, key)
     }
 
-    /// Get JSON array element as text (`->>` operator).
+    /// Gets an array element by index as `text` (`->>`). See [`json_get_text_idx`].
     fn json_get_text_idx(
         self,
         index: i32,
@@ -475,7 +593,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         json_get_text_idx(self, index)
     }
 
-    /// Get JSON object at path (`#>` operator), returns JSON.
+    /// Gets the value at a path (`#>`), keeping the JSON type. See [`json_get_path`].
     fn json_get_path(
         self,
         path: &'a str,
@@ -493,7 +611,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         json_get_path(self, path)
     }
 
-    /// Get JSON object at path as text (`#>>` operator).
+    /// Gets the value at a path as `text` (`#>>`). See [`json_get_path_text`].
     fn json_get_path_text(
         self,
         path: &'a str,
@@ -504,7 +622,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         json_get_path_text(self, path)
     }
 
-    /// JSONB contains (`@>` operator).
+    /// Tests whether `self` contains `other` (`@>`, `jsonb` only). See [`jsonb_contains`].
     #[allow(clippy::type_complexity)]
     fn jsonb_contains<R>(
         self,
@@ -528,7 +646,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         jsonb_contains(self, other)
     }
 
-    /// JSONB is contained by (`<@` operator).
+    /// Tests whether `self` is contained in `other` (`<@`, `jsonb` only). See [`jsonb_contained`].
     #[allow(clippy::type_complexity)]
     fn jsonb_contained<R>(
         self,
@@ -552,7 +670,7 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
         jsonb_contained(self, other)
     }
 
-    /// JSONB key exists (`?` operator).
+    /// Tests whether a top-level key exists (`?`, `jsonb` only). See [`jsonb_exists_key`].
     #[allow(clippy::type_complexity)]
     fn jsonb_exists_key(
         self,
@@ -572,5 +690,4 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     }
 }
 
-/// Blanket implementation for all `PostgreSQL` `Expr` types.
 impl<'a, E: Expr<'a, PostgresValue<'a>>> JsonExprExt<'a> for E {}

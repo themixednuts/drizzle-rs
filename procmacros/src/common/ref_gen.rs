@@ -1,4 +1,5 @@
-//! Shared generation of `TABLE_REF` const for both `SQLite` and `PostgreSQL`.
+//! Shared generation of the `TABLE_REF` const and its column flags for every
+//! dialect.
 
 use crate::paths::core as core_paths;
 use proc_macro2::TokenStream;

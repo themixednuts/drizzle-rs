@@ -1,26 +1,51 @@
-//! SQLite-specific SQL expressions and JSON helpers.
+//! `SQLite` JSON functions and conditions.
 //!
-//! This module provides `SQLite` dialect functions and JSON expressions.
-//! For standard SQL expressions, use `drizzle_core::expr`.
+//! These helpers build untyped [`SQL`] fragments for JSON stored in TEXT or
+//! BLOB columns. JSON paths, keys and values are sent as bound parameters.
+//! For standard, typed expressions use `drizzle_core::expr`.
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
 use crate::values::SQLiteValue;
 use drizzle_core::{SQL, ToSQL};
 
-/// Wraps a value with the `SQLite` `json()` function, validating and returning JSON text.
+/// Wraps `value` in `json(..)`, which checks that it is valid JSON and
+/// returns it as minified JSON text.
+///
+/// # Examples
+///
+/// ```
+/// # use drizzle_sqlite::expr::json;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// let expr = json(SQL::<SQLiteValue>::raw("metadata"));
+/// assert_eq!(expr.sql(), "json (metadata)");
+/// ```
 pub fn json<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
     SQL::func("json", value.to_sql())
 }
 
-/// Wraps a value with the `SQLite` `jsonb()` function, validating and returning JSON in binary format.
+/// Wraps `value` in `jsonb(..)`, which checks that it is valid JSON and
+/// returns it in `SQLite`'s binary JSONB format.
+///
+/// # Examples
+///
+/// ```
+/// # use drizzle_sqlite::expr::jsonb;
+/// # use drizzle_core::SQL;
+/// # use drizzle_sqlite::values::SQLiteValue;
+/// let expr = jsonb(SQL::<SQLiteValue>::raw("metadata"));
+/// assert_eq!(expr.sql(), "jsonb (metadata)");
+/// ```
 pub fn jsonb<'a>(value: impl ToSQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLiteValue<'a>> {
     SQL::func("jsonb", value.to_sql())
 }
 
-/// Create a JSON field equality condition using `SQLite` ->> operator
+/// Builds `left ->> field = value`: the JSON field `field` equals `value`.
 ///
-/// # Example
+/// `field` may be a key name (`"theme"`) or a JSON path (`"$.theme"`).
+///
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_eq;
 /// # use drizzle_core::SQL;
@@ -43,9 +68,13 @@ where
         .append(SQL::param(value.into()))
 }
 
-/// Create a JSON field inequality condition
+/// Builds `left ->> field != value`: the JSON field `field` does not equal
+/// `value`.
 ///
-/// # Example
+/// `field` may be a key name or a JSON path. Like any SQL comparison, this
+/// is not true when the field is missing (`NULL`).
+///
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_ne;
 /// # use drizzle_core::SQL;
@@ -68,9 +97,14 @@ where
         .append(SQL::param(value.into()))
 }
 
-/// Create a JSON field contains condition using `json_extract`
+/// Builds `json_extract(left, path) = value`: the value at `path` equals
+/// `value`.
 ///
-/// # Example
+/// Despite the name, this is an equality test, not a substring or
+/// array-membership test. Use [`json_array_contains`] or
+/// [`json_text_contains`] for those.
+///
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_contains;
 /// # use drizzle_core::SQL;
@@ -94,9 +128,10 @@ where
         .append(SQL::param(value.into()))
 }
 
-/// Create a JSON field exists condition using `json_type`
+/// Builds `json_type(left, path) IS NOT NULL`: the JSON document has a
+/// value at `path` (a JSON `null` counts as present).
 ///
-/// # Example
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_exists;
 /// # use drizzle_core::SQL;
@@ -118,9 +153,10 @@ where
         .append(SQL::raw(") IS NOT NULL"))
 }
 
-/// Create a JSON field does not exist condition
+/// Builds `json_type(left, path) IS NULL`: the JSON document has no value
+/// at `path`.
 ///
-/// # Example
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_not_exists;
 /// # use drizzle_core::SQL;
@@ -142,9 +178,10 @@ where
         .append(SQL::raw(") IS NULL"))
 }
 
-/// Create a JSON array contains value condition
+/// Builds an `EXISTS` test that is true when the JSON array at `path`
+/// has an element equal to `value`.
 ///
-/// # Example
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_array_contains;
 /// # use drizzle_core::SQL;
@@ -172,9 +209,14 @@ where
         .append(SQL::raw(")"))
 }
 
-/// Create a JSON object contains key condition
+/// Builds a test that is true when the JSON object at `path` has the key
+/// `key`.
 ///
-/// # Example
+/// The key is appended to the path (`"$"` and `""` mean the root object),
+/// and the result is checked with `json_type(..) IS NOT NULL`. `key` is not
+/// quoted, so it must be a plain key name.
+///
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_object_contains_key;
 /// # use drizzle_core::SQL;
@@ -206,9 +248,13 @@ where
         .append(SQL::raw(") IS NOT NULL"))
 }
 
-/// Create a JSON text search condition using case-insensitive matching
+/// Builds a case-insensitive substring test: the text at `path` contains
+/// `value`.
 ///
-/// # Example
+/// Uses `instr(lower(..), lower(..)) > 0`, so case folding only applies to
+/// ASCII letters.
+///
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_text_contains;
 /// # use drizzle_core::SQL;
@@ -236,9 +282,10 @@ where
         .append(SQL::raw(")) > 0"))
 }
 
-/// Create a JSON numeric greater-than condition
+/// Builds `CAST(json_extract(left, path) AS NUMERIC) > value`: the number
+/// at `path` is greater than `value`.
 ///
-/// # Example
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_gt;
 /// # use drizzle_core::SQL;
@@ -260,9 +307,13 @@ where
         .append(SQL::param(value.into()))
 }
 
-/// Helper function for JSON extraction using ->> operator
+/// Builds `left ->> path`, which returns the value at `path` as an SQL
+/// value (TEXT, INTEGER, REAL or NULL).
 ///
-/// # Example
+/// `path` may be a key name or a JSON path. Use [`json_extract_text`] to
+/// get JSON text instead.
+///
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_extract;
 /// # use drizzle_core::SQL;
@@ -282,9 +333,12 @@ where
         .append(SQL::param(SQLiteValue::from(path.as_ref().to_owned())))
 }
 
-/// Helper function for JSON extraction as JSON text using -> operator
+/// Builds `left -> path`, which returns the value at `path` as JSON text
+/// (strings stay quoted, objects and arrays stay JSON).
 ///
-/// # Example
+/// Use [`json_extract`] to get a plain SQL value instead.
+///
+/// # Examples
 /// ```
 /// # use drizzle_sqlite::expr::json_extract_text;
 /// # use drizzle_core::SQL;

@@ -1,10 +1,39 @@
+//! Free functions that render single SQL clauses (`SELECT ...`,
+//! `WHERE ...`, `LIMIT ...`, `UNION`, ...).
+//!
+//! Dialect builders assemble statements from these. They do no type or
+//! scope checking beyond their bounds; prefer the builders in application
+//! code.
+//!
+//! # Examples
+//!
+//! ```
+//! use drizzle_core::SQL;
+//! use drizzle_core::helpers::{from, limit, select};
+//! # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+//! # use std::borrow::Cow;
+//! # #[derive(Debug, Clone, PartialEq)]
+//! # struct Value(i64);
+//! # impl SQLParam for Value {
+//! #     const DIALECT: Dialect = Dialect::SQLite;
+//! #     type DialectMarker = SQLiteDialect;
+//! # }
+//! # impl From<Value> for Cow<'_, Value> {
+//! #     fn from(value: Value) -> Self { Cow::Owned(value) }
+//! # }
+//!
+//! let sql: SQL<'_, Value> = select(SQL::ident("id"))
+//!     .append(from(SQL::ident("users")))
+//!     .append(limit(10));
+//! assert_eq!(sql.sql(), r#"SELECT "id" FROM "users" LIMIT 10"#);
+//! ```
+
 use crate::prelude::{Cow, Vec};
 use crate::{
     ColumnRef, PaginationArg, SQL, SQLChunk, SQLSchemaType, SQLTable, ToSQL, Token, expr::Expr,
     traits::SQLParam, types::BooleanLike,
 };
 
-/// Helper function to create a SELECT statement with the given columns
 /// The `LIMIT` MySQL renders before an `OFFSET` that has no limit of its own.
 ///
 /// MySQL has no bare `OFFSET`. Its manual suggests `18446744073709551615`
@@ -15,6 +44,10 @@ use crate::{
 #[doc(hidden)]
 pub const MYSQL_UNBOUNDED_LIMIT: &str = "9223372036854775807";
 
+/// Renders `SELECT <columns>`.
+///
+/// When `columns` is empty and a table follows in `FROM`, rendering expands
+/// the projection into that table's columns.
 pub fn select<'a, Value, T>(columns: T) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -23,7 +56,7 @@ where
     SQL::from(Token::SELECT).append(columns.into_sql())
 }
 
-/// Helper function to create a SELECT DISTINCT statement with the given columns
+/// Renders `SELECT DISTINCT <columns>`.
 pub fn select_distinct<'a, Value, T>(columns: T) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -147,7 +180,32 @@ where
     left.append(op_sql).append(right)
 }
 
-/// Helper function to create a UNION statement
+/// Renders `<left> UNION <right>`.
+///
+/// An operand that would not parse as one operand on its own (it has an
+/// `ORDER BY` / `LIMIT`, or is itself compound) is grouped first: in
+/// parentheses on PostgreSQL and MySQL, as `SELECT * FROM (...)` on SQLite.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::SQL;
+/// use drizzle_core::helpers::union;
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = union(SQL::raw("SELECT 1"), SQL::raw("SELECT 2"));
+/// assert_eq!(sql.sql(), "SELECT 1 UNION SELECT 2");
+/// ```
 pub fn union<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -157,7 +215,7 @@ where
     set_op(left, Token::UNION, false, right)
 }
 
-/// Helper function to create a UNION ALL statement
+/// Renders `<left> UNION ALL <right>`, grouping operands like [`union`].
 pub fn union_all<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -167,7 +225,7 @@ where
     set_op(left, Token::UNION, true, right)
 }
 
-/// Helper function to create an INTERSECT statement
+/// Renders `<left> INTERSECT <right>`, grouping operands like [`union`].
 pub fn intersect<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -177,7 +235,7 @@ where
     set_op(left, Token::INTERSECT, false, right)
 }
 
-/// Helper function to create an INTERSECT ALL statement
+/// Renders `<left> INTERSECT ALL <right>`, grouping operands like [`union`].
 pub fn intersect_all<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -187,7 +245,7 @@ where
     set_op(left, Token::INTERSECT, true, right)
 }
 
-/// Helper function to create an EXCEPT statement
+/// Renders `<left> EXCEPT <right>`, grouping operands like [`union`].
 pub fn except<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -197,7 +255,7 @@ where
     set_op(left, Token::EXCEPT, false, right)
 }
 
-/// Helper function to create an EXCEPT ALL statement
+/// Renders `<left> EXCEPT ALL <right>`, grouping operands like [`union`].
 pub fn except_all<'a, Value, L, R>(left: L, right: R) -> SQL<'a, Value>
 where
     Value: SQLParam,
@@ -207,7 +265,7 @@ where
     set_op(left, Token::EXCEPT, true, right)
 }
 
-/// Creates an INSERT INTO statement with the specified table
+/// Renders `INSERT INTO <table>`.
 pub fn insert<'a, Table, Type, Value>(table: &Table) -> SQL<'a, Value>
 where
     Type: SQLSchemaType,
@@ -294,7 +352,7 @@ fn split_top_level_commas<'a, V: SQLParam>(sql: SQL<'a, V>) -> Vec<SQL<'a, V>> {
     parts
 }
 
-/// Helper function to create a FROM clause
+/// Renders `FROM <source>`.
 pub fn from<'a, T, Value>(query: T) -> SQL<'a, Value>
 where
     T: ToSQL<'a, Value>,
@@ -303,7 +361,7 @@ where
     SQL::from(Token::FROM).append(query.into_sql())
 }
 
-/// Helper function to create a WHERE clause
+/// Renders `WHERE <condition>`. The condition must be boolean.
 pub fn r#where<'a, V, E>(condition: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -313,7 +371,7 @@ where
     SQL::from(Token::WHERE).append(condition.into_expr_sql())
 }
 
-/// Helper function to create a GROUP BY clause
+/// Renders `GROUP BY <expr>, <expr>, ...`.
 pub fn group_by<'a, V, I, T>(expressions: I) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -326,11 +384,10 @@ where
     ))
 }
 
-/// Helper function to create a GROUP BY clause from a single `ToSQL` item.
+/// Renders `GROUP BY <expr>` from a single item.
 ///
-/// Unlike [`group_by`], this takes a single expression (which may be a
-/// column ZST or a tuple of columns whose `ToSQL` impl already produces
-/// comma-separated SQL).
+/// Unlike [`group_by`], this takes one value, which may be a column or a
+/// tuple of columns that already renders as a comma-separated list.
 pub fn group_by_expr<'a, V, T>(expr: T) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -339,7 +396,7 @@ where
     SQL::from_iter([Token::GROUP, Token::BY]).append(expr.into_sql())
 }
 
-/// Helper function to create a HAVING clause
+/// Renders `HAVING <condition>`. The condition must be boolean.
 pub fn having<'a, V, E>(condition: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -349,7 +406,7 @@ where
     SQL::from(Token::HAVING).append(condition.into_expr_sql())
 }
 
-/// Helper function to create an ORDER BY clause
+/// Renders `ORDER BY <expressions>`.
 pub fn order_by<'a, T, V>(expressions: T) -> SQL<'a, V>
 where
     T: ToSQL<'a, V>,
@@ -358,11 +415,12 @@ where
     SQL::from_iter([Token::ORDER, Token::BY]).append(expressions.into_sql())
 }
 
-/// ORDER BY for a compound query (`UNION`, `INTERSECT`, `EXCEPT`).
+/// Renders `ORDER BY <expressions>` for a compound query (`UNION`,
+/// `INTERSECT`, `EXCEPT`).
 ///
-/// The combined result has no table scope, so PostgreSQL and turso reject
-/// `ORDER BY "table"."column"` there; only output column names are legal.
-/// Column references in `expressions` are rendered as bare identifiers.
+/// A compound result has no table scope, so PostgreSQL and turso reject
+/// `ORDER BY "table"."column"` there; only output column names are allowed.
+/// Column references are therefore written as bare names.
 pub fn set_order_by<'a, T, V>(expressions: T) -> SQL<'a, V>
 where
     T: ToSQL<'a, V>,
@@ -371,7 +429,7 @@ where
     SQL::from_iter([Token::ORDER, Token::BY]).append(unqualified_columns(expressions.into_sql()))
 }
 
-/// Replace every column reference in `sql` with its unqualified column name.
+/// Replaces every column reference in `sql` with its bare column name.
 pub fn unqualified_columns<'a, V>(mut sql: SQL<'a, V>) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -384,12 +442,11 @@ where
     sql
 }
 
-/// Helper function to create a LIMIT clause
+/// Renders `LIMIT <value>` (see [`PaginationArg`]).
 ///
 /// # Panics
 ///
-/// Panics when a signed numeric argument is negative or a numeric value does
-/// not fit in `usize`.
+/// Panics when an integer argument is negative or does not fit in `usize`.
 #[must_use]
 #[track_caller]
 pub fn limit<'a, V, P>(value: P) -> SQL<'a, V>
@@ -400,12 +457,11 @@ where
     SQL::from(Token::LIMIT).append(value.into_pagination_sql())
 }
 
-/// Helper function to create an OFFSET clause
+/// Renders `OFFSET <value>` (see [`PaginationArg`]).
 ///
 /// # Panics
 ///
-/// Panics when a signed numeric argument is negative or a numeric value does
-/// not fit in `usize`.
+/// Panics when an integer argument is negative or does not fit in `usize`.
 #[must_use]
 #[track_caller]
 pub fn offset<'a, V, P>(value: P) -> SQL<'a, V>
@@ -416,7 +472,7 @@ where
     SQL::from(Token::OFFSET).append(value.into_pagination_sql())
 }
 
-/// Helper function to create an UPDATE statement
+/// Renders `UPDATE <table>`.
 pub fn update<'a, Table, Type, Value>(table: &Table) -> SQL<'a, Value>
 where
     Table: SQLTable<'a, Type, Value>,
@@ -426,7 +482,7 @@ where
     SQL::from(Token::UPDATE).append(table)
 }
 
-/// Helper function to create a SET clause for UPDATE
+/// Renders `SET <assignments>` from a table's update model.
 pub fn set<'a, Table, Type, Value>(assignments: &Table::Update) -> SQL<'a, Value>
 where
     Value: SQLParam + 'a,
@@ -436,7 +492,7 @@ where
     SQL::from(Token::SET).append(assignments.to_sql())
 }
 
-/// Helper function to create a DELETE FROM statement
+/// Renders `DELETE FROM <table>`.
 pub fn delete<'a, Table, Type, Value>(table: &Table) -> SQL<'a, Value>
 where
     Table: SQLTable<'a, Type, Value>,

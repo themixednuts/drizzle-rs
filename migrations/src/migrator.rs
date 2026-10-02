@@ -1,57 +1,60 @@
-//! Runtime migration runner for programmatic migrations
+//! Runtime migration runner: the pieces drivers use to apply migrations.
 //!
-//! Provides the low-level pieces behind runtime migration execution:
-//! - [`Migration`] values holding SQL and metadata
-//! - [`Migrations`] for tracking-table SQL and pending migration checks
-//! - [`MigrationDir`](crate::MigrationDir) for filesystem discovery when embedding or testing
+//! - [`Migration`] holds one migration's tag, hash, and split SQL statements.
+//! - [`Migrations`] is an ordered set of migrations plus the SQL for the
+//!   tracking table (create, record, query applied/dirty rows).
+//! - [`MigrationDir`](crate::MigrationDir) discovers migrations on disk.
 //!
-//! # Usage
+//! Most apps never use these directly: the drizzle drivers call them from
+//! `db.migrate(...)`. Use them when writing your own runner.
 //!
-//! ## Embedded Migrations (recommended for production/serverless)
+//! # Examples
 //!
-//! Use `drizzle::include_migrations!` or `include_str!` to embed migration SQL at compile time:
+//! A minimal runner loop. `execute` and `query_names` stand in for your
+//! database calls.
 //!
 //! ```rust
-//! # let _ = r####"
 //! use drizzle_migrations::{Migration, Migrations};
 //! use drizzle_types::Dialect;
 //!
-//! const MIGRATIONS: &[Migration] = &[
-//!     Migration::new("20231220143052_init", include_str!("../drizzle/20231220143052_init/migration.sql")),
-//!     Migration::new("20231221093015_users", include_str!("../drizzle/20231221093015_users/migration.sql")),
-//! ];
+//! # fn execute(_sql: &str) {}
+//! # fn query_names(_sql: &str) -> Vec<String> { vec!["20231220143052_init".into()] }
+//! let set = Migrations::new(
+//!     vec![
+//!         Migration::new("20231220143052_init", "CREATE TABLE users (id INTEGER);"),
+//!         Migration::new("20231221093015_posts", "CREATE TABLE posts (id INTEGER);"),
+//!     ],
+//!     Dialect::SQLite,
+//! );
 //!
-//! async fn run_migrations(db: &Database) -> Result<(), MigratorError> {
-//!     let set = Migrations::new(MIGRATIONS.to_vec(), Dialect::SQLite);
+//! // 1. Make sure the tracking table exists.
+//! execute(&set.create_table_sql());
 //!
-//!     // Ensure migrations table exists
-//!     db.execute(&set.create_table_sql()).await?;
+//! // 2. Load the names of migrations that already ran.
+//! let applied = query_names(&set.applied_names_sql());
 //!
-//!     // Get applied migration names (matches drizzle-orm beta.19+ semantics).
-//!     let applied: Vec<String> = db.query_column::<String>(&set.applied_names_sql()).await?;
-//!
-//!     // Apply pending migrations by name set-difference
-//!     for migration in set.pending(&applied) {
-//!         for statement in migration.statements() {
-//!             db.execute(statement).await?;
-//!         }
-//!         db.execute(&set.record_migration_sql(migration)).await?;
+//! // 3. Run each pending migration, then record it.
+//! let pending: Vec<_> = set.pending(&applied).collect();
+//! assert_eq!(pending.len(), 1);
+//! for migration in pending {
+//!     for statement in migration.statements() {
+//!         execute(statement);
 //!     }
-//!     Ok(())
+//!     execute(&set.record_migration_sql(migration));
 //! }
-//! # "####;
 //! ```
 //!
-//! ## Loading from Filesystem (for development)
+//! Embed SQL files at compile time with `drizzle::include_migrations!`, or
+//! load them from disk during development:
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```rust,no_run
 //! use drizzle_migrations::{MigrationDir, Migrations};
 //! use drizzle_types::Dialect;
 //!
 //! let migrations = MigrationDir::new("./drizzle").discover()?;
 //! let set = Migrations::new(migrations, Dialect::SQLite);
-//! # "####;
+//! # let _ = set;
+//! # Ok::<(), drizzle_migrations::MigratorError>(())
 //! ```
 
 use crate::config::Tracking;
@@ -65,10 +68,11 @@ pub(crate) fn quote_identifier(dialect: Dialect, identifier: &str) -> String {
     }
 }
 
-/// A migration with its SQL content
+/// One migration: its tag (folder name), content hash, and SQL statements.
 ///
-/// Represents a single migration that can be applied to the database.
-/// The `hash` field is used to track which migrations have been applied.
+/// Pending migrations are found by [`name`](Self::name). The
+/// [`hash`](Self::hash) (SHA-256 of the SQL file) is stored alongside it in
+/// the tracking table and is used to detect drift and to match legacy rows.
 #[derive(Debug, Clone)]
 pub struct Migration {
     /// Migration tag (folder name)
@@ -83,7 +87,7 @@ pub struct Migration {
 
 /// SQLite statements prepared for execution by a runtime adapter.
 ///
-/// Generated table rebuilds carry `PRAGMA foreign_keys=OFF/ON` sentinels.
+/// Built by [`Migration::sqlite_execution`]. Generated table rebuilds carry `PRAGMA foreign_keys=OFF/ON` sentinels.
 /// SQLite ignores those pragmas inside a transaction, so adapters must apply
 /// the connection setting before opening their transaction and restore it
 /// after completion. The sentinels are excluded from
@@ -117,17 +121,21 @@ impl<'a> SqliteMigrationExecution<'a> {
 /// Invalid SQLite foreign-key suspension sentinels in a migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SqliteMigrationExecutionError {
+    /// `PRAGMA foreign_keys=OFF` appears again before the matching `ON`.
     #[error("PRAGMA foreign_keys=OFF is nested without a matching ON")]
     NestedForeignKeysOff,
+    /// `PRAGMA foreign_keys=ON` appears without an earlier `OFF`.
     #[error("PRAGMA foreign_keys=ON has no preceding OFF")]
     ForeignKeysOnWithoutOff,
+    /// `PRAGMA foreign_keys=OFF` is never turned back `ON`.
     #[error("PRAGMA foreign_keys=OFF has no matching ON")]
     ForeignKeysOffWithoutOn,
+    /// The pragma assigns a value other than on/off, 1/0, true/false, yes/no.
     #[error("unsupported PRAGMA foreign_keys assignment in migration")]
     UnsupportedForeignKeysPragma,
 }
 
-/// Outcome of a successful `migrate(...)` call.
+/// Result of a successful `migrate(...)` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrateOutcome {
     /// The database was already in sync with the local migration set — no
@@ -139,7 +147,7 @@ pub enum MigrateOutcome {
 }
 
 impl MigrateOutcome {
-    /// Was the database already up to date with the local migration set?
+    /// Returns `true` when no migrations had to be applied.
     #[inline]
     #[must_use]
     pub const fn is_up_to_date(&self) -> bool {
@@ -167,26 +175,57 @@ impl MigrateOutcome {
     }
 }
 
+/// A row read from a legacy tracking table that has no `name` column.
+///
+/// Input to [`match_applied_migration_metadata`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppliedMigrationMetadata {
+    /// Row id, when the table has one.
     pub id: Option<i64>,
+    /// Stored migration hash.
     pub hash: String,
+    /// Stored `created_at` value.
     pub created_at: i64,
 }
 
+/// A legacy tracking row matched to a local migration name.
+///
+/// Output of [`match_applied_migration_metadata`]; feed it to
+/// [`Migrations::backfill_migration_metadata_sql`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatchedMigrationMetadata {
+    /// Row id, when the table has one.
     pub id: Option<i64>,
+    /// Stored migration hash.
     pub hash: String,
+    /// Stored `created_at` value.
     pub created_at: i64,
+    /// Name (tag) of the local migration this row belongs to.
     pub name: String,
 }
 
 impl Migration {
-    /// Create a new migration from embedded SQL
+    /// Creates a migration from a tag and the contents of its `migration.sql`.
     ///
-    /// The hash is computed from the SQL content.
-    /// SQL is split on `"--> statement-breakpoint"` markers.
+    /// The hash is the SHA-256 of `sql`. `created_at` comes from the tag's
+    /// `YYYYMMDDHHMMSS` prefix (UTC millis), a legacy `0000` index prefix, or
+    /// `0` when the tag has neither. The SQL is split on
+    /// `--> statement-breakpoint` lines and top-level semicolons; semicolons
+    /// inside strings, comments, and trigger/function bodies are kept.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use drizzle_migrations::Migration;
+    ///
+    /// let m = Migration::new(
+    ///     "20231220143052_init",
+    ///     "CREATE TABLE users (id INTEGER);\n--> statement-breakpoint\nCREATE TABLE posts (id INTEGER);",
+    /// );
+    /// assert_eq!(m.tag(), "20231220143052_init");
+    /// assert_eq!(m.statements().len(), 2);
+    /// assert_eq!(m.created_at(), 1_703_082_652_000);
+    /// ```
     #[must_use]
     pub fn new(tag: &str, sql: &str) -> Self {
         let hash = compute_hash(sql);
@@ -201,7 +240,9 @@ impl Migration {
         }
     }
 
-    /// Create a migration with explicit hash and timestamp
+    /// Creates a migration from already-computed parts.
+    ///
+    /// No hashing or splitting is done: `sql` is used as the statement list.
     pub fn with_hash(
         tag: impl Into<String>,
         hash: impl Into<String>,
@@ -216,35 +257,37 @@ impl Migration {
         }
     }
 
-    /// Get the migration tag (folder name)
+    /// Returns the migration tag (folder name).
     #[inline]
     #[must_use]
     pub fn tag(&self) -> &str {
         &self.tag
     }
 
-    /// Get the migration folder name used by drizzle-orm tracking metadata.
+    /// Returns the name stored in the tracking table's `name` column.
+    ///
+    /// Same value as [`tag`](Self::tag).
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.tag
     }
 
-    /// Get the migration hash (used for tracking)
+    /// Returns the SHA-256 hash (hex) of the migration SQL.
     #[inline]
     #[must_use]
     pub fn hash(&self) -> &str {
         &self.hash
     }
 
-    /// Get the creation timestamp
+    /// Returns the `created_at` value derived from the tag (see [`new`](Self::new)).
     #[inline]
     #[must_use]
     pub const fn created_at(&self) -> i64 {
         self.created_at
     }
 
-    /// Get the raw SQL statements (already split).
+    /// Returns the SQL statements, already split.
     ///
     /// SQLite transaction-owning adapters must use [`Self::sqlite_execution`]
     /// instead so foreign-key suspension sentinels are handled outside the
@@ -292,14 +335,15 @@ impl Migration {
         })
     }
 
-    /// Check if this migration is empty
+    /// Returns `true` when the migration has no non-blank statements.
     #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.sql.is_empty() || self.sql.iter().all(|s| s.trim().is_empty())
     }
 
-    /// Whether this migration contains a PostgreSQL concurrent-index command.
+    /// Returns `true` if any statement is a PostgreSQL
+    /// `CREATE/DROP INDEX CONCURRENTLY`, which cannot run in a transaction.
     #[must_use]
     pub fn has_postgres_concurrent_index(&self) -> bool {
         self.sql
@@ -410,7 +454,11 @@ fn strip_sql_comments(statement: &str) -> String {
     output
 }
 
-/// A collection of migrations ready to be applied
+/// An ordered set of migrations plus the SQL for their tracking table.
+///
+/// The tracking table defaults to `__drizzle_migrations` (in schema
+/// `drizzle` on PostgreSQL); use [`with_tracking`](Self::with_tracking) to
+/// change it.
 #[derive(Debug, Clone)]
 pub struct Migrations {
     /// Ordered list of migrations
@@ -424,7 +472,7 @@ pub struct Migrations {
 }
 
 impl Migrations {
-    /// Create a new migration set from migrations
+    /// Creates a set using the default tracking table.
     #[must_use]
     pub fn new(migrations: Vec<Migration>, dialect: Dialect) -> Self {
         Self {
@@ -438,6 +486,18 @@ impl Migrations {
         }
     }
 
+    /// Creates a set that tracks applied migrations in the table (and schema)
+    /// named by `tracking`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use drizzle_migrations::{Migrations, Tracking};
+    /// use drizzle_types::Dialect;
+    ///
+    /// let set = Migrations::with_tracking(Vec::new(), Dialect::SQLite, Tracking::SQLITE.table("app_migrations"));
+    /// assert_eq!(set.table_name(), "app_migrations");
+    /// ```
     pub fn with_tracking(migrations: Vec<Migration>, dialect: Dialect, tracking: Tracking) -> Self {
         Self {
             list: migrations,
@@ -447,23 +507,23 @@ impl Migrations {
         }
     }
 
-    /// Create an empty migration set
+    /// Creates a set with no migrations.
     #[must_use]
     pub fn empty(dialect: Dialect) -> Self {
         Self::new(Vec::new(), dialect)
     }
 
-    /// Get all migrations
+    /// Returns all migrations, in order.
     #[inline]
     #[must_use]
     pub fn all(&self) -> &[Migration] {
         &self.list
     }
 
-    /// Get migrations that haven't been applied yet, by set-difference on name.
+    /// Returns the migrations whose name is not in `applied_names`.
     ///
     /// Mirrors drizzle-orm's beta.19 `getMigrationsToRun`: a local migration is
-    /// pending iff its `name` (folder name) does not appear in the DB's
+    /// pending if its `name` (folder name) does not appear in the DB's
     /// migrations table. This is resilient to same-second `created_at`
     /// collisions and re-applies out-of-order migrations (e.g. after a
     /// branch merge) instead of silently skipping them.
@@ -481,7 +541,7 @@ impl Migrations {
         })
     }
 
-    /// Check if there are pending migrations, by name set-difference.
+    /// Returns `true` if [`pending`](Self::pending) would yield anything.
     pub fn has_pending<S>(&self, applied_names: &[S]) -> bool
     where
         S: AsRef<str>,
@@ -489,35 +549,37 @@ impl Migrations {
         self.pending(applied_names).next().is_some()
     }
 
-    /// Get the dialect
+    /// Returns the dialect.
     #[inline]
     #[must_use]
     pub const fn dialect(&self) -> Dialect {
         self.dialect
     }
 
-    /// Get the migrations tracking table name.
+    /// Returns the tracking table name (unquoted).
     #[inline]
     #[must_use]
     pub fn table_name(&self) -> &str {
         &self.table
     }
 
-    /// Get the migrations tracking schema, if any.
+    /// Returns the tracking schema name, if any.
     #[inline]
     #[must_use]
     pub fn schema_name(&self) -> Option<&str> {
         self.schema.as_deref()
     }
 
-    /// Get the SQL table identifier used in queries.
+    /// Returns the quoted tracking table identifier, schema-qualified on
+    /// PostgreSQL (for example `"drizzle"."__drizzle_migrations"`).
     #[inline]
     #[must_use]
     pub fn table_ident_sql(&self) -> String {
         self.table_ident()
     }
 
-    /// Stable advisory-lock key for serializing PostgreSQL migration runners.
+    /// Returns a stable advisory-lock key for serializing PostgreSQL migration
+    /// runners that share this tracking table.
     #[must_use]
     pub fn postgres_advisory_lock_key(&self) -> i64 {
         let digest =
@@ -529,7 +591,7 @@ impl Migrations {
         )
     }
 
-    /// Session advisory-lock name used by MySQL migration runners.
+    /// Returns the `GET_LOCK` name used to serialize MySQL migration runners.
     ///
     /// `GET_LOCK` names are limited to 64 characters. A SHA-256 prefix keeps
     /// the name stable per database and tracking table without leaking a long
@@ -550,7 +612,8 @@ impl Migrations {
         name
     }
 
-    /// Whether any migration requires execution outside a PostgreSQL transaction.
+    /// Returns `true` if any migration must run outside a PostgreSQL
+    /// transaction (see [`Migration::has_postgres_concurrent_index`]).
     #[must_use]
     pub fn has_postgres_concurrent_index(&self) -> bool {
         self.list
@@ -558,8 +621,8 @@ impl Migrations {
             .any(Migration::has_postgres_concurrent_index)
     }
 
-    /// Create a partial unique index that prevents duplicate non-null names in
-    /// the migration tracking table.
+    /// Returns SQL for a partial unique index that blocks duplicate non-null
+    /// names in the tracking table, or `None` on MySQL (no partial indexes).
     #[must_use]
     pub fn create_name_unique_index_sql(&self) -> Option<String> {
         if self.dialect == Dialect::MySQL {
@@ -577,7 +640,7 @@ impl Migrations {
         ))
     }
 
-    /// Get the full table identifier (with schema for `PostgreSQL`)
+    /// Quoted table identifier, schema-qualified on PostgreSQL.
     fn table_ident(&self) -> String {
         match (&self.dialect, &self.schema) {
             (Dialect::PostgreSQL, Some(schema)) => format!(
@@ -589,7 +652,8 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to create the migrations schema (`PostgreSQL` only)
+    /// Returns `CREATE SCHEMA IF NOT EXISTS` for the tracking schema, or
+    /// `None` when there is no schema (SQLite, MySQL).
     #[must_use]
     pub fn create_schema_sql(&self) -> Option<String> {
         self.schema.as_ref().map(|schema| {
@@ -600,9 +664,9 @@ impl Migrations {
         })
     }
 
-    /// Get the SQL to create the migrations tracking table
+    /// Returns `CREATE TABLE IF NOT EXISTS` for the tracking table.
     ///
-    /// Table schema matches current drizzle-orm:
+    /// Columns match current drizzle-orm:
     /// - `SQLite`: id (INTEGER PK), hash, `created_at`, name, `applied_at`
     /// - `PostgreSQL`: id (SERIAL PK), hash, `created_at`, name, `applied_at`
     /// - `MySQL`: id (SERIAL PK), hash, `created_at`, name, `applied_at`
@@ -641,7 +705,20 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to record a migration as applied.
+    /// Returns the `INSERT` that records `migration` as applied, with
+    /// `applied_at = CURRENT_TIMESTAMP`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use drizzle_migrations::{Migration, Migrations};
+    /// use drizzle_types::Dialect;
+    ///
+    /// let m = Migration::new("0000_init", "CREATE TABLE t (id INTEGER);");
+    /// let set = Migrations::new(vec![m.clone()], Dialect::SQLite);
+    /// let sql = set.record_migration_sql(&m);
+    /// assert!(sql.starts_with(r#"INSERT INTO "__drizzle_migrations" ("hash", "created_at", "name", "applied_at")"#));
+    /// ```
     #[must_use]
     pub fn record_migration_sql(&self, migration: &Migration) -> String {
         let table = self.table_ident();
@@ -663,7 +740,7 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to record a migration as *started* (phase 1 of two-phase
+    /// Returns the `INSERT` that records `migration` as *started* (phase 1 of two-phase
     /// tracking on non-transactional paths).
     ///
     /// The row is written with `applied_at` explicitly `NULL`, which marks the
@@ -701,8 +778,8 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to mark a started migration as finished (phase 3 of
-    /// two-phase tracking).
+    /// Returns the `UPDATE` that marks a started migration as finished
+    /// (phase 3 of two-phase tracking; phase 2 runs the statements).
     ///
     /// Only clears rows that are still dirty, so a concurrent runner that
     /// already completed the migration is not re-stamped.
@@ -721,7 +798,7 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to drop a migration's dirty marker.
+    /// Returns the `DELETE` that drops a migration's dirty marker.
     ///
     /// Used when a non-transactional run fails on its *first* statement, where
     /// nothing can have been applied and leaving a dirty row would demand a
@@ -741,7 +818,8 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to backfill `name`/`applied_at` on a legacy tracking row.
+    /// Returns the `UPDATE` that backfills `name`/`applied_at` on a legacy
+    /// tracking row.
     ///
     /// The v0 tracking table had only `id`/`hash`/`created_at`; the upgrade
     /// adds `name` and `applied_at` and backfills both. `applied_at` is derived
@@ -804,7 +882,7 @@ impl Migrations {
         )
     }
 
-    /// Get the SQL to query applied migration names.
+    /// Returns the `SELECT` that loads applied migration names.
     ///
     /// A row counts as applied only when it has both a non-null `name` *and* a
     /// non-null `applied_at`:
@@ -833,8 +911,8 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to query full applied-migration records: `hash`, `name`,
-    /// and a `dirty` flag (`applied_at IS NULL` — started but never finished).
+    /// Returns the `SELECT` that loads `hash`, `name`, and a `dirty` flag
+    /// (`applied_at IS NULL`: started but never finished) for every named row.
     ///
     /// Unlike [`Migrations::applied_names_sql`] this returns interrupted rows
     /// too, so integrity checks can report drift, missing-local, and
@@ -854,7 +932,7 @@ impl Migrations {
         }
     }
 
-    /// Get the SQL to query interrupted ("dirty") migration names.
+    /// Returns the `SELECT` that loads interrupted ("dirty") migration names.
     ///
     /// These are rows whose `name` is known but whose `applied_at` is `NULL` —
     /// a migration that started on a non-transactional path and never reported
@@ -874,8 +952,8 @@ impl Migrations {
         }
     }
 
-    /// Build the standard error for interrupted migrations, or `None` when
-    /// `dirty_names` is empty.
+    /// Builds the standard [`MigratorError::InterruptedMigration`] for
+    /// `dirty_names`, or `None` when it is empty.
     ///
     /// Every driver calls this after loading
     /// [`Migrations::dirty_names_sql`] so the message is identical everywhere.
@@ -936,8 +1014,7 @@ impl Migrations {
         )))
     }
 
-    /// Resolve dirty tracking-row names to their local migrations, in local
-    /// execution order.
+    /// Maps dirty tracking-row names to their local migrations, in local order.
     ///
     /// # Errors
     ///
@@ -978,7 +1055,7 @@ impl Migrations {
             .collect())
     }
 
-    /// Get the SQL to check if migrations table exists
+    /// Returns a `SELECT` that yields one row if the tracking table exists.
     #[must_use]
     pub fn table_exists_sql(&self) -> String {
         let table = self.table.replace('\'', "''");
@@ -1006,18 +1083,24 @@ impl Migrations {
     }
 }
 
-/// Errors that can occur during migration
+/// Errors from loading, tracking, or running migrations.
 #[derive(Debug, thiserror::Error)]
 pub enum MigratorError {
+    /// A legacy drizzle-kit `meta/_journal.json` layout was found; run
+    /// `drizzle up` to convert it.
     #[error("Journal error: {0}")]
     JournalError(String),
 
+    /// Reading the migrations folder failed.
     #[error("IO error: {0}")]
     IoError(String),
 
+    /// A migration folder has `snapshot.json` but no `migration.sql`.
     #[error("Missing migration file: {0}")]
     MissingMigration(String),
 
+    /// A statement failed, or tracking rows could not be matched to local
+    /// migrations.
     #[error("Migration failed: {0}")]
     ExecutionError(String),
 
@@ -1027,13 +1110,24 @@ pub enum MigratorError {
     #[error("{0}")]
     InterruptedMigration(String),
 
-    /// Repair could not reconcile every statement of an interrupted migration.
-    /// Produced by [`crate::repair::Plan::into_executable`].
+    /// Repair could not reconcile an interrupted migration. Produced by
+    /// [`crate::repair::Plan::into_executable`] and
+    /// [`Migrations::resolve_dirty_migrations`].
     #[error("{0}")]
     UnrepairableMigration(String),
 }
 
-/// Detect PostgreSQL `CREATE/DROP INDEX CONCURRENTLY` statements.
+/// Returns `true` if `sql` starts with PostgreSQL `CREATE [UNIQUE] INDEX
+/// CONCURRENTLY` or `DROP INDEX CONCURRENTLY`.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::is_postgres_concurrent_index_statement;
+///
+/// assert!(is_postgres_concurrent_index_statement("CREATE INDEX CONCURRENTLY idx ON t (a);"));
+/// assert!(!is_postgres_concurrent_index_statement("CREATE INDEX idx ON t (a);"));
+/// ```
 #[must_use]
 pub fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
     let tokens = sql
@@ -1065,7 +1159,7 @@ pub fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
 // Helper Functions
 // =============================================================================
 
-/// Compute hash of the SQL content
+/// SHA-256 of the SQL content, as lowercase hex.
 pub(crate) fn compute_hash(sql: &str) -> String {
     let digest = Sha256::digest(sql.as_bytes());
     let mut out = String::with_capacity(digest.len() * 2);
@@ -1078,7 +1172,7 @@ pub(crate) fn compute_hash(sql: &str) -> String {
     out
 }
 
-/// Split SQL content into individual statements
+/// Splits SQL content into individual statements.
 pub(crate) fn split_statements(sql: &str) -> Vec<String> {
     split_on_semicolons(sql)
 }
@@ -1395,7 +1489,10 @@ fn line_prefix_is_whitespace(sql: &str, pos: usize) -> bool {
     sql[line_start..pos].chars().all(char::is_whitespace)
 }
 
-/// Match applied database rows to local migrations for migration-table upgrades.
+/// Matches legacy tracking rows (no `name` column) to local migrations.
+///
+/// Used when upgrading an old tracking table. Rows are matched by
+/// `created_at`, falling back to `hash` when that is missing or ambiguous.
 ///
 /// # Errors
 ///
@@ -1483,9 +1580,10 @@ fn parse_dollar_tag_start(sql: &str, pos: usize) -> Option<&str> {
     None
 }
 
-/// Parse timestamp from migration tag
+/// Parses `created_at` from a migration tag.
 ///
-/// Supports both V3 format (`YYYYMMDDHHMMSS_name`) and legacy format (`0000_name`)
+/// `YYYYMMDDHHMMSS_name` gives UTC millis, legacy `0000_name` gives the
+/// index, and anything else gives `0`.
 pub(crate) fn parse_timestamp_from_tag(tag: &str) -> i64 {
     // Try to extract timestamp from beginning of tag (V3 format: YYYYMMDDHHMMSS)
     if let Some(prefix) = tag.get(0..14)
@@ -1570,17 +1668,21 @@ const fn is_leap_year(year: i32) -> bool {
 // Macro for embedding migrations
 // =============================================================================
 
-/// Macro to create a vector of migrations from embedded SQL files
+/// Builds a `Vec<Migration>` from `(tag, sql)` pairs.
+///
+/// Each pair becomes [`Migration::new`]`(tag, sql)`. Pair it with
+/// `include_str!` to embed SQL files.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_migrations::migrations;
+/// use drizzle_migrations::{Migration, migrations};
 ///
-/// let my_migrations = migrations![
-///     ("20231220143052_init", include_str!("../drizzle/20231220143052_init/migration.sql")),
-///     ("20231221093015_users", include_str!("../drizzle/20231221093015_users/migration.sql")),
+/// let list: Vec<Migration> = migrations![
+///     ("20231220143052_init", "CREATE TABLE users (id INTEGER);"),
+///     // ("20231221093015_posts", include_str!("../drizzle/20231221093015_posts/migration.sql")),
 /// ];
-/// # "####;
+/// assert_eq!(list[0].tag(), "20231220143052_init");
 /// ```
 #[macro_export]
 macro_rules! migrations {

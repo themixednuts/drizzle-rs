@@ -1,6 +1,7 @@
-//! `PostgreSQL` sequence functions.
+//! PostgreSQL sequence functions: `NEXTVAL`, `CURRVAL` and `SETVAL`.
 //!
-//! These functions interact with `PostgreSQL` sequences (serial/identity columns).
+//! Sequences back `serial` and identity columns. The functions take the
+//! sequence name as text and do not compile for SQLite or MySQL.
 
 use crate::dialect::DialectTypes;
 use crate::dialect::{DialectSupports, feature};
@@ -15,19 +16,27 @@ use crate::PostgresDialect;
 
 impl DialectSupports<feature::Sequence> for PostgresDialect {}
 
-/// NEXTVAL - advances a sequence and returns its new value (`PostgreSQL`).
+/// Advances a sequence and returns the new value (`NEXTVAL`), on PostgreSQL.
 ///
-/// The argument is the sequence name as a text expression.
+/// The argument is the sequence name as text. The result is `int8` and never
+/// NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::nextval;
-///
-/// // SELECT NEXTVAL('users_id_seq')
-/// let next_id = nextval("users_id_seq");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let next_id = nextval::<Value, _>("users_id_seq");
+/// assert_eq!(next_id.sql(), "NEXTVAL ($1)");
 /// ```
 pub fn nextval<'a, V, E>(
     sequence: E,
@@ -48,19 +57,29 @@ where
     SQLExpr::new(SQL::func("NEXTVAL", sequence.into_sql()))
 }
 
-/// CURRVAL - returns the most recently obtained value from a sequence (`PostgreSQL`).
+/// The value most recently returned by `NEXTVAL` for a sequence in this
+/// session (`CURRVAL`), on PostgreSQL.
 ///
-/// Must be called after `NEXTVAL` has been used on the sequence in the current session.
+/// PostgreSQL raises an error if `NEXTVAL` has not been called for the
+/// sequence in the current session. The argument is the sequence name as
+/// text. The result is `int8` and never NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::currval;
-///
-/// // SELECT CURRVAL('users_id_seq')
-/// let current_id = currval("users_id_seq");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let current_id = currval::<Value, _>("users_id_seq");
+/// assert_eq!(current_id.sql(), "CURRVAL ($1)");
 /// ```
 pub fn currval<'a, V, E>(
     sequence: E,
@@ -81,17 +100,28 @@ where
     SQLExpr::new(SQL::func("CURRVAL", sequence.into_sql()))
 }
 
-/// SETVAL - sets a sequence's current value (`PostgreSQL`).
+/// Sets a sequence's current value (`SETVAL`), on PostgreSQL.
 ///
-/// # Example
+/// The next `NEXTVAL` returns `value + 1`. `sequence` must be text and `value`
+/// an integer. The result is the value set, as `int8`, nullable if either
+/// argument is.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::setval;
-///
-/// // SELECT SETVAL('users_id_seq', 100)
-/// let set_id = setval("users_id_seq", 100);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let reset = setval::<Value, _, _>("users_id_seq", 100);
+/// assert_eq!(reset.sql(), "SETVAL ($1, $2)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn setval<'a, V, E, N>(

@@ -1,13 +1,20 @@
-//! Type-safe aggregate functions.
+//! Aggregate functions: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX` and friends.
 //!
-//! These functions return expressions marked as aggregates, which can be used
-//! to enforce GROUP BY rules at compile time.
+//! Every function here returns an aggregate expression ([`Agg`]). Query
+//! builders use that to reject a SELECT list that mixes aggregates and plain
+//! columns without a matching `GROUP BY`. Calling `.over(...)` on an aggregate
+//! turns it into a window function (see [`window`](super::window())).
 //!
-//! # Type Safety
+//! # Type safety
 //!
-//! - `sum`, `avg`: Require `Numeric` types (Int, `BigInt`, Float, Double)
-//! - `count`: Works with any type
-//! - `min`, `max`: Work with any type (ordered types in SQL)
+//! - [`count`], [`min`] and [`max`] accept any expression.
+//! - [`sum`], [`avg`] and the statistical functions need a numeric argument.
+//!   Their result type depends on the dialect (see [`AggregatePolicy`]).
+//! - Functions that exist on only some databases (`TOTAL`, `GROUP_CONCAT`,
+//!   `STRING_AGG`, `BOOL_AND`, ...) do not compile for the others.
+//!
+//! Except for `COUNT` and `TOTAL`, aggregates are nullable: they return NULL
+//! for an empty group.
 
 use crate::dialect::{Dialect, DialectTypes};
 use crate::dialect::{DialectSupports, feature};
@@ -38,30 +45,59 @@ use crate::scope::ScopeOnly;
 // Dialect Aggregate Policy
 // =============================================================================
 
-/// Dialect-specific aggregate output mapping.
+/// Result types of [`sum`] and [`avg`] for a numeric SQL type on dialect `D`.
 ///
-/// Keeps aggregate output typing in one place so all aggregate functions
-/// follow the same per-dialect policy.
+/// | Dialect | Input | `SUM` | `AVG` |
+/// |---|---|---|---|
+/// | SQLite | `INTEGER` | `INTEGER` | `REAL` |
+/// | SQLite | `REAL` | `REAL` | `REAL` |
+/// | SQLite | `NUMERIC`, `ANY` | same as input | `REAL` |
+/// | PostgreSQL | `int2`, `int4` | `int8` | `float8` |
+/// | PostgreSQL | `int8` | `int8` | `float8` |
+/// | PostgreSQL | `float4`, `float8` | `float8` | `float8` |
+/// | PostgreSQL | `numeric` | `numeric` | `numeric` |
+/// | MySQL | integer types, `DECIMAL` | `DECIMAL` | `DECIMAL` |
+/// | MySQL | `FLOAT`, `DOUBLE` | `DOUBLE` | `DOUBLE` |
+///
+/// These are the declared types; the SQL is not cast. PostgreSQL itself
+/// returns `numeric` for `AVG` of an integer type and for `SUM` of `int8`,
+/// and `real` for `SUM` of `float4`, so wrap such a result in
+/// [`cast`](super::cast) before decoding it.
 #[diagnostic::on_unimplemented(
     message = "no aggregate policy for `{Self}` on this dialect",
     label = "aggregate result type is not defined for this SQL type/dialect"
 )]
 pub trait AggregatePolicy<D>: Numeric {
+    /// Result type of `SUM`.
     type Sum: crate::types::DataType;
+    /// Result type of `AVG`.
     type Avg: crate::types::DataType;
 }
 
+/// Result types of the standard deviation and variance aggregates for a
+/// numeric SQL type on dialect `D`.
+///
+/// On PostgreSQL every result is `float8`; on MySQL it is `DOUBLE`. SQLite
+/// has no built-in statistical aggregates, so it does not implement this
+/// trait.
 #[diagnostic::on_unimplemented(
     message = "no statistical aggregate policy for `{Self}` on this dialect",
     label = "stddev/variance result type is not defined for this SQL type/dialect"
 )]
 pub trait StatisticalAggregatePolicy<D>: Numeric {
+    /// Result type of `STDDEV_POP`.
     type StddevPop: crate::types::DataType;
+    /// Result type of `STDDEV_SAMP`.
     type StddevSamp: crate::types::DataType;
+    /// Result type of `VAR_POP`.
     type VarPop: crate::types::DataType;
+    /// Result type of `VAR_SAMP` / `VARIANCE`.
     type VarSamp: crate::types::DataType;
 }
 
+/// SQL types that `BOOL_AND`, `BOOL_OR` and `EVERY` accept on dialect `D`.
+///
+/// Only PostgreSQL's `boolean` implements it.
 #[diagnostic::on_unimplemented(
     message = "boolean aggregates are not supported for `{Self}` on this dialect",
     label = "use a boolean expression with a dialect that supports BOOL_AND/BOOL_OR"
@@ -83,13 +119,13 @@ mod count_arg_private {
     }
 }
 
-/// Argument accepted by [`count`].
+/// Argument accepted by [`count`]: `()` for `COUNT(*)`, or an expression.
 ///
-/// This trait is sealed and exists only to support `count(())` for `COUNT(*)`
-/// and `count(expr)` for `COUNT(expr)` without making `()` a general SQL
+/// Sealed. It lets `count(())` work without making `()` a general SQL
 /// expression.
 #[doc(hidden)]
 pub trait CountArg<'a, V: SQLParam>: count_arg_private::Sealed<'a, V> + ExprSources {
+    /// Renders the `COUNT(...)` call.
     fn count_sql(self) -> SQL<'a, V>;
 }
 
@@ -257,24 +293,28 @@ impl AggregatePolicy<PostgresDialect> for PgNumeric {
 // COUNT
 // =============================================================================
 
-/// COUNT aggregate.
+/// Row or value count (`COUNT`).
 ///
-/// Pass `()` for `COUNT(*)`, or a column/expression for `COUNT(expr)`.
+/// `count(())` renders `COUNT(*)` and counts rows. `count(expr)` renders
+/// `COUNT(expr)` and counts non-NULL values. The result is the dialect's
+/// big-integer type, never NULL, and an aggregate.
 ///
-/// Returns a `BigInt`, `NonNull` (count is never NULL), Aggregate expression.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::count;
-///
-/// let all_rows = count(());
-/// // Generates: COUNT(*)
-///
-/// let email_count = count(users.email);
-/// // Generates: COUNT("users"."email")
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(count::<Value, _>(()).sql(), "COUNT(*)");
+/// assert_eq!(count(users.email).sql(), r#"COUNT ("users"."email")"#);
 /// ```
 pub fn count<'a, V, A>(
     arg: A,
@@ -286,10 +326,28 @@ where
     SQLExpr::new(arg.count_sql())
 }
 
-/// COUNT(DISTINCT expr) - counts distinct non-null values.
+/// Count of distinct non-NULL values (`COUNT(DISTINCT expr)`).
 ///
-/// Returns a `BigInt`, `NonNull`, Aggregate expression.
-/// Works with any expression type.
+/// Accepts any expression. The result is the dialect's big-integer type,
+/// never NULL, and an aggregate.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let names = count_distinct(users.name);
+/// assert_eq!(names.sql(), r#"COUNT (DISTINCT "users"."name")"#);
+/// ```
 pub fn count_distinct<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull, Agg, ScopeOnly<E::Sources>>
@@ -307,24 +365,46 @@ where
 // SUM
 // =============================================================================
 
-/// SUM(expr) - sums numeric values.
+/// Sum of numeric values (`SUM`).
 ///
-/// Requires the expression to be `Numeric` (Int, `BigInt`, Float, Double).
-/// Result type is dialect-aware.
-/// Returns a nullable expression (empty set returns NULL).
+/// The argument must be numeric. The result type depends on the dialect (see
+/// [`AggregatePolicy`]): for example, PostgreSQL widens `int4` to `int8`. The
+/// result is nullable (`SUM` of no rows is NULL) and an aggregate.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Numeric column
-/// sum(orders.amount);
-/// // SQLite: same width for integer sums
-/// // PostgreSQL: Int/SmallInt promote to BigInt
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(sum(users.age).sql(), r#"SUM ("users"."age")"#);
+/// ```
 ///
-/// // ❌ Compile error: Text is not Numeric
-/// sum(users.name);
-/// # "####;
+/// # Type safety
+///
+/// Summing a text column does not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = sum(users.name);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn sum<'a, V, E>(
@@ -338,10 +418,26 @@ where
     SQLExpr::new(SQL::func("SUM", expr.into_expr_sql()))
 }
 
-/// SUM(DISTINCT expr) - sums distinct numeric values.
+/// Sum of distinct numeric values (`SUM(DISTINCT expr)`).
 ///
-/// Requires the expression to be `Numeric`.
-/// Result type is dialect-aware.
+/// Same typing as [`sum`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(sum_distinct(users.age).sql(), r#"SUM (DISTINCT "users"."age")"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn sum_distinct<'a, V, E>(
     expr: E,
@@ -361,21 +457,49 @@ where
 // AVG
 // =============================================================================
 
-/// AVG(expr) - calculates average of numeric values.
+/// Average of numeric values (`AVG`).
 ///
-/// Requires the expression to be `Numeric`.
-/// Always returns Double (SQL standard behavior), nullable.
+/// The argument must be numeric. The result type depends on the dialect (see
+/// [`AggregatePolicy`]): SQLite returns `REAL`, PostgreSQL `float8` (or
+/// `numeric` for `numeric` input), MySQL `DECIMAL` for integers. The result
+/// is nullable (`AVG` of no rows is NULL) and an aggregate. On PostgreSQL,
+/// `AVG` of an integer column actually returns `numeric`; cast it to `float8`
+/// to decode it as declared.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Numeric column
-/// avg(products.price);
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(avg(users.age).sql(), r#"AVG ("users"."age")"#);
+/// ```
 ///
-/// // ❌ Compile error: Text is not Numeric
-/// avg(users.name);
-/// # "####;
+/// # Type safety
+///
+/// Averaging a text column does not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = avg(users.name);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn avg<'a, V, E>(
@@ -389,9 +513,26 @@ where
     SQLExpr::new(SQL::func("AVG", expr.into_expr_sql()))
 }
 
-/// AVG(DISTINCT expr) - calculates average of distinct numeric values.
+/// Average of distinct numeric values (`AVG(DISTINCT expr)`).
 ///
-/// Requires the expression to be `Numeric`.
+/// Same typing as [`avg`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(avg_distinct(users.age).sql(), r#"AVG (DISTINCT "users"."age")"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn avg_distinct<'a, V, E>(
     expr: E,
@@ -411,22 +552,26 @@ where
 // MIN / MAX
 // =============================================================================
 
-/// MIN(expr) - finds minimum value.
+/// Smallest value (`MIN`).
 ///
-/// Works with any expression type (ordered types in SQL).
-/// Preserves the input expression's SQL type.
-/// Result is nullable (empty set returns NULL).
+/// Accepts any expression. The result has the argument's SQL type, is
+/// nullable (`MIN` of no rows is NULL), and is an aggregate.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::min;
-///
-/// let cheapest = min(products.price);
-/// // Generates: MIN("products"."price")
-/// // Returns the same SQL type as products.price
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(min(users.age).sql(), r#"MIN ("users"."age")"#);
 /// ```
 pub fn min<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg, E::Sources>
 where
@@ -436,22 +581,26 @@ where
     SQLExpr::new(SQL::func("MIN", expr.into_expr_sql()))
 }
 
-/// MAX(expr) - finds maximum value.
+/// Largest value (`MAX`).
 ///
-/// Works with any expression type (ordered types in SQL).
-/// Preserves the input expression's SQL type.
-/// Result is nullable (empty set returns NULL).
+/// Accepts any expression. The result has the argument's SQL type, is
+/// nullable (`MAX` of no rows is NULL), and is an aggregate.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::max;
-///
-/// let most_expensive = max(products.price);
-/// // Generates: MAX("products"."price")
-/// // Returns the same SQL type as products.price
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(max(users.age).sql(), r#"MAX ("users"."age")"#);
 /// ```
 pub fn max<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, Null, Agg, E::Sources>
 where
@@ -465,23 +614,32 @@ where
 // STATISTICAL FUNCTIONS
 // =============================================================================
 
-/// `STDDEV_POP` - population standard deviation.
+/// Population standard deviation (`STDDEV_POP`), on PostgreSQL and MySQL.
 ///
-/// Calculates the population standard deviation of numeric values.
-/// Requires the expression to be `Numeric`.
-/// Returns Double, nullable (empty set returns NULL).
+/// The argument must be numeric. The result type comes from
+/// [`StatisticalAggregatePolicy`] (`float8` on PostgreSQL, `DOUBLE` on
+/// MySQL); on PostgreSQL the call is wrapped in
+/// `CAST(... AS DOUBLE PRECISION)`. The result is nullable and an aggregate.
+/// SQLite has no `STDDEV_POP`, so this does not compile for SQLite.
 ///
-/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::stddev_pop;
-///
-/// let deviation = stddev_pop(measurements.value);
-/// // Generates: STDDEV_POP("measurements"."value")
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     stddev_pop(users.age).sql(),
+///     r#"CAST (STDDEV_POP ("users"."age") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn stddev_pop<'a, V, E>(
@@ -502,23 +660,32 @@ where
     SQLExpr::new(pg_double(SQL::func("STDDEV_POP", expr.into_expr_sql())))
 }
 
-/// `STDDEV_SAMP` / STDDEV - sample standard deviation.
+/// Sample standard deviation (`STDDEV_SAMP`), on PostgreSQL and MySQL.
 ///
-/// Calculates the sample standard deviation of numeric values.
-/// Requires the expression to be `Numeric`.
-/// Returns Double, nullable (empty set returns NULL).
+/// The argument must be numeric. The result type comes from
+/// [`StatisticalAggregatePolicy`] (`float8` on PostgreSQL, `DOUBLE` on
+/// MySQL); on PostgreSQL the call is wrapped in
+/// `CAST(... AS DOUBLE PRECISION)`. The result is nullable and an aggregate.
+/// SQLite has no `STDDEV_SAMP`, so this does not compile for SQLite.
 ///
-/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::stddev_samp;
-///
-/// let deviation = stddev_samp(measurements.value);
-/// // Generates: STDDEV_SAMP("measurements"."value")
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     stddev_samp(users.age).sql(),
+///     r#"CAST (STDDEV_SAMP ("users"."age") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn stddev_samp<'a, V, E>(
@@ -539,23 +706,32 @@ where
     SQLExpr::new(pg_double(SQL::func("STDDEV_SAMP", expr.into_expr_sql())))
 }
 
-/// `VAR_POP` - population variance.
+/// Population variance (`VAR_POP`), on PostgreSQL and MySQL.
 ///
-/// Calculates the population variance of numeric values.
-/// Requires the expression to be `Numeric`.
-/// Returns Double, nullable (empty set returns NULL).
+/// The argument must be numeric. The result type comes from
+/// [`StatisticalAggregatePolicy`] (`float8` on PostgreSQL, `DOUBLE` on
+/// MySQL); on PostgreSQL the call is wrapped in
+/// `CAST(... AS DOUBLE PRECISION)`. The result is nullable and an aggregate.
+/// SQLite has no `VAR_POP`, so this does not compile for SQLite.
 ///
-/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::var_pop;
-///
-/// let variance = var_pop(measurements.value);
-/// // Generates: VAR_POP("measurements"."value")
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     var_pop(users.age).sql(),
+///     r#"CAST (VAR_POP ("users"."age") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn var_pop<'a, V, E>(
@@ -576,23 +752,32 @@ where
     SQLExpr::new(pg_double(SQL::func("VAR_POP", expr.into_expr_sql())))
 }
 
-/// `VAR_SAMP` / VARIANCE - sample variance.
+/// Sample variance (`VAR_SAMP`), on PostgreSQL and MySQL.
 ///
-/// Calculates the sample variance of numeric values.
-/// Requires the expression to be `Numeric`.
-/// Returns Double, nullable (empty set returns NULL).
+/// The argument must be numeric. The result type comes from
+/// [`StatisticalAggregatePolicy`] (`float8` on PostgreSQL, `DOUBLE` on
+/// MySQL); on PostgreSQL the call is wrapped in
+/// `CAST(... AS DOUBLE PRECISION)`. The result is nullable and an aggregate.
+/// SQLite has no `VAR_SAMP`, so this does not compile for SQLite.
 ///
-/// Note: This function is available in `PostgreSQL`. `SQLite` does not have it built-in.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::var_samp;
-///
-/// let variance = var_samp(measurements.value);
-/// // Generates: VAR_SAMP("measurements"."value")
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     var_samp(users.age).sql(),
+///     r#"CAST (VAR_SAMP ("users"."age") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn var_samp<'a, V, E>(
@@ -613,7 +798,29 @@ where
     SQLExpr::new(pg_double(SQL::func("VAR_SAMP", expr.into_expr_sql())))
 }
 
-/// Sample variance. Emits `VARIANCE` on PostgreSQL and `VAR_SAMP` on MySQL.
+/// Sample variance: `VARIANCE` on PostgreSQL, `VAR_SAMP` on MySQL.
+///
+/// Same typing as [`var_samp`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     variance(users.age).sql(),
+///     r#"CAST (VARIANCE ("users"."age") AS DOUBLE PRECISION)"#
+/// );
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn variance<'a, V, E>(
     expr: E,
@@ -639,7 +846,27 @@ where
     )))
 }
 
-/// `BOOL_AND` - true if all non-null inputs are true (`PostgreSQL`).
+/// True when every non-NULL input is true (`BOOL_AND`), on PostgreSQL.
+///
+/// The argument must be `boolean`. The result is the dialect's boolean,
+/// nullable, and an aggregate.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(bool_and(users.active).sql(), r#"BOOL_AND ("users"."active")"#);
+/// ```
 pub fn bool_and<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
@@ -652,7 +879,27 @@ where
     SQLExpr::new(SQL::func("BOOL_AND", expr.into_expr_sql()))
 }
 
-/// `BOOL_OR` - true if any non-null input is true (`PostgreSQL`).
+/// True when any non-NULL input is true (`BOOL_OR`), on PostgreSQL.
+///
+/// The argument must be `boolean`. The result is the dialect's boolean,
+/// nullable, and an aggregate.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(bool_or(users.active).sql(), r#"BOOL_OR ("users"."active")"#);
+/// ```
 pub fn bool_or<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, Null, Agg, E::Sources>
@@ -665,7 +912,26 @@ where
     SQLExpr::new(SQL::func("BOOL_OR", expr.into_expr_sql()))
 }
 
-/// `JSON_AGG` - aggregates values into a JSON array (`PostgreSQL`).
+/// Collects values into a JSON array (`JSON_AGG`), on PostgreSQL.
+///
+/// Accepts any expression. The result is `json`, nullable, and an aggregate.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(json_agg(users.name).sql(), r#"JSON_AGG ("users"."name")"#);
+/// ```
 pub fn json_agg<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Json, Null, Agg, E::Sources>
@@ -677,7 +943,26 @@ where
     SQLExpr::new(SQL::func("JSON_AGG", expr.into_expr_sql()))
 }
 
-/// `JSONB_AGG` - aggregates values into a JSONB array (`PostgreSQL`).
+/// Collects values into a JSONB array (`JSONB_AGG`), on PostgreSQL.
+///
+/// Accepts any expression. The result is `jsonb`, nullable, and an aggregate.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(jsonb_agg(users.name).sql(), r#"JSONB_AGG ("users"."name")"#);
+/// ```
 pub fn jsonb_agg<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Jsonb, Null, Agg, E::Sources>
@@ -689,7 +974,27 @@ where
     SQLExpr::new(SQL::func("JSONB_AGG", expr.into_expr_sql()))
 }
 
-/// `ARRAY_AGG` - aggregates values into a SQL array (`PostgreSQL`).
+/// Collects values into a SQL array (`ARRAY_AGG`), on PostgreSQL.
+///
+/// Accepts any expression. The result is an array of the argument's SQL type,
+/// nullable, and an aggregate.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(array_agg(users.id).sql(), r#"ARRAY_AGG ("users"."id")"#);
+/// ```
 pub fn array_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Array<E::SQLType>, Null, Agg, E::Sources>
 where
     V: SQLParam + 'a,
@@ -703,20 +1008,27 @@ where
 // TOTAL (SQLite)
 // =============================================================================
 
-/// TOTAL - sums numeric values, returning 0.0 for empty sets (`SQLite`).
+/// Floating-point sum that is never NULL (`TOTAL`), on SQLite.
 ///
-/// Unlike `SUM`, which returns NULL for an empty result set,
-/// `TOTAL` always returns a floating-point value (0.0 for empty sets).
+/// The argument must be numeric. Unlike [`sum`], `TOTAL` of no rows is `0.0`,
+/// so the result is non-null. It is the dialect's double type and an
+/// aggregate.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::total;
-///
-/// // SELECT TOTAL(orders.amount)
-/// let total_amount = total(orders.amount);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(total(users.age).sql(), r#"TOTAL ("users"."age")"#);
 /// ```
 pub fn total<'a, V, E>(
     expr: E,
@@ -734,9 +1046,27 @@ where
 // GROUP_CONCAT / STRING_AGG
 // =============================================================================
 
-/// `GROUP_CONCAT` - concatenates values into a string (`SQLite` and `MySQL`).
+/// Joins text values with commas (`GROUP_CONCAT`), on SQLite and MySQL.
 ///
-/// Returns Text type, nullable.
+/// The argument must be text. The result is text, nullable, and an aggregate.
+/// On PostgreSQL, use [`string_agg`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(group_concat(users.name).sql(), r#"GROUP_CONCAT ("users"."name")"#);
+/// ```
 pub fn group_concat<'a, V, E>(
     expr: E,
 ) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Text, Null, Agg, E::Sources>
@@ -749,7 +1079,28 @@ where
     SQLExpr::new(SQL::func("GROUP_CONCAT", expr.into_expr_sql()))
 }
 
-/// `STRING_AGG` - concatenates text values using a delimiter (`PostgreSQL`).
+/// Joins text values with a delimiter (`STRING_AGG`), on PostgreSQL.
+///
+/// Both arguments must be text. The result is text, nullable, and an
+/// aggregate. On SQLite and MySQL, use [`group_concat`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let names = string_agg(users.name, ", ");
+/// assert_eq!(names.sql(), r#"STRING_AGG ("users"."name", $1)"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn string_agg<'a, V, E, D>(
     expr: E,
@@ -775,19 +1126,25 @@ where
 // PostgreSQL Aggregate Functions
 // =============================================================================
 
-/// EVERY - true if all non-null inputs are true (`PostgreSQL`).
+/// True when every non-NULL input is true (`EVERY`), on PostgreSQL.
 ///
-/// SQL standard alias for `BOOL_AND`.
+/// The SQL-standard spelling of [`bool_and`], with the same typing.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::every;
-///
-/// // SELECT EVERY(orders.is_paid)
-/// let all_paid = every(orders.is_paid);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(every(users.active).sql(), r#"EVERY ("users"."active")"#);
 /// ```
 pub fn every<'a, V, E>(
     expr: E,
@@ -801,17 +1158,27 @@ where
     SQLExpr::new(SQL::func("EVERY", expr.into_expr_sql()))
 }
 
-/// `JSON_OBJECT_AGG` - aggregates key/value pairs into a JSON object (`PostgreSQL`).
+/// Collects key/value pairs into a JSON object (`JSON_OBJECT_AGG`), on PostgreSQL.
 ///
-/// # Example
+/// Accepts any key and value expressions. The result is `json`, nullable, and
+/// an aggregate.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::json_object_agg;
-///
-/// // SELECT JSON_OBJECT_AGG(settings.key, settings.value)
-/// let obj = json_object_agg(settings.key, settings.value);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let by_name = json_object_agg(users.name, users.age);
+/// assert_eq!(by_name.sql(), r#"JSON_OBJECT_AGG ("users"."name", "users"."age")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn json_object_agg<'a, V, K, Val>(
@@ -832,17 +1199,27 @@ where
     ))
 }
 
-/// `JSONB_OBJECT_AGG` - aggregates key/value pairs into a JSONB object (`PostgreSQL`).
+/// Collects key/value pairs into a JSONB object (`JSONB_OBJECT_AGG`), on PostgreSQL.
 ///
-/// # Example
+/// Accepts any key and value expressions. The result is `jsonb`, nullable,
+/// and an aggregate.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::jsonb_object_agg;
-///
-/// // SELECT JSONB_OBJECT_AGG(settings.key, settings.value)
-/// let obj = jsonb_object_agg(settings.key, settings.value);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let by_name = jsonb_object_agg(users.name, users.age);
+/// assert_eq!(by_name.sql(), r#"JSONB_OBJECT_AGG ("users"."name", "users"."age")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn jsonb_object_agg<'a, V, K, Val>(
@@ -867,9 +1244,29 @@ where
 // Distinct Wrapper
 // =============================================================================
 
-/// DISTINCT - marks an expression as DISTINCT.
+/// Prefixes an expression with `DISTINCT`.
 ///
-/// Typically used inside aggregate functions.
+/// Renders `DISTINCT expr` and keeps the expression's type and nullability.
+/// Note that it is marked scalar, even when `expr` is an aggregate. For
+/// aggregates, prefer [`count_distinct`], [`sum_distinct`] and
+/// [`avg_distinct`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(distinct(users.name).sql(), r#"DISTINCT "users"."name""#);
+/// ```
 pub fn distinct<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, Scalar, E::Sources>
 where
     V: SQLParam + 'a,

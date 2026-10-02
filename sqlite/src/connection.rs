@@ -1,14 +1,18 @@
-//! Transaction-type marker and per-driver behavior conversions for `SQLite` drivers.
+//! `SQLite` transaction locking modes and their conversions to each
+//! driver's type.
 
-/// Locking behavior used when starting a `SQLite` transaction.
+/// How a `SQLite` transaction takes locks when it begins
+/// (`BEGIN DEFERRED`, `BEGIN IMMEDIATE` or `BEGIN EXCLUSIVE`).
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransactionConfig {
     #[default]
-    /// A deferred transaction is the default - it does not acquire locks until needed
+    /// Takes no lock until the first read or write. The default.
     Deferred,
-    /// An immediate transaction acquires a RESERVED lock immediately
+    /// Starts a write transaction at once, so other connections cannot
+    /// start writing.
     Immediate,
-    /// An exclusive transaction acquires an EXCLUSIVE lock immediately
+    /// Like `Immediate`; in rollback-journal mode it also blocks other
+    /// connections from reading.
     Exclusive,
 }
 

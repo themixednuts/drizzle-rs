@@ -1,12 +1,8 @@
-//! NULL propagation and handling.
+//! NULL handling: [`coalesce`], [`ifnull`], [`nullif`], [`greatest`], [`least`].
 //!
-//! This module provides traits and functions for handling SQL NULL values
-//! in a type-safe manner.
-//!
-//! # Type Safety
-//!
-//! - `coalesce`, `ifnull`: Require compatible types between expression and default
-//! - `nullif`: Requires compatible types between the two arguments
+//! All of these need arguments with compatible SQL types. Their results track
+//! nullability: [`coalesce`] is non-null as soon as one argument is non-null,
+//! while [`nullif`] is always nullable.
 
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
@@ -26,23 +22,49 @@ type FallbackSources<'a, V, A, B> = Coalesce<
 // COALESCE Function
 // =============================================================================
 
-/// COALESCE - returns first non-null value.
+/// The first non-NULL of two values (`COALESCE(expr, default)`).
 ///
-/// Requires compatible types between the expression and default.
+/// Both arguments must have compatible SQL types; the result has `expr`'s
+/// type. The result is non-null if either argument is non-null, so a nullable
+/// column with a non-null default becomes non-null. It is an aggregate if
+/// either argument is.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Both are Text
-/// coalesce(users.nickname, users.name);
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // `email` is nullable; the result is not.
+/// let email = coalesce(users.email, "unknown");
+/// assert_eq!(email.sql(), r#"COALESCE ("users"."email", ?)"#);
+/// ```
 ///
-/// // ✅ OK: Int with i32 literal
-/// coalesce(users.age, 0);
+/// # Type safety
 ///
-/// // ❌ Compile error: Int not compatible with Text
-/// coalesce(users.age, "unknown");
-/// # "####;
+/// The default must have a compatible type:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = coalesce(users.score, "none");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn coalesce<'a, V, E, D>(
@@ -72,20 +94,30 @@ where
     ))
 }
 
-/// COALESCE with multiple values.
+/// The first non-NULL of several values (`COALESCE(first, rest...)`).
 ///
-/// Returns the first non-null value from the provided expressions.
-/// Takes an explicit first argument to guarantee at least one value at compile time.
+/// `first` is separate so the list is never empty. `rest` is any iterator;
+/// its elements share one Rust type, and their SQL type must be compatible
+/// with `first`'s. The result has `first`'s type and is non-null if `first`
+/// or the `rest` element type is non-null (even when `rest` turns out to be
+/// empty).
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::coalesce_many;
-///
-/// // COALESCE(users.nickname, users.username, 'Anonymous')
-/// let name = coalesce_many(users.nickname, [users.username, "Anonymous"]);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let email = coalesce_many(users.email, ["unknown", "n/a"]);
+/// assert_eq!(email.sql(), r#"COALESCE ("users"."email", ?, ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn coalesce_many<'a, V, E, I>(
@@ -119,20 +151,28 @@ where
 // NULLIF Function
 // =============================================================================
 
-/// NULLIF - returns NULL if arguments are equal, else first argument.
+/// NULL when two values are equal, otherwise the first (`NULLIF(a, b)`).
 ///
-/// Requires compatible types between the two arguments.
-/// The result is always nullable since it can return NULL.
+/// Both arguments must have compatible SQL types. The result has the first
+/// argument's type and is always nullable.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::nullif;
-///
-/// // Returns NULL if status is 'unknown', otherwise returns status
-/// let status = nullif(item.status, "unknown");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // Treat empty names as missing.
+/// let name = nullif(users.name, "");
+/// assert_eq!(name.sql(), r#"NULLIF ("users"."name", ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn nullif<'a, V, E1, E2>(
@@ -166,10 +206,29 @@ where
 // IFNULL / NVL Function
 // =============================================================================
 
-/// IFNULL - SQLite/MySQL equivalent of COALESCE with two arguments.
+/// The first value, or `default` when it is NULL (`IFNULL(expr, default)`).
 ///
-/// Requires compatible types between the expression and default.
-/// Returns the first argument if not NULL, otherwise returns the second.
+/// Same typing as [`coalesce`]. `IFNULL` exists on SQLite and MySQL but not on
+/// PostgreSQL. This function is not restricted by dialect, so on PostgreSQL
+/// it compiles but the database rejects it; use [`coalesce`] there.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let email = ifnull(users.email, "unknown");
+/// assert_eq!(email.sql(), r#"IFNULL ("users"."email", ?)"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn ifnull<'a, V, E, D>(
     expr: E,
@@ -202,15 +261,17 @@ where
 // GREATEST / LEAST
 // =============================================================================
 
-/// Dialect-specific NULL propagation for `GREATEST` and `LEAST`.
+/// How `GREATEST` and `LEAST` treat NULL on a dialect.
 ///
 /// PostgreSQL ignores NULL arguments, while MySQL returns NULL when either
-/// argument is NULL. SQLite does not provide these functions.
+/// argument is NULL. SQLite has no such functions, so it does not implement
+/// this trait.
 #[diagnostic::on_unimplemented(
     message = "GREATEST/LEAST are not available for this dialect",
     label = "use a dialect-specific extrema expression"
 )]
 pub trait GreatestLeastPolicy<L: Nullability, R: Nullability> {
+    /// Nullability of the result.
     type Nullable: Nullability;
     /// How the operands' sources (each an [`Arg`]) combine.
     type Sources<A, B>;
@@ -234,21 +295,29 @@ where
     type Sources<A, B> = (A, B);
 }
 
-/// GREATEST - returns the largest of the given values (`PostgreSQL` and `MySQL`).
+/// The larger of two values (`GREATEST(left, right)`), on PostgreSQL and MySQL.
 ///
-/// Both arguments must have compatible types. `PostgreSQL` ignores NULL inputs,
-/// so `GREATEST(1, NULL)` returns `1`. The result is only NULL when all
-/// inputs are NULL. MySQL returns NULL if either input is NULL.
+/// Both arguments must have compatible SQL types; the result has `left`'s
+/// type. On PostgreSQL, NULL arguments are ignored, so the result is NULL only
+/// when both are. On MySQL, the result is NULL when either argument is. SQLite
+/// has no `GREATEST`, so this does not compile for SQLite.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::greatest;
-///
-/// // Clamp to minimum of 0
-/// let score = greatest(users.score, 0);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = greatest(users.age, 18);
+/// assert_eq!(n.sql(), r#"GREATEST ("users"."age", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn greatest<'a, V, L, R>(
@@ -282,21 +351,29 @@ where
     ))
 }
 
-/// LEAST - returns the smallest of the given values (`PostgreSQL` and `MySQL`).
+/// The smaller of two values (`LEAST(left, right)`), on PostgreSQL and MySQL.
 ///
-/// Both arguments must have compatible types. `PostgreSQL` ignores NULL inputs,
-/// so `LEAST(1, NULL)` returns `1`. The result is only NULL when all
-/// inputs are NULL. MySQL returns NULL if either input is NULL.
+/// Both arguments must have compatible SQL types; the result has `left`'s
+/// type. On PostgreSQL, NULL arguments are ignored, so the result is NULL only
+/// when both are. On MySQL, the result is NULL when either argument is. SQLite
+/// has no `LEAST`, so this does not compile for SQLite.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::least;
-///
-/// // Cap at maximum of 100
-/// let score = least(users.score, 100);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = least(users.age, 18);
+/// assert_eq!(n.sql(), r#"LEAST ("users"."age", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn least<'a, V, L, R>(

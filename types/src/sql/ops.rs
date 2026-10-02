@@ -1,3 +1,5 @@
+//! Result types of SQL arithmetic ([`ArithmeticOutput`], [`NegOutput`]).
+
 use super::Numeric;
 
 /// Compatibility marker for dialects whose arithmetic promotion does not
@@ -50,12 +52,45 @@ impl super::private::Sealed for AlwaysNullable {}
 impl ArithmeticNullability for PropagateNullability {}
 impl ArithmeticNullability for AlwaysNullable {}
 
-/// Maps a pair of numeric SQL types and an operator to the result SQL type.
+/// The SQL type produced by `Self <op> Rhs`, where both sides are [`Numeric`].
 ///
-/// The output follows SQL's type promotion rules: narrower types widen to
-/// wider types (e.g. `Int2 + Int8 → Int8`, `Int4 + Float8 → Float8`).
-/// Dialects whose output varies by operator, such as MySQL integer division,
-/// implement only the corresponding operator marker.
+/// The output follows each database's promotion rules:
+///
+/// - **SQLite**: `Integer op Integer` is `Integer`; any `Real` makes it
+///   `Real`; `Numeric` with `Integer` stays `Numeric`; `Any` with anything
+///   is `Any`.
+/// - **PostgreSQL**: integers widen to the wider integer (`Int2 + Int8` is
+///   `Int8`); an integer with a float gives a float (`Int4 + Float8` is
+///   `Float8`; only `Int2` with `Float4` stays `Float4`); `Numeric` with an
+///   integer stays `Numeric`; `Numeric` with a float gives `Float8`.
+/// - **MySQL**: integer `+`, `-` and `*` give `BigInt` (`BigIntUnsigned` if
+///   an operand is unsigned); integer `%` gives `BigInt` or `BigIntUnsigned`
+///   following the left operand; `/` of exact values gives `Decimal`;
+///   `Decimal` with an integer gives `Decimal`; any `Float` or `Double`
+///   operand gives `Double`. `Year` counts as an unsigned integer.
+///
+/// `Op` selects the operator (`AddOp`, `SubOp`, `MulOp`, `DivOp`, `RemOp`).
+/// The default, `ArithmeticOp`, is an operator-independent form implemented
+/// only for SQLite and PostgreSQL, whose result type does not depend on the
+/// operator.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::{ArithmeticOutput, Numeric};
+/// use drizzle_types::postgres::types::{Float8, Int2, Int4, Int8};
+///
+/// fn output<L, R, O>()
+/// where
+///     L: ArithmeticOutput<R, Output = O>,
+///     R: Numeric,
+///     O: Numeric,
+/// {
+/// }
+///
+/// output::<Int2, Int8, Int8>(); // smallint + bigint -> bigint
+/// output::<Int4, Float8, Float8>(); // integer + double -> double
+/// ```
 #[diagnostic::on_unimplemented(
     message = "arithmetic between `{Self}` and `{Rhs}` is not supported",
     label = "both operands must be Numeric (Int, BigInt, Float, Double, etc.)"
@@ -64,11 +99,18 @@ pub trait ArithmeticOutput<Rhs: Numeric = Self, Op = ArithmeticOp>: Numeric {
     /// The resulting SQL type of the arithmetic expression.
     type Output: Numeric;
 
-    /// Whether the operator itself can introduce `NULL`.
+    /// Whether the operator itself can produce `NULL` even from non-NULL
+    /// operands: `/` and `%` on SQLite's `Integer`, `Real` and `Numeric` and
+    /// on every MySQL numeric type, which return `NULL` for a zero divisor.
+    /// PostgreSQL raises an error instead, so its operators only propagate
+    /// operand nullability.
     type Nullability: ArithmeticNullability;
 }
 
-/// Maps a numeric SQL type to the result type of unary negation.
+/// The SQL type produced by unary negation, `-expr`.
+///
+/// Usually the input type. MySQL integers (signed or unsigned, and `Year`)
+/// negate to `BigInt`, and `Float` to `Double`.
 #[diagnostic::on_unimplemented(
     message = "unary negation of `{Self}` is not supported",
     label = "the dialect has no numeric result mapping for this operand"

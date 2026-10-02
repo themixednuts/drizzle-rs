@@ -2,7 +2,8 @@
 //!
 //! The Data API has first-class server-side transactions:
 //!
-//! * [`Drizzle::transaction`] issues a `BeginTransaction` call; the returned
+//! * [`Drizzle::transaction`](crate::postgres::aws::Drizzle::transaction)
+//!   issues a `BeginTransaction` call; the returned
 //!   `transactionId` is threaded into every subsequent `ExecuteStatement` via
 //!   the `transactionId` field.
 //! * Commit / rollback go through `CommitTransaction` / `RollbackTransaction`
@@ -38,9 +39,9 @@ fn tx_consumed_error() -> DrizzleError {
     DrizzleError::TransactionError("Transaction already consumed".into())
 }
 
-/// AWS Data API transaction builder wrapper. See
-/// `TransactionBuilder` for the
-/// typestate-advancing methods; executor methods live below.
+/// A query being built inside a [`Transaction`]. It has the same clause
+/// methods as the connection's builder; run it with `.execute()`, `.all()`,
+/// `.get()`, or `.rows()`.
 pub type TransactionBuilder<'tx, Schema, Builder, State> =
     crate::transaction::postgres::typestate::TransactionBuilder<
         'tx,
@@ -50,19 +51,20 @@ pub type TransactionBuilder<'tx, Schema, Builder, State> =
         State,
     >;
 
-/// Active AWS Aurora Data API transaction.
+/// An open Aurora Data API transaction, passed to the closure given to
+/// `transaction`.
 ///
-/// Owns the `transactionId` returned by `BeginTransaction` and threads it into
-/// every `ExecuteStatement`. You do not commit or roll back by hand:
+/// It has the same query methods as the database handle (`select`,
+/// `insert`, `update`, `delete`, `with`), plus `savepoint`. Every request it
+/// sends carries the `transactionId` returned by `BeginTransaction`.
+///
+/// You do not commit or roll back by hand:
 /// [`Drizzle::transaction`](crate::postgres::aws::Drizzle::transaction) ends
 /// the transaction with `CommitTransaction` when the callback returns `Ok` and
 /// with `RollbackTransaction` when it returns `Err`. If the transaction is
 /// dropped while still open, for example because the future returned by
 /// `transaction` was dropped before it finished, `Drop` spawns a best-effort
 /// `RollbackTransaction` on the current Tokio runtime.
-///
-/// Cloning a `Client` is cheap (internal `Arc`), so a transaction can freely
-/// reuse the ambient client.
 pub struct Transaction<Schema = ()> {
     client: Client,
     resource_arn: Arc<str>,
@@ -134,13 +136,13 @@ impl<Schema> Transaction<Schema> {
         }
     }
 
-    /// Schema handle.
+    /// Returns the schema value the database handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    /// Legacy isolation view.
+    /// Returns the isolation level as the older `PostgresTransactionType`.
     ///
     /// This cannot distinguish server-default isolation from explicit
     /// `READ COMMITTED`. Use [`Self::config`] when that distinction matters.
@@ -155,26 +157,29 @@ impl<Schema> Transaction<Schema> {
         }
     }
 
-    /// Configuration used to begin this transaction.
+    /// Returns the configuration this transaction was started with.
     #[inline]
     pub const fn config(&self) -> TransactionConfig {
         self.config
     }
 
-    /// Current transaction id, if the transaction is still open.
+    /// Returns the Data API transaction ID, or `None` once the transaction
+    /// has ended.
     pub fn transaction_id(&self) -> Option<String> {
         self.tx_id.lock().ok().and_then(|g| g.clone())
     }
 
-    /// Run a nested savepoint block.
+    /// Runs `f` inside a savepoint nested in this transaction.
     ///
-    /// On `Ok`: `RELEASE SAVEPOINT`.
-    /// On `Err`: `ROLLBACK TO SAVEPOINT` + `RELEASE SAVEPOINT`.
-    /// The outer transaction stays live either way.
+    /// If `f` returns `Ok`, the savepoint is released; if it returns `Err`, the
+    /// savepoint is rolled back and released. The outer transaction stays
+    /// usable either way.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the savepoint cannot be created/released, or the inner closure returns an error.
+    /// Returns the error from `f`, or an error when `SAVEPOINT`, `RELEASE`, or
+    /// `ROLLBACK TO` fails. When cleanup after an `Err` also fails, both
+    /// errors are reported together.
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
@@ -191,11 +196,13 @@ impl<Schema> Transaction<Schema> {
 
     // Inline execution methods.
 
-    /// Run a raw SQL / built query and return affected row count.
+    /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, inside
+    /// the transaction and returns the number of rows it changed.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails or the SQL is invalid.
+    /// Returns an error when the Data API request fails or the database
+    /// rejects the statement.
     pub async fn execute<'q, T>(&self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'q, PostgresValue<'q>>,
@@ -214,11 +221,13 @@ impl<Schema> Transaction<Schema> {
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
-    /// Run a query and collect all rows into `C`.
+    /// Runs any SQL value inside the transaction and collects its rows into
+    /// `C` (for example `Vec<R>`).
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails or row decoding fails.
+    /// Returns an error when the Data API request fails or a row cannot be
+    /// decoded into `R`.
     pub async fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -243,11 +252,13 @@ impl<Schema> Transaction<Schema> {
             .collect()
     }
 
-    /// Run a query and return a lazy decoded-row cursor.
+    /// Runs any SQL value inside the transaction and returns its rows, decoded
+    /// into `R` as you iterate.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails.
+    /// Returns an error when the Data API request fails. Decoding errors
+    /// surface per row.
     pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -268,11 +279,13 @@ impl<Schema> Transaction<Schema> {
         Ok(Rows::new(decode_rows(out)))
     }
 
-    /// Run a query and return a single row (errors if empty).
+    /// Runs any SQL value inside the transaction and decodes its first row
+    /// into `R`.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when the Data API request fails or the row cannot be decoded into `R`.
     pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -393,11 +406,13 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Run the builder and return affected row count.
+    /// Runs the statement inside the transaction and returns the number of
+    /// rows it changed.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails or the SQL is invalid.
+    /// Returns an error when the Data API request fails or the database
+    /// rejects the statement.
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = {
             #[cfg(feature = "profiling")]
@@ -412,11 +427,16 @@ where
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
-    /// Run the builder and collect all rows using the builder's row type.
+    /// Runs the query inside the transaction and decodes every row into `R`.
+    ///
+    /// The scope and grouping checks of the database handle's `.all()` do not
+    /// apply here, and `R` only needs `TryFrom<&Row>`: a row that does not fit
+    /// is a runtime decode error.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails or row decoding fails.
+    /// Returns an error when the Data API request fails or a row cannot be
+    /// decoded into `R`.
     pub async fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -440,11 +460,13 @@ where
         Ok(decoded)
     }
 
-    /// Run the builder and return a lazy decoded-row cursor.
+    /// Runs the query inside the transaction and returns its rows, decoded
+    /// into the row type the query infers from its selection as you iterate.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails.
+    /// Returns an error when the Data API request fails. Decoding errors
+    /// surface per row.
     pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
         Rw: for<'r> TryFrom<&'r Row>,
@@ -463,11 +485,13 @@ where
         Ok(Rows::new(decode_rows(out)))
     }
 
-    /// Run the builder and return a single row.
+    /// Runs the query inside the transaction and decodes its first row into
+    /// `R`, with the same (runtime) row checks as [`all`](Self::all).
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when the Data API request fails or the row cannot be decoded into `R`.
     pub async fn get<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,

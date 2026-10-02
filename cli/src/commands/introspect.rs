@@ -1,6 +1,5 @@
-//! Introspect command implementation
-//!
-//! Introspects an existing database and generates a snapshot/schema.
+//! `drizzle introspect` / `drizzle pull`: reads a live database and writes a
+//! Rust schema file (and optionally initial migration metadata).
 
 use crate::commands::overrides::{self, ConnectionOverrides, FilterArgs};
 use crate::config::{Config, Dialect, IntrospectCasing};
@@ -36,14 +35,21 @@ pub struct IntrospectOptions {
     pub connection: ConnectionOverrides,
 }
 
-/// Run the introspect command.
+/// Runs `drizzle introspect` (alias `drizzle pull`): reads the live schema
+/// and writes it as Rust to `<out>/schema.rs`, plus a baseline migration
+/// folder `<out>/<tag>/` whose `migration.sql` creates that schema.
+///
+/// The migrations tracking table is left out, and the table, schema,
+/// extension, and role filters are applied. With `--init`, the baseline is
+/// also recorded as applied in the database, which is allowed only when the
+/// tracking table is empty and the folder holds no other migration.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the requested database cannot be resolved,
-/// credentials are missing ([`CliError::MissingCredentials`]) or invalid,
-/// connecting to the database fails, or writing the generated Rust schema
-/// files fails.
+/// Returns [`CliError`] if `db_name` does not match the config, there are no
+/// credentials ([`CliError::MissingCredentials`]) or no driver for them,
+/// connecting or reading the catalog fails, the folder uses the legacy
+/// journal layout, files cannot be written, or `--init` is refused.
 pub fn run(
     config: &Config,
     db_name: Option<&str>,

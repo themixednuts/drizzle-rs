@@ -6,13 +6,15 @@ use crate::{
     scope::ListIncludes, types::Assignable,
 };
 
-/// An INSERT state with an explicit target-column list awaiting its SELECT source.
+/// INSERT builder state after `.columns(...)`, waiting for its SELECT
+/// source. `Columns` is the type-level list of target columns.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertColumnsSet<Columns>(PhantomData<Columns>);
 
 /// A generated table column that may appear in an INSERT target list.
 #[doc(hidden)]
 pub trait InsertColumn<Table> {
+    /// The column type itself (the same type for a bare column).
     type Column;
 }
 
@@ -26,11 +28,15 @@ where
 /// Generated INSERT SELECT metadata for a table.
 #[doc(hidden)]
 pub trait InsertSelectTable {
+    /// Insertable columns, in order.
     type Columns: TypeSet;
+    /// Columns an INSERT must set: `NOT NULL` without a database default.
     type RequiredColumns: TypeSet;
 
+    /// Names of the insertable columns, in order.
     const INSERT_COLUMNS: &'static [&'static str];
 
+    /// Renders `("col1", "col2", ...)` from [`Self::INSERT_COLUMNS`].
     fn insert_columns_sql<'a, V: SQLParam>() -> SQL<'a, V> {
         let mut sql = SQL::empty();
         for (index, column) in Self::INSERT_COLUMNS.iter().enumerate() {
@@ -84,11 +90,18 @@ where
 /// An explicit column selection that is valid as an INSERT target list.
 #[doc(hidden)]
 pub trait InsertTargetColumns<'a, V: SQLParam, Table> {
+    /// The target columns as a type-level list.
     type Columns: TypeSet;
 
+    /// Renders `("col1", "col2", ...)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the list is empty or names a column twice.
     fn into_target_columns_sql(self) -> SQL<'a, V>;
 }
 
+/// Target columns of an explicit column selection.
 #[doc(hidden)]
 pub trait InsertTargetMarker<Table> {
     type Columns: TypeSet;
@@ -102,10 +115,17 @@ where
     type Columns = <Selected::Expressions as InsertTargetColumnList<Table>>::Columns;
 }
 
+/// A type-level list of target columns that all belong to `Table`.
 #[doc(hidden)]
 pub trait InsertTargetColumnList<Table> {
+    /// The list with each element resolved to its column type.
     type Columns: TypeSet;
 
+    /// Appends the quoted column names, comma-separated, to `sql`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a column already appears in `sql`.
     fn append_columns<'a, V: SQLParam>(sql: &mut SQL<'a, V>);
 }
 

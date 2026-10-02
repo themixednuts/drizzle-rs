@@ -1,6 +1,7 @@
-//! `PostgreSQL` Index DDL types
+//! `PostgreSQL` indexes: [`IndexDef`] (const) and [`Index`] (runtime), with
+//! their key parts and operator classes.
 //!
-//! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
+//! Mirrors drizzle-kit's [`ddl.ts`](https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts).
 
 use crate::alloc_prelude::*;
 use core::fmt::Write;
@@ -12,7 +13,7 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // Const-friendly Definition Types
 // =============================================================================
 
-/// Const-friendly operator class definition
+/// An operator class definition that can be built in a `const`.
 ///
 /// Represents the operator class for an index column with optional default flag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -27,7 +28,7 @@ pub struct OpclassDef {
 }
 
 impl OpclassDef {
-    /// Create a new operator class definition
+    /// Creates an operator class definition.
     #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self {
@@ -45,7 +46,7 @@ impl OpclassDef {
         }
     }
 
-    /// Convert to runtime [`Opclass`] type
+    /// Converts to the runtime [`Opclass`].
     #[must_use]
     pub const fn into_opclass(self) -> Opclass {
         Opclass {
@@ -55,7 +56,7 @@ impl OpclassDef {
     }
 }
 
-/// Runtime operator class entity
+/// An operator class, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -69,7 +70,7 @@ pub struct Opclass {
 }
 
 impl Opclass {
-    /// Create a new operator class
+    /// Creates an operator class.
     #[must_use]
     pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -78,7 +79,7 @@ impl Opclass {
         }
     }
 
-    /// Get the operator class name
+    /// Returns the operator class name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
@@ -98,7 +99,7 @@ impl core::fmt::Display for Opclass {
     }
 }
 
-/// Runtime index column entity for serde serialization
+/// An index column, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -124,7 +125,7 @@ pub struct IndexColumn {
 }
 
 impl IndexColumn {
-    /// Create a new index column
+    /// Creates an index column.
     #[must_use]
     pub fn new(value: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -212,7 +213,7 @@ impl From<OpclassDef> for Opclass {
     }
 }
 
-/// Const-friendly index column definition
+/// An index column definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -242,7 +243,7 @@ const fn default_true() -> bool {
 }
 
 impl IndexColumnDef {
-    /// Create a new index column definition
+    /// Creates an index column definition.
     #[must_use]
     pub const fn new(value: &'static str) -> Self {
         Self {
@@ -300,7 +301,7 @@ impl IndexColumnDef {
     }
 }
 
-/// Const-friendly index definition
+/// An index definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct IndexDef {
     /// Schema name
@@ -326,7 +327,7 @@ pub struct IndexDef {
 }
 
 impl IndexDef {
-    /// Create a new index definition
+    /// Creates an index definition.
     #[must_use]
     pub const fn new(
         schema: &'static str,
@@ -402,7 +403,7 @@ impl IndexDef {
         }
     }
 
-    /// Convert to runtime [`Index`] type
+    /// Converts to the runtime [`Index`].
     #[must_use]
     pub fn into_index(self) -> Index {
         Index {
@@ -424,7 +425,7 @@ impl IndexDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime index entity for serde serialization
+/// An index, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -492,7 +493,7 @@ pub struct Index {
 }
 
 impl Index {
-    /// Create a new index
+    /// Creates an index.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -528,21 +529,21 @@ impl Index {
         self
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the index name
+    /// Returns the index name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

@@ -5,18 +5,30 @@ use crate::types::{Assignable, DataType};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::prelude::{Arc, Box, Cow, Rc, String, Vec};
 
-/// Maps a Rust value type to its SQL marker for a specific dialect.
+/// The SQL type a Rust value has when bound in dialect `D`.
+///
+/// For example `i64` is `Integer` on SQLite and `Int8` on PostgreSQL.
 pub trait ValueTypeForDialect<D> {
+    /// The SQL type marker.
     type SQLType: DataType;
 }
 
-/// Converts a Rust value into a dialect value while checking SQL marker assignment.
+/// A Rust value that can be bound where SQL type `Expected` is wanted.
+///
+/// Implemented for every `T` that converts into `V` and whose
+/// [`ValueTypeForDialect`] type can be stored in `Expected`. Used by
+/// [`TypedPlaceholder::bind`](crate::TypedPlaceholder::bind).
 pub trait BindValue<'a, V: SQLParam, Expected: DataType>: Sized {
+    /// Converts the value into the dialect's value type.
     fn into_bind_value(self) -> V;
 }
 
-/// Converts an optional Rust value into a nullable dialect value.
+/// An `Option<T>` that can be bound where a nullable `Expected` is wanted.
+///
+/// Used by [`TypedPlaceholder::bind_opt`](crate::TypedPlaceholder::bind_opt).
 pub trait NullableBindValue<'a, V: SQLParam, Expected: DataType>: Sized {
+    /// Converts the value into the dialect's value type (`None` becomes
+    /// NULL).
     fn into_nullable_bind_value(self) -> V;
 }
 

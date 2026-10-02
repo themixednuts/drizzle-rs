@@ -1,4 +1,4 @@
-//! Error types for drizzle-core
+//! The error type shared by every Drizzle crate and driver.
 
 use crate::prelude::{Box, String, ToString, Vec, format};
 use compact_str::CompactString;
@@ -7,7 +7,9 @@ use thiserror::Error;
 const MAX_CONTEXT_PARAMS: usize = 32;
 const MAX_CONTEXT_PARAM_CHARS: usize = 128;
 
-/// SQL and parameter context captured when a query fails.
+/// The SQL and parameters of a failed query, kept for the error message.
+///
+/// Attach it with [`ResultExt::with_query`].
 #[derive(Debug, Clone)]
 pub struct QueryContext {
     /// Rendered SQL statement.
@@ -19,7 +21,10 @@ pub struct QueryContext {
 }
 
 impl QueryContext {
-    /// Builds an owned query context from borrowed parameters.
+    /// Captures `sql` and the `Debug` form of each parameter.
+    ///
+    /// At most 32 parameters are kept, each cut to 128 characters, so the
+    /// error stays small.
     pub fn new<V: core::fmt::Debug>(sql: &str, params: &[&V]) -> Self {
         let rendered = params
             .iter()
@@ -72,38 +77,43 @@ fn truncate_param(mut value: String) -> CompactString {
     truncated.into()
 }
 
-/// Core error type for drizzle operations
+/// Every error a Drizzle query, conversion or migration can return.
+///
+/// Driver errors are wrapped in a variant for that driver when its feature
+/// is enabled. [`DrizzleError::QueryFailed`] adds the failing SQL and
+/// parameters to another error.
 #[derive(Debug, Error)]
 pub enum DrizzleError {
-    /// Error executing a query
+    /// The statement failed to execute.
     #[error("Execution error: {0}")]
     ExecutionError(compact_str::CompactString),
 
-    /// Error preparing a statement
+    /// The statement failed to prepare.
     #[error("Prepare error: {0}")]
     PrepareError(compact_str::CompactString),
 
-    /// No rows returned when at least one was expected
+    /// No row was returned where one was expected (for example by `.get()`).
     #[error("No rows found")]
     NotFound,
 
-    /// Error with transaction
+    /// A transaction could not begin, commit or roll back.
     #[error("Transaction error: {0}")]
     TransactionError(compact_str::CompactString),
 
-    /// Error mapping data
+    /// A row could not be mapped to the target type.
     #[error("Mapping error: {0}")]
     Mapping(compact_str::CompactString),
 
-    /// Error in statement
+    /// The statement is invalid.
     #[error("Statement error: {0}")]
     Statement(compact_str::CompactString),
 
-    /// Error in query
+    /// The query is invalid.
     #[error("Query error: {0}")]
     Query(CompactString),
 
-    /// Query error with rendered SQL and parameter context.
+    /// Another error, with the SQL and parameters of the query that caused
+    /// it.
     #[error("{source}\n  sql: {sql}\n  params: {params}", sql = .ctx.sql, params = .ctx.params_display())]
     QueryFailed {
         /// Captured SQL and parameter context.
@@ -113,31 +123,32 @@ pub enum DrizzleError {
         source: Box<DrizzleError>,
     },
 
-    /// Error converting parameters
+    /// Parameters could not be bound: missing, duplicate or unexpected
+    /// bindings, or a value that could not be converted.
     #[error("Parameter conversion error: {0}")]
     ParameterError(compact_str::CompactString),
 
-    /// Integer conversion error
+    /// An integer did not fit the target type.
     #[error("Integer conversion error: {0}")]
     TryFromInt(#[from] core::num::TryFromIntError),
 
-    /// Parse int error
+    /// Text could not be parsed as an integer.
     #[error("Parse int error: {0}")]
     ParseInt(#[from] core::num::ParseIntError),
 
-    /// Parse float error
+    /// Text could not be parsed as a float.
     #[error("Parse float error: {0}")]
     ParseFloat(#[from] core::num::ParseFloatError),
 
-    /// Parse bool error
+    /// Text could not be parsed as a boolean.
     #[error("Parse bool error: {0}")]
     ParseBool(#[from] core::str::ParseBoolError),
 
-    /// Type conversion error
+    /// A value could not be converted to the requested type.
     #[error("Type conversion error: {0}")]
     ConversionError(compact_str::CompactString),
 
-    /// Schema error (e.g. cycle in table dependencies)
+    /// The schema is invalid (for example a cycle in table dependencies).
     #[error("Schema error: {0}")]
     Schema(compact_str::CompactString),
 
@@ -161,7 +172,7 @@ pub enum DrizzleError {
         requirement: CompactString,
     },
 
-    /// Generic error
+    /// Any other error.
     #[error("Database error: {0}")]
     Other(compact_str::CompactString),
 
@@ -188,41 +199,42 @@ pub enum DrizzleError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
-    /// Rusqlite specific errors
+    /// An error from `rusqlite`.
     #[cfg(feature = "rusqlite")]
     #[error("Rusqlite error: {0}")]
     Rusqlite(#[from] rusqlite::Error),
 
-    /// Turso specific errors
+    /// An error from `turso`.
     #[cfg(feature = "turso")]
     #[error("Turso error: {0}")]
     Turso(#[from] turso::Error),
 
-    /// `LibSQL` specific errors
+    /// An error from `libsql`.
     #[cfg(feature = "libsql")]
     #[error("LibSQL error: {0}")]
     LibSQL(#[from] libsql::Error),
 
-    /// Postgres specific errors
+    /// An error from `tokio-postgres`.
     #[cfg(feature = "tokio-postgres")]
     #[error("Postgres error: {0}")]
     Postgres(#[from] tokio_postgres::Error),
 
+    /// An error from `postgres`.
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
     #[error("Postgres error: {0}")]
     Postgres(#[from] postgres::Error),
 
-    /// UUID parsing error
+    /// A UUID could not be parsed.
     #[cfg(feature = "uuid")]
     #[error("UUID error: {0}")]
     UuidError(#[from] uuid::Error),
 
-    /// JSON serialization/deserialization error
+    /// A JSON value could not be serialized or deserialized.
     #[cfg(feature = "serde")]
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
 
-    /// Infallible conversion error (should never happen)
+    /// Never constructed; lets `?` work on infallible conversions.
     #[error("Infallible conversion error")]
     Infallible(#[from] core::convert::Infallible),
 }
@@ -254,12 +266,30 @@ impl DrizzleError {
     }
 }
 
-/// Result type for database operations
+/// `Result` with [`DrizzleError`] as the error type.
 pub type Result<T> = core::result::Result<T, DrizzleError>;
 
-/// Attaches SQL and parameter context to a database error.
+/// Adds the failing query's SQL and parameters to an error.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
+///
+/// let result: Result<(), DrizzleError> = Err(DrizzleError::NotFound);
+/// let error = result
+///     .with_query(|| QueryContext::new("SELECT * FROM users WHERE id = ?", &[&7]))
+///     .unwrap_err();
+///
+/// assert_eq!(
+///     error.to_string(),
+///     "No rows found\n  sql: SELECT * FROM users WHERE id = ?\n  params: [7]",
+/// );
+/// ```
 pub trait ResultExt<T> {
-    /// Attach SQL and parameter context lazily on the error path.
+    /// On error, wraps it in [`DrizzleError::QueryFailed`] with the context
+    /// from `ctx`. `ctx` only runs on the error path, and an error that
+    /// already has context keeps it.
     fn with_query<F>(self, ctx: F) -> Result<T>
     where
         F: FnOnce() -> QueryContext;

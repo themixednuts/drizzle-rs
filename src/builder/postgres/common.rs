@@ -21,7 +21,13 @@ use drizzle_postgres::common::PostgresSchemaType;
 use drizzle_postgres::traits::PostgresTable;
 use drizzle_postgres::values::PostgresValue;
 
-/// Shared Postgres drizzle builder wrapper.
+/// A query being built against a PostgreSQL `Drizzle` handle.
+///
+/// Start one with `select`, `insert`, `update`, or `delete` on the handle,
+/// chain clauses, then run it with the driver's `.execute()`, `.all()`,
+/// `.get()`, or `.rows()`. Each clause method is only available where it is
+/// valid SQL (for example, `.having()` only after `.group_by()`). The builder
+/// implements `ToSQL`, so `.to_sql().sql()` shows the SQL it will run.
 #[derive(Debug)]
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
@@ -30,7 +36,13 @@ pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
     pub(crate) state: PhantomData<(Schema, State, &'a ())>,
 }
 
-/// Shared Postgres query builder wrapper (relational query API).
+/// A relational query (`db.query(table)`), which loads rows together with
+/// their related rows in one SQL statement.
+///
+/// Add relations with [`with`](Self::with), narrow it with
+/// [`r#where`](Self::r#where), [`order_by`](Self::order_by),
+/// [`limit`](Self::limit), and [`offset`](Self::offset), then run it with
+/// the driver's `find_many()` or `find_first()`. Each clause can be set once.
 #[cfg(feature = "query")]
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleQueryBuilder<
@@ -48,11 +60,11 @@ pub struct DrizzleQueryBuilder<
     pub(crate) _schema: PhantomData<(&'db (), Schema)>,
 }
 
-/// Prepared relational query.
+/// A relational query rendered once, made by
+/// [`DrizzleQueryBuilder::prepare`].
 ///
-/// Created by [`DrizzleQueryBuilder::prepare`]. The prepared query is detached
-/// from the connection; driver modules provide `find_many` and `find_first`
-/// methods that take an explicit client plus parameter bindings.
+/// It is detached from the connection: the driver's `find_many` and
+/// `find_first` take the client and the placeholder bindings on each call.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone)]
 pub struct DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
@@ -62,13 +74,13 @@ pub struct DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
 
 #[cfg(feature = "query")]
 impl<'a, Driver, T, Rels, Cols> DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
-    /// Returns the prepared SQL string with dialect placeholders.
+    /// Returns the rendered SQL, with `$n` placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
-    /// Returns the number of external parameter bindings expected.
+    /// Returns how many placeholder bindings each run expects.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.inner.external_param_count()
@@ -89,7 +101,10 @@ pub use crate::builder::RelationalPreparedDriver;
 impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
     DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
 {
-    /// Includes a relation in the query results.
+    /// Loads a relation with each row, such as `users.posts()`.
+    ///
+    /// Relation handles can nest their own `.with(..)` and clauses. Call `with`
+    /// again to load more relations.
     #[allow(clippy::type_complexity)]
     pub fn with<R, N, C, RCl>(
         self,
@@ -126,7 +141,11 @@ where
     Rels: drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
     Runner: RelationalPreparedDriver,
 {
-    /// Creates a prepared relational query.
+    /// Renders this relational query once into a reusable
+    /// [`DrizzlePreparedQuery`].
+    ///
+    /// Put column placeholders in the clauses, then run it with the driver's
+    /// prepared `find_many`/`find_first`, binding each placeholder by name.
     pub fn prepare(
         self,
     ) -> DrizzlePreparedQuery<
@@ -166,7 +185,8 @@ where
     Rels: drizzle_core::query::RenderRelations<'a, PostgresValue<'a>>,
     Runner: RelationalPreparedDriver,
 {
-    /// Creates a prepared relational query.
+    /// Renders this partial-column relational query once into a reusable
+    /// [`DrizzlePreparedQuery`].
     pub fn prepare(
         self,
     ) -> DrizzlePreparedQuery<
@@ -213,9 +233,10 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Ord, Lim>
         drizzle_core::query::Clauses<drizzle_core::query::NoWhere, Ord, Lim>,
     >
 {
-    /// Sets the WHERE clause for the query.
+    /// Filters the root rows. Combine conditions with a tuple (`AND`), `and`,
+    /// or `or`; this can be called once.
     ///
-    /// Can only be called once. To combine conditions, use `and(a, b)` or `or(a, b)`.
+    /// The condition may only read the queried table's columns.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -258,7 +279,8 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Lim>
         drizzle_core::query::Clauses<W, drizzle_core::query::NoOrderBy, Lim>,
     >
 {
-    /// Adds a typed ORDER BY clause. Can only be called once.
+    /// Orders the root rows. This can be called once; pass a tuple to order by
+    /// several columns.
     pub fn order_by<E, ScopeProof>(
         self,
         expr: E,
@@ -300,7 +322,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Sets a LIMIT on the query. Can only be called once.
+    /// Returns at most `n` root rows. This can be called once.
     pub fn limit<P>(
         self,
         n: P,
@@ -339,7 +361,7 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
     >
 {
-    /// Sets an OFFSET on the query. Requires `.limit()` first.
+    /// Skips the first `n` root rows. Call [`limit`](Self::limit) first.
     pub fn offset<P>(
         self,
         n: P,
@@ -370,7 +392,10 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cl>
 where
     T: drizzle_core::query::QueryTable,
 {
-    /// Selects only the specified columns (include list).
+    /// Loads only the listed columns.
+    ///
+    /// Rows then use the table's `PartialSelect*` model, where every field is an
+    /// `Option` and unselected ones are `None`.
     pub fn columns<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
@@ -391,7 +416,10 @@ where
         }
     }
 
-    /// Selects all columns except the specified ones (exclude list).
+    /// Loads every column except the listed ones.
+    ///
+    /// Rows then use the table's `PartialSelect*` model, where every field is an
+    /// `Option` and omitted ones are `None`.
     pub fn omit<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
@@ -413,7 +441,11 @@ where
     }
 }
 
-/// Intermediate builder for typed ON CONFLICT within a `PostgreSQL` Drizzle wrapper.
+/// The `ON CONFLICT` step of an insert, made by `.on_conflict(target)` or
+/// `.on_conflict_on_constraint(name)`.
+///
+/// Finish it with [`do_nothing`](Self::do_nothing) or
+/// [`do_update`](Self::do_update).
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
     runner: Runner,
@@ -422,7 +454,8 @@ pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
 }
 
 impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
-    /// Adds a WHERE clause to the conflict target for partial index matching.
+    /// Restricts the conflict target to rows matching `condition`, to match a
+    /// partial unique index: `ON CONFLICT (cols) WHERE condition`.
     pub fn r#where<E, ScopeProof>(mut self, condition: E) -> Self
     where
         E: drizzle_core::expr::ExprSources,
@@ -434,7 +467,7 @@ impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Sch
         self
     }
 
-    /// `ON CONFLICT (cols) DO NOTHING`
+    /// Skips rows that conflict on the target: `ON CONFLICT (target) DO NOTHING`.
     pub fn do_nothing(
         self,
     ) -> DrizzleBuilder<
@@ -451,7 +484,10 @@ impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Sch
         }
     }
 
-    /// `ON CONFLICT (cols) DO UPDATE SET ...`
+    /// Updates the existing row instead: `ON CONFLICT (target) DO UPDATE SET ...`.
+    ///
+    /// `set` is usually an `Update*` model. Chain `.r#where(..)` to update only
+    /// some conflicting rows.
     pub fn do_update(
         self,
         set: impl ToSQL<'b, PostgresValue<'b>>,
@@ -506,6 +542,7 @@ where
 impl<'d, 'a, Runner, Schema>
     DrizzleBuilder<'d, Runner, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
+    /// Starts the `SELECT` that follows the `WITH` clause.
     #[inline]
     pub fn select<T>(
         self,
@@ -528,6 +565,7 @@ impl<'d, 'a, Runner, Schema>
         }
     }
 
+    /// Starts the `SELECT DISTINCT` that follows the `WITH` clause.
     #[inline]
     pub fn select_distinct<T>(
         self,
@@ -550,6 +588,7 @@ impl<'d, 'a, Runner, Schema>
         }
     }
 
+    /// Starts the `SELECT DISTINCT ON (on) ...` that follows the `WITH` clause.
     #[inline]
     pub fn select_distinct_on<On, Columns>(
         self,
@@ -574,6 +613,7 @@ impl<'d, 'a, Runner, Schema>
         }
     }
 
+    /// Adds another common table expression to the `WITH` clause.
     #[inline]
     pub fn with<C>(self, cte: &C) -> Self
     where
@@ -597,6 +637,11 @@ impl<'d, 'a, Runner, Schema, M>
         SelectInitial,
     >
 {
+    /// Sets the table (or other source) the query reads from.
+    ///
+    /// The source decides the row type for `select(())` and brings its columns
+    /// into scope for the rest of the query. It can be a table, a table alias, a
+    /// CTE, or a derived table made with `.alias(..)`.
     #[inline]
     pub fn from<T>(
         self,
@@ -645,6 +690,12 @@ macro_rules! impl_select_methods {
     // ---- individual method expansions ----
 
     (@method r#where) => {
+        /// Adds a `WHERE` condition.
+        ///
+        /// Combine conditions with a tuple (`AND`), `and`/`or`, or `|`. An `Option`
+        /// element of a tuple that is `None` is left out, which makes optional
+        /// filters easy. Columns in the condition must come from the query's tables;
+        /// this is checked when the query runs.
         #[inline]
         pub fn r#where<E>(
             self,
@@ -661,6 +712,10 @@ macro_rules! impl_select_methods {
     };
 
     (@method group_by) => {
+        /// Adds a `GROUP BY` clause. Pass a column, an expression, or a tuple.
+        ///
+        /// Each column in a selected tuple must then be grouped or aggregated; this
+        /// is checked when the query runs.
         pub fn group_by<Gr>(
             self,
             columns: Gr,
@@ -675,6 +730,7 @@ macro_rules! impl_select_methods {
     };
 
     (@method having) => {
+        /// Adds a `HAVING` condition, which filters groups after `GROUP BY`.
         pub fn having<E>(
             self,
             condition: E,
@@ -690,6 +746,10 @@ macro_rules! impl_select_methods {
     };
 
     (@method order_by) => {
+        /// Adds an `ORDER BY` clause.
+        ///
+        /// Pass a column (ascending), [`asc`](drizzle_core::asc)/[`desc`](drizzle_core::desc),
+        /// or a tuple of them.
         pub fn order_by<TOrderBy>(
             self,
             expressions: TOrderBy,
@@ -704,7 +764,8 @@ macro_rules! impl_select_methods {
     };
 
     (@method set_order_by) => {
-        /// Orders a compound query by its output columns.
+        /// Orders a compound query (`UNION`, `INTERSECT`, ...) by its output
+        /// columns.
         pub fn order_by<TOrderBy>(
             self,
             expressions: TOrderBy,
@@ -718,6 +779,14 @@ macro_rules! impl_select_methods {
     };
 
     (@method limit) => {
+        /// Returns at most `limit` rows (`LIMIT $n`).
+        ///
+        /// Integers are sent as bound parameters, so the SQL text stays the same
+        /// from page to page. An integer placeholder is bound when the query runs.
+        ///
+        /// # Panics
+        ///
+        /// Panics when an integer `limit` is negative or does not fit in `usize`.
         pub fn limit<P>(
             self,
             limit: P,
@@ -731,6 +800,11 @@ macro_rules! impl_select_methods {
     };
 
     (@method offset) => {
+        /// Skips the first `offset` rows (`OFFSET $n`).
+        ///
+        /// # Panics
+        ///
+        /// Panics when an integer `offset` is negative or does not fit in `usize`.
         pub fn offset<P>(
             self,
             offset: P,
@@ -744,6 +818,13 @@ macro_rules! impl_select_methods {
     };
 
     (@method join) => {
+        /// Adds a `JOIN` (an inner join).
+        ///
+        /// Pass a table to join on its foreign key to the previous table (the
+        /// `FROM` table, or the table joined last), or a `(table, condition)` pair
+        /// to give the `ON` condition yourself. The joined table's columns come
+        /// into scope. See also `left_join`, `right_join`, `full_join`, their
+        /// `natural_`, `_outer`, and `_using` forms, and the lateral joins.
         #[inline]
         pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
             self,
@@ -773,7 +854,8 @@ macro_rules! impl_select_methods {
         crate::drizzle_pg_builder_join_impl!();
         crate::drizzle_pg_builder_join_using_impl!();
 
-        /// Adds a cross join without an ON condition.
+        /// Adds a `CROSS JOIN`: every row paired with every row of `arg`, with no
+        /// `ON` condition.
         #[inline]
         pub fn cross_join<Arg: drizzle_postgres::helpers::CrossJoinArg<'a, T>>(
             self,
@@ -859,8 +941,9 @@ impl<Runner, Schema, State, T, M, R, G>
 where
     State: drizzle_postgres::builder::ExecutableState,
 {
-    /// Attaches a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
-    /// comment to the query. See [`QueryBuilder::comment`] for details.
+    /// Adds a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment in front of the query. See [`QueryBuilder::comment`] for how the
+    /// text is escaped.
     #[inline]
     pub fn comment(self, text: impl AsRef<str>) -> Self {
         DrizzleBuilder {
@@ -870,8 +953,9 @@ where
         }
     }
 
-    /// Attaches a tag-style [sqlcommenter](https://google.github.io/sqlcommenter/)
-    /// comment to the query. See [`QueryBuilder::comment_tags`] for details.
+    /// Adds a key-value [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment, such as `/*route='users'*/`, in front of the query. See
+    /// [`QueryBuilder::comment_tags`] for the encoding.
     #[inline]
     pub fn comment_tags<I, K, V>(self, pairs: I) -> Self
     where
@@ -896,6 +980,11 @@ impl<'d, 'a, Runner, Schema, State, T, M, R>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
+    /// Combines this query's rows with `other`'s and drops duplicates
+    /// (`UNION`).
+    ///
+    /// Both queries must select the same row type. Use
+    /// [`union_all`](Self::union_all) to keep duplicates.
     #[allow(clippy::type_complexity)]
     pub fn union<M2>(
         self,
@@ -924,6 +1013,8 @@ where
         }
     }
 
+    /// Combines this query's rows with `other`'s, keeping duplicates
+    /// (`UNION ALL`).
     #[allow(clippy::type_complexity)]
     pub fn union_all<M2>(
         self,
@@ -952,6 +1043,7 @@ where
         }
     }
 
+    /// Keeps only rows that `other` also returns (`INTERSECT`).
     #[allow(clippy::type_complexity)]
     pub fn intersect<M2>(
         self,
@@ -980,6 +1072,7 @@ where
         }
     }
 
+    /// Keeps rows that `other` also returns, with duplicates (`INTERSECT ALL`).
     #[allow(clippy::type_complexity)]
     pub fn intersect_all<M2>(
         self,
@@ -1008,6 +1101,7 @@ where
         }
     }
 
+    /// Keeps only rows that `other` does not return (`EXCEPT`).
     #[allow(clippy::type_complexity)]
     pub fn except<M2>(
         self,
@@ -1036,6 +1130,7 @@ where
         }
     }
 
+    /// Keeps rows that `other` does not return, with duplicates (`EXCEPT ALL`).
     #[allow(clippy::type_complexity)]
     pub fn except_all<M2>(
         self,
@@ -1071,7 +1166,10 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
 {
-    /// Converts this SELECT query into a typed CTE using alias tag name.
+    /// Turns this query into a common table expression named after `Tag`.
+    ///
+    /// Pass the result to the handle's `with` and select from it. Its columns
+    /// are reachable as fields, like a table's.
     #[inline]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
@@ -1089,7 +1187,10 @@ impl<'a, Runner, Schema, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
-    /// Names this completed projection for use as a derived table.
+    /// Names this query so it can be used as a table: `(SELECT ...) AS name`.
+    ///
+    /// `tag` is a tag type (see the `tag!` macro). `.fields()` on the result
+    /// returns its output columns.
     ///
     /// # Panics
     ///
@@ -1137,6 +1238,7 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertInitial,
     >
 {
+    /// Inserts one row from an `Insert*` model.
     #[inline]
     pub fn value<T>(
         self,
@@ -1155,6 +1257,10 @@ impl<'a, 'b, Runner, Schema, Table>
         self.values([value])
     }
 
+    /// Inserts several rows from `Insert*` models in one statement.
+    ///
+    /// Every row must set the same optional fields (the same `with_*` calls);
+    /// mixing them does not compile, because all rows share one column list.
     #[inline]
     pub fn values<T>(
         self,
@@ -1178,6 +1284,11 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Names the columns an `INSERT ... SELECT` fills, before
+    /// [`select`](Self::select).
+    ///
+    /// The list must include every required column (`NOT NULL` with no
+    /// default); this is checked by the following `select(..)`.
     #[inline]
     pub fn columns<Columns>(
         self,
@@ -1201,6 +1312,10 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Inserts the rows of a `SELECT` query: `INSERT INTO t SELECT ...`.
+    ///
+    /// The query's columns must match the table's insert columns in order and
+    /// type; this is checked at compile time.
     #[inline]
     pub fn select<Q, R, ScopeProof, AggProof>(
         self,
@@ -1227,6 +1342,8 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Inserts the rows of any SQL value, such as a raw `sql!` query, with no
+    /// compile-time column checks.
     #[inline]
     pub fn select_raw<Q>(
         self,
@@ -1262,6 +1379,11 @@ impl<'a, 'b, Runner, Schema, Table, Targets>
 where
     Table: PostgresTable<'b> + drizzle_core::InsertSelectTable,
 {
+    /// Inserts the rows of a `SELECT` query into the columns named by
+    /// [`columns`](Self::columns).
+    ///
+    /// The query's output must match those columns in order and type; this is
+    /// checked at compile time.
     #[inline]
     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
         self,
@@ -1288,6 +1410,9 @@ where
         }
     }
 
+    /// Inserts the rows of any SQL value into the columns named by
+    /// [`columns`](Self::columns), with no compile-time check on the query's
+    /// output.
     #[inline]
     pub fn select_raw<Q, RequiredProof>(
         self,
@@ -1323,7 +1448,12 @@ impl<'a, 'b, Runner, Schema, Table>
 where
     Table: PostgresTable<'b>,
 {
-    /// Begins a typed ON CONFLICT clause targeting specific columns.
+    /// Starts an `ON CONFLICT (target)` clause; finish it with
+    /// [`do_nothing`](DrizzleOnConflictBuilder::do_nothing) or
+    /// [`do_update`](DrizzleOnConflictBuilder::do_update).
+    ///
+    /// `target` is a column or tuple of columns covered by a primary key or
+    /// unique constraint.
     pub fn on_conflict<C: ConflictTarget<Table>>(
         self,
         target: C,
@@ -1335,7 +1465,8 @@ where
         }
     }
 
-    /// Begins a typed ON CONFLICT ON CONSTRAINT clause (PostgreSQL-only).
+    /// Starts an `ON CONFLICT ON CONSTRAINT name` clause, naming a primary
+    /// key or unique constraint of the table.
     pub fn on_conflict_on_constraint<C: NamedConstraint<Table>>(
         self,
         target: C,
@@ -1347,7 +1478,7 @@ where
         }
     }
 
-    /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
+    /// Skips any row that would violate a constraint: `ON CONFLICT DO NOTHING`.
     pub fn on_conflict_do_nothing(
         self,
     ) -> DrizzleBuilder<
@@ -1364,7 +1495,9 @@ where
         }
     }
 
-    /// Adds RETURNING clause
+    /// Returns columns of the inserted rows: `RETURNING ...`.
+    ///
+    /// Run it with `.all()` or `.get()` to read them.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1406,7 +1539,7 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertOnConflictSet,
     >
 {
-    /// Adds RETURNING clause after ON CONFLICT
+    /// Returns columns of the inserted rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1448,7 +1581,8 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertDoUpdateSet,
     >
 {
-    /// Adds WHERE clause after DO UPDATE SET
+    /// Updates only conflicting rows that match `condition`:
+    /// `DO UPDATE SET ... WHERE condition`.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -1472,7 +1606,7 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
-    /// Adds RETURNING clause after DO UPDATE SET
+    /// Returns columns of the inserted or updated rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1516,6 +1650,9 @@ impl<'a, 'b, Runner, Schema, Table>
 where
     Table: PostgresTable<'b>,
 {
+    /// Sets the columns to change, from an `Update*` model.
+    ///
+    /// Only the fields set with `with_*` are written.
     #[inline]
     pub fn set(
         self,
@@ -1545,6 +1682,8 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateSetClauseSet,
     >
 {
+    /// Adds a `FROM` source to the update (`UPDATE t SET ... FROM source`), so
+    /// the `WHERE` condition can read its columns.
     pub fn from<F>(
         self,
         source: F,
@@ -1566,6 +1705,7 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Updates only rows matching `condition`.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -1590,6 +1730,7 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Returns columns of the updated rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1631,6 +1772,8 @@ impl<'a, 'b, Runner, Schema, Table, M>
         UpdateFromSet,
     >
 {
+    /// Updates only rows matching `condition`, which may read the `FROM`
+    /// source's columns.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -1655,6 +1798,7 @@ impl<'a, 'b, Runner, Schema, Table, M>
         }
     }
 
+    /// Returns columns of the updated rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1696,6 +1840,7 @@ impl<'a, 'b, Runner, Schema, Table, M>
         UpdateWhereSet,
     >
 {
+    /// Returns columns of the updated rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1739,6 +1884,7 @@ impl<'a, 'b, Runner, Schema, Table>
 where
     Table: PostgresTable<'b>,
 {
+    /// Deletes only rows matching `condition`.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -1763,6 +1909,7 @@ where
         }
     }
 
+    /// Returns columns of the deleted rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1804,6 +1951,7 @@ impl<'a, 'b, Runner, Schema, Table>
         DeleteWhereSet,
     >
 {
+    /// Returns columns of the deleted rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1846,37 +1994,43 @@ macro_rules! impl_for_update_methods {
             impl<'d, 'a, Runner, Schema, T, M, R>
                 DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, $state, T, M, R>, $state>
             {
-                /// Adds FOR UPDATE clause to lock selected rows for update.
+                /// Locks the selected rows against updates and deletes by other
+                /// transactions until this one ends (`FOR UPDATE`).
                 pub fn for_update(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_update();
                     DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
-                /// Adds FOR SHARE clause to lock selected rows for shared access.
+                /// Locks the selected rows against changes, while letting other
+                /// transactions take shared locks too (`FOR SHARE`).
                 pub fn for_share(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_share();
                     DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
-                /// Adds FOR NO KEY UPDATE clause.
+                /// Like [`for_update`](Self::for_update), but does not block
+                /// `FOR KEY SHARE` locks (`FOR NO KEY UPDATE`).
                 pub fn for_no_key_update(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_no_key_update();
                     DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
-                /// Adds FOR KEY SHARE clause.
+                /// Blocks only changes to the selected rows' keys
+                /// (`FOR KEY SHARE`).
                 pub fn for_key_share(self) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_key_share();
                     DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
-                /// Adds FOR UPDATE OF table clause to lock only rows from a specific table.
+                /// Like [`for_update`](Self::for_update), but locks only the rows
+                /// of `table` (`FOR UPDATE OF table`).
                 pub fn for_update_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_update_of(table);
                     DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
                 }
 
-                /// Adds FOR SHARE OF table clause to lock only rows from a specific table.
+                /// Like [`for_share`](Self::for_share), but locks only the rows of
+                /// `table` (`FOR SHARE OF table`).
                 pub fn for_share_of<U: PostgresTable<'a>>(self, table: U) -> DrizzleBuilder<'d, Runner, Schema, SelectBuilder<'a, Schema, SelectForSet, T, M, R>, SelectForSet> {
                     let builder = self.builder.for_share_of(table);
                     DrizzleBuilder { runner: self.runner, builder, state: PhantomData }
@@ -1906,7 +2060,8 @@ impl<Runner, Schema, T, M, R>
         SelectForSet,
     >
 {
-    /// Adds NOWAIT option to fail immediately if rows are locked.
+    /// Fails right away instead of waiting when a row is already locked
+    /// (`NOWAIT`).
     pub fn nowait(self) -> Self {
         let builder = self.builder.nowait();
         DrizzleBuilder {
@@ -1916,7 +2071,8 @@ impl<Runner, Schema, T, M, R>
         }
     }
 
-    /// Adds SKIP LOCKED option to skip over locked rows.
+    /// Leaves out rows that are already locked instead of waiting for them
+    /// (`SKIP LOCKED`).
     pub fn skip_locked(self) -> Self {
         let builder = self.builder.skip_locked();
         DrizzleBuilder {

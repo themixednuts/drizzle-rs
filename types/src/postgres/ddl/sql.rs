@@ -1,7 +1,11 @@
-//! SQL generation for `PostgreSQL` DDL types
+//! Renders `PostgreSQL` DDL statements from the runtime schema types.
 //!
-//! This module provides SQL generation methods for DDL types, enabling
-//! unified SQL output from both compile-time and runtime schema definitions.
+//! [`TableSql`] renders `CREATE TABLE` and the statements that go with it
+//! (indexes, comments, row-level security, policies). The entity types also
+//! get methods here for single statements and clauses (`add_column_sql`,
+//! `create_enum_sql`, `to_constraint_sql`, ...). Identifiers are
+//! double-quoted and objects in the `public` schema are left unqualified;
+//! SQL fragments (types, defaults, expressions) are written as stored.
 
 use crate::alloc_prelude::*;
 use core::fmt::Write;
@@ -80,21 +84,48 @@ fn index_column_sql(column: &IndexColumn) -> String {
 // Table SQL Generation
 // =============================================================================
 
-/// A complete table definition with all related entities for SQL generation
+/// A table and the entities that belong to it, for rendering
+/// `CREATE TABLE` and its related statements.
+///
+/// Start with [`TableSql::new`] and add the rest with the builder methods.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::postgres::ddl::{ColumnDef, TableDef, TableSql};
+///
+/// let table = TableDef::new("public", "users").into_table();
+/// let columns = [
+///     ColumnDef::new("public", "users", "id", "integer").not_null().into_column(),
+///     ColumnDef::new("public", "users", "name", "text").into_column(),
+/// ];
+///
+/// let sql = TableSql::new(&table).columns(&columns).create_table_sql();
+/// assert_eq!(sql, "CREATE TABLE \"users\" (\n\t\"id\" integer NOT NULL,\n\t\"name\" text\n);");
+/// ```
 #[derive(Clone, Debug)]
 pub struct TableSql<'a> {
+    /// The table.
     pub table: &'a Table,
+    /// Its columns, in order.
     pub columns: &'a [Column],
+    /// Its primary key, if any.
     pub primary_key: Option<&'a PrimaryKey>,
+    /// Its foreign keys.
     pub foreign_keys: &'a [ForeignKey],
+    /// Its unique constraints.
     pub unique_constraints: &'a [UniqueConstraint],
+    /// Its check constraints.
     pub check_constraints: &'a [CheckConstraint],
+    /// Its indexes, rendered by [`create_indexes_sql`](Self::create_indexes_sql).
     pub indexes: &'a [Index],
+    /// Its policies, rendered by [`create_policies_sql`](Self::create_policies_sql).
     pub policies: &'a [Policy],
 }
 
 impl<'a> TableSql<'a> {
-    /// Create a new `TableSql` for SQL generation
+    /// Starts with just the table: no columns, constraints, indexes or
+    /// policies.
     #[must_use]
     pub const fn new(table: &'a Table) -> Self {
         Self {
@@ -109,56 +140,62 @@ impl<'a> TableSql<'a> {
         }
     }
 
-    /// Set columns
+    /// Sets the columns.
     #[must_use]
     pub const fn columns(mut self, columns: &'a [Column]) -> Self {
         self.columns = columns;
         self
     }
 
-    /// Set primary key
+    /// Sets the primary key.
     #[must_use]
     pub const fn primary_key(mut self, pk: Option<&'a PrimaryKey>) -> Self {
         self.primary_key = pk;
         self
     }
 
-    /// Set foreign keys
+    /// Sets the foreign keys.
     #[must_use]
     pub const fn foreign_keys(mut self, fks: &'a [ForeignKey]) -> Self {
         self.foreign_keys = fks;
         self
     }
 
-    /// Set unique constraints
+    /// Sets the unique constraints.
     #[must_use]
     pub const fn unique_constraints(mut self, uniques: &'a [UniqueConstraint]) -> Self {
         self.unique_constraints = uniques;
         self
     }
 
-    /// Set check constraints
+    /// Sets the check constraints.
     #[must_use]
     pub const fn check_constraints(mut self, checks: &'a [CheckConstraint]) -> Self {
         self.check_constraints = checks;
         self
     }
 
-    /// Set indexes
+    /// Sets the indexes.
     #[must_use]
     pub const fn indexes(mut self, indexes: &'a [Index]) -> Self {
         self.indexes = indexes;
         self
     }
 
-    /// Set policies
+    /// Sets the policies.
     #[must_use]
     pub const fn policies(mut self, policies: &'a [Policy]) -> Self {
         self.policies = policies;
         self
     }
 
-    /// Generate CREATE TABLE SQL
+    /// Renders the `CREATE TABLE` statement, ending in `;`.
+    ///
+    /// Columns come first, then the primary key, foreign keys, unique and
+    /// check constraints as table constraints. `TEMPORARY` or `UNLOGGED`,
+    /// `INHERITS` and `TABLESPACE` come from the table. Indexes, comments,
+    /// row-level security and policies are separate statements; see the
+    /// other methods.
     #[must_use]
     pub fn create_table_sql(&self) -> String {
         let table_kind = if self.table.is_temporary.unwrap_or(false) {
@@ -236,7 +273,7 @@ impl<'a> TableSql<'a> {
         sql
     }
 
-    /// Generate DROP TABLE SQL
+    /// Renders `DROP TABLE` for the table.
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
         format!(
@@ -245,7 +282,7 @@ impl<'a> TableSql<'a> {
         )
     }
 
-    /// Generate all related indexes
+    /// Renders `CREATE INDEX` for each of the table's indexes.
     #[must_use]
     pub fn create_indexes_sql(&self) -> Vec<String> {
         self.indexes
@@ -254,7 +291,8 @@ impl<'a> TableSql<'a> {
             .collect()
     }
 
-    /// Generate COMMENT ON statements for the table and its columns.
+    /// Renders `COMMENT ON TABLE` / `COMMENT ON COLUMN` for each comment set
+    /// on the table and its columns.
     #[must_use]
     pub fn create_comments_sql(&self) -> Vec<String> {
         let mut comments = Vec::new();
@@ -282,7 +320,8 @@ impl<'a> TableSql<'a> {
         comments
     }
 
-    /// Generate RLS enable statement if needed
+    /// Renders `ALTER TABLE ... ENABLE ROW LEVEL SECURITY;`, or `None` when
+    /// the table does not enable it.
     #[must_use]
     pub fn enable_rls_sql(&self) -> Option<String> {
         if self.table.is_rls_enabled.unwrap_or(false) {
@@ -295,7 +334,7 @@ impl<'a> TableSql<'a> {
         }
     }
 
-    /// Generate all policies
+    /// Renders `CREATE POLICY` for each of the table's policies.
     #[must_use]
     pub fn create_policies_sql(&self) -> Vec<String> {
         self.policies
@@ -310,7 +349,7 @@ impl<'a> TableSql<'a> {
 // =============================================================================
 
 impl Column {
-    /// Render this column's full type reference.
+    /// Renders the column's type.
     ///
     /// Built-in types render verbatim (`integer`, `varchar(255)`). When
     /// `type_schema` names a non-`public` schema, the custom/enum type name
@@ -356,7 +395,11 @@ impl Column {
         sql
     }
 
-    /// Generate the column definition SQL (without leading/trailing punctuation)
+    /// Renders the column definition as used inside `CREATE TABLE`, such as
+    /// `"name" text NOT NULL`.
+    ///
+    /// `DEFAULT` is left out on identity and generated columns, which
+    /// `PostgreSQL` does not allow to have one.
     #[must_use]
     pub fn to_column_sql(&self) -> String {
         let mut sql = format!("{} {}", quote_ident(self.name()), self.type_sql());
@@ -394,7 +437,7 @@ impl Column {
         sql
     }
 
-    /// Generate ADD COLUMN SQL
+    /// Renders `ALTER TABLE ... ADD COLUMN ...;`.
     #[must_use]
     pub fn add_column_sql(&self) -> String {
         format!(
@@ -404,7 +447,7 @@ impl Column {
         )
     }
 
-    /// Generate DROP COLUMN SQL
+    /// Renders `ALTER TABLE ... DROP COLUMN ...;`.
     #[must_use]
     pub fn drop_column_sql(&self) -> String {
         format!(
@@ -420,7 +463,9 @@ impl Column {
 // =============================================================================
 
 impl Identity {
-    /// Generate the GENERATED AS IDENTITY clause
+    /// Renders ` GENERATED ALWAYS AS IDENTITY` (or `BY DEFAULT`), with a
+    /// leading space and the sequence options in parentheses when any are
+    /// set. The sequence name and schema are not rendered.
     #[must_use]
     pub fn to_sql(&self) -> String {
         let identity_type = match self.type_ {
@@ -465,7 +510,8 @@ impl Identity {
 // =============================================================================
 
 impl Generated {
-    /// Generate the GENERATED clause SQL
+    /// Renders ` GENERATED ALWAYS AS (expr) STORED` (or `VIRTUAL`), with a
+    /// leading space.
     #[must_use]
     pub fn to_sql(&self) -> String {
         let gen_type = match self.gen_type {
@@ -481,7 +527,9 @@ impl Generated {
 // =============================================================================
 
 impl ForeignKey {
-    /// Generate the CONSTRAINT ... FOREIGN KEY clause SQL
+    /// Renders `CONSTRAINT name FOREIGN KEY (...) REFERENCES table(...)`,
+    /// with `ON DELETE` / `ON UPDATE` unless they are `NO ACTION`, and
+    /// `DEFERRABLE [INITIALLY DEFERRED]`.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let from_cols = self
@@ -528,7 +576,7 @@ impl ForeignKey {
         sql
     }
 
-    /// Generate ADD FOREIGN KEY SQL
+    /// Renders `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ...;`.
     #[must_use]
     pub fn add_fk_sql(&self) -> String {
         format!(
@@ -538,7 +586,7 @@ impl ForeignKey {
         )
     }
 
-    /// Generate DROP FOREIGN KEY SQL
+    /// Renders `ALTER TABLE ... DROP CONSTRAINT ...;`.
     #[must_use]
     pub fn drop_fk_sql(&self) -> String {
         format!(
@@ -554,7 +602,8 @@ impl ForeignKey {
 // =============================================================================
 
 impl Index {
-    /// Generate CREATE INDEX SQL
+    /// Renders `CREATE [UNIQUE] INDEX [CONCURRENTLY] ... ON table [USING method] (...)`,
+    /// with `WITH (...)` and the partial index `WHERE` clause if set.
     #[must_use]
     pub fn create_index_sql(&self) -> String {
         let unique = if self.is_unique { "UNIQUE " } else { "" };
@@ -600,7 +649,7 @@ impl Index {
         sql
     }
 
-    /// Generate DROP INDEX SQL
+    /// Renders `DROP INDEX ...;`.
     #[must_use]
     pub fn drop_index_sql(&self) -> String {
         format!("DROP INDEX {};", qualified_name(self.schema(), self.name()))
@@ -608,7 +657,8 @@ impl Index {
 }
 
 impl IndexColumnDef {
-    /// Generate the column reference for an index
+    /// Renders the key part: the quoted column name or the parenthesized
+    /// expression, then the operator class, `DESC` and `NULLS FIRST` if set.
     #[must_use]
     pub fn to_sql(&self) -> String {
         let mut sql = if self.is_expression {
@@ -638,7 +688,7 @@ impl IndexColumnDef {
 // =============================================================================
 
 impl Enum {
-    /// Generate CREATE TYPE ... AS ENUM SQL
+    /// Renders `CREATE TYPE ... AS ENUM (...);`.
     #[must_use]
     pub fn create_enum_sql(&self) -> String {
         let values = self
@@ -654,13 +704,13 @@ impl Enum {
         )
     }
 
-    /// Generate DROP TYPE SQL
+    /// Renders `DROP TYPE ...;`.
     #[must_use]
     pub fn drop_enum_sql(&self) -> String {
         format!("DROP TYPE {};", qualified_name(self.schema(), self.name()))
     }
 
-    /// Generate ALTER TYPE ... ADD VALUE SQL
+    /// Renders `ALTER TYPE ... ADD VALUE 'value' [BEFORE 'before'];`.
     #[must_use]
     pub fn add_value_sql(&self, value: &str, before: Option<&str>) -> String {
         before.map_or_else(
@@ -688,7 +738,7 @@ impl Enum {
 // =============================================================================
 
 impl Sequence {
-    /// Generate CREATE SEQUENCE SQL
+    /// Renders `CREATE SEQUENCE ...` with the options that are set.
     #[must_use]
     pub fn create_sequence_sql(&self) -> String {
         let mut sql = format!(
@@ -719,7 +769,7 @@ impl Sequence {
         sql
     }
 
-    /// Generate DROP SEQUENCE SQL
+    /// Renders `DROP SEQUENCE ...;`.
     #[must_use]
     pub fn drop_sequence_sql(&self) -> String {
         format!(
@@ -823,7 +873,8 @@ fn append_view_with_options(
 }
 
 impl View {
-    /// Generate CREATE VIEW SQL
+    /// Renders `CREATE [MATERIALIZED] VIEW ... AS definition;` with its
+    /// options, or a SQL comment when the view has no definition.
     #[must_use]
     pub fn create_view_sql(&self) -> String {
         let materialized = if self.materialized {
@@ -876,7 +927,7 @@ impl View {
         sql
     }
 
-    /// Generate DROP VIEW SQL
+    /// Renders `DROP [MATERIALIZED] VIEW ...;`.
     #[must_use]
     pub fn drop_view_sql(&self) -> String {
         let materialized = if self.materialized {
@@ -897,7 +948,8 @@ impl View {
 // =============================================================================
 
 impl Policy {
-    /// Generate CREATE POLICY SQL
+    /// Renders `CREATE POLICY ... ON table AS ...` with its `FOR`, `TO`,
+    /// `USING` and `WITH CHECK` clauses. `AS` defaults to `PERMISSIVE`.
     #[must_use]
     pub fn create_policy_sql(&self) -> String {
         let mut sql = format!(
@@ -942,7 +994,7 @@ impl Policy {
         sql
     }
 
-    /// Generate DROP POLICY SQL
+    /// Renders `DROP POLICY ... ON table;`.
     #[must_use]
     pub fn drop_policy_sql(&self) -> String {
         format!(
@@ -958,13 +1010,13 @@ impl Policy {
 // =============================================================================
 
 impl Table {
-    /// Generate DROP TABLE SQL
+    /// Renders `DROP TABLE ...;`.
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
         format!("DROP TABLE {};", qualified_name(self.schema(), self.name()))
     }
 
-    /// Generate RENAME TABLE SQL
+    /// Renders `ALTER TABLE ... RENAME TO new_name;`.
     #[must_use]
     pub fn rename_table_sql(&self, new_name: &str) -> String {
         format!(
@@ -980,7 +1032,7 @@ impl Table {
 // =============================================================================
 
 impl PrimaryKey {
-    /// Generate the PRIMARY KEY constraint clause
+    /// Renders `CONSTRAINT name PRIMARY KEY(...)`.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
@@ -997,7 +1049,7 @@ impl PrimaryKey {
         )
     }
 
-    /// Generate ADD PRIMARY KEY SQL
+    /// Renders `ALTER TABLE ... ADD CONSTRAINT ... PRIMARY KEY(...);`.
     #[must_use]
     pub fn add_pk_sql(&self) -> String {
         format!(
@@ -1007,7 +1059,7 @@ impl PrimaryKey {
         )
     }
 
-    /// Generate DROP PRIMARY KEY SQL
+    /// Renders `ALTER TABLE ... DROP CONSTRAINT ...;`.
     #[must_use]
     pub fn drop_pk_sql(&self) -> String {
         format!(
@@ -1054,13 +1106,14 @@ impl UniqueConstraint {
         sql
     }
 
-    /// Generate the UNIQUE constraint clause
+    /// Renders `CONSTRAINT name UNIQUE [NULLS NOT DISTINCT](...)`, with
+    /// `DEFERRABLE [INITIALLY DEFERRED]` if set.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         self.constraint_sql(false)
     }
 
-    /// Generate ADD UNIQUE SQL
+    /// Renders `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE ...;`.
     #[must_use]
     pub fn add_unique_sql(&self) -> String {
         format!(
@@ -1070,7 +1123,7 @@ impl UniqueConstraint {
         )
     }
 
-    /// Generate DROP UNIQUE SQL
+    /// Renders `ALTER TABLE ... DROP CONSTRAINT ...;`.
     #[must_use]
     pub fn drop_unique_sql(&self) -> String {
         format!(
@@ -1086,7 +1139,7 @@ impl UniqueConstraint {
 // =============================================================================
 
 impl CheckConstraint {
-    /// Generate the CHECK constraint clause
+    /// Renders `CONSTRAINT name CHECK (expression)`.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         format!(
@@ -1096,7 +1149,7 @@ impl CheckConstraint {
         )
     }
 
-    /// Generate ADD CHECK SQL
+    /// Renders `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...);`.
     #[must_use]
     pub fn add_check_sql(&self) -> String {
         format!(
@@ -1106,7 +1159,7 @@ impl CheckConstraint {
         )
     }
 
-    /// Generate DROP CHECK SQL
+    /// Renders `ALTER TABLE ... DROP CONSTRAINT ...;`.
     #[must_use]
     pub fn drop_check_sql(&self) -> String {
         format!(

@@ -1,4 +1,5 @@
-//! `PostgreSQL` Check Constraint DDL types
+//! `PostgreSQL` check constraints: [`CheckConstraintDef`] (const) and
+//! [`CheckConstraint`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -9,7 +10,7 @@ use crate::serde_helpers::cow_from_string;
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly check constraint definition
+/// A named `CHECK` constraint that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CheckConstraintDef {
     /// Schema name
@@ -18,12 +19,13 @@ pub struct CheckConstraintDef {
     pub table: &'static str,
     /// Constraint name
     pub name: &'static str,
-    /// Check expression
+    /// SQL boolean expression, without `CHECK (...)`
     pub value: &'static str,
 }
 
 impl CheckConstraintDef {
-    /// Create a new check constraint definition
+    /// Creates a check constraint with an empty expression; set it with
+    /// [`value`](Self::value()).
     #[must_use]
     pub const fn new(schema: &'static str, table: &'static str, name: &'static str) -> Self {
         Self {
@@ -34,7 +36,7 @@ impl CheckConstraintDef {
         }
     }
 
-    /// Set the check expression
+    /// Sets the SQL boolean expression.
     #[must_use]
     pub const fn value(self, expression: &'static str) -> Self {
         Self {
@@ -43,7 +45,7 @@ impl CheckConstraintDef {
         }
     }
 
-    /// Convert to runtime [`CheckConstraint`] type
+    /// Converts to the runtime [`CheckConstraint`].
     #[must_use]
     pub const fn into_check_constraint(self) -> CheckConstraint {
         CheckConstraint {
@@ -65,7 +67,7 @@ impl Default for CheckConstraintDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime check constraint entity
+/// A named `CHECK` constraint, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -82,13 +84,13 @@ pub struct CheckConstraint {
     #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
     pub name: Cow<'static, str>,
 
-    /// Check expression
+    /// SQL boolean expression, without `CHECK (...)`
     #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
     pub value: Cow<'static, str>,
 }
 
 impl CheckConstraint {
-    /// Create a new check constraint
+    /// Creates a check constraint from a SQL boolean expression.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -104,21 +106,21 @@ impl CheckConstraint {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the constraint name
+    /// Returns the constraint name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

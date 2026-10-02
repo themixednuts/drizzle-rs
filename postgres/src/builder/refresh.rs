@@ -1,22 +1,43 @@
-//! REFRESH MATERIALIZED VIEW query builder for `PostgreSQL`
+//! `REFRESH MATERIALIZED VIEW` statements for `PostgreSQL`.
 //!
-//! This module provides a builder for constructing `REFRESH MATERIALIZED VIEW` statements.
+//! Build the statement with [`refresh_materialized_view`] or
+//! [`RefreshMaterializedView::new`] and run it with a driver's
+//! `execute(...)`, which accepts any `ToSQL` value.
 //!
 //! # Examples
 //!
 //! ```rust
-//! # let _ = r####"
 //! use drizzle_postgres::builder::refresh::RefreshMaterializedView;
+//! # use drizzle_core::traits::{SQLTableInfo, SQLViewInfo};
+//! # struct UserStats;
+//! # impl SQLTableInfo for UserStats {
+//! #     fn name(&self) -> &'static str { "user_stats" }
+//! #     fn schema(&self) -> Option<&'static str> { None }
+//! # }
+//! # impl SQLViewInfo for UserStats {
+//! #     fn definition_sql(&self) -> std::borrow::Cow<'static, str> { "SELECT 1".into() }
+//! #     fn is_materialized(&self) -> bool { true }
+//! # }
+//! # let user_stats = UserStats;
+//! use drizzle_core::ToSQL;
 //!
-//! // Basic refresh
-//! let refresh = RefreshMaterializedView::new(&my_view);
+//! // `user_stats` stands for a materialized view defined with `#[PostgresView]`.
+//! let refresh = RefreshMaterializedView::new(&user_stats);
+//! assert_eq!(refresh.to_sql().sql(), r#"REFRESH MATERIALIZED VIEW "user_stats""#);
 //!
-//! // Concurrent refresh (allows reads during refresh)
-//! let refresh = RefreshMaterializedView::new(&my_view).concurrently();
+//! // Keep the view readable while it refreshes (needs a unique index).
+//! let refresh = RefreshMaterializedView::new(&user_stats).concurrently();
+//! assert_eq!(
+//!     refresh.to_sql().sql(),
+//!     r#"REFRESH MATERIALIZED VIEW CONCURRENTLY "user_stats""#
+//! );
 //!
-//! // Refresh without data (empties the view)
-//! let refresh = RefreshMaterializedView::new(&my_view).with_no_data();
-//! # "####;
+//! // Empty the view; it cannot be queried until refreshed again.
+//! let refresh = RefreshMaterializedView::new(&user_stats).with_no_data();
+//! assert_eq!(
+//!     refresh.to_sql().sql(),
+//!     r#"REFRESH MATERIALIZED VIEW "user_stats" WITH NO DATA"#
+//! );
 //! ```
 
 use crate::values::PostgresValue;
@@ -28,15 +49,15 @@ use drizzle_core::{SQL, ToSQL, Token};
 // Type State Markers
 //------------------------------------------------------------------------------
 
-/// Marker for the initial state of `RefreshMaterializedView`
+/// [`RefreshMaterializedView`] state before any option is chosen.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RefreshInitial;
 
-/// Marker for the state after CONCURRENTLY is set
+/// [`RefreshMaterializedView`] state after `.concurrently()`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RefreshConcurrently;
 
-/// Marker for the state after WITH NO DATA is set
+/// [`RefreshMaterializedView`] state after `.with_no_data()`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RefreshWithNoData;
 
@@ -44,15 +65,15 @@ pub struct RefreshWithNoData;
 // RefreshMaterializedView Builder
 //------------------------------------------------------------------------------
 
-/// Builder for REFRESH MATERIALIZED VIEW statements
+/// Builds a `REFRESH MATERIALIZED VIEW` statement.
 ///
-/// `PostgreSQL` syntax:
 /// ```sql
 /// REFRESH MATERIALIZED VIEW [ CONCURRENTLY ] view_name [ WITH [ NO ] DATA ]
 /// ```
 ///
-/// Note: CONCURRENTLY and WITH NO DATA are mutually exclusive in `PostgreSQL`.
-/// CONCURRENTLY requires the materialized view to have a unique index.
+/// `CONCURRENTLY` and `WITH NO DATA` cannot be combined; the state parameter
+/// enforces this. A view outside the `public` schema is schema-qualified.
+/// See the [module docs](self) for examples.
 #[derive(Debug, Clone)]
 pub struct RefreshMaterializedView<'a, State = RefreshInitial> {
     sql: SQL<'a, PostgresValue<'a>>,
@@ -60,7 +81,7 @@ pub struct RefreshMaterializedView<'a, State = RefreshInitial> {
 }
 
 impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
-    /// Creates a new REFRESH MATERIALIZED VIEW builder for the given view
+    /// Starts `REFRESH MATERIALIZED VIEW view`.
     #[must_use]
     pub fn new<V: SQLViewInfo>(view: &'a V) -> Self {
         Self {
@@ -70,12 +91,10 @@ impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
         }
     }
 
-    /// Adds the CONCURRENTLY option
+    /// Adds `CONCURRENTLY`: the view stays readable during the refresh.
     ///
-    /// This allows the view to be refreshed without locking out concurrent reads.
-    /// Requires the materialized view to have at least one unique index.
-    ///
-    /// Note: Cannot be combined with WITH NO DATA.
+    /// `PostgreSQL` requires a unique index on the materialized view for this.
+    /// Cannot be combined with `WITH NO DATA`.
     #[must_use]
     pub fn concurrently(self) -> RefreshMaterializedView<'a, RefreshConcurrently> {
         // Rebuild as REFRESH MATERIALIZED VIEW CONCURRENTLY <name>: the name
@@ -96,12 +115,10 @@ impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
         }
     }
 
-    /// Adds the WITH NO DATA option
+    /// Adds `WITH NO DATA`: the view is emptied instead of refreshed.
     ///
-    /// This causes the materialized view to be emptied rather than refreshed with data.
-    /// The view cannot be queried until data is added with a subsequent REFRESH.
-    ///
-    /// Note: Cannot be combined with CONCURRENTLY.
+    /// The view cannot be queried until a later refresh fills it. Cannot be
+    /// combined with `CONCURRENTLY`.
     #[must_use]
     pub fn with_no_data(self) -> RefreshMaterializedView<'a, RefreshWithNoData> {
         RefreshMaterializedView {
@@ -110,7 +127,7 @@ impl<'a> RefreshMaterializedView<'a, RefreshInitial> {
         }
     }
 
-    /// Adds the WITH DATA option (explicit, but this is the default behavior)
+    /// Adds `WITH DATA`, the default behaviour, explicitly.
     #[must_use]
     pub fn with_data(self) -> Self {
         Self {
@@ -145,7 +162,31 @@ impl<'a, State> ToSQL<'a, PostgresValue<'a>> for RefreshMaterializedView<'a, Sta
 // Helper function for the query builder
 //------------------------------------------------------------------------------
 
-/// Creates a REFRESH MATERIALIZED VIEW statement for the given view
+/// Starts `REFRESH MATERIALIZED VIEW view`. Same as [`RefreshMaterializedView::new`].
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_postgres::builder::refresh_materialized_view;
+/// # use drizzle_core::traits::{SQLTableInfo, SQLViewInfo};
+/// # struct UserStats;
+/// # impl SQLTableInfo for UserStats {
+/// #     fn name(&self) -> &'static str { "user_stats" }
+/// #     fn schema(&self) -> Option<&'static str> { None }
+/// # }
+/// # impl SQLViewInfo for UserStats {
+/// #     fn definition_sql(&self) -> std::borrow::Cow<'static, str> { "SELECT 1".into() }
+/// #     fn is_materialized(&self) -> bool { true }
+/// # }
+/// # let user_stats = UserStats;
+/// use drizzle_core::ToSQL;
+///
+/// let refresh = refresh_materialized_view(&user_stats).concurrently();
+/// assert_eq!(
+///     refresh.to_sql().sql(),
+///     r#"REFRESH MATERIALIZED VIEW CONCURRENTLY "user_stats""#
+/// );
+/// ```
 pub fn refresh_materialized_view<V: SQLViewInfo>(
     view: &V,
 ) -> RefreshMaterializedView<'_, RefreshInitial> {

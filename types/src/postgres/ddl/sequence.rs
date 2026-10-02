@@ -1,6 +1,6 @@
-//! `PostgreSQL` Sequence DDL types
+//! `PostgreSQL` sequences: [`SequenceDef`] (const) and [`Sequence`] (runtime).
 //!
-//! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
+//! Mirrors drizzle-kit's [`ddl.ts`](https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts).
 
 use crate::alloc_prelude::*;
 
@@ -11,7 +11,7 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly sequence definition for compile-time schema definitions.
+/// A sequence definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SequenceDef {
     /// Schema name
@@ -33,7 +33,7 @@ pub struct SequenceDef {
 }
 
 impl SequenceDef {
-    /// Create a new sequence definition
+    /// Creates a sequence definition.
     #[must_use]
     pub const fn new(schema: &'static str, name: &'static str) -> Self {
         Self {
@@ -102,7 +102,7 @@ impl SequenceDef {
         }
     }
 
-    /// Convert to runtime [`Sequence`] type
+    /// Converts to the runtime [`Sequence`].
     #[must_use]
     pub const fn into_sequence(self) -> Sequence {
         Sequence {
@@ -140,7 +140,7 @@ impl Default for SequenceDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime sequence entity for serde serialization.
+/// A sequence, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -213,7 +213,7 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    /// Create a new sequence (runtime)
+    /// Creates a sequence.
     #[must_use]
     pub fn new(schema: impl Into<Cow<'static, str>>, name: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -228,14 +228,14 @@ impl Sequence {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the sequence name
+    /// Returns the sequence name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

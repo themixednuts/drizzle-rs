@@ -1,23 +1,70 @@
+//! [`DrizzleMySQLColumn`], for custom column types, and the JSON projection
+//! metadata of the built-in SQL type markers.
+
 use crate::values::{MySQLValue, OwnedMySQLValue};
 use drizzle_core::error::DrizzleError;
 
-/// Trait for custom Rust types that map to a MySQL column.
+/// A Rust type that can be stored in a `MySQL` column.
 ///
-/// Implement this trait for wrappers that need a type-owned storage codec.
-/// The table macro uses [`SQLType`](Self::SQLType) for typed expressions and
-/// [`SQL_TYPE`](Self::SQL_TYPE) for DDL and schema metadata.
+/// Implement it to use your own type as a field of a `#[MySQLTable]`.
+/// [`SQLType`](Self::SQLType) sets which expressions the column can be used
+/// in, [`SQL_TYPE`](Self::SQL_TYPE) is written into the DDL, and
+/// [`decode`](Self::decode) / [`encode`](Self::encode) convert values.
+/// Implementing it also gives `From<T> for MySQLValue`, which goes through
+/// [`encode_owned`](Self::encode_owned).
+///
+/// # Examples
+///
+/// A `u32` stored as four big-endian bytes:
+///
+/// ```
+/// use drizzle_core::error::DrizzleError;
+/// use drizzle_mysql::traits::DrizzleMySQLColumn;
+/// use drizzle_mysql::types::Binary;
+/// use drizzle_mysql::values::MySQLValue;
+/// use std::borrow::Cow;
+///
+/// struct U32Be(u32);
+///
+/// impl DrizzleMySQLColumn for U32Be {
+///     type SQLType = Binary;
+///     const SQL_TYPE: &'static str = "BINARY(4)";
+///
+///     fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError> {
+///         let MySQLValue::Bytes(bytes) = value else {
+///             return Err(DrizzleError::ConversionError("expected bytes".into()));
+///         };
+///         let bytes: [u8; 4] = bytes
+///             .as_ref()
+///             .try_into()
+///             .map_err(|_| DrizzleError::ConversionError("expected 4 bytes".into()))?;
+///         Ok(Self(u32::from_be_bytes(bytes)))
+///     }
+///
+///     fn encode(&self) -> MySQLValue<'_> {
+///         MySQLValue::Bytes(Cow::Owned(self.0.to_be_bytes().to_vec()))
+///     }
+/// }
+///
+/// let value = MySQLValue::from(U32Be(7));
+/// assert_eq!(value, MySQLValue::Bytes(Cow::Borrowed(&[0, 0, 0, 7][..])));
+/// assert_eq!(U32Be::decode(value).unwrap().0, 7);
+/// assert!(U32Be::decode(MySQLValue::Int(7)).is_err());
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be used as a MySQL column type",
     note = "add #[derive(MySQLEnum)] for enum types, or implement DrizzleMySQLColumn"
 )]
 pub trait DrizzleMySQLColumn: Sized {
-    /// Drizzle SQL type marker for this column.
+    /// The SQL type marker of the column, one of the markers in
+    /// [`crate::types`].
     type SQLType: MySQLColumnType;
 
-    /// MySQL column type, such as `BINARY(4)`, `TEXT`, or `BIGINT UNSIGNED`.
+    /// The column type written into the DDL, such as `BINARY(4)`, `TEXT` or
+    /// `BIGINT UNSIGNED`.
     const SQL_TYPE: &'static str;
 
-    /// Decode a value returned by a MySQL driver.
+    /// Decodes a value read from the database.
     ///
     /// # Errors
     ///
@@ -25,18 +72,29 @@ pub trait DrizzleMySQLColumn: Sized {
     /// this column's storage representation.
     fn decode(value: MySQLValue<'_>) -> Result<Self, DrizzleError>;
 
-    /// Encode this value for an insert, update, or comparison parameter.
+    /// Encodes the value as a bind parameter, borrowing from `self` where
+    /// possible.
     fn encode(&self) -> MySQLValue<'_>;
 
-    /// Encode this value into owned parameter storage.
+    /// Encodes the value as an owned bind parameter.
+    ///
+    /// The default calls [`encode`](Self::encode) and copies the result.
+    /// Override it when the type can move its buffer into the value instead.
     fn encode_owned(self) -> OwnedMySQLValue {
         self.encode().into_owned()
     }
 
-    /// Decode a value emitted by MySQL's relational JSON projection.
+    /// Decodes a cell from the JSON produced by the relational query API
+    /// (`query` feature).
     ///
-    /// Override this only when the projected representation intentionally
-    /// differs from the binary-protocol representation.
+    /// The default converts the JSON to the value the driver would return
+    /// for [`SQLType`](Self::SQLType) and calls [`decode`](Self::decode).
+    /// Override it only when the JSON form differs from that.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::ConversionError`] if the JSON does not match
+    /// the column's type or [`decode`](Self::decode) rejects it.
     #[cfg(feature = "query")]
     fn decode_json(value: &serde_json::Value) -> Result<Self, DrizzleError>
     where
@@ -70,7 +128,8 @@ pub enum MySQLJsonStorage {
     DateTime,
 }
 
-/// Relational JSON metadata for built-in MySQL SQL type markers.
+/// How the relational query API projects a built-in `MySQL` SQL type marker
+/// to JSON. Sealed.
 #[doc(hidden)]
 pub trait MySQLColumnType: drizzle_core::types::DataType + private::Sealed {
     #[cfg(feature = "query")]

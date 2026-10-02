@@ -1,4 +1,4 @@
-//! `RelationHandle` — builder for configuring a single relation's loading.
+//! [`RelationHandle`]: settings for loading one relation.
 
 use core::marker::PhantomData;
 
@@ -10,22 +10,20 @@ use super::builder::{
     NoOrderBy, NoWhere, PartialColumns, QueryTable,
 };
 
-/// A builder for configuring how a single relation is loaded.
+/// Settings for loading one relation: filters, order, limits, columns, and
+/// nested relations.
 ///
-/// Created by the table ZST accessor methods (e.g., `user.posts()`).
-/// Supports WHERE, ORDER BY, LIMIT, OFFSET, and nested `.with()`.
+/// Created by the relation methods the table macros generate (for example
+/// `users.posts()`) and passed to `.with(...)`.
 ///
-/// The `Nested` type parameter is the actual storage for nested relation
-/// handles — `()` when empty, `(RelationHandle<'a, V, NR, NN, NC>, Rest)` when
-/// populated. This means the full relation tree is preserved in the type
-/// system, not erased to a runtime Vec.
+/// - `Nested` holds nested relation handles: `()` when empty,
+///   `(RelationHandle<...>, Rest)` otherwise, so the whole tree is part of
+///   the type.
+/// - `Cols` is [`AllColumns`] (default) or [`PartialColumns`].
+/// - `Cl` is a [`Clauses`] value recording which of WHERE, ORDER BY,
+///   LIMIT and OFFSET are set. Each can be set once.
 ///
-/// The `Cols` type parameter controls column selection for the target table —
-/// `AllColumns` (default) selects all columns, `PartialColumns` selects a subset.
-///
-/// The `Cl` type parameter is a [`Clauses`] composite tracking which query
-/// clauses have been set (WHERE, ORDER BY, LIMIT/OFFSET). Each clause can
-/// only be set once — the typestate prevents double-calling at compile time.
+/// WHERE and ORDER BY may only read columns of the relation's target table.
 pub struct RelationHandle<
     'a,
     V: SQLParam,
@@ -44,7 +42,7 @@ pub struct RelationHandle<
 }
 
 impl<'a, V: SQLParam, R: RelationDef> RelationHandle<'a, V, R> {
-    /// Creates a new unconfigured `RelationHandle`.
+    /// Creates a handle with no settings.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -66,7 +64,8 @@ impl<'a, V: SQLParam, R: RelationDef> Default for RelationHandle<'a, V, R> {
 }
 
 impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, Cl> RelationHandle<'a, V, R, Nested, Cols, Cl> {
-    /// Nests a relation on the target table.
+    /// Also loads the relation `handle` of the target table, nested inside
+    /// each loaded row.
     #[allow(clippy::type_complexity)]
     pub fn with<NR, NN, NC, NCl>(
         self,
@@ -91,10 +90,11 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, Cl> RelationHandle<'a, V, R,
 impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, Ord, Lim>
     RelationHandle<'a, V, R, Nested, Cols, Clauses<NoWhere, Ord, Lim>>
 {
-    /// Sets the WHERE clause for the relation subquery.
+    /// Sets the WHERE clause for the loaded rows.
     ///
-    /// Can only be called once. To combine multiple conditions, use boolean
-    /// operators: `and(cond_a, cond_b)` or `or(cond_a, cond_b)`.
+    /// Can only be called once; combine conditions with `and(...)` or
+    /// `or(...)`. The condition must be boolean and may only read columns of
+    /// the target table.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -121,10 +121,10 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, Ord, Lim>
 impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Lim>
     RelationHandle<'a, V, R, Nested, Cols, Clauses<W, NoOrderBy, Lim>>
 {
-    /// Adds a typed ORDER BY clause to the relation subquery.
+    /// Sets the ORDER BY clause for the loaded rows, such as `asc(col)`.
     ///
-    /// Can only be called once. ORDER BY expressions are column references
-    /// (e.g., `asc(col)`, `desc(col)`), which never produce bind parameters.
+    /// Can only be called once. The expressions may only read columns of the
+    /// target table.
     pub fn order_by<E, ScopeProof>(
         self,
         expr: E,
@@ -150,9 +150,8 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Lim>
 impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
     RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, NoLimit>>
 {
-    /// Sets a LIMIT on the relation subquery.
-    ///
-    /// Can only be called once. Enables calling `.offset()`.
+    /// Sets the LIMIT for the loaded rows. Can only be called once, and must
+    /// come before `.offset(...)`.
     pub fn limit<P>(self, n: P) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, HasLimit>>
     where
         P: PaginationArg<'a, V>,
@@ -169,10 +168,10 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
         }
     }
 
-    /// Sugar for `.limit(1)`. Limits the relation subquery to at most one row.
+    /// Same as `.limit(1)`: loads at most one row.
     ///
-    /// The result is still `Vec<T>` — call `Vec::first()` on the result to
-    /// get `Option<&T>`.
+    /// The field keeps its type, so a many-relation is still a `Vec` (with at
+    /// most one element).
     pub fn first(self) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, HasLimit>> {
         self.limit(1u32)
     }
@@ -182,7 +181,8 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
 impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
     RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, HasLimit>>
 {
-    /// Sets an OFFSET on the relation subquery. Requires `.limit()` first.
+    /// Sets the OFFSET for the loaded rows. Only available after
+    /// `.limit(...)`.
     pub fn offset<P>(
         self,
         n: P,
@@ -203,12 +203,12 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
     }
 }
 
-/// Methods only available when all columns are selected (prevents double-calling).
+// Column selection can only be chosen once.
 impl<'a, V: SQLParam, R: RelationDef, Nested, Cl> RelationHandle<'a, V, R, Nested, AllColumns, Cl>
 where
     R::Target: QueryTable,
 {
-    /// Selects only the specified columns on this relation (include list).
+    /// Loads only the given columns of the target table.
     pub fn columns<S: IntoColumnSelection>(
         self,
         selector: S,
@@ -226,7 +226,7 @@ where
         }
     }
 
-    /// Excludes the specified columns on this relation (exclude list).
+    /// Loads every column of the target table except the given ones.
     pub fn omit<S: IntoColumnSelection>(
         self,
         selector: S,

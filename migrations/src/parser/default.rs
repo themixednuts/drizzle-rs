@@ -1,3 +1,6 @@
+//! Renders a non-string `#[column(default = ...)]` expression (paths, calls,
+//! operators, literals) as SQL default text, mirroring the table macros.
+
 use drizzle_types::Dialect;
 use syn::{BinOp, Error, Expr, Lit, Result, UnOp};
 

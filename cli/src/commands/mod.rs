@@ -1,6 +1,4 @@
-//! CLI command implementations
-//!
-//! Each command module implements a specific drizzle CLI command.
+//! One module per `drizzle` subcommand; each exposes a `run` function.
 
 pub mod check;
 pub mod export;

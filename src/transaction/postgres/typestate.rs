@@ -1,12 +1,10 @@
-//! Re-exports of the shared `DrizzleBuilder` / `DrizzleOnConflictBuilder`
-//! under the `TransactionBuilder` / `TransactionOnConflictBuilder` names.
+//! The transaction query builder names.
 //!
-//! See `src/transaction/sqlite/typestate.rs` for the parallel SQLite
-//! re-export module. The query-builder typestate machinery used to be
-//! duplicated here for Postgres transactions; it now lives once on the
-//! shared [`crate::builder::postgres::common::DrizzleBuilder`], keyed on
-//! an opaque `Runner` parameter that each driver fills in via a type
-//! alias.
+//! A transaction's queries use the same builder as the database handle's:
+//! `TransactionBuilder` is
+//! [`DrizzleBuilder`](crate::builder::postgres::common::DrizzleBuilder) with
+//! the driver's `Transaction` as its runner, so every clause method is defined
+//! once, in `builder/postgres/common.rs`.
 
 pub use crate::builder::postgres::common::{
     DrizzleBuilder as TransactionBuilder, DrizzleOnConflictBuilder as TransactionOnConflictBuilder,

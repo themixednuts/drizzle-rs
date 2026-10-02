@@ -1,3 +1,9 @@
+//! Free functions that render single `SQLite` clauses as [`SQL`].
+//!
+//! The builders in [`crate::builder`] call these internally. The public ones
+//! are the JOIN helpers (`join`, `left_join`, `natural_join`, ...), which
+//! render `<kind> JOIN table ON condition` fragments for hand-written SQL.
+
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
 use crate::traits::SQLiteTable;
@@ -7,16 +13,16 @@ use drizzle_core::{
     traits::{SQLModel, ToSQL},
 };
 
-// Re-export core helpers with SQLiteValue type for convenience
+// Core clause helpers, used by the builders.
 pub(crate) use core_helpers::{
     delete, except, from, group_by_expr, having, insert, intersect, limit, offset, order_by,
     select, select_distinct, set, union, union_all, update, r#where,
 };
 
-// Re-export Join from core
 pub use drizzle_core::Join;
 
-/// A table-like source accepted by an explicit JOIN tuple.
+/// A source that can follow `JOIN`: a `SQLite` table or a derived table
+/// (subquery with an alias).
 #[doc(hidden)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
@@ -140,8 +146,11 @@ drizzle_core::impl_join_helpers!(
     sql_type: SQL<'a, SQLiteValue<'a>>,
 );
 
-/// Creates a VALUES clause for INSERT statements.
-/// All rows must declare the same set of columns.
+/// Renders `(columns) VALUES (...), (...)` for an INSERT.
+///
+/// Takes the column list from the first row, so all rows must set the same
+/// columns. With no rows it renders a bare `VALUES`; with no columns it
+/// renders `DEFAULT VALUES` (one row) or `(rowid) VALUES (NULL), ...`.
 pub(crate) fn values<'a, Table, T>(
     rows: impl IntoIterator<Item = Table::Insert<T>>,
 ) -> SQL<'a, SQLiteValue<'a>>
@@ -244,7 +253,7 @@ pub(crate) fn before_upsert<'a>(sql: SQL<'a, SQLiteValue<'a>>) -> SQL<'a, SQLite
     }
 }
 
-/// Helper function to create a RETURNING clause - `SQLite` specific
+/// Renders `RETURNING columns`, or `RETURNING *` when `columns` is empty.
 pub(crate) fn returning<'a, 'b, I>(columns: I) -> SQL<'a, SQLiteValue<'a>>
 where
     I: ToSQL<'a, SQLiteValue<'a>>,

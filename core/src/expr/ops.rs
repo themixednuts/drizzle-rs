@@ -1,7 +1,11 @@
-//! Arithmetic operations using `std::ops` traits.
+//! Arithmetic on [`SQLExpr`] with the Rust operators `+ - * / %` and unary `-`.
 //!
-//! This module implements `Add`, `Sub`, `Mul`, `Div`, `Rem` for `SQLExpr`,
-//! enabling natural Rust syntax for SQL arithmetic.
+//! Both operands must be numeric. The result type follows the operand types
+//! (see [`ArithmeticOutput`](crate::types::ArithmeticOutput)). The result is
+//! nullable if either operand is, and also for `/` and `%` on SQLite and
+//! MySQL, where dividing by zero gives NULL. It is an aggregate if either
+//! operand is. Operands are parenthesized when needed to keep the grouping of
+//! the Rust expression, so `a * (b + c)` renders as written.
 
 use core::ops::{Add, Div, Mul, Neg, Rem, Sub};
 

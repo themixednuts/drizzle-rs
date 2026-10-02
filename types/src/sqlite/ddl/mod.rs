@@ -1,36 +1,25 @@
-//! `SQLite` DDL (Data Definition Language) entity types
+//! `SQLite` schema objects (tables, columns, indexes, constraints, views) for
+//! migrations.
 //!
-//! This module provides two complementary types for each DDL entity:
+//! Each object comes in two forms:
 //!
-//! - **`*Def` types** - Const-friendly definitions using only `Copy` types (`&'static str`, `bool`)
-//!   for compile-time schema definitions
-//! - **Runtime types** - Full types with `Cow<'static, str>` for serde serialization/deserialization
+//! - **`*Def` types** ([`TableDef`], [`ColumnDef`], ...) hold only `Copy`
+//!   data (`&'static str`, `bool`, slices) so they can be built in `const`
+//!   items. The schema macros generate these.
+//! - **Runtime types** ([`Table`], [`Column`], ...) hold `Cow<'static, str>`
+//!   and can be serialized with the `serde` feature. Migration snapshots
+//!   store these, as a list of [`SqliteEntity`] values.
 //!
-//! # Design Pattern
-//!
-//! ```rust
-//! # let _ = r####"
-//! ┌─────────────────────────────────────────────────────────────────────────┐
-//! │  Compile Time (const)           Runtime (serde)                         │
-//! │  ─────────────────────           ────────────────                        │
-//! │                                                                          │
-//! │  const DEF: TableDef = ...;     let table: Table = DEF.into_table();     │
-//! │  const COLS: &[ColumnDef] = ... let cols: Vec<Column> = ...              │
-//! │                                                                          │
-//! │  Uses: &'static str, bool       Uses: Cow<'static, str>, Vec, Option     │
-//! │  All types are Copy             Supports serde, owned strings            │
-//! └─────────────────────────────────────────────────────────────────────────┘
-//! # "####;
-//! ```
+//! Convert a definition with its `into_*` method or `From`. [`TableSql`]
+//! renders `CREATE TABLE` and related statements.
 //!
 //! # Examples
 //!
-//! ## Compile-time Schema Definition
+//! Const definitions:
 //!
 //! ```
-//! use drizzle_types::sqlite::ddl::{TableDef, ColumnDef};
+//! use drizzle_types::sqlite::ddl::{ColumnDef, TableDef};
 //!
-//! // These are all const - zero runtime allocation
 //! const USERS_TABLE: TableDef = TableDef::new("users").strict();
 //!
 //! const USERS_COLUMNS: &[ColumnDef] = &[
@@ -38,27 +27,30 @@
 //!     ColumnDef::new("users", "name", "TEXT").not_null(),
 //!     ColumnDef::new("users", "email", "TEXT").unique(),
 //! ];
+//! # let _ = (USERS_TABLE, USERS_COLUMNS);
 //! ```
 //!
-//! ## Converting to Runtime Types
+//! Converting to the runtime type:
 //!
 //! ```
-//! use drizzle_types::sqlite::ddl::{TableDef, Table};
+//! use drizzle_types::sqlite::ddl::{Table, TableDef};
 //!
 //! const DEF: TableDef = TableDef::new("users").strict();
 //!
-//! // Convert when you need serde or runtime manipulation
 //! let table: Table = DEF.into_table();
+//! assert_eq!(table.name(), "users");
 //! ```
 //!
-//! ## Runtime Deserialization
+//! Deserializing (with the `serde` feature):
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```
+//! # #[cfg(feature = "serde")]
+//! # {
 //! use drizzle_types::sqlite::ddl::Table;
 //!
-//! let table: Table = serde_json::from_str(r#"{"name": "users", "strict": true}"#)?;
-//! # "####;
+//! let table: Table = serde_json::from_str(r#"{"name": "users", "strict": true}"#).unwrap();
+//! assert!(table.strict);
+//! # }
 //! ```
 
 use crate::alloc_prelude::*;
@@ -124,9 +116,11 @@ pub const ENTITY_TYPE_VIEWS: &str = "views";
 // Unified Entity Enum
 // =============================================================================
 
-/// Unified `SQLite` DDL entity enum for serialization
+/// Any `SQLite` schema object: one element of a snapshot's `ddl` array.
 ///
-/// Uses internally-tagged enum representation where `entityType` discriminates variants.
+/// With `serde`, the variant is stored in an `entityType` field, using the
+/// `ENTITY_TYPE_*` names (`"tables"`, `"columns"`, `"indexes"`, `"fks"`,
+/// `"pks"`, `"uniques"`, `"checks"`, `"views"`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "entityType"))]
@@ -153,7 +147,8 @@ pub enum SqliteEntity {
 // Naming Helpers (matching drizzle-kit grammar.ts patterns)
 // =============================================================================
 
-/// Generate a default name for a foreign key constraint
+/// Returns the default foreign key name:
+/// `fk_{table}_{columns}_{table_to}_{columns_to}_fk`, with columns joined by `_`.
 #[must_use]
 pub fn name_for_fk(table: &str, columns: &[&str], table_to: &str, columns_to: &[&str]) -> String {
     format!(
@@ -165,25 +160,34 @@ pub fn name_for_fk(table: &str, columns: &[&str], table_to: &str, columns_to: &[
     )
 }
 
-/// Generate a default name for a unique constraint
+/// Returns the default unique constraint name: `{table}_{columns}_unique`.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::sqlite::ddl::name_for_unique;
+///
+/// assert_eq!(name_for_unique("users", &["org_id", "email"]), "users_org_id_email_unique");
+/// ```
 #[must_use]
 pub fn name_for_unique(table: &str, columns: &[&str]) -> String {
     format!("{}_{}_unique", table, columns.join("_"))
 }
 
-/// Generate a default name for a primary key constraint
+/// Returns the default primary key name: `{table}_pk`.
 #[must_use]
 pub fn name_for_pk(table: &str) -> String {
     format!("{table}_pk")
 }
 
-/// Generate a default name for an index
+/// Returns the default index name: `{table}_{columns}_idx`.
 #[must_use]
 pub fn name_for_index(table: &str, columns: &[&str]) -> String {
     format!("{}_{}_idx", table, columns.join("_"))
 }
 
-/// Generate a default name for a check constraint
+/// Returns the default name of the `index`-th check constraint:
+/// `{table}_check_{index}`.
 #[must_use]
 pub fn name_for_check(table: &str, index: usize) -> String {
     format!("{table}_check_{index}")

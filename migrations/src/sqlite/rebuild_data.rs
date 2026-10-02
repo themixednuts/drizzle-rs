@@ -1,4 +1,58 @@
 //! Typed data movement for SQLite table rebuild migrations.
+//!
+//! SQLite changes most column definitions by rebuilding the table: create
+//! `__new_<table>`, copy rows, drop the old table, rename. The copy is a plain
+//! `SELECT` of same-named columns, which silently reinterprets data when a
+//! column's storage affinity changes (say `TEXT` to `BLOB`). A diff that
+//! changes a column's affinity therefore fails unless a rebuild-data plan
+//! says how to convert it.
+//!
+//! A plan is bound to the exact snapshot it migrates from
+//! ([`SqliteRebuildDataPlan::predecessor_snapshot_id`]), so it is used once
+//! and ignored afterwards. Only the closed set of conversions in
+//! [`SqliteCopyExpression`] is allowed, and each one also adds a check that
+//! makes the migration fail before touching data if an old value cannot be
+//! converted. Pass plans through
+//! [`build::Config::sqlite_rebuild_data_plan`](crate::build::Config::sqlite_rebuild_data_plan)
+//! (or the `sqliteRebuildDataPlan` config key) or
+//! [`DiffOptions::sqlite_rebuild_data`](crate::DiffOptions::sqlite_rebuild_data).
+//!
+//! # Examples
+//!
+//! A checked-in plan file:
+//!
+//! ```rust
+//! use drizzle_migrations::serde_json;
+//! use drizzle_migrations::sqlite::{SqliteCopyExpression, SqliteRebuildDataPlanRegistry};
+//!
+//! let registry: SqliteRebuildDataPlanRegistry = serde_json::from_str(
+//!     r#"{
+//!         "version": 1,
+//!         "plans": [{
+//!             "predecessorSnapshotId": "4f1c6a52-0f7e-4e55-9d55-7f5a0d7b2c11",
+//!             "tables": [{
+//!                 "table": "users",
+//!                 "columns": [{
+//!                     "target": "avatar_hash",
+//!                     "expression": {
+//!                         "kind": "hexTextToBlob",
+//!                         "source": "avatar_hash",
+//!                         "bytes": 32
+//!                     }
+//!                 }],
+//!                 "validations": [{ "kind": "jsonValid", "column": "settings" }]
+//!             }]
+//!         }]
+//!     }"#,
+//! )?;
+//!
+//! let table = &registry.plans[0].tables[0];
+//! assert!(matches!(
+//!     table.columns[0].expression,
+//!     SqliteCopyExpression::HexTextToBlob { bytes: 32, .. }
+//! ));
+//! # Ok::<(), serde_json::Error>(())
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -8,25 +62,37 @@ use super::collection::SQLiteDDL;
 use super::ddl::Column;
 use super::statements::{JsonStatement, RebuildTableData};
 
+/// The only plan-file `version` this crate accepts.
 pub const SQLITE_REBUILD_DATA_PLAN_VERSION: u32 = 1;
 
-/// Versioned data movement attached to one exact predecessor snapshot.
+/// A versioned set of rebuild-data plans, at most one per predecessor
+/// snapshot. This is the plan-file format.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SqliteRebuildDataPlanRegistry {
+    /// Must be [`SQLITE_REBUILD_DATA_PLAN_VERSION`].
     pub version: u32,
+    /// Plans; the one whose predecessor is the snapshot being diffed from
+    /// is used.
     pub plans: Vec<SqliteRebuildDataPlan>,
 }
 
-/// Data movement selected only when its predecessor is the loaded snapshot.
+/// Data movement for the migration that follows one exact snapshot.
+///
+/// Every listed table must be rebuilt by that migration, and every column
+/// whose affinity changes must be mapped; otherwise the diff fails.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SqliteRebuildDataPlan {
+    /// ID of the snapshot this plan migrates from (the newest
+    /// `snapshot.json` before the migration is generated).
     pub predecessor_snapshot_id: uuid::Uuid,
+    /// Per-table instructions.
     pub tables: Vec<SqliteTableRebuildPlan>,
 }
 
 impl SqliteRebuildDataPlanRegistry {
+    /// Wraps one plan in a registry at the current version.
     #[must_use]
     pub fn single(plan: SqliteRebuildDataPlan) -> Self {
         Self {
@@ -40,31 +106,45 @@ impl SqliteRebuildDataPlanRegistry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SqliteTableRebuildPlan {
+    /// Table name (after the migration).
     pub table: String,
+    /// Columns filled by a conversion instead of a plain copy.
     #[serde(default)]
     pub columns: Vec<SqliteColumnCopy>,
+    /// Extra checks on the old rows.
     #[serde(default)]
     pub validations: Vec<SqliteDataValidation>,
 }
 
-/// One target column whose copied value differs from an identity projection.
+/// One new-table column filled by a conversion instead of a plain copy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SqliteColumnCopy {
+    /// Column in the new table (must not be generated).
     pub target: String,
+    /// How to compute it from the old row.
     pub expression: SqliteCopyExpression,
 }
 
-/// Closed, generator-owned expressions admitted in a rebuild copy projection.
+/// The conversions a rebuild may apply. Each adds a matching check on the
+/// old rows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum SqliteCopyExpression {
+    /// `unhex(source)`: TEXT hex digits to a BLOB of exactly `bytes` bytes
+    /// (TEXT-affinity source, BLOB-affinity target).
     HexTextToBlob {
+        /// Old column.
         source: String,
+        /// Decoded length; must be positive.
         bytes: usize,
     },
+    /// Remaps integers; any old non-NULL value not listed fails the
+    /// migration (INTEGER-affinity source and target).
     IntegerMap {
+        /// Old column.
         source: String,
+        /// Non-empty list of remaps with distinct `from` values.
         cases: Vec<SqliteIntegerMapping>,
     },
 }
@@ -73,15 +153,20 @@ pub enum SqliteCopyExpression {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SqliteIntegerMapping {
+    /// Old value.
     pub from: i64,
+    /// New value.
     pub to: i64,
 }
 
-/// Closed, generator-owned source-data invariants checked before rebuilding.
+/// An extra check every non-NULL value of an old column must pass before the
+/// rebuild runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum SqliteDataValidation {
+    /// `column` (TEXT) holds valid JSON.
     JsonValid { column: String },
+    /// `column` (INTEGER) holds one of the `allowed` values.
     IntegerSet { column: String, allowed: Vec<i64> },
 }
 

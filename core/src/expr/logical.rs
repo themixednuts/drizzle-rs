@@ -1,26 +1,33 @@
-//! Logical operators (AND, OR, NOT).
+//! Logical operators: `AND`, `OR` and `NOT`.
 //!
-//! This module provides both function-based and operator-based logical operations:
+//! Use the functions [`and`], [`or`] and [`not`], or the Rust operators `&`,
+//! `|` and `!` on [`SQLExpr`] values. For more than two conditions, see
+//! [`all`](super::all), [`any`](super::any) and condition tuples.
+//!
+//! Operands must be boolean expressions. The result is nullable if any operand
+//! is nullable, and is an aggregate if any operand is.
+//!
+//! # Examples
 //!
 //! ```rust
-//! # let _ = r####"
-//! // Function style
-//! and(condition1, condition2)
-//! or(condition1, condition2)
-//! not(condition)
+//! # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+//! # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+//! # #[derive(Clone, Debug)] struct Value(String);
+//! # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+//! # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+//! # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+//! # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+//! # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+//! # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+//! # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+//! # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+//! let a = and(gt(users.age, 18), is_not_null(users.email));
+//! let b = gt(users.age, 18) & is_not_null(users.email);
+//! assert_eq!(a.sql(), b.sql());
+//! assert_eq!(a.sql(), r#"("users"."age" > ? AND "users"."email" IS NOT NULL)"#);
 //!
-//! // Operator style (via std::ops traits)
-//! condition1 & condition2   // BitAnd
-//! condition1 | condition2   // BitOr
-//! !condition                 // Not
-//!
-//! // Multiple conditions, flat (see the `cond` module)
-//! all((condition1, condition2, condition3))
-//! any((condition1, condition2, condition3))
-//!
-//! // A tuple is already a conjunction wherever a condition is accepted
-//! query.r#where((condition1, condition2, condition3))
-//! # "####;
+//! let c = !eq(users.name, "admin") | lt(users.age, 13);
+//! assert_eq!(c.sql(), r#"(NOT ("users"."name" = ?) OR "users"."age" < ?)"#);
 //! ```
 
 use core::ops::{BitAnd, BitOr, Not};
@@ -62,9 +69,48 @@ where
 // NOT
 // =============================================================================
 
-/// Logical NOT.
+/// Logical negation (`NOT`).
 ///
-/// Negates a boolean expression.
+/// Renders `NOT (expr)`; a single raw word, identifier or number is not
+/// parenthesized. The operand must be boolean. The result keeps the operand's
+/// nullability and aggregate kind. `!expr` on an [`SQLExpr`] does the same.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(not(users.active).sql(), r#"NOT ("users"."active")"#);
+/// assert_eq!(not(gt(users.age, 18)).sql(), r#"NOT ("users"."age" > ?)"#);
+/// ```
+///
+/// # Type safety
+///
+/// Negating a text column does not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = not(users.name);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn not<'a, V, E>(
     expr: E,
@@ -99,12 +145,27 @@ where
 
 /// Logical AND of two conditions.
 ///
-/// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::{and, eq, gt};
+/// Renders `(left AND right)`. Both operands must be boolean. The result is
+/// nullable if either operand is, and is an aggregate if either operand is.
+/// `left & right` on an [`SQLExpr`] does the same. For more than two
+/// conditions, use a tuple or [`all`](super::all).
 ///
-/// and(eq(users.active, true), gt(users.age, 18))
-/// # "####;
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let cond = and(users.active, gt(users.age, 18));
+/// assert_eq!(cond.sql(), r#"("users"."active" AND "users"."age" > ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn and<'a, V, L, R>(
@@ -135,12 +196,27 @@ where
 
 /// Logical OR of two conditions.
 ///
-/// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::{or, eq};
+/// Renders `(left OR right)`. Both operands must be boolean. The result is
+/// nullable if either operand is, and is an aggregate if either operand is.
+/// `left | right` on an [`SQLExpr`] does the same. For more than two
+/// conditions, use [`any`](super::any).
 ///
-/// or(eq(users.role, "admin"), eq(users.role, "moderator"))
-/// # "####;
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let cond = or(eq(users.name, "admin"), eq(users.name, "root"));
+/// assert_eq!(cond.sql(), r#"("users"."name" = ? OR "users"."name" = ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn or<'a, V, L, R>(
@@ -169,16 +245,7 @@ where
 // Operator Trait Implementations
 // =============================================================================
 
-/// Implements `!expr` for boolean expressions (SQL NOT).
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// let condition = eq(users.active, true);
-/// let negated = !condition;  // NOT "users"."active" = TRUE
-/// # "####;
-/// ```
+/// `!expr` renders `NOT (expr)`; see [`not`].
 impl<'a, V, T, N, A, S> Not for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
@@ -193,16 +260,7 @@ where
     }
 }
 
-/// Implements `expr1 & expr2` for boolean expressions (SQL AND).
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// let condition = eq(users.active, true) & gt(users.age, 18);
-/// // ("users"."active" = TRUE AND "users"."age" > 18)
-/// # "####;
-/// ```
+/// `left & right` renders `(left AND right)`; see [`and`].
 impl<'a, V, T, N, A, S, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
@@ -227,16 +285,7 @@ where
     }
 }
 
-/// Implements `expr1 | expr2` for boolean expressions (SQL OR).
-///
-/// # Example
-///
-/// ```rust
-/// # let _ = r####"
-/// let condition = eq(users.role, "admin") | eq(users.role, "moderator");
-/// // ("users"."role" = 'admin' OR "users"."role" = 'moderator')
-/// # "####;
-/// ```
+/// `left | right` renders `(left OR right)`; see [`or`].
 impl<'a, V, T, N, A, S, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,

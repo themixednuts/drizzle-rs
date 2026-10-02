@@ -1,10 +1,11 @@
 use crate::{Param, Placeholder, SQLParam};
 
+/// A [`Param`] that owns its value, so it has no lifetime.
 #[derive(Debug, Clone)]
 pub struct OwnedParam<V: SQLParam> {
-    /// The placeholder to use in the SQL
+    /// The placeholder written into the SQL text.
     pub placeholder: Placeholder,
-    /// The value to bind
+    /// The bound value, or `None` until one is bound.
     pub value: Option<V>,
 }
 

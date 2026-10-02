@@ -1,7 +1,7 @@
 //! Shared helper functions for procedural macro code generation.
 //!
-//! These utilities are used across both `SQLite` and `PostgreSQL` macro implementations
-//! to reduce code duplication and ensure consistent behavior.
+//! Used by every dialect's macros so they parse attributes and fields the same
+//! way.
 
 use proc_macro2::TokenStream;
 use quote::quote;

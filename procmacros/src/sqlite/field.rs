@@ -457,9 +457,16 @@ impl<'a> FieldInfo<'a> {
     /// Parse attribute arguments, extracting flags and named parameters.
     ///
     /// Supports:
-    /// - `SQLite` type overrides: `text`, `integer`, `blob`, `real`, `any`
-    /// - Constraint flags: `primary`, `unique`, `autoincrement`, `json`, `enum`
-    /// - Named parameters: `default = value`, `default_fn = func`, `references = Table::col`
+    /// - `SQLite` type overrides: `integer`, `text`, `blob`, `real`, `numeric`
+    ///   (or `number`), `boolean`, `any`
+    /// - Flags: `primary`/`primary_key`, `unique`, `autoincrement`, `json`, `enum`
+    /// - Named parameters: `default`, `default_fn`, `references`, `relation`,
+    ///   `on_delete`, `on_update`, `name`, `collate`, `check`
+    /// - `generated(stored | virtual, "expr")`
+    ///
+    /// Keys are case-insensitive. Calls other than `generated(...)`, and
+    /// expressions that are not paths or assignments, are skipped without an
+    /// error.
     fn parse_args(input: ParseStream) -> Result<ParsedArgs> {
         if input.is_empty() {
             return Ok(ParsedArgs::default());

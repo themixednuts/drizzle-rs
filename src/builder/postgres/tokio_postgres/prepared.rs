@@ -23,9 +23,12 @@ use tokio_postgres::{
 
 use crate::builder::postgres::prepared_common::postgres_prepared_async_impl;
 
-/// A prepared statement that can be executed multiple times with different parameters.
+/// A query rendered once, ready to run many times with new placeholder values.
 ///
-/// This statement can be run against a `tokio-postgres` client.
+/// Made by `.prepare()` on a query builder. Run it with `execute`, `all`, or
+/// `get`, passing the client and the placeholder bindings. It borrows the
+/// values embedded in the query; call [`into_owned`](Self::into_owned) to
+/// store it.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'a, Marker = (), DecodedRow = ()> {
     pub(crate) inner: CorePreparedStatement<'a, PostgresValue<'a>>,
@@ -362,7 +365,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         }
     }
 
-    /// Gets the SQL query string with placeholders
+    /// Returns the rendered SQL, with `$n` placeholders.
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
@@ -382,12 +385,13 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         self.statement_cache.evict_for(client, sql, param_types);
     }
 
-    /// Gets the number of parameters in the query
+    /// Returns how many `$n` parameters the SQL has, counting embedded values
+    /// as well as placeholders.
     pub fn param_count(&self) -> usize {
         self.inner.params.len()
     }
 
-    /// Converts this borrowed prepared statement into an owned one.
+    /// Copies the embedded values so the statement no longer borrows them.
     pub fn into_owned(self) -> OwnedPreparedStatement<Marker, DecodedRow> {
         let owned_params = self
             .inner
@@ -413,10 +417,8 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     }
 }
 
-/// Owned `PostgreSQL` prepared statement wrapper.
-///
-/// This is the owned counterpart to [`PreparedStatement`] that doesn't have any lifetime
-/// constraints.
+/// A [`PreparedStatement`] that owns its embedded values, so it can be stored
+/// or moved freely.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement<Marker = (), DecodedRow = ()> {
     pub(crate) inner: CoreOwnedPreparedStatement<OwnedPostgresValue>,
@@ -433,12 +435,13 @@ impl<'a, Marker, DecodedRow> From<PreparedStatement<'a, Marker, DecodedRow>>
 }
 
 impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
-    /// Gets the SQL query string with placeholders
+    /// Returns the rendered SQL, with `$n` placeholders.
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
-    /// Gets the number of parameters in the query
+    /// Returns how many `$n` parameters the SQL has, counting embedded values
+    /// as well as placeholders.
     pub fn param_count(&self) -> usize {
         self.inner.params.len()
     }

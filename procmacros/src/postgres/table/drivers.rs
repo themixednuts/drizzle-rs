@@ -250,8 +250,9 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
 
 /// Determine a "probe type" for NULL checking on the first column.
 ///
-/// Used by `Option<SelectModel>` to detect LEFT JOIN misses:
-/// read the first column as `Option<ProbeType>` — if `None`, all columns are NULL.
+/// Used by `Option<SelectModel>` to detect LEFT JOIN misses: the first
+/// column is read as `Option<ProbeType>`, and `None` is taken to mean the
+/// joined row is absent. Only that column is checked.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn null_probe_type(info: &FieldInfo) -> TokenStream {
     if info.is_custom_type {

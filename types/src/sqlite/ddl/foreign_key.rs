@@ -1,4 +1,5 @@
-//! `SQLite` Foreign Key DDL types
+//! `SQLite` foreign keys: [`ForeignKeyDef`] (const) and [`ForeignKey`]
+//! (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -6,26 +7,26 @@ use crate::alloc_prelude::*;
 // Shared Types
 // =============================================================================
 
-/// Foreign key referential action
+/// Foreign key `ON DELETE` / `ON UPDATE` action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum ReferentialAction {
-    /// No action (default)
+    /// `NO ACTION` (the default)
     #[default]
     NoAction,
-    /// Restrict deletion
+    /// `RESTRICT`
     Restrict,
-    /// Cascade changes
+    /// `CASCADE`
     Cascade,
-    /// Set to NULL
+    /// `SET NULL`
     SetNull,
-    /// Set to default value
+    /// `SET DEFAULT`
     SetDefault,
 }
 
 impl ReferentialAction {
-    /// Get the SQL representation
+    /// Returns the SQL keywords, such as `"SET NULL"`.
     #[must_use]
     pub const fn as_sql(&self) -> &'static str {
         match self {
@@ -37,7 +38,8 @@ impl ReferentialAction {
         }
     }
 
-    /// Parse from SQL string
+    /// Parses the SQL keywords, ignoring case. Returns `None` for anything
+    /// else.
     #[must_use]
     pub fn from_sql(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
@@ -55,7 +57,7 @@ impl ReferentialAction {
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly foreign key definition
+/// A foreign key that can be built in a `const`.
 ///
 /// # Examples
 ///
@@ -87,12 +89,13 @@ pub struct ForeignKeyDef {
     pub on_delete: Option<ReferentialAction>,
     /// ON UPDATE action
     pub on_update: Option<ReferentialAction>,
-    /// Whether the constraint name was explicitly specified
+    /// Whether the user gave the constraint name (rather than it being generated)
     pub name_explicit: bool,
 }
 
 impl ForeignKeyDef {
-    /// Create a new foreign key definition
+    /// Creates a foreign key with no columns; set them with
+    /// [`columns`](Self::columns()) and [`references`](Self::references).
     #[must_use]
     pub const fn new(table: &'static str, name: &'static str) -> Self {
         Self {
@@ -107,7 +110,7 @@ impl ForeignKeyDef {
         }
     }
 
-    /// Set source columns
+    /// Sets the referencing columns.
     #[must_use]
     pub const fn columns(self, cols: &'static [Cow<'static, str>]) -> Self {
         Self {
@@ -116,7 +119,7 @@ impl ForeignKeyDef {
         }
     }
 
-    /// Set reference table and columns
+    /// Sets the referenced table and columns.
     #[must_use]
     pub const fn references(
         self,
@@ -130,7 +133,7 @@ impl ForeignKeyDef {
         }
     }
 
-    /// Set ON DELETE action
+    /// Sets the `ON DELETE` action.
     #[must_use]
     pub const fn on_delete(self, action: ReferentialAction) -> Self {
         Self {
@@ -139,7 +142,7 @@ impl ForeignKeyDef {
         }
     }
 
-    /// Set ON UPDATE action
+    /// Sets the `ON UPDATE` action.
     #[must_use]
     pub const fn on_update(self, action: ReferentialAction) -> Self {
         Self {
@@ -148,7 +151,7 @@ impl ForeignKeyDef {
         }
     }
 
-    /// Mark the name as explicitly specified
+    /// Marks the name as given by the user.
     #[must_use]
     pub const fn explicit_name(self) -> Self {
         Self {
@@ -157,7 +160,7 @@ impl ForeignKeyDef {
         }
     }
 
-    /// Convert to runtime [`ForeignKey`] type
+    /// Converts to the runtime [`ForeignKey`].
     #[must_use]
     pub const fn into_foreign_key(self) -> ForeignKey {
         ForeignKey {
@@ -189,11 +192,10 @@ impl Default for ForeignKeyDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime foreign key constraint entity
+/// A foreign key, as stored in migration snapshots.
 ///
-/// Uses `Cow<'static, str>` for all string fields, which works with both:
-/// - Borrowed data from const definitions (`Cow::Borrowed`)
-/// - Owned data from deserialization/introspection (`Cow::Owned`)
+/// Actions are stored as SQL keywords (`"CASCADE"`, ...); `None` means not
+/// written.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForeignKey {
     /// Parent table name
@@ -217,12 +219,12 @@ pub struct ForeignKey {
     /// ON UPDATE action (as SQL string)
     pub on_update: Option<Cow<'static, str>>,
 
-    /// Whether the constraint name was explicitly specified
+    /// Whether the user gave the constraint name (rather than it being generated)
     pub name_explicit: bool,
 }
 
 impl ForeignKey {
-    /// Create a new foreign key
+    /// Creates a foreign key with no actions.
     #[must_use]
     pub fn new(
         table: impl Into<Cow<'static, str>>,
@@ -243,7 +245,7 @@ impl ForeignKey {
         }
     }
 
-    /// Create a new foreign key from owned strings (convenience for runtime construction)
+    /// Creates a foreign key with no actions from owned strings.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_strings(
@@ -265,28 +267,28 @@ impl ForeignKey {
         }
     }
 
-    /// Set ON DELETE action
+    /// Sets the `ON DELETE` action, as SQL keywords.
     #[must_use]
     pub fn on_delete(mut self, action: impl Into<Cow<'static, str>>) -> Self {
         self.on_delete = Some(action.into());
         self
     }
 
-    /// Set ON UPDATE action
+    /// Sets the `ON UPDATE` action, as SQL keywords.
     #[must_use]
     pub fn on_update(mut self, action: impl Into<Cow<'static, str>>) -> Self {
         self.on_update = Some(action.into());
         self
     }
 
-    /// Get the constraint name
+    /// Returns the constraint name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

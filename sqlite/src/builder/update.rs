@@ -1,3 +1,7 @@
+//! The UPDATE builder: [`UpdateBuilder`] and its states.
+//!
+//! Start an UPDATE with [`QueryBuilder::update`](super::QueryBuilder::update).
+
 use crate::common::SQLiteSchemaType;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
@@ -16,25 +20,21 @@ pub use drizzle_core::builder::{
 // UpdateBuilder Definition
 //------------------------------------------------------------------------------
 
-/// Builds an UPDATE query specifically for `SQLite`.
+/// An UPDATE query being built for `SQLite`.
 ///
-/// `UpdateBuilder` provides a type-safe, fluent API for constructing UPDATE statements
-/// with support for conditional updates, returning clauses, and precise column targeting.
+/// This is [`QueryBuilder`](super::QueryBuilder) in one of the `Update*`
+/// states. Start it with [`QueryBuilder::update`](super::QueryBuilder::update).
 ///
-/// ## Type Parameters
+/// # Clause order
 ///
-/// - `Schema`: The database schema type, ensuring only valid tables can be referenced
-/// - `State`: The current builder state, enforcing proper query construction order
-/// - `Table`: The table being updated
+/// 1. [`set`](Self::set) (required before the query can run).
+/// 2. Optionally `where`. Without it, every row is updated.
+/// 3. Optionally [`returning`](Self::returning).
 ///
-/// ## Query Building Flow
+/// The WHERE condition and the RETURNING columns may only reference the
+/// table being updated; other tables do not compile.
 ///
-/// 1. Start with `QueryBuilder::update(table)` to specify the target table
-/// 2. Add `set()` to specify which columns to update and their new values
-/// 3. Optionally add `where()` to limit which rows are updated
-/// 4. Optionally add `returning()` to get updated values back
-///
-/// ## Basic Usage
+/// # Examples
 ///
 /// ```rust
 /// # mod drizzle {
@@ -90,9 +90,8 @@ pub use drizzle_core::builder::{
 /// );
 /// ```
 ///
-/// ## Advanced Updates
+/// Several columns at once:
 ///
-/// ### Multiple Column Updates
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -129,9 +128,14 @@ pub use drizzle_core::builder::{
 ///         .with_name("Alice Updated")
 ///         .with_email("alice.new@example.com"))
 ///     .r#where(eq(user.id, 1));
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"UPDATE "users" SET "name" = ?, "email" = ? WHERE "users"."id" = ?"#
+/// );
 /// ```
 ///
-/// ### UPDATE with RETURNING
+/// With RETURNING:
+///
 /// ```rust
 /// # mod drizzle {
 /// #     pub mod core { pub use drizzle_core::*; }
@@ -167,6 +171,10 @@ pub use drizzle_core::builder::{
 ///     .set(UpdateUser::default().with_name("Alice Updated"))
 ///     .r#where(eq(user.id, 1))
 ///     .returning((user.id, user.name));
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     r#"UPDATE "users" SET "name" = ? WHERE "users"."id" = ? RETURNING "users"."id", "users"."name""#
+/// );
 /// ```
 pub type UpdateBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
@@ -196,11 +204,10 @@ impl<'a, Schema, Table> UpdateBuilder<'a, Schema, UpdateInitial, Table>
 where
     Table: SQLiteTable<'a>,
 {
-    /// Specifies which columns to update and their new values.
+    /// Sets the columns to change, using the table's generated update model.
     ///
-    /// This method accepts update expressions that specify which columns should
-    /// be modified. You can update single or multiple columns using the generated
-    /// update model's `with_*` setters.
+    /// Start from `UpdateX::default()` and call a `with_*` setter for each
+    /// column to change. Columns you do not set are left as they are.
     ///
     /// # Examples
     ///
@@ -244,6 +251,7 @@ where
     /// let query = builder
     ///     .update(user)
     ///     .set(UpdateUser::default().with_name("New Name").with_email("new@example.com"));
+    /// assert_eq!(query.to_sql().sql(), r#"UPDATE "users" SET "name" = ?, "email" = ?"#);
     /// ```
     #[inline]
     pub fn set(
@@ -269,10 +277,10 @@ where
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
-    /// Adds a WHERE clause to specify which rows to update.
+    /// Adds a WHERE clause that picks the rows to update.
     ///
-    /// Without a WHERE clause, all rows in the table would be updated. This method
-    /// allows you to specify conditions to limit which rows are affected by the update.
+    /// Without it, every row is updated. The condition must be a boolean
+    /// expression over the updated table's columns.
     ///
     /// # Examples
     ///
@@ -343,7 +351,10 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         }
     }
 
-    /// Adds a RETURNING clause and transitions to the `ReturningSet` state
+    /// Adds a RETURNING clause that reads columns of the updated rows.
+    ///
+    /// Pass one column or expression, a tuple, or `()` for every column.
+    /// Only columns of the updated table may be used.
     #[inline]
     pub fn returning<Columns, ScopeProof>(
         self,
@@ -374,7 +385,8 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 //------------------------------------------------------------------------------
 
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
-    /// Adds a RETURNING clause after WHERE
+    /// Adds a RETURNING clause after WHERE. See
+    /// [`returning`](UpdateBuilder::returning).
     #[inline]
     pub fn returning<Columns, ScopeProof>(
         self,

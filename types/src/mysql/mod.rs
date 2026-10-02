@@ -1,20 +1,26 @@
-//! `MySQL` type definitions.
+//! `MySQL` types. The supported server baseline is MySQL 8.0.31.
 //!
-//! The supported server baseline is MySQL 8.0.31. This module models MySQL's
-//! native type families without treating PostgreSQL-only concepts such as
-//! arrays, `JSONB`, or named enum types as portable.
+//! - [`types`]: zero-sized SQL type markers used for compile-time checks.
+//! - [`MySQLType`]: column types as written in DDL, including signedness and
+//!   inline `ENUM`/`SET` values.
+//! - [`TypeCategory`]: how a Rust field type maps to a `MySQL` column.
+//! - [`MySQLTypeCategory`]: families of SQL type declarations, used when parsing.
+//! - [`ddl`]: schema objects (tables, columns, indexes, ...) for migrations.
+//!
+//! PostgreSQL-only concepts such as arrays, `JSONB` and named enum types have
+//! no `MySQL` equivalent here.
 
 pub mod ddl;
 mod sql_type;
 mod type_category;
 
-/// Zero-sized SQL type markers for the MySQL dialect.
+/// Zero-sized SQL type markers for the `MySQL` dialect.
 ///
-/// These markers are used by `drizzle-core` to distinguish MySQL's signed and
-/// unsigned integer widths, text and binary families, and temporal types at
-/// compile time. They carry no runtime type declaration details such as a
-/// length, precision, scale, or inline enum values. Use [`MySQLType`] when
-/// schema metadata needs those details.
+/// Each marker stands for one SQL type at compile time, named after it
+/// (`IntUnsigned` is `INT UNSIGNED`, `Any` is untyped SQL such as a raw `SQL`
+/// fragment). Markers carry no length, precision or `ENUM` values; see
+/// [`MySQLType`] for those. The traits in [`crate::sql`] say which markers
+/// can be compared, assigned, or used in arithmetic.
 pub mod types {
     macro_rules! mysql_markers {
         ($($name:ident),+ $(,)?) => {

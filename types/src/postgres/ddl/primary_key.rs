@@ -1,4 +1,5 @@
-//! `PostgreSQL` Primary Key DDL types
+//! `PostgreSQL` primary keys: [`PrimaryKeyDef`] (const) and [`PrimaryKey`]
+//! (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -6,7 +7,7 @@ use crate::alloc_prelude::*;
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly primary key definition
+/// A primary key definition that can be built in a `const`.
 ///
 /// # Examples
 ///
@@ -33,7 +34,7 @@ pub struct PrimaryKeyDef {
 }
 
 impl PrimaryKeyDef {
-    /// Create a new primary key definition
+    /// Creates a primary key definition.
     #[must_use]
     pub const fn new(schema: &'static str, table: &'static str, name: &'static str) -> Self {
         Self {
@@ -63,7 +64,7 @@ impl PrimaryKeyDef {
         }
     }
 
-    /// Convert to runtime [`PrimaryKey`] type
+    /// Converts to the runtime [`PrimaryKey`].
     #[must_use]
     pub const fn into_primary_key(self) -> PrimaryKey {
         PrimaryKey {
@@ -86,11 +87,7 @@ impl Default for PrimaryKeyDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime primary key constraint entity
-///
-/// Uses `Cow<'static, str>` for all string fields, which works with both:
-/// - Borrowed data from const definitions (`Cow::Borrowed`)
-/// - Owned data from deserialization/introspection (`Cow::Owned`)
+/// A primary key, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimaryKey {
     /// Schema name
@@ -110,7 +107,7 @@ pub struct PrimaryKey {
 }
 
 impl PrimaryKey {
-    /// Create a new primary key
+    /// Creates a primary key.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -127,7 +124,7 @@ impl PrimaryKey {
         }
     }
 
-    /// Create a new primary key from owned strings (convenience for runtime construction)
+    /// Creates a primary key from owned strings.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_strings(schema: String, table: String, name: String, columns: Vec<String>) -> Self {
@@ -140,21 +137,21 @@ impl PrimaryKey {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the constraint name
+    /// Returns the constraint name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

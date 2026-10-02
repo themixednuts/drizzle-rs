@@ -1,4 +1,4 @@
-//! Check command - validates configuration
+//! `drizzle check`: validates the config and prints a summary.
 
 use std::path::{Path, PathBuf};
 
@@ -17,15 +17,19 @@ pub struct CheckOptions {
     pub out: Option<PathBuf>,
 }
 
-/// Run the `check` command, validating that the resolved configuration is
-/// well-formed and printing a human-readable summary.
+/// Runs `drizzle check`: prints the resolved settings, then checks the schema
+/// files, the migrations folder, and the credentials.
+///
+/// Problems that do not block other commands (no migrations yet, a legacy
+/// journal, no credentials) are printed as warnings and still return `Ok`.
+/// Does not connect to the database.
 ///
 /// # Errors
 ///
-/// Returns a [`CliError`] if the requested database cannot be resolved from the
-/// config, if schema-file discovery fails, if the credentials block is
-/// malformed, or if a warning-as-error condition is encountered (currently only
-/// if the filesystem enumeration of the migrations directory fails).
+/// Returns a [`CliError`] if `db_name` does not match the config, the
+/// migrations folder cannot be read, or schema-file discovery or credential
+/// resolution fails (those two are printed first, then reported as
+/// [`CliError::Other`]).
 pub fn run(config: &Config, db_name: Option<&str>, opts: &CheckOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 

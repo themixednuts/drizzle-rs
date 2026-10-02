@@ -1,7 +1,9 @@
-//! Drizzle CLI - Main entry point
+//! The `drizzle` binary: parses arguments and dispatches to
+//! `drizzle_cli::commands`.
 //!
-//! This is the main binary for the drizzle-cli tool.
-//! CLI interface matches drizzle-kit for TypeScript compatibility.
+//! Command and flag names follow drizzle-kit. A `.env` file in the current
+//! directory (and next to a `--config` file elsewhere) is loaded before the
+//! config so `{ env = "VAR" }` values resolve.
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;

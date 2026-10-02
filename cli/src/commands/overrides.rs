@@ -1,3 +1,7 @@
+//! Command-line flags that override `drizzle.config.toml` for one run
+//! (connection settings and filters), and the `resolve_*` functions that
+//! merge them with the config.
+
 use std::path::PathBuf;
 
 use crate::config::{
@@ -93,6 +97,8 @@ fn parse_extension_arg(s: &str) -> Result<Extension, String> {
 }
 
 impl ConnectionOverrides {
+    /// Returns `true` if any credential flag is set (`--driver` does not
+    /// count).
     #[must_use]
     pub const fn has_any(&self) -> bool {
         self.url.is_some()
@@ -106,29 +112,34 @@ impl ConnectionOverrides {
     }
 }
 
-/// Fully resolved live database target. Keeping the driver beside the
-/// credentials prevents command validation from selecting one adapter and
-/// the effect layer silently using another compiled adapter.
+/// A live database target: dialect, driver, and credentials, checked to fit
+/// together.
+///
+/// Keeping the driver beside the credentials means the command and the code
+/// that connects always agree on which driver to use.
 #[derive(Debug, Clone)]
 pub struct ResolvedConnection {
+    /// Effective dialect.
     pub dialect: Dialect,
+    /// Driver to connect with.
     pub driver: Driver,
+    /// Resolved credentials.
     pub credentials: Credentials,
 }
 
+/// Returns `--dialect` if given, else the config's dialect.
 #[must_use]
 pub fn resolve_dialect(db: &DatabaseConfig, override_dialect: Option<Dialect>) -> Dialect {
     override_dialect.unwrap_or(db.dialect)
 }
 
-/// Resolve the effective driver by applying CLI overrides on top of the
-/// config's value, validating that the chosen driver is compatible with the
-/// resolved dialect.
+/// Returns `driver_override`, else the config's driver (`None` if neither is
+/// set), after checking it is valid for `dialect`.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the override driver is set but is not valid for the
-/// given `dialect` (e.g. `rusqlite` selected with `postgresql`).
+/// Returns [`CliError`] if the chosen driver is not valid for `dialect` (for
+/// example `rusqlite` with `postgresql`).
 pub fn resolve_driver(
     db: &DatabaseConfig,
     dialect: Dialect,
@@ -145,14 +156,19 @@ pub fn resolve_driver(
     Ok(driver)
 }
 
-/// Resolve database credentials from CLI overrides, falling back to the
-/// configured value when no override is set.
+/// Builds credentials from the connection flags, or returns the config's
+/// credentials when no credential flag is set.
+///
+/// Flags replace the config's `dbCredentials` entirely; they are not merged
+/// field by field.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if an override is provided but is incompatible with
-/// the resolved dialect, or if resolving a config-provided credentials block
-/// fails (e.g. missing environment variables).
+/// Returns [`CliError`] if `dialect` differs from the config's dialect but no
+/// credential flags are given, a flag does not apply to the dialect, a
+/// required flag (such as `--url` for SQLite) is missing, `--ssl` is invalid,
+/// or resolving the config's credentials fails (for example a missing
+/// environment variable).
 pub fn resolve_credentials(
     db: &DatabaseConfig,
     dialect: Dialect,
@@ -305,8 +321,18 @@ pub fn resolve_credentials(
     Ok(Some(creds))
 }
 
-/// Resolve a live connection target, including a deterministic default driver
-/// when the config omits one.
+/// Resolves credentials (see [`resolve_credentials`]) and picks the driver,
+/// or returns `None` when there are no credentials.
+///
+/// The driver is `--driver`, else the config's driver (when the dialect is
+/// not overridden), else a default for the credentials: `rusqlite`,
+/// `d1-http`, `libsql` for a local Turso URL or `turso` for a remote one,
+/// `aws-data-api`, `postgres-sync`, or `mysql-sync`.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if resolving credentials fails or the driver does not
+/// fit the dialect or the credentials.
 pub fn resolve_connection(
     db: &DatabaseConfig,
     dialect: Dialect,
@@ -403,6 +429,8 @@ fn parse_mysql_ssl_override(ssl: Option<&str>) -> Result<Option<MySQLSslMode>, C
     })
 }
 
+/// Returns the `--tablesFilter`-style flag values if given (an empty flag
+/// clears the filter), else the config's patterns.
 #[must_use]
 pub fn resolve_filter_list(cli: Option<&[String]>, config: Option<&Filter>) -> Option<Vec<String>> {
     if let Some(values) = cli {
@@ -415,6 +443,9 @@ pub fn resolve_filter_list(cli: Option<&[String]>, config: Option<&Filter>) -> O
     config.map(|f| f.iter().map(ToOwned::to_owned).collect())
 }
 
+/// Like [`resolve_filter_list`] for `schemaFilter`, but PostgreSQL only
+/// (`None` otherwise) and defaulting to `["public"]` when neither the flag nor
+/// the config sets it.
 #[must_use]
 pub fn resolve_schema_filters(
     dialect: Dialect,
@@ -436,6 +467,8 @@ pub fn resolve_schema_filters(
     }
 }
 
+/// Returns the `--extensionsFilters` values if given (an empty flag clears
+/// the filter), else the config's list; always `None` outside PostgreSQL.
 #[must_use]
 pub fn resolve_extensions_filter(
     dialect: Dialect,
@@ -455,6 +488,8 @@ pub fn resolve_extensions_filter(
     config.map(<[Extension]>::to_vec)
 }
 
+/// Returns the `--schema` override joined for display, else the config's
+/// schema paths.
 #[must_use]
 pub fn resolve_schema_display(db: &DatabaseConfig, schema_override: Option<&[String]>) -> String {
     match schema_override {
@@ -463,8 +498,9 @@ pub fn resolve_schema_display(db: &DatabaseConfig, schema_override: Option<&[Str
     }
 }
 
-/// Resolve the schema file paths the current command will operate on, using
-/// the CLI override if provided or the configured value otherwise.
+/// Resolves the schema files a command reads: the `--schema` override (paths
+/// relative to the current directory) if given, else the config's `schema`
+/// (relative to the config file).
 ///
 /// # Errors
 ///

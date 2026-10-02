@@ -1,6 +1,7 @@
-//! `SQLite` View DDL types
+//! `SQLite` views: [`ViewDef`] (const) and [`View`] (runtime).
 //!
-//! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/sqlite/ddl.ts>
+//! Mirrors drizzle-kit's
+//! [`ddl.ts`](https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/sqlite/ddl.ts).
 
 use crate::alloc_prelude::*;
 
@@ -11,7 +12,10 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly view definition
+/// A view that can be built in a `const`.
+///
+/// A view with `is_existing` set is managed outside drizzle: it is referenced
+/// but never created or dropped.
 ///
 /// # Examples
 ///
@@ -25,7 +29,7 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 pub struct ViewDef {
     /// View name
     pub name: &'static str,
-    /// View definition (AS SELECT ...)
+    /// The view's `SELECT` statement (the part after `AS`)
     pub definition: Option<&'static str>,
     /// Whether this is an existing view (not managed by drizzle)
     pub is_existing: bool,
@@ -34,7 +38,7 @@ pub struct ViewDef {
 }
 
 impl ViewDef {
-    /// Create a new view definition
+    /// Creates a view with no definition.
     #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self {
@@ -45,7 +49,7 @@ impl ViewDef {
         }
     }
 
-    /// Set the view definition
+    /// Sets the view's `SELECT` statement.
     #[must_use]
     pub const fn definition(self, sql: &'static str) -> Self {
         Self {
@@ -54,7 +58,7 @@ impl ViewDef {
         }
     }
 
-    /// Mark as existing (not managed by drizzle)
+    /// Marks the view as existing outside drizzle's control.
     #[must_use]
     pub const fn existing(self) -> Self {
         Self {
@@ -63,7 +67,7 @@ impl ViewDef {
         }
     }
 
-    /// Set an error message
+    /// Records an error message for a view that failed to parse or validate.
     #[must_use]
     pub const fn error(self, error: &'static str) -> Self {
         Self {
@@ -72,7 +76,7 @@ impl ViewDef {
         }
     }
 
-    /// Convert to runtime [`View`] type
+    /// Converts to the runtime [`View`].
     #[must_use]
     pub const fn into_view(self) -> View {
         View {
@@ -100,7 +104,7 @@ impl Default for ViewDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime view entity
+/// A view, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -109,7 +113,7 @@ pub struct View {
     #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
     pub name: Cow<'static, str>,
 
-    /// View definition (AS SELECT ...)
+    /// The view's `SELECT` statement (the part after `AS`)
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -137,7 +141,7 @@ pub struct View {
 }
 
 impl View {
-    /// Create a new view
+    /// Creates a view with no definition.
     #[must_use]
     pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -148,7 +152,7 @@ impl View {
         }
     }
 
-    /// Get the view name
+    /// Returns the view name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

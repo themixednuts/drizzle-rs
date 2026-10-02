@@ -1,4 +1,5 @@
-//! sqlcommenter helpers — attach trace/context metadata to queries.
+//! sqlcommenter helpers: attach trace or context metadata to queries as SQL
+//! comments.
 //!
 //! Mirrors upstream `drizzle-orm`'s `sql.comment()` / `sqlCommenter()` helpers
 //! so that observability sidecars that parse SQL comments (Google Cloud SQL
@@ -52,15 +53,33 @@ const COMPONENT: &AsciiSet = &CONTROLS
     .add(b'|')
     .add(b'}');
 
-/// Attach a free-form sqlcommenter comment to a query.
+/// Creates a free-form SQL comment: `/*text*/`.
 ///
-/// The input is sanitised so it cannot terminate the enclosing comment — any
-/// `/*` becomes `/ *` and any `*/` becomes `* /`. An empty input yields an
-/// empty SQL fragment (no wrapper).
+/// The text cannot end the comment early: `/*` becomes `/ *` and `*/`
+/// becomes `* /`. An empty input gives an empty fragment.
 ///
-/// In driver code you'd typically reach for this via
-/// `QueryBuilder::comment(...)` on the per-dialect builder rather than calling
-/// this helper directly.
+/// Most code calls the `.comment(...)` method on a dialect's query builder
+/// instead.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{SQL, sql::comment};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = comment("route=/users */ DROP");
+/// assert_eq!(sql.sql(), "/*route=/users * / DROP*/");
+/// ```
 pub fn comment<'a, V: SQLParam>(text: impl AsRef<str>) -> SQL<'a, V> {
     let text = text.as_ref();
     if text.is_empty() {
@@ -74,13 +93,32 @@ pub fn comment<'a, V: SQLParam>(text: impl AsRef<str>) -> SQL<'a, V> {
     SQL::raw(out)
 }
 
-/// Attach a tag-style sqlcommenter comment to a query.
+/// Creates a sqlcommenter tag comment: `/*key='value',...*/`.
 ///
-/// Each pair is URL-encoded using `encodeURIComponent` semantics (with an
-/// additional `'` → `\'` escape) and formatted as `key='value'`. Pairs are
-/// sorted alphabetically by their encoded representation and joined with `,`.
-/// Pairs whose value is empty after encoding are skipped. An empty result
-/// yields an empty SQL fragment.
+/// Keys and values are URL-encoded like JavaScript's `encodeURIComponent`,
+/// with `'` also escaped as `\'`. Pairs are sorted by their encoded form
+/// and joined with `,`. Pairs with an empty value are skipped. If no pair
+/// is left, the result is an empty fragment.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{SQL, sql::comment_tags};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = comment_tags([("route", "/users"), ("action", "list")]);
+/// assert_eq!(sql.sql(), "/*action='list',route='%2Fusers'*/");
+/// ```
 pub fn comment_tags<'a, V, I, K, Val>(pairs: I) -> SQL<'a, V>
 where
     V: SQLParam,

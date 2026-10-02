@@ -23,7 +23,14 @@ use drizzle_sqlite::{
     values::SQLiteValue,
 };
 
-/// Shared `SQLite` drizzle builder wrapper for all `SQLite` drivers.
+/// A query being built against a SQLite [`Drizzle`] handle.
+///
+/// Start one with [`Drizzle::select`], [`insert`](Drizzle::insert),
+/// [`update`](Drizzle::update), or [`delete`](Drizzle::delete), chain clauses,
+/// then run it with the driver's `.execute()`, `.all()`, `.get()`, or `.rows()`.
+/// Each clause method is only available where it is valid SQL (for example,
+/// `.having()` only after `.group_by()`). The builder implements `ToSQL`, so
+/// `.to_sql().sql()` shows the SQL it will run.
 #[derive(Debug)]
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
@@ -32,7 +39,11 @@ pub struct DrizzleBuilder<'a, Runner, Schema, Builder, State> {
     pub(crate) state: PhantomData<(Schema, State)>,
 }
 
-/// Intermediate builder for typed ON CONFLICT within a Drizzle wrapper.
+/// The `ON CONFLICT (target)` step of an insert, made by
+/// `.on_conflict(target)`.
+///
+/// Finish it with [`do_nothing`](Self::do_nothing) or
+/// [`do_update`](Self::do_update).
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
     runner: &'a Runner,
@@ -40,7 +51,8 @@ pub struct DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
 }
 
 impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Schema, Table> {
-    /// Adds a WHERE clause to the conflict target for partial index matching.
+    /// Restricts the conflict target to rows matching `condition`, to match a
+    /// partial unique index: `ON CONFLICT (cols) WHERE condition`.
     pub fn r#where<E, ScopeProof>(mut self, condition: E) -> Self
     where
         E: drizzle_core::expr::ExprSources,
@@ -52,7 +64,33 @@ impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Sch
         self
     }
 
-    /// `ON CONFLICT (cols) DO NOTHING`
+    /// Skips rows that conflict on the target: `ON CONFLICT (target) DO NOTHING`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let query = db
+    ///     .insert(users)
+    ///     .value(InsertUsers::new("Alex Smith", 26).with_id(1))
+    ///     .on_conflict(users.id)
+    ///     .do_nothing();
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "users" ("id", "name", "age") VALUES (?, ?, ?) ON CONFLICT ("id") DO NOTHING"#,
+    /// );
+    /// query.execute()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn do_nothing(
         self,
     ) -> DrizzleBuilder<
@@ -69,7 +107,32 @@ impl<'a, 'b, Runner, Schema, Table> DrizzleOnConflictBuilder<'a, 'b, Runner, Sch
         }
     }
 
-    /// `ON CONFLICT (cols) DO UPDATE SET ...`
+    /// Updates the existing row instead: `ON CONFLICT (target) DO UPDATE SET ...`.
+    ///
+    /// `set` is usually an `Update*` model. Chain `.r#where(..)` to update only
+    /// some conflicting rows.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// // Upsert: insert user 1, or bump the age when the id already exists.
+    /// db.insert(users)
+    ///     .value(InsertUsers::new("Alex Smith", 27).with_id(1))
+    ///     .on_conflict(users.id)
+    ///     .do_update(UpdateUsers::default().with_age(27))
+    ///     .execute()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn do_update(
         self,
         set: impl ToSQL<'b, SQLiteValue<'b>>,
@@ -153,7 +216,15 @@ impl core::fmt::Debug for LibsqlStatementCache {
     }
 }
 
-/// Shared `SQLite` drizzle connection wrapper.
+/// A SQLite connection paired with its schema: the handle every query starts
+/// from.
+///
+/// Each driver names it for its own connection type, such as
+/// `drizzle::sqlite::rusqlite::Drizzle<Schema>`. Create one with
+/// [`Drizzle::new`], start queries with [`select`](Self::select),
+/// [`insert`](Self::insert), [`update`](Self::update), and
+/// [`delete`](Self::delete), and reach the raw connection with
+/// [`conn`](Self::conn).
 #[derive(Debug)]
 pub struct Drizzle<Conn, Schema = ()> {
     pub(crate) conn: Conn,
@@ -236,13 +307,13 @@ impl<Conn, S> AsRef<Self> for Drizzle<Conn, S> {
 }
 
 impl<Conn, Schema> Drizzle<Conn, Schema> {
-    /// Gets a reference to the underlying connection.
+    /// Returns the wrapped connection, for calls drizzle does not cover.
     #[inline]
     pub const fn conn(&self) -> &Conn {
         &self.conn
     }
 
-    /// Gets a mutable reference to the underlying connection.
+    /// Returns the wrapped connection mutably.
     #[inline]
     pub fn conn_mut(&mut self) -> &mut Conn {
         // The caller may replace the connection; a statement cached on the old
@@ -252,13 +323,44 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         &mut self.conn
     }
 
-    /// Gets a reference to the schema.
+    /// Returns the schema value this handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    /// Creates a SELECT query builder.
+    /// Starts a `SELECT` query.
+    ///
+    /// `query` is what to select: `()` for every column of the `FROM` table, a
+    /// column, a tuple of columns and expressions, or a `FromRow` type's
+    /// `::Select` marker. Follow it with [`from`](DrizzleBuilder::from).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    ///
+    /// // `()` selects every column into the table's `Select*` model.
+    /// let everyone: Vec<SelectUsers> = db.select(()).from(users).all()?;
+    ///
+    /// // A column or a tuple of columns selects just those.
+    /// let names: Vec<String> = db.select(users.name).from(users).all()?;
+    /// let pairs: Vec<(i64, String)> = db.select((users.id, users.name)).from(users).all()?;
+    ///
+    /// let query = db.select(users.name).from(users).r#where(eq(users.id, 1));
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users" WHERE "users"."id" = ?"#);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[cfg(feature = "sqlite")]
     pub fn select<'a, 'b, T>(
         &'a self,
@@ -282,7 +384,26 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         }
     }
 
-    /// Creates a SELECT DISTINCT query builder.
+    /// Starts a `SELECT DISTINCT` query, which drops duplicate rows.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let query = db.select_distinct(users.name).from(users);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT DISTINCT "users"."name" FROM "users""#);
+    /// let names: Vec<String> = query.all()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[cfg(feature = "sqlite")]
     pub fn select_distinct<'a, 'b, T>(
         &'a self,
@@ -305,7 +426,30 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         }
     }
 
-    /// Creates an INSERT query builder.
+    /// Starts an `INSERT` into `table`.
+    ///
+    /// Follow it with [`value`](DrizzleBuilder::value) or
+    /// [`values`](DrizzleBuilder::values) and an `Insert*` model, or with
+    /// `select(..)` to insert a query's rows.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let query = db.insert(users).value(InsertUsers::new("Dana", 41));
+    /// assert_eq!(query.to_sql().sql(), r#"INSERT INTO "users" ("name", "age") VALUES (?, ?)"#);
+    /// query.execute()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[cfg(feature = "sqlite")]
     pub fn insert<'a, 'b, Table>(
         &'a self,
@@ -328,7 +472,34 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         }
     }
 
-    /// Creates an UPDATE query builder.
+    /// Starts an `UPDATE` of `table`.
+    ///
+    /// Follow it with [`set`](DrizzleBuilder::set) and an `Update*` model. Without
+    /// `.r#where(..)`, every row is updated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    ///
+    /// let query = db
+    ///     .update(users)
+    ///     .set(UpdateUsers::default().with_age(27))
+    ///     .r#where(eq(users.id, 1));
+    /// assert_eq!(query.to_sql().sql(), r#"UPDATE "users" SET "age" = ? WHERE "users"."id" = ?"#);
+    /// assert_eq!(query.execute()?, 1);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[cfg(feature = "sqlite")]
     pub fn update<'a, 'b, Table>(
         &'a self,
@@ -351,7 +522,30 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         }
     }
 
-    /// Creates a DELETE query builder.
+    /// Starts a `DELETE` from `table`.
+    ///
+    /// Without `.r#where(..)`, every row is deleted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    ///
+    /// let query = db.delete(comments).r#where(eq(comments.id, 1));
+    /// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "comments" WHERE "comments"."id" = ?"#);
+    /// assert_eq!(query.execute()?, 1);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[cfg(feature = "sqlite")]
     pub fn delete<'a, 'b, Table>(
         &'a self,
@@ -374,7 +568,39 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         }
     }
 
-    /// Creates a query with CTE (Common Table Expression).
+    /// Starts a query with a common table expression: `WITH name AS (...)`.
+    ///
+    /// Make the CTE with [`into_cte`](DrizzleBuilder::into_cte) on a select query,
+    /// then pass it here and select from it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::gt;
+    /// use drizzle::sqlite::prelude::tag;
+    ///
+    /// tag!(Adults, "adults");
+    ///
+    /// let adults = db
+    ///     .select((users.id, users.name))
+    ///     .from(users)
+    ///     .r#where(gt(users.age, 18))
+    ///     .into_cte::<Adults>();
+    ///
+    /// let names: Vec<(i64, String)> = db.with(&adults).select((adults.id, adults.name)).from(&adults).all()?;
+    /// assert_eq!(names.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[cfg(feature = "sqlite")]
     pub fn with<'a, 'b, C>(
         &'a self,
@@ -402,16 +628,13 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 // Query API: DrizzleQueryBuilder
 // =============================================================================
 
-/// Wrapper around `drizzle_core::query::QueryBuilder` holding a query runner.
+/// A relational query (`db.query(table)`), which loads rows together with
+/// their related rows in one SQL statement.
 ///
-/// Created by `Drizzle::query()` or a transaction's `query()`. Builder methods
-/// configure relations, filtering, and pagination. Terminal methods
-/// (`find_many`, `find_first`) execute the query and are added by each driver
-/// module for its runner types (`&Drizzle<Conn, _>` and `&Transaction<..>`).
-///
-/// Two lifetimes:
-/// - `'db` — runner reference
-/// - `'a` — expression/value lifetime (independent of the runner)
+/// Add relations with [`with`](Self::with), narrow it with
+/// [`r#where`](Self::r#where), [`order_by`](Self::order_by),
+/// [`limit`](Self::limit), and [`offset`](Self::offset), then run it with
+/// the driver's `find_many()` or `find_first()`. Each clause can be set once.
 #[cfg(all(feature = "sqlite", feature = "query"))]
 #[must_use = "a query builder does nothing until it runs (`.execute()`, `.all()`, `.get()`, ...)"]
 pub struct DrizzleQueryBuilder<
@@ -429,11 +652,12 @@ pub struct DrizzleQueryBuilder<
     pub(crate) _schema: PhantomData<(&'db (), Schema)>,
 }
 
-/// Prepared relational query.
+/// A relational query rendered once, made by
+/// [`DrizzleQueryBuilder::prepare`].
 ///
-/// Created by [`DrizzleQueryBuilder::prepare`]. The prepared query is detached
-/// from the connection; driver modules provide `find_many` and `find_first`
-/// methods that take an explicit connection plus parameter bindings.
+/// It is detached from the connection: the driver's `find_many` and
+/// `find_first` take the connection and the placeholder bindings on each
+/// call.
 #[cfg(all(feature = "sqlite", feature = "query"))]
 #[derive(Debug, Clone)]
 pub struct DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
@@ -443,13 +667,13 @@ pub struct DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
 impl<'a, Driver, T, Rels, Cols> DrizzlePreparedQuery<'a, Driver, T, Rels, Cols> {
-    /// Returns the prepared SQL string with dialect placeholders.
+    /// Returns the rendered SQL, with the dialect's placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
-    /// Returns the number of external parameter bindings expected.
+    /// Returns how many placeholder bindings each run expects.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.inner.external_param_count()
@@ -465,14 +689,39 @@ impl<Driver, T, Rels, Cols> core::fmt::Display for DrizzlePreparedQuery<'_, Driv
 
 #[cfg(all(feature = "sqlite", feature = "query"))]
 impl<Conn, Schema> Drizzle<Conn, Schema> {
-    /// Creates a relational query builder for the given table.
+    /// Starts a relational query on `table` (requires the `query` feature).
     ///
-    /// ```rust
-    /// # let _ = r####"
-    /// let users = db.query(user)
-    ///     .with(user.posts())
-    ///     .find_many()?;
-    /// # "####;
+    /// Relations come from foreign keys: `#[column(references = Users::id)]` on
+    /// `Posts::author_id` gives `users.posts()` (one-to-many) and
+    /// `posts.author()` (many-to-one). Results nest the related rows as fields.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    ///
+    /// // Each user, with their posts.
+    /// let everyone = db.query(users).with(users.posts()).find_many()?;
+    /// assert_eq!(everyone.len(), 3);
+    ///
+    /// let alex = db
+    ///     .query(users)
+    ///     .with(users.posts())
+    ///     .r#where(eq(users.name, "Alex Smith"))
+    ///     .find_first()?
+    ///     .expect("Alex exists");
+    /// assert_eq!(alex.posts.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
     /// ```
     pub fn query<'a, T>(&self, _table: T) -> DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
     where
@@ -486,25 +735,22 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     }
 }
 
-/// Declares which relational-query row shape a driver's connection consumes.
+/// Declares which relational-query row shape a driver's connection reads.
 ///
-/// [`DrizzleQueryBuilder::prepare`] renders SQL once, generically, before any
-/// driver-specific code runs — so the connection type itself carries the
-/// shape decision:
+/// [`DrizzleQueryBuilder::prepare`] renders SQL before any driver code runs,
+/// so the connection type carries the choice:
 ///
 /// - Native drivers (rusqlite, turso, libsql) read positional columns and
-///   decode the base model via `TryFrom<&Row>`, so base columns stay plain
+///   decode the base model with `TryFrom<&Row>`, so base columns stay plain
 ///   (`WRAP_BASE_JSON = false`).
 /// - The Cloudflare drivers (d1, durable) receive rows as column-keyed serde
-///   objects where text is the only lossless value transport (integers cross
-///   the JS boundary as `f64`; raw blob bytes don't match the hex contract of
-///   the generated decoders). They read the base model from a single
+///   objects, where text is the only lossless transport (integers cross the
+///   JS boundary as `f64`, and raw blob bytes don't match the hex format the
+///   generated decoders expect). They read the base model from a single
 ///   `"__base"` JSON text column (`WRAP_BASE_JSON = true`) and decode rows
 ///   through [`drizzle_core::query::JsonQueryRow`].
 ///
-/// Sealed: the shape is a contract between `prepare()` and a driver's
-/// `find_many` / `find_first` executors, and only driver modules in this
-/// crate provide both sides.
+/// Sealed: only driver modules in this crate implement it.
 #[cfg(all(feature = "sqlite", feature = "query"))]
 pub trait QueryRowFormat: private::Sealed {
     /// Whether `build_query_sql` must wrap base columns into `"__base"` JSON.
@@ -534,11 +780,36 @@ where
     T: drizzle_core::query::QueryTable,
     Rels: drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
 {
-    /// Creates a prepared relational query.
+    /// Renders this relational query once into a reusable
+    /// [`DrizzlePreparedQuery`].
     ///
-    /// The SQL shape follows the destination connection type's
-    /// [`QueryRowFormat`], so the statement matches what that driver's
-    /// prepared `find_many` / `find_first` executors decode.
+    /// The SQL shape follows the connection type's [`QueryRowFormat`], so it
+    /// matches what that driver's prepared `find_many`/`find_first` decode.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::SQLColumn;
+    /// use drizzle::core::expr::eq;
+    ///
+    /// let name = users.name.placeholder("name");
+    /// let by_name = db.query(users).with(users.posts()).r#where(eq(users.name, name)).prepare();
+    ///
+    /// let alex = by_name.find_many(db.conn(), [name.bind("Alex Smith")])?;
+    /// let bob = by_name.find_many(db.conn(), [name.bind("Bob")])?;
+    /// assert_eq!((alex.len(), bob.len()), (1, 1));
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn prepare(
         self,
     ) -> DrizzlePreparedQuery<'a, Runner::PreparedDriver, T, Rels, drizzle_core::query::AllColumns>
@@ -573,7 +844,8 @@ where
     T: drizzle_core::query::QueryTable,
     Rels: drizzle_core::query::RenderRelations<'a, SQLiteValue<'a>>,
 {
-    /// Creates a prepared relational query.
+    /// Renders this partial-column relational query once into a reusable
+    /// [`DrizzlePreparedQuery`].
     pub fn prepare(
         self,
     ) -> DrizzlePreparedQuery<
@@ -610,7 +882,29 @@ where
 impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
     DrizzleQueryBuilder<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
 {
-    /// Includes a relation in the query results.
+    /// Loads a relation with each row, such as `users.posts()`.
+    ///
+    /// Relation handles can nest their own `.with(..)` and clauses. Call `with`
+    /// again to load more relations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// // Users with their posts, and each post with its comments.
+    /// let rows = db.query(users).with(users.posts().with(posts.comments())).find_many()?;
+    /// assert_eq!(rows[0].posts[0].comments.len(), 1);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[allow(clippy::type_complexity)]
     pub fn with<R, N, C, RCl>(
         self,
@@ -653,9 +947,30 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Ord, Lim>
         drizzle_core::query::Clauses<drizzle_core::query::NoWhere, Ord, Lim>,
     >
 {
-    /// Sets the WHERE clause for the query.
+    /// Filters the root rows. Combine conditions with a tuple (`AND`), `and`,
+    /// or `or`; this can be called once.
     ///
-    /// Can only be called once. To combine conditions, use `and(a, b)` or `or(a, b)`.
+    /// The condition may only read the queried table's columns.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::gt;
+    ///
+    /// let adults = db.query(users).r#where(gt(users.age, 18)).find_many()?;
+    /// assert_eq!(adults.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -698,9 +1013,28 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Lim>
         drizzle_core::query::Clauses<W, drizzle_core::query::NoOrderBy, Lim>,
     >
 {
-    /// Adds a typed ORDER BY clause.
+    /// Orders the root rows. This can be called once; pass a tuple to order by
+    /// several columns.
     ///
-    /// Can only be called once.
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::desc;
+    ///
+    /// let oldest_first = db.query(users).order_by(desc(users.age)).find_many()?;
+    /// assert_eq!(oldest_first[0].name, "Alice");
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn order_by<E, ScopeProof>(
         self,
         expr: E,
@@ -742,7 +1076,25 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Sets a LIMIT on the query. Can only be called once.
+    /// Returns at most `n` root rows. This can be called once.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let two = db.query(users).limit(2).find_many()?;
+    /// assert_eq!(two.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn limit<P>(
         self,
         n: P,
@@ -781,7 +1133,27 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::HasLimit>,
     >
 {
-    /// Sets an OFFSET on the query. Requires `.limit()` to have been called first.
+    /// Skips the first `n` root rows. Call [`limit`](Self::limit) first.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::asc;
+    ///
+    /// let rest = db.query(users).order_by(asc(users.id)).limit(10).offset(1).find_many()?;
+    /// assert_eq!(rest.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn offset<P>(
         self,
         n: P,
@@ -812,7 +1184,29 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cl>
 where
     T: drizzle_core::query::QueryTable,
 {
-    /// Selects only the specified columns (include list).
+    /// Loads only the listed columns.
+    ///
+    /// Rows then use the table's `PartialSelect*` model, where every field is an
+    /// `Option` and unselected ones are `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let names = db.query(users).columns(users.columns().name()).find_many()?;
+    /// assert!(names[0].name.is_some());
+    /// assert!(names[0].id.is_none()); // not selected
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn columns<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
@@ -833,7 +1227,10 @@ where
         }
     }
 
-    /// Excludes the specified columns (exclude list).
+    /// Loads every column except the listed ones.
+    ///
+    /// Rows then use the table's `PartialSelect*` model, where every field is an
+    /// `Option` and omitted ones are `None`.
     pub fn omit<S: drizzle_core::query::IntoColumnSelection>(
         self,
         selector: S,
@@ -890,6 +1287,8 @@ where
 impl<'d, 'a, Runner, Schema>
     DrizzleBuilder<'d, Runner, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
+    /// Starts the `SELECT` that follows the `WITH` clause. See
+    /// [`Drizzle::select`].
     #[inline]
     pub fn select<T>(
         self,
@@ -912,6 +1311,7 @@ impl<'d, 'a, Runner, Schema>
         }
     }
 
+    /// Starts the `SELECT DISTINCT` that follows the `WITH` clause.
     #[inline]
     pub fn select_distinct<T>(
         self,
@@ -934,6 +1334,7 @@ impl<'d, 'a, Runner, Schema>
         }
     }
 
+    /// Adds another common table expression to the `WITH` clause.
     #[inline]
     pub fn with<C>(self, cte: &C) -> Self
     where
@@ -957,6 +1358,29 @@ impl<'d, 'a, Runner, Schema, M>
         SelectInitial,
     >
 {
+    /// Sets the table (or other source) the query reads from.
+    ///
+    /// The source decides the row type for `select(())`, and brings its
+    /// columns into scope for the rest of the query.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// // A table handle, a table alias, a CTE, or a derived table (`.alias(..)`).
+    /// let query = db.select(users.name).from(users);
+    /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users""#);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
     pub fn from<T>(
         self,
@@ -1005,6 +1429,37 @@ macro_rules! impl_select_methods {
     // ---- individual method expansions ----
 
     (@method r#where) => {
+        /// Adds a `WHERE` condition.
+        ///
+        /// Combine conditions with a tuple (`AND`), `and`/`or`, or `|`. An `Option`
+        /// element of a tuple that is `None` is left out, which makes optional
+        /// filters easy. Columns in the condition must come from the query's tables;
+        /// this is checked when the query runs.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// use drizzle::core::expr::{eq, gt};
+        ///
+        /// // A tuple of conditions means AND.
+        /// let query = db.select(users.id).from(users).r#where((gt(users.age, 18), eq(users.name, "Alice")));
+        /// assert_eq!(
+        ///     query.to_sql().sql(),
+        ///     r#"SELECT "users"."id" FROM "users" WHERE ("users"."age" > ? AND "users"."name" = ?)"#,
+        /// );
+        /// let ids: Vec<i64> = query.all()?;
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         #[inline]
         pub fn r#where<E>(
             self,
@@ -1021,6 +1476,34 @@ macro_rules! impl_select_methods {
     };
 
     (@method group_by) => {
+        /// Adds a `GROUP BY` clause. Pass a column, an expression, or a tuple.
+        ///
+        /// Each column in a selected tuple must then be grouped or aggregated; this
+        /// is checked when the query runs.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// use drizzle::core::expr::count;
+        ///
+        /// let per_author: Vec<(i64, i64)> = db
+        ///     .select((posts.author_id, count(posts.id)))
+        ///     .from(posts)
+        ///     .group_by(posts.author_id)
+        ///     .all()?;
+        /// assert_eq!(per_author, vec![(1, 2)]);
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         pub fn group_by<Gr>(
             self,
             columns: Gr,
@@ -1035,6 +1518,32 @@ macro_rules! impl_select_methods {
     };
 
     (@method having) => {
+        /// Adds a `HAVING` condition, which filters groups after `GROUP BY`.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// use drizzle::core::expr::{count, gt};
+        ///
+        /// let prolific: Vec<i64> = db
+        ///     .select(posts.author_id)
+        ///     .from(posts)
+        ///     .group_by(posts.author_id)
+        ///     .having(gt(count(posts.id), 1))
+        ///     .all()?;
+        /// assert_eq!(prolific, vec![1]);
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         pub fn having<E>(
             self,
             condition: E,
@@ -1050,6 +1559,33 @@ macro_rules! impl_select_methods {
     };
 
     (@method order_by) => {
+        /// Adds an `ORDER BY` clause.
+        ///
+        /// Pass a column (ascending), [`asc`](drizzle_core::asc)/[`desc`](drizzle_core::desc),
+        /// or a tuple of them.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// use drizzle::core::{asc, desc};
+        ///
+        /// let query = db.select(users.name).from(users).order_by((desc(users.age), asc(users.name)));
+        /// assert_eq!(
+        ///     query.to_sql().sql(),
+        ///     r#"SELECT "users"."name" FROM "users" ORDER BY "users"."age" DESC, "users"."name" ASC"#,
+        /// );
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         pub fn order_by<TOrderBy>(
             self,
             expressions: TOrderBy,
@@ -1064,7 +1600,8 @@ macro_rules! impl_select_methods {
     };
 
     (@method set_order_by) => {
-        /// Orders a compound query by its output columns.
+        /// Orders a compound query (`UNION`, `INTERSECT`, ...) by its output
+        /// columns.
         pub fn order_by<TOrderBy>(
             self,
             expressions: TOrderBy,
@@ -1078,6 +1615,33 @@ macro_rules! impl_select_methods {
     };
 
     (@method limit) => {
+        /// Returns at most `limit` rows (`LIMIT n`).
+        ///
+        /// Pass an integer, which is written into the SQL, or an integer
+        /// placeholder, which is bound when the query runs.
+        ///
+        /// # Panics
+        ///
+        /// Panics when an integer `limit` is negative or does not fit in `usize`.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// let query = db.select(users.name).from(users).limit(2);
+        /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users" LIMIT 2"#);
+        /// assert_eq!(query.all::<String, _, _>()?.len(), 2);
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         pub fn limit<P>(
             self,
             limit: P,
@@ -1091,6 +1655,29 @@ macro_rules! impl_select_methods {
     };
 
     (@method offset) => {
+        /// Skips the first `offset` rows (`OFFSET n`).
+        ///
+        /// # Panics
+        ///
+        /// Panics when an integer `offset` is negative or does not fit in `usize`.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// let query = db.select(users.name).from(users).limit(10).offset(1);
+        /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users" LIMIT 10 OFFSET 1"#);
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         pub fn offset<P>(
             self,
             offset: P,
@@ -1104,6 +1691,45 @@ macro_rules! impl_select_methods {
     };
 
     (@method join) => {
+        /// Adds a `JOIN` (an inner join).
+        ///
+        /// Pass a table to join on its foreign key to the previous table (the
+        /// `FROM` table, or the table joined last), or a `(table, condition)` pair
+        /// to give the `ON` condition yourself. The joined table's columns come
+        /// into scope. See also `left_join`, `right_join`, `full_join`, and their
+        /// `natural_` and `_outer` forms.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// use drizzle::core::expr::eq;
+        ///
+        /// // Pass a table to join on its foreign key ...
+        /// let query = db.select((users.name, posts.title)).from(users).join(posts);
+        /// assert_eq!(
+        ///     query.to_sql().sql(),
+        ///     r#"SELECT "users"."name", "posts"."title" FROM "users" JOIN "posts" ON "posts"."author_id" = "users"."id""#,
+        /// );
+        ///
+        /// // ... or a `(table, condition)` pair for your own ON condition.
+        /// let rows: Vec<(String, String)> = db
+        ///     .select((users.name, posts.title))
+        ///     .from(users)
+        ///     .join((posts, eq(users.id, posts.author_id)))
+        ///     .all()?;
+        /// assert_eq!(rows.len(), 2);
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         #[inline]
         pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
             self,
@@ -1132,7 +1758,29 @@ macro_rules! impl_select_methods {
 
         crate::drizzle_builder_join_impl!();
 
-        /// Adds a cross join without an ON condition.
+        /// Adds a `CROSS JOIN`: every row paired with every row of `arg`, with no
+        /// `ON` condition.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// # #[cfg(feature = "rusqlite")]
+        /// # fn main() -> drizzle::Result<()> {
+        /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+        /// # use app::*;
+        /// # use drizzle::core::ToSQL;
+        /// # let (db, Schema { users, posts, comments }) = app::database()?;
+        /// # let _ = (&users, &posts, &comments);
+        /// let query = db.select((users.name, posts.title)).from(users).cross_join(posts);
+        /// assert_eq!(
+        ///     query.to_sql().sql(),
+        ///     r#"SELECT "users"."name", "posts"."title" FROM "users" CROSS JOIN "posts""#,
+        /// );
+        /// # Ok(())
+        /// # }
+        /// # #[cfg(not(feature = "rusqlite"))]
+        /// # fn main() {}
+        /// ```
         #[inline]
         pub fn cross_join<Arg: drizzle_sqlite::helpers::CrossJoinArg<'a, T>>(
             self,
@@ -1214,6 +1862,36 @@ impl<'d, 'a, Runner, Schema, State, T, M, R>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
+    /// Combines this query's rows with `other`'s and drops duplicates
+    /// (`UNION`).
+    ///
+    /// Both queries must select the same row type. Use
+    /// [`union_all`](Self::union_all) to keep duplicates.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::{gte, lte};
+    ///
+    /// let query = db
+    ///     .select(users.name)
+    ///     .from(users)
+    ///     .r#where(lte(users.age, 18))
+    ///     .union(db.select(users.name).from(users).r#where(gte(users.age, 30)));
+    /// let names: Vec<String> = query.all()?;
+    /// assert_eq!(names.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[allow(clippy::type_complexity)]
     pub fn union<M2>(
         self,
@@ -1242,6 +1920,8 @@ where
         }
     }
 
+    /// Combines this query's rows with `other`'s, keeping duplicates
+    /// (`UNION ALL`).
     #[allow(clippy::type_complexity)]
     pub fn union_all<M2>(
         self,
@@ -1270,6 +1950,7 @@ where
         }
     }
 
+    /// Keeps only rows that `other` also returns (`INTERSECT`).
     #[allow(clippy::type_complexity)]
     pub fn intersect<M2>(
         self,
@@ -1298,6 +1979,7 @@ where
         }
     }
 
+    /// Keeps only rows that `other` does not return (`EXCEPT`).
     #[allow(clippy::type_complexity)]
     pub fn except<M2>(
         self,
@@ -1340,8 +2022,27 @@ impl<Runner, Schema, State, T, M, R, G>
 where
     State: drizzle_sqlite::builder::ExecutableState,
 {
-    /// Attaches a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
-    /// comment to the query. See [`QueryBuilder::comment`] for details.
+    /// Adds a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment in front of the query. See [`QueryBuilder::comment`] for how the
+    /// text is escaped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let query = db.select(users.name).from(users).comment("report");
+    /// assert_eq!(query.to_sql().sql(), r#"/*report*/ SELECT "users"."name" FROM "users""#);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
     pub fn comment(self, text: impl AsRef<str>) -> Self {
         DrizzleBuilder {
@@ -1351,8 +2052,9 @@ where
         }
     }
 
-    /// Attaches a tag-style [sqlcommenter](https://google.github.io/sqlcommenter/)
-    /// comment to the query. See [`QueryBuilder::comment_tags`] for details.
+    /// Adds a key-value [sqlcommenter](https://google.github.io/sqlcommenter/)
+    /// comment, such as `/*route='users'*/`, in front of the query. See
+    /// [`QueryBuilder::comment_tags`] for the encoding.
     #[inline]
     pub fn comment_tags<I, K, V>(self, pairs: I) -> Self
     where
@@ -1374,13 +2076,47 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
     M: drizzle_core::DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, T>,
 {
-    /// Names this completed query so it can be used as a derived source.
+    /// Names this query so it can be used as a table: `(SELECT ...) AS name`.
+    ///
+    /// `name` is a tag type (see the `tag!` macro). `.fields()` on the result
+    /// returns its output columns.
     ///
     /// # Panics
     ///
-    /// Panics when the projection contains duplicate output names. Name a
-    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to
-    /// make each output unique.
+    /// Panics when two outputs of the projection have the same name. Name a
+    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to make
+    /// each output unique.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    /// use drizzle::sqlite::prelude::tag;
+    ///
+    /// tag!(Recent, "recent");
+    ///
+    /// // A subquery in FROM/JOIN position, with typed output columns.
+    /// let recent = db.select((posts.author_id, posts.title)).from(posts).alias(Recent);
+    /// let (author_id, title) = recent.fields();
+    ///
+    /// let rows: Vec<(String, String)> = db
+    ///     .select((users.name, title))
+    ///     .from(users)
+    ///     .join((recent, eq(users.id, author_id)))
+    ///     .all()?;
+    /// assert_eq!(rows.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
     #[must_use]
     pub fn alias<Name, AggProof>(
@@ -1409,7 +2145,10 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
     T: SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>,
 {
-    /// Converts this SELECT query into a typed CTE using alias tag name.
+    /// Turns this query into a common table expression named after `Tag`.
+    ///
+    /// Pass the result to [`Drizzle::with`] and select from it. Its columns are
+    /// reachable as fields, like a table's.
     #[inline]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
@@ -1431,6 +2170,29 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertInitial,
     >
 {
+    /// Inserts one row from an `Insert*` model.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let query = db.insert(users).value(InsertUsers::new("Dana", 41).with_email("dana@example.com"));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "users" ("name", "email", "age") VALUES (?, ?, ?)"#,
+    /// );
+    /// query.execute()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
     pub fn value<T>(
         self,
@@ -1449,6 +2211,29 @@ impl<'a, 'b, Runner, Schema, Table>
         self.values([value])
     }
 
+    /// Inserts several rows from `Insert*` models in one statement.
+    ///
+    /// Every row must set the same optional fields (the same `with_*` calls);
+    /// mixing them does not compile, because all rows share one column list.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// db.insert(users)
+    ///     .values([InsertUsers::new("Dana", 41), InsertUsers::new("Eli", 19)])
+    ///     .execute()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
     pub fn values<T>(
         self,
@@ -1472,6 +2257,11 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Names the columns an `INSERT ... SELECT` fills, before
+    /// [`select`](Self::select).
+    ///
+    /// The list must include every required column (`NOT NULL` with no
+    /// default); this is checked by the following `select(..)`.
     #[inline]
     pub fn columns<Columns>(
         self,
@@ -1495,6 +2285,32 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Inserts the rows of a `SELECT` query: `INSERT INTO t SELECT ...`.
+    ///
+    /// The query's columns must match the table's insert columns in order and
+    /// type; this is checked at compile time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// // Copy every user into the same table (new ids are generated).
+    /// let source = db.select((users.name, users.email, users.age)).from(users);
+    /// db.insert(users)
+    ///     .columns((users.name, users.email, users.age))
+    ///     .select(source)
+    ///     .execute()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
     pub fn select<Q, R, ScopeProof, AggProof>(
         self,
@@ -1521,6 +2337,8 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Inserts the rows of any SQL value, such as a raw `sql!` query, with no
+    /// compile-time column checks.
     #[inline]
     pub fn select_raw<Q>(
         self,
@@ -1556,6 +2374,11 @@ impl<'a, 'b, Runner, Schema, Table, Targets>
 where
     Table: SQLiteTable<'b> + drizzle_core::InsertSelectTable,
 {
+    /// Inserts the rows of a `SELECT` query into the columns named by
+    /// [`columns`](Self::columns).
+    ///
+    /// The query's output must match those columns in order and type; this is
+    /// checked at compile time.
     #[inline]
     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
         self,
@@ -1582,6 +2405,9 @@ where
         }
     }
 
+    /// Inserts the rows of any SQL value into the columns named by
+    /// [`columns`](Self::columns), with no compile-time check on the query's
+    /// output.
     #[inline]
     pub fn select_raw<Q, RequiredProof>(
         self,
@@ -1617,7 +2443,12 @@ impl<'a, 'b, Runner, Schema, Table>
 where
     Table: SQLiteTable<'b>,
 {
-    /// Begins a typed ON CONFLICT clause targeting a specific constraint.
+    /// Starts an `ON CONFLICT (target)` clause; finish it with
+    /// [`do_nothing`](DrizzleOnConflictBuilder::do_nothing) or
+    /// [`do_update`](DrizzleOnConflictBuilder::do_update).
+    ///
+    /// `target` is a column or tuple of columns covered by a primary key or
+    /// unique constraint.
     pub fn on_conflict<C: ConflictTarget<Table>>(
         self,
         target: C,
@@ -1628,7 +2459,29 @@ where
         }
     }
 
-    /// Shorthand for `ON CONFLICT DO NOTHING` without specifying a target.
+    /// Skips any row that would violate a constraint: `ON CONFLICT DO NOTHING`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let query = db.insert(users).value(InsertUsers::new("Alex Smith", 26).with_id(1)).on_conflict_do_nothing();
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "users" ("id", "name", "age") VALUES (?, ?, ?) ON CONFLICT DO NOTHING"#,
+    /// );
+    /// assert_eq!(query.execute()?, 0);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn on_conflict_do_nothing(
         self,
     ) -> DrizzleBuilder<
@@ -1645,7 +2498,32 @@ where
         }
     }
 
-    /// Adds RETURNING clause
+    /// Returns columns of the inserted rows: `RETURNING ...`.
+    ///
+    /// Run it with `.all()` or `.get()` to read them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// let query = db.insert(users).value(InsertUsers::new("Dana", 41)).returning(users.id);
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     r#"INSERT INTO "users" ("name", "age") VALUES (?, ?) RETURNING "users"."id""#,
+    /// );
+    /// let id: i64 = query.get()?;
+    /// assert_eq!(id, 4);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1687,7 +2565,7 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertOnConflictSet,
     >
 {
-    /// Adds RETURNING clause after ON CONFLICT
+    /// Returns columns of the inserted rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1729,7 +2607,8 @@ impl<'a, 'b, Runner, Schema, Table>
         InsertDoUpdateSet,
     >
 {
-    /// Adds WHERE clause after DO UPDATE SET
+    /// Updates only conflicting rows that match `condition`:
+    /// `DO UPDATE SET ... WHERE condition`.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -1753,7 +2632,7 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
-    /// Adds RETURNING clause after DO UPDATE SET
+    /// Returns columns of the inserted or updated rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1797,6 +2676,31 @@ impl<'a, 'b, Runner, Schema, Table>
 where
     Table: SQLiteTable<'b>,
 {
+    /// Sets the columns to change, from an `Update*` model.
+    ///
+    /// Only the fields set with `with_*` are written.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    ///
+    /// db.update(users)
+    ///     .set(UpdateUsers::default().with_age(27).with_email("alex@new.example"))
+    ///     .r#where(eq(users.id, 1))
+    ///     .execute()?;
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     #[inline]
     pub fn set(
         self,
@@ -1826,6 +2730,7 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateSetClauseSet,
     >
 {
+    /// Updates only rows matching `condition`.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -1850,6 +2755,32 @@ impl<'a, 'b, Runner, Schema, Table>
         }
     }
 
+    /// Returns columns of the updated rows: `RETURNING ...`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    ///
+    /// let ages: Vec<i64> = db
+    ///     .update(users)
+    ///     .set(UpdateUsers::default().with_age(27))
+    ///     .r#where(eq(users.id, 1))
+    ///     .returning(users.age)
+    ///     .all()?;
+    /// assert_eq!(ages, vec![27]);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1891,6 +2822,7 @@ impl<'a, 'b, Runner, Schema, Table>
         UpdateWhereSet,
     >
 {
+    /// Returns columns of the updated rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1928,6 +2860,7 @@ impl<'a, 'b, Runner, Schema, T>
 where
     T: SQLiteTable<'b>,
 {
+    /// Deletes only rows matching `condition`.
     pub fn r#where<E, ScopeProof>(
         self,
         condition: E,
@@ -1953,6 +2886,31 @@ where
         }
     }
 
+    /// Returns columns of the deleted rows: `RETURNING ...`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::eq;
+    ///
+    /// let gone: Vec<String> = db
+    ///     .delete(comments)
+    ///     .r#where(eq(comments.id, 1))
+    ///     .returning(comments.body)
+    ///     .all()?;
+    /// assert_eq!(gone, vec!["Nice post".to_string()]);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -1989,6 +2947,7 @@ where
 impl<'a, 'b, Runner, Schema, T>
     DrizzleBuilder<'a, Runner, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, T>, DeleteWhereSet>
 {
+    /// Returns columns of the deleted rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,

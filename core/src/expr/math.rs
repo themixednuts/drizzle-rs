@@ -1,13 +1,13 @@
-//! Type-safe math functions.
+//! Math functions: `ABS`, `ROUND`, `CEIL`, `FLOOR`, `SQRT`, `POWER`, `LN`, ...
 //!
-//! These functions require `Numeric` types (`SmallInt`, Int, `BigInt`, Float, Double)
-//! and provide compile-time enforcement of mathematical operations.
+//! Every function needs numeric arguments; passing text does not compile.
+//! Results keep the input's nullability and aggregate kind unless the function
+//! says otherwise.
 //!
-//! # Type Safety
-//!
-//! - `abs`, `round`, `ceil`, `floor`: Require `Numeric` types
-//! - `sqrt`, `power`, `log`, `exp`: Require `Numeric` types, return Double
-//! - `mod_`: Modulo operation requiring `Numeric` types
+//! On SQLite, `CEIL`, `FLOOR`, `TRUNC`, `SQRT`, `POWER`, `EXP`, `LN`, `LOG`,
+//! `LOG10`, `LOG2` and `PI` exist only when SQLite was built with
+//! `SQLITE_ENABLE_MATH_FUNCTIONS`. Those functions compile for SQLite only
+//! with this crate's `math` feature (see [`MathExt`]).
 
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
@@ -28,15 +28,15 @@ use drizzle_types::sqlite::types::{
 
 use super::{AggregateKind, Expr, Nullability, SQLExpr, Scalar};
 
-/// Math functions that are optional on SQLite.
+/// Dialects that provide the optional math functions.
 ///
 /// `CEIL`, `FLOOR`, `TRUNC`, `SQRT`, `POWER`, `EXP`, `LN`, `LOG`, `LOG10`,
-/// `LOG2` and `PI` are built into PostgreSQL and MySQL, but SQLite only has
-/// them when it is compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`, which the
-/// bundled `rusqlite` and `libsql` builds do not set. The `math` cargo feature
-/// is the promise that the linked SQLite provides them; without it these
-/// functions do not type-check for SQLite instead of failing at runtime with
-/// "no such function".
+/// `LOG2` and `PI` are built into PostgreSQL and MySQL. SQLite has them only
+/// when it is compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`, which the bundled
+/// `rusqlite` and `libsql` builds do not set. Enabling the `math` cargo
+/// feature says that the linked SQLite has them. Without it, these functions
+/// do not compile for SQLite, instead of failing at runtime with "no such
+/// function".
 #[diagnostic::on_unimplemented(
     message = "`{Self}` does not provide this math function",
     label = "SQLite only has CEIL/FLOOR/TRUNC/SQRT/POWER/EXP/LN/LOG*/PI with SQLITE_ENABLE_MATH_FUNCTIONS",
@@ -53,7 +53,12 @@ impl MathExt for SQLiteDialect {}
     message = "this math function is not available for this dialect",
     label = "use a dialect-specific alternative"
 )]
+/// Dialects that provide `LOG2`, and the nullability of its result.
+///
+/// Implemented for SQLite and MySQL, which both return NULL outside the
+/// logarithm's domain. PostgreSQL has no `LOG2`.
 pub trait Log2Policy {
+    /// Nullability of the `LOG2` result.
     type Nullable: Nullability;
 }
 
@@ -68,10 +73,22 @@ impl Log2Policy for MySQLDialect {
     message = "no rounding policy for `{Self}` on this dialect",
     label = "round/ceil/floor/trunc return type is not defined for this SQL type/dialect"
 )]
+/// Result type of [`round`], [`round_to`], [`ceil`], [`floor`] and [`trunc`]
+/// for a numeric SQL type on dialect `D`.
+///
+/// | Dialect | Input | Result |
+/// |---|---|---|
+/// | SQLite | any numeric | `REAL` |
+/// | PostgreSQL | any numeric | `float8` (the call is cast to `DOUBLE PRECISION`) |
+/// | MySQL | signed integers | `BIGINT` |
+/// | MySQL | unsigned integers, `YEAR` | `BIGINT UNSIGNED` |
+/// | MySQL | `FLOAT`, `DOUBLE` | `DOUBLE` |
+/// | MySQL | `DECIMAL` | `DECIMAL` |
 pub trait RoundingPolicy<D>: Numeric {
+    /// Result type of the rounding functions.
     type Output: DataType;
 
-    /// Prepare the operand of `ROUND(expr, precision)`.
+    /// Prepares the operand of `ROUND(expr, precision)`.
     ///
     /// PostgreSQL only defines the two-argument `ROUND` for `numeric`, and
     /// `double precision` does not cast to it implicitly.
@@ -79,7 +96,7 @@ pub trait RoundingPolicy<D>: Numeric {
         expr
     }
 
-    /// Coerce a rounding function's result to [`Self::Output`].
+    /// Coerces a rounding function's result to [`Self::Output`].
     ///
     /// PostgreSQL returns `numeric` for every rounding function unless the
     /// argument is `double precision`; the declared output is `float8`.
@@ -88,7 +105,7 @@ pub trait RoundingPolicy<D>: Numeric {
     }
 }
 
-/// Coerce a math function's result to DOUBLE PRECISION on PostgreSQL.
+/// Casts a math function's result to `DOUBLE PRECISION` on PostgreSQL.
 ///
 /// PostgreSQL resolves `SQRT`, `EXP`, `LN`, `LOG`, `POWER` and `SIGN` to their
 /// `numeric` overloads for integer or `numeric` arguments, while the declared
@@ -100,7 +117,7 @@ pub(super) fn pg_double<'a, V: SQLParam + 'a>(sql: SQL<'a, V>) -> SQL<'a, V> {
     }
 }
 
-/// `CAST(expr AS type)` for the PostgreSQL rounding policies.
+/// Renders `CAST(expr AS type_name)`.
 pub(super) fn pg_cast<'a, V: SQLParam + 'a>(
     expr: SQL<'a, V>,
     type_name: &'static str,
@@ -190,20 +207,45 @@ impl RoundingPolicy<MySQLDialect> for MyDecimal {
 // ABSOLUTE VALUE
 // =============================================================================
 
-/// ABS - returns the absolute value of a number.
+/// Absolute value (`ABS`).
 ///
-/// Preserves the SQL type and nullability of the input expression.
+/// The argument must be numeric. The result keeps the argument's SQL type,
+/// nullability and aggregate kind.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Int column
-/// abs(users.balance);
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(abs(users.score).sql(), r#"ABS ("users"."score")"#);
+/// ```
 ///
-/// // ❌ Compile error: Text is not Numeric
-/// abs(users.name);
-/// # "####;
+/// # Type safety
+///
+/// `ABS` of a text column does not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = abs(users.name);
 /// ```
 pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate, E::Sources>
 where
@@ -218,19 +260,28 @@ where
 // ROUNDING FUNCTIONS
 // =============================================================================
 
-/// ROUND - rounds a number to the nearest integer (or specified precision).
+/// Rounds to the nearest integer (`ROUND(expr)`).
 ///
-/// Returns a dialect-aware float type, preserves nullability.
+/// The argument must be numeric. The result type comes from
+/// [`RoundingPolicy`] (`REAL` on SQLite, `float8` on PostgreSQL, the
+/// matching integer or decimal type on MySQL) and keeps the argument's
+/// nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::round;
-///
-/// // SELECT ROUND(users.price)
-/// let rounded = round(users.price);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(round(users.score).sql(), r#"ROUND ("users"."score")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn round<'a, V, E>(
@@ -256,19 +307,28 @@ where
     )
 }
 
-/// ROUND with precision - rounds a number to specified decimal places.
+/// Rounds to `precision` decimal places (`ROUND(expr, precision)`).
 ///
-/// Returns a dialect-aware float type, preserves nullability of the input expression.
+/// `expr` must be numeric and `precision` an integer. The result type comes
+/// from [`RoundingPolicy`]; it is nullable if either argument is. On
+/// PostgreSQL a float argument is cast to `NUMERIC` first, because only
+/// `ROUND(numeric, int)` exists there.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::round_to;
-///
-/// // SELECT ROUND(users.price, 2)
-/// let rounded = round_to(users.price, 2);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(round_to(users.score, 2).sql(), r#"ROUND ("users"."score", ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn round_to<'a, V, E, P>(
@@ -300,19 +360,30 @@ where
     )
 }
 
-/// CEIL / CEILING - rounds a number up to the nearest integer.
+/// Rounds up to the nearest integer (`CEIL`).
 ///
-/// Returns a dialect-aware float type, preserves nullability.
+/// The argument must be numeric. The result type comes from
+/// [`RoundingPolicy`] and keeps the argument's nullability. On SQLite this
+/// needs the `math` feature (see [`MathExt`]).
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::ceil;
-///
-/// // SELECT CEIL(users.price)
-/// let ceiling = ceil(users.price);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     ceil(users.score).sql(),
+///     r#"CAST (CEIL ("users"."score") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn ceil<'a, V, E>(
@@ -339,19 +410,30 @@ where
     )
 }
 
-/// FLOOR - rounds a number down to the nearest integer.
+/// Rounds down to the nearest integer (`FLOOR`).
 ///
-/// Returns a dialect-aware float type, preserves nullability.
+/// The argument must be numeric. The result type comes from
+/// [`RoundingPolicy`] and keeps the argument's nullability. On SQLite this
+/// needs the `math` feature (see [`MathExt`]).
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::floor;
-///
-/// // SELECT FLOOR(users.price)
-/// let floored = floor(users.price);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     floor(users.score).sql(),
+///     r#"CAST (FLOOR ("users"."score") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn floor<'a, V, E>(
@@ -378,19 +460,31 @@ where
     )
 }
 
-/// TRUNC - truncates a number towards zero.
+/// Truncates toward zero.
 ///
-/// Returns a dialect-aware float type, preserves nullability.
+/// Renders `TRUNC(expr)` on SQLite and PostgreSQL and `TRUNCATE(expr, 0)` on
+/// MySQL. The argument must be numeric. The result type comes from
+/// [`RoundingPolicy`] and keeps the argument's nullability. On SQLite this
+/// needs the `math` feature (see [`MathExt`]).
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::trunc;
-///
-/// // SELECT TRUNC(users.price), or TRUNCATE(users.price, 0) on MySQL
-/// let truncated = trunc(users.price);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     trunc(users.score).sql(),
+///     r#"CAST (TRUNC ("users"."score") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn trunc<'a, V, E>(
@@ -421,20 +515,31 @@ where
 // POWER AND ROOT FUNCTIONS
 // =============================================================================
 
-/// SQRT - returns the square root of a number.
+/// Square root (`SQRT`).
 ///
-/// Returns a dialect-aware double type. SQLite and MySQL return `NULL` for a
-/// negative argument, while PostgreSQL reports an error.
+/// The argument must be numeric. The result is the dialect's double type. On
+/// SQLite and MySQL a negative argument gives NULL, so the result is
+/// nullable there; PostgreSQL raises an error instead and keeps the
+/// argument's nullability. On SQLite this needs the `math` feature.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::sqrt;
-///
-/// // SELECT SQRT(users.area)
-/// let root = sqrt(users.area);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     sqrt(users.score).sql(),
+///     r#"CAST (SQRT ("users"."score") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn sqrt<'a, V, E>(
@@ -456,19 +561,29 @@ where
     SQLExpr::new(pg_double(SQL::func("SQRT", expr.into_sql())))
 }
 
-/// POWER - raises a number to a power.
+/// `base` raised to `exponent` (`POWER`).
 ///
-/// Returns a dialect-aware double type. The result is nullable if either input is nullable.
+/// Both arguments must be numeric. The result is the dialect's double type,
+/// nullable if either argument is. On SQLite this needs the `math` feature.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::power;
-///
-/// // SELECT POWER(users.base, 2)
-/// let squared = power(users.base, 2);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     power(users.age, 2).sql(),
+///     r#"CAST (POWER ("users"."age", $1) AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn power<'a, V, E1, E2>(
@@ -503,19 +618,29 @@ where
 // LOGARITHMIC AND EXPONENTIAL FUNCTIONS
 // =============================================================================
 
-/// EXP - returns e raised to the power of the argument.
+/// e raised to the argument (`EXP`).
 ///
-/// Returns a dialect-aware double type and preserves nullability.
+/// The argument must be numeric. The result is the dialect's double type and
+/// keeps the argument's nullability. On SQLite this needs the `math` feature.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::exp;
-///
-/// // SELECT EXP(users.rate)
-/// let exponential = exp(users.rate);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     exp(users.score).sql(),
+///     r#"CAST (EXP ("users"."score") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn exp<'a, V, E>(
@@ -530,20 +655,32 @@ where
     SQLExpr::new(pg_double(SQL::func("EXP", expr.into_sql())))
 }
 
-/// LN - returns the natural logarithm of a number.
+/// Natural logarithm (`LN`).
 ///
-/// SQLite and MySQL return `NULL` outside the logarithm domain. PostgreSQL
-/// reports an error for invalid non-NULL input.
+/// The argument must be numeric. The result is the dialect's double type. On
+/// SQLite and MySQL an argument outside the domain (zero or negative) gives
+/// NULL, so the result is nullable there; PostgreSQL raises an error instead
+/// and keeps the argument's nullability. On SQLite this needs the `math`
+/// feature.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::ln;
-///
-/// // SELECT LN(users.value)
-/// let natural_log = ln(users.value);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     ln(users.score).sql(),
+///     r#"CAST (LN ("users"."score") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn ln<'a, V, E>(
@@ -565,20 +702,32 @@ where
     SQLExpr::new(pg_double(SQL::func("LN", expr.into_sql())))
 }
 
-/// LOG10 - returns the base-10 logarithm of a number.
+/// Base-10 logarithm (`LOG10`).
 ///
-/// SQLite and MySQL return `NULL` outside the logarithm domain. PostgreSQL
-/// reports an error for invalid non-NULL input.
+/// The argument must be numeric. The result is the dialect's double type. On
+/// SQLite and MySQL an argument outside the domain (zero or negative) gives
+/// NULL, so the result is nullable there; PostgreSQL raises an error instead
+/// and keeps the argument's nullability. On SQLite this needs the `math`
+/// feature.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::log10;
-///
-/// // SELECT LOG10(users.value)
-/// let log_base_10 = log10(users.value);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     log10(users.score).sql(),
+///     r#"CAST (LOG10 ("users"."score") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn log10<'a, V, E>(
@@ -600,19 +749,32 @@ where
     SQLExpr::new(pg_double(SQL::func("LOG10", expr.into_sql())))
 }
 
-/// LOG - returns the logarithm of a number with a specified base.
+/// Logarithm of `value` in base `base` (`LOG(base, value)`).
 ///
-/// Returns a dialect-aware double type. The result is nullable if either input is nullable.
+/// Both arguments must be numeric. The result is the dialect's double type.
+/// It is nullable if either argument is, and always nullable on SQLite and
+/// MySQL, which return NULL outside the domain. On PostgreSQL both arguments
+/// are cast to `NUMERIC`, since only `LOG(numeric, numeric)` exists there. On
+/// SQLite this needs the `math` feature.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::log;
-///
-/// // SELECT LOG(2, users.value)
-/// let log_base_2 = log(2, users.value);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(
+///     log(2, users.score).sql(),
+///     r#"CAST (LOG (CAST ($1 AS NUMERIC), CAST ("users"."score" AS NUMERIC)) AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn log<'a, V, E1, E2>(
@@ -653,20 +815,27 @@ where
 // SIGN AND MODULO
 // =============================================================================
 
-/// SIGN - returns the sign of a number (-1, 0, or 1).
+/// Sign of a number: -1, 0 or 1 (`SIGN`).
 ///
-/// Returns the dialect's [`DialectTypes::Sign`] type (an integer on SQLite and
-/// MySQL, `double precision` on PostgreSQL), preserves nullability.
+/// The argument must be numeric. The result is the dialect's
+/// [`Sign`](DialectTypes::Sign) type: an integer on SQLite and MySQL,
+/// `float8` on PostgreSQL. It keeps the argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::sign;
-///
-/// // SELECT SIGN(users.balance)
-/// let balance_sign = sign(users.balance);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(sign(users.score).sql(), r#"SIGN ("users"."score")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn sign<'a, V, E>(
@@ -680,22 +849,29 @@ where
     SQLExpr::new(pg_double(SQL::func("SIGN", expr.into_sql())))
 }
 
-/// MOD - returns the remainder of division (using % operator).
+/// Remainder of a division, rendered with the `%` operator.
 ///
-/// Returns the same type as the dividend. The result is nullable if either input is nullable.
-/// Named `mod_` to avoid conflict with Rust's `mod` keyword.
+/// Both arguments must be numeric. The result has the dividend's SQL type and
+/// is nullable if either argument is. Named `mod_` because `mod` is a Rust
+/// keyword. `expr % n` on an [`SQLExpr`] renders the same SQL, but types the
+/// result through [`ArithmeticOutput`](crate::types::ArithmeticOutput), which
+/// also marks it nullable on SQLite and MySQL (where `x % 0` is NULL).
 ///
-/// Note: Uses the `%` operator which works on both `SQLite` and `PostgreSQL`.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::mod_;
-///
-/// // SELECT users.value % 3
-/// let remainder = mod_(users.value, 3);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(mod_(users.age, 10).sql(), r#""users"."age" % ?"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn mod_<'a, V, E1, E2>(
@@ -728,17 +904,26 @@ where
 // CONSTANTS AND RANDOM
 // =============================================================================
 
-/// PI - returns the mathematical constant pi (`PostgreSQL` and `MySQL`).
+/// The constant pi (`PI()`).
 ///
-/// # Example
+/// The result is the dialect's double type and never NULL. Available on
+/// PostgreSQL and MySQL, and on SQLite with the `math` feature.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::pi;
-///
-/// // SELECT PI()
-/// let pi_val = pi::<PostgresValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(pi::<Value>().sql(), "PI()");
 /// ```
 #[must_use]
 pub fn pi<'a, V>()
@@ -751,21 +936,27 @@ where
     SQLExpr::new(SQL::raw("PI()"))
 }
 
-/// RANDOM - returns a random value.
+/// A random value.
 ///
-/// Return type is dialect-aware:
-/// - `SQLite`: integer in [-2^63, 2^63)
-/// - `PostgreSQL` and `MySQL`: float in [0, 1)
+/// Renders `RANDOM()` on SQLite and PostgreSQL and `RAND()` on MySQL. The
+/// result type depends on the dialect: SQLite returns a 64-bit integer,
+/// PostgreSQL and MySQL a float in `[0, 1)`. It is never NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::random;
-///
-/// // SELECT RANDOM() on SQLite/PostgreSQL, SELECT RAND() on MySQL
-/// let rnd = random::<SQLiteValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(random::<Value>().sql(), "RANDOM()");
 /// ```
 #[must_use]
 pub fn random<'a, V>()
@@ -783,22 +974,28 @@ where
 // Dialect-gated Math Functions
 // =============================================================================
 
-/// LOG2 - returns the base-2 logarithm of a number.
+/// Base-2 logarithm (`LOG2`), on SQLite and MySQL.
 ///
-/// Available in `SQLite` when compiled with `SQLITE_ENABLE_MATH_FUNCTIONS`,
-/// and natively in `MySQL`.
-/// Returns a nullable dialect-aware double because invalid domains produce
-/// `NULL` in both dialects.
+/// The argument must be numeric. The result is the dialect's double type and
+/// always nullable, since both dialects return NULL outside the domain.
+/// SQLite needs the `math` feature. PostgreSQL has no `LOG2`, so this does not
+/// compile for PostgreSQL; use [`log`] with base 2 there.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::log2;
-///
-/// // SELECT LOG2(users.value)
-/// let log_base_2 = log2(users.value);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, MySQLDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::MySQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(log2(users.score).sql(), "LOG2(`users`.`score`)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn log2<'a, V, E>(

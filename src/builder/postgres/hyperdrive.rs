@@ -21,8 +21,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! drizzle = { version = "*", features = ["hyperdrive", "uuid"] }
-//! worker = { version = "*" }
+//! drizzle = { version = "0.2", features = ["hyperdrive", "uuid"] }
+//! worker = "0.8"
 //! ```
 //!
 //! ```toml
@@ -47,8 +47,7 @@
 //!
 //! # Quick start
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```ignore
 //! use drizzle::postgres::prelude::*;
 //! use drizzle::postgres::hyperdrive;
 //! use worker::{event, Context, Env, Request, Response};
@@ -87,7 +86,6 @@
 //!
 //!     Response::ok(format!("{} users", users.len()))
 //! }
-//! # "####;
 //! ```
 //!
 //! # Migrations
@@ -101,8 +99,7 @@
 //! [`migrate_with_repair`](crate::postgres::tokio::Drizzle::migrate_with_repair)
 //! reconciles a migration interrupted by a Worker eviction.
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```ignore
 //! use drizzle::migrations::Tracking;
 //!
 //! // Embeds the migration files at compile time (expands to a Vec).
@@ -115,7 +112,6 @@
 //! db.migrate(&migrations, Tracking::POSTGRES)
 //!     .await
 //!     .map_err(|e| worker::Error::RustError(e.to_string()))?;
-//! # "####;
 //! ```
 //!
 //! `migrate` needs `&mut Drizzle` with no outstanding clones, so run it before
@@ -123,12 +119,13 @@
 //!
 //! # Lifetime of the connection
 //!
-//! [`tokio_postgres`] splits a connection into a [`Client`] and a driver future
-//! that owns the socket. The future is spawned with
-//! [`wasm_bindgen_futures::spawn_local`], so it lives as long as the Worker
-//! invocation that created it and is torn down with the isolate. A `Client`
-//! therefore must not outlive the request that dialed it — connect per
-//! invocation and let Hyperdrive's pooler absorb the cost.
+//! [`tokio_postgres`] splits a connection into a
+//! [`Client`](tokio_postgres::Client) and a driver future that owns the
+//! socket. The future is spawned with
+//! [`spawn_local`](worker::wasm_bindgen_futures::spawn_local), so it lives as
+//! long as the Worker invocation that created it and is torn down with the
+//! isolate. A `Client` therefore must not outlive the request that dialed it:
+//! connect per invocation and let Hyperdrive's pooler absorb the cost.
 //!
 //! # Integer precision
 //!
@@ -184,15 +181,16 @@ pub async fn connect<S: Default>(
 
 /// Connects over an already-opened [`Socket`] using an explicit [`Config`].
 ///
-/// Use this when the socket does not come from a Hyperdrive binding — e.g. a
-/// direct `worker::Socket::builder().connect(host, port)` — or when the
-/// connection parameters need adjusting (`application_name`, `options`, a
-/// different `dbname`) before the handshake.
+/// Use this when the connection parameters need adjusting before the
+/// handshake (`application_name`, `options`, a different `dbname`), or when
+/// the socket does not come from a Hyperdrive binding. The handshake uses
+/// [`NoTls`], so a direct socket only works against a server that accepts
+/// unencrypted connections; see the module docs for TLS.
 ///
 /// The connection driver future is spawned with
-/// [`wasm_bindgen_futures::spawn_local`]; if it ever resolves with an error the
-/// error is written to the Worker console, since there is no join handle to
-/// surface it through.
+/// [`spawn_local`](worker::wasm_bindgen_futures::spawn_local); if it ever
+/// resolves with an error, the error is written to the Worker console, since
+/// there is no join handle to surface it through.
 ///
 /// # Errors
 ///

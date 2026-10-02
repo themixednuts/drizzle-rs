@@ -1,4 +1,5 @@
-//! MySQL-specific index definition metadata.
+//! `MySQL` index options (method, online-DDL algorithm, lock) and key parts,
+//! as declared with `#[MySQLIndex]` and read by migrations.
 
 /// Storage/access method requested by a generated MySQL index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

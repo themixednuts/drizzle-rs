@@ -1,4 +1,4 @@
-//! Parser types - shared data structures for all dialects
+//! Data structures the schema parser produces, shared by all dialects.
 //!
 //! Each parsed entity keeps two views of the source:
 //!
@@ -372,7 +372,7 @@ pub struct ParsedField {
     pub spec: ColumnSpec,
 }
 
-/// Parsed enum deriving `SQLiteEnum` / `PostgresEnum`.
+/// Parsed enum deriving `SQLiteEnum`, `PostgresEnum`, or `MySQLEnum`.
 #[derive(Debug, Clone, Default)]
 pub struct ParsedEnum {
     /// Enum ident. For `PostgreSQL` this is also the SQL enum type name —
@@ -468,7 +468,9 @@ pub struct ParseResult {
     pub indexes: HashMap<String, ParsedIndex>,
     /// Parsed schema struct (if present)
     pub schema: Option<ParsedSchema>,
-    /// Detected dialect (based on first found table/schema)
+    /// Detected dialect: the first schema struct's dialect, else the first
+    /// non-SQLite table's, else SQLite. Snapshot building takes the dialect
+    /// from config instead.
     pub dialect: Dialect,
     /// Parsed enums, keyed `"<dialect>:<EnumName>"`
     pub enums: HashMap<String, ParsedEnum>,

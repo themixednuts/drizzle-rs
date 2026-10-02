@@ -1,8 +1,4 @@
-//! `PostgreSQL` Schema DDL types
-//!
-//! This module provides two complementary types:
-//! - [`SchemaDef`] - A const-friendly definition type for compile-time schema definitions
-//! - [`Schema`] - A runtime type for serde serialization/deserialization
+//! `PostgreSQL` schemas: [`SchemaDef`] (const) and [`Schema`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -13,7 +9,7 @@ use crate::serde_helpers::cow_from_string;
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly schema definition for compile-time schema definitions.
+/// A schema definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SchemaDef {
     /// Schema name
@@ -21,13 +17,13 @@ pub struct SchemaDef {
 }
 
 impl SchemaDef {
-    /// Create a new schema definition
+    /// Creates a schema definition.
     #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self { name }
     }
 
-    /// Convert to runtime [`Schema`] type
+    /// Converts to the runtime [`Schema`].
     #[must_use]
     pub const fn into_schema(self) -> Schema {
         Schema {
@@ -46,7 +42,7 @@ impl Default for SchemaDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime schema entity for serde serialization.
+/// A schema, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -57,13 +53,13 @@ pub struct Schema {
 }
 
 impl Schema {
-    /// Create a new schema (runtime)
+    /// Creates a schema.
     #[must_use]
     pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
         Self { name: name.into() }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

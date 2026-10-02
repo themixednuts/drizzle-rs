@@ -1,4 +1,4 @@
-//! Driver-neutral values used by generated MySQL insert models.
+//! The field type of generated `MySQL` insert models.
 
 use super::MySQLValue;
 use crate::prelude::*;
@@ -24,11 +24,14 @@ impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
     }
 }
 
-/// A generated insert field: omitted, explicitly null, or a typed expression.
+/// One field of a generated insert model: left out, `NULL`, or a value.
+///
+/// You rarely build this directly. The `with_*` setters and `new` on a
+/// generated `InsertX` model convert their arguments into it.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum MySQLInsertValue<'a, V: SQLParam, T> {
-    /// Omit the column and let MySQL apply its default.
+    /// Leave the column out of the INSERT so the database default applies.
     #[default]
     Omit,
     /// Insert SQL `NULL`.
@@ -38,7 +41,7 @@ pub enum MySQLInsertValue<'a, V: SQLParam, T> {
 }
 
 impl<'a, T> MySQLInsertValue<'a, MySQLValue<'a>, T> {
-    /// Detach all borrowed SQL and parameter data.
+    /// Converts this field to a `'static` form that owns its data.
     #[must_use]
     pub fn into_owned(self) -> MySQLInsertValue<'static, MySQLValue<'static>, T> {
         match self {
