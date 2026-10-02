@@ -1025,6 +1025,10 @@ fn append_index_stmts(statements: &mut Vec<String>, diff: &SchemaDiff) {
 /// 2. Table creates (dependency order - referenced tables first)
 /// 3. Column additions for existing tables
 /// 4. Index operations
+///
+/// It covers only those changes: column alterations and drops, constraints
+/// and views are left out. To turn two snapshots into a complete migration,
+/// use [`diff`](crate::diff).
 pub struct Generator {
     /// Whether to include statement breakpoints
     pub breakpoints: bool,

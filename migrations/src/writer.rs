@@ -231,8 +231,11 @@ impl Writer {
 
     /// Writes a SQLite migration folder for `diff` and returns its tag.
     ///
-    /// The new snapshot is `current_snapshot` with a fresh ID, chained to the
-    /// previous snapshot.
+    /// `diff` must have been computed against `current_snapshot` (as
+    /// [`diff_snapshots`](crate::sqlite::diff_snapshots) does). The SQL comes
+    /// from the same planner as [`diff`](crate::diff), so every change the
+    /// snapshot records is in the migration. The new snapshot is
+    /// `current_snapshot` with a fresh ID, chained to the previous snapshot.
     ///
     /// # Errors
     ///
@@ -265,15 +268,34 @@ impl Writer {
             ),
         };
 
-        // Generate SQL
-        let generator = SqliteGenerator::new().with_breakpoints(self.breakpoints);
-        let statements = generator.generate_migration(diff);
+        // Undo `diff` on the current snapshot to get the one it started
+        // from, and plan the whole change between the two.
+        let mut previous = SQLiteSnapshot::new();
+        previous.ddl.clone_from(&current_snapshot.ddl);
+        for change in &diff.diffs {
+            if let Some(added) = &change.right {
+                previous.ddl.retain(|entity| entity != added);
+            }
+            if let Some(removed) = &change.left {
+                previous.ddl.push(removed.clone());
+            }
+        }
+        let statements = crate::diff(
+            &crate::Snapshot::Sqlite(previous),
+            &crate::Snapshot::Sqlite(current_snapshot.clone()),
+        )?
+        .statements;
 
-        if statements.is_empty() {
+        if statements
+            .iter()
+            .all(|statement| statement.trim().is_empty())
+        {
             return Err(MigrationError::NoChanges);
         }
 
-        let sql = generator.statements_to_sql(&statements);
+        let sql = SqliteGenerator::new()
+            .with_breakpoints(self.breakpoints)
+            .statements_to_sql(&statements);
 
         // Create snapshot with proper chain
         let mut snapshot = current_snapshot.clone();
@@ -410,6 +432,70 @@ pub enum MigrationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Column changes, drops, checks and views all reach `migration.sql`,
+    /// not only table creates, ADD COLUMN and indexes.
+    #[test]
+    fn sqlite_migration_holds_every_change_the_snapshot_records() {
+        use crate::sqlite::{CheckConstraint, Column, PrimaryKey, SQLiteDDL, Table, View};
+
+        let snapshot = |ddl: &SQLiteDDL| {
+            let mut snapshot = SQLiteSnapshot::new();
+            for entity in ddl.to_entities() {
+                snapshot.add_entity(entity);
+            }
+            snapshot
+        };
+        let table = |ddl: &mut SQLiteDDL| {
+            ddl.tables.push(Table::new("t"));
+            ddl.columns
+                .push(Column::new("t", "id", "integer").not_null());
+            ddl.pks.push(PrimaryKey::from_strings(
+                "t".into(),
+                "t_pk".into(),
+                vec!["id".into()],
+            ));
+        };
+        let mut prev = SQLiteDDL::new();
+        table(&mut prev);
+        prev.columns.push(Column::new("t", "a", "text"));
+        prev.columns.push(Column::new("t", "b", "text"));
+        let mut view = View::new("v");
+        view.definition = Some("SELECT id FROM t".into());
+        prev.views.push(view);
+        let mut cur = SQLiteDDL::new();
+        table(&mut cur);
+        cur.columns.push(Column::new("t", "a", "text").not_null());
+        cur.checks
+            .push(CheckConstraint::new("t", "t_a_check", "a <> ''"));
+        let (prev, cur) = (snapshot(&prev), snapshot(&cur));
+
+        let expected = crate::diff(
+            &crate::Snapshot::Sqlite(prev.clone()),
+            &crate::Snapshot::Sqlite(cur.clone()),
+        )
+        .expect("diff")
+        .statements;
+        let temp = tempfile::tempdir().expect("create temp directory");
+        let writer = |name: &str| {
+            Writer::new(temp.path().join(name), Dialect::SQLite).with_breakpoints(false)
+        };
+        let from_snapshots = writer("snapshots")
+            .generate_migration_from_snapshots(&prev, &cur)
+            .expect("write from snapshots");
+        let from_diff = writer("diff")
+            .write_sqlite_migration(&crate::sqlite::diff_snapshots(&prev, &cur), &cur)
+            .expect("write from diff");
+        for (folder, tag) in [("snapshots", from_snapshots), ("diff", from_diff)] {
+            let sql = fs::read_to_string(temp.path().join(folder).join(tag).join("migration.sql"))
+                .expect("read migration.sql");
+            assert_eq!(sql, expected.join("\n"));
+            for part in ["DROP VIEW `v`", "CHECK(a <> '')", "`a` TEXT NOT NULL"] {
+                assert!(sql.contains(part), "{part} missing from:\n{sql}");
+            }
+            assert!(!sql.contains("`b`"), "{sql}");
+        }
+    }
 
     #[test]
     fn publish_directory_is_complete_and_refuses_collisions() {
