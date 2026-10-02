@@ -719,7 +719,7 @@ impl<Schema> Drizzle<Schema> {
                         if statement.trim().is_empty() {
                             continue;
                         }
-                        if let Err(error) = self.client.execute(statement, &[]) {
+                        if let Err(error) = self.client.batch_execute(statement) {
                             // Nothing can have been applied yet, so drop the
                             // marker rather than demand a pointless repair.
                             if executed == 0 {
@@ -727,7 +727,7 @@ impl<Schema> Drizzle<Schema> {
                                     .client
                                     .execute(&set.clear_migration_started_sql(migration), &[]);
                             }
-                            return Err(error.into());
+                            return Err(migration_statement_err(migration, statement, &error));
                         }
                         executed += 1;
                     }
@@ -738,7 +738,11 @@ impl<Schema> Drizzle<Schema> {
                     let mut tx = self.client.transaction()?;
                     for statement in migration.statements() {
                         if !statement.trim().is_empty() {
-                            tx.execute(statement, &[])?;
+                            // Simple-query protocol: a breakpoint chunk runs
+                            // whole, even when it holds several statements.
+                            tx.batch_execute(statement).map_err(|error| {
+                                migration_statement_err(migration, statement, &error)
+                            })?;
                         }
                     }
                     tx.execute(&set.record_migration_sql(migration), &[])?;
@@ -928,6 +932,23 @@ fn repair_dirty_migrations(
     }
 
     Ok(repaired)
+}
+
+/// Error for a failed migration statement, carrying the server's message
+/// (the bare `postgres::Error` only displays `db error`).
+fn migration_statement_err(
+    migration: &drizzle_migrations::Migration,
+    statement: &str,
+    error: &postgres::Error,
+) -> DrizzleError {
+    pg_sync_err(
+        &format!(
+            "migration `{}` failed\n  statement: {}\n  error",
+            migration.tag(),
+            statement.trim()
+        ),
+        error,
+    )
 }
 
 fn pg_sync_err(msg: &str, e: &postgres::Error) -> DrizzleError {

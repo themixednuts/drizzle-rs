@@ -775,7 +775,7 @@ impl<Schema> Drizzle<Schema> {
                         if statement.trim().is_empty() {
                             continue;
                         }
-                        if let Err(error) = self.client.execute(statement, &[]).await {
+                        if let Err(error) = self.client.batch_execute(statement).await {
                             // Nothing can have been applied yet, so drop the
                             // marker rather than demand a pointless repair.
                             if executed == 0 {
@@ -784,7 +784,7 @@ impl<Schema> Drizzle<Schema> {
                                     .execute(&set.clear_migration_started_sql(migration), &[])
                                     .await;
                             }
-                            return Err(error.into());
+                            return Err(migration_statement_err(migration, statement, &error));
                         }
                         executed += 1;
                     }
@@ -801,7 +801,11 @@ impl<Schema> Drizzle<Schema> {
                     let tx = client.transaction().await?;
                     for statement in migration.statements() {
                         if !statement.trim().is_empty() {
-                            tx.execute(statement, &[]).await?;
+                            // Simple-query protocol: a breakpoint chunk runs
+                            // whole, even when it holds several statements.
+                            tx.batch_execute(statement).await.map_err(|error| {
+                                migration_statement_err(migration, statement, &error)
+                            })?;
                         }
                     }
                     tx.execute(&set.record_migration_sql(migration), &[])
@@ -1007,6 +1011,23 @@ async fn repair_dirty_migrations(
     }
 
     Ok(repaired)
+}
+
+/// Error for a failed migration statement, carrying the server's message
+/// (the bare `tokio_postgres::Error` only displays `db error`).
+fn migration_statement_err(
+    migration: &drizzle_migrations::Migration,
+    statement: &str,
+    error: &tokio_postgres::Error,
+) -> DrizzleError {
+    pg_async_err(
+        &format!(
+            "migration `{}` failed\n  statement: {}\n  error",
+            migration.tag(),
+            statement.trim()
+        ),
+        error,
+    )
 }
 
 fn pg_async_err(msg: &str, e: &tokio_postgres::Error) -> DrizzleError {

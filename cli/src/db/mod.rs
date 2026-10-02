@@ -2371,16 +2371,13 @@ fn run_postgres_sync_migrations_locked(
                 if statement.trim().is_empty() {
                     continue;
                 }
-                if let Err(error) = client.execute(statement, &[]) {
+                if let Err(error) = client.batch_execute(statement) {
                     // Nothing applied yet - drop the marker instead of
                     // demanding a pointless repair.
                     if executed == 0 {
                         let _ = client.execute(&set.clear_migration_started_sql(migration), &[]);
                     }
-                    return Err(CliError::MigrationError(format!(
-                        "Migration '{}' failed: {error}",
-                        migration.hash()
-                    )));
+                    return Err(migration_statement_error(migration, statement, &error));
                 }
                 executed += 1;
             }
@@ -2397,11 +2394,9 @@ fn run_postgres_sync_migrations_locked(
         for migration in &pending {
             for statement in migration.statements() {
                 if !statement.trim().is_empty() {
-                    transaction.execute(statement, &[]).map_err(|error| {
-                        CliError::MigrationError(format!(
-                            "Migration '{}' failed: {error}",
-                            migration.hash()
-                        ))
+                    // Simple-query protocol: a breakpoint chunk runs whole.
+                    transaction.batch_execute(statement).map_err(|error| {
+                        migration_statement_error(migration, statement, &error)
                     })?;
                 }
             }
@@ -2679,7 +2674,7 @@ async fn run_postgres_async_migrations_locked(
                 if statement.trim().is_empty() {
                     continue;
                 }
-                if let Err(error) = client.execute(statement, &[]).await {
+                if let Err(error) = client.batch_execute(statement).await {
                     // Nothing applied yet - drop the marker instead of
                     // demanding a pointless repair.
                     if executed == 0 {
@@ -2687,10 +2682,7 @@ async fn run_postgres_async_migrations_locked(
                             .execute(&set.clear_migration_started_sql(migration), &[])
                             .await;
                     }
-                    return Err(CliError::MigrationError(format!(
-                        "Migration '{}' failed: {error}",
-                        migration.hash()
-                    )));
+                    return Err(migration_statement_error(migration, statement, &error));
                 }
                 executed += 1;
             }
@@ -2709,12 +2701,11 @@ async fn run_postgres_async_migrations_locked(
         for migration in &pending {
             for statement in migration.statements() {
                 if !statement.trim().is_empty() {
-                    transaction.execute(statement, &[]).await.map_err(|error| {
-                        CliError::MigrationError(format!(
-                            "Migration '{}' failed: {error}",
-                            migration.hash()
-                        ))
-                    })?;
+                    // Simple-query protocol: a breakpoint chunk runs whole.
+                    transaction
+                        .batch_execute(statement)
+                        .await
+                        .map_err(|error| migration_statement_error(migration, statement, &error))?;
                 }
             }
             transaction

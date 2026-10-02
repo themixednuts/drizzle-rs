@@ -1185,3 +1185,40 @@ async fn tokio_postgres_migrate_finishes_a_half_upgraded_tracking_table() {
     assert_eq!(row.get::<_, String>(0), "20230331141203_half");
     assert!(row.get::<_, bool>(1));
 }
+
+/// Statement errors carry the server's message, and a breakpoint chunk runs
+/// whole even when it holds several statements (as drizzle-orm runs it).
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_migrate_runs_whole_chunks_and_reports_server_errors() {
+    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
+        "chunk_errors_sync_test",
+    );
+    let schema_name = db.schema_name().to_string();
+    let tracking = Tracking::POSTGRES.schema(schema_name.clone());
+
+    let chunked = Migration::new(
+        "20240101000000_chunked",
+        &format!(
+            "CREATE TABLE \"{schema_name}\".chunk_a (id INTEGER);\n\
+             CREATE TABLE \"{schema_name}\".chunk_b (id INTEGER);\n\
+             --> statement-breakpoint\n\
+             INSERT INTO \"{schema_name}\".chunk_b VALUES (E'1');"
+        ),
+    );
+    assert_eq!(chunked.statements().len(), 2);
+    db.migrate(std::slice::from_ref(&chunked), tracking.clone())
+        .expect("a multi-statement chunk runs whole");
+
+    let broken = Migration::new(
+        "20240102000000_broken",
+        &format!("INSERT INTO \"{schema_name}\".missing_table VALUES (1);"),
+    );
+    let error = db
+        .migrate(&[chunked, broken], tracking)
+        .expect_err("a failing statement fails the migration");
+    let text = error.to_string();
+    assert!(text.contains("20240102000000_broken"), "{text}");
+    assert!(text.contains("missing_table"), "{text}");
+    assert!(text.contains("does not exist"), "server message is kept: {text}");
+}
