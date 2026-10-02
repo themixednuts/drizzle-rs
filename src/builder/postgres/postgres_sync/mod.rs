@@ -608,6 +608,13 @@ impl<Schema> Drizzle<Schema> {
     /// applied. Migrations that already ran are skipped. An advisory lock
     /// (`pg_advisory_lock`) keeps concurrent `migrate` calls from overlapping.
     ///
+    /// This differs from drizzle-orm, whose PostgreSQL `migrate` (like
+    /// `drizzle migrate`) runs all pending migrations in one transaction, so
+    /// a failure there leaves none of them applied.
+    ///
+    /// Each `--> statement-breakpoint` chunk of a migration file runs whole,
+    /// through the simple query protocol, as drizzle-orm runs it.
+    ///
     /// Load the migrations with [`include_migrations!`](crate::include_migrations)
     /// or [`MigrationDir`](drizzle_migrations::MigrationDir).
     ///

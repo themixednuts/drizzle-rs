@@ -203,6 +203,13 @@ drizzle generate              # diff schema -> SQL migration files
 drizzle generate --name init  # optional: name the migration
 ```
 
+After a git merge brings in migrations generated on another branch,
+`generate` (like drizzle-kit) diffs against the combined result of both
+branches and records both as the new migration's parents (`prevIds`). If the
+branches changed the same objects it stops with a conflict report; regenerate
+one branch's migration on top of the other, or pass `--ignore-conflicts` to
+diff against the newest migration only.
+
 ### Automatic: Generate from `build.rs`
 
 Add `drizzle-migrations` as a build dependency, then point it at your existing `drizzle.config.toml`. Migration files regenerate themselves whenever your schema changes — you commit them the same way as the manual workflow, you just never run `drizzle generate` by hand.
@@ -263,6 +270,28 @@ db.migrate(
         .table("schema_migrations"),
 )?;
 ```
+
+> [!NOTE]
+> **PostgreSQL transaction scope differs from drizzle-orm.** drizzle-orm's
+> PostgreSQL `migrate` runs every pending migration inside one transaction, so
+> a failure leaves none of them applied. drizzle-rs's PostgreSQL `db.migrate`
+> (`postgres-sync`, `tokio-postgres`) commits each migration in its own
+> transaction together with its tracking row: when a later migration fails, the
+> earlier ones from the same call stay applied, and the next call resumes at
+> the failed one. `drizzle migrate` on PostgreSQL keeps drizzle-orm's single
+> transaction. `CREATE/DROP INDEX CONCURRENTLY` cannot run in a transaction at
+> all: `db.migrate` runs a migration containing it statement by statement
+> behind a dirty marker (and `drizzle migrate` does that for every migration in
+> such a run); finish an interrupted one with `drizzle migrate --repair` or
+> `migrate_with_repair`.
+> On SQLite, rusqlite's `db.migrate` also uses one transaction for the batch.
+
+Migration files are split the way drizzle-orm splits them: a file with
+`--> statement-breakpoint` markers runs one chunk at a time, each chunk
+exactly as written (PostgreSQL and MySQL accept several statements in one
+chunk; SQLite takes one statement per chunk). A hand-written file without
+markers is split on top-level semicolons, honoring the dialect's quoting,
+comment, and stored-program syntax.
 
 MySQL DDL implicitly commits, so MySQL migrations do not pretend to be
 transactional. The CLI takes a database-scoped advisory lock, writes a durable
