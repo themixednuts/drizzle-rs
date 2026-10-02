@@ -203,6 +203,23 @@ fn collect_tables_to_recreate(
         }
     }
 
+    // New columns `ALTER TABLE ... ADD COLUMN` cannot add to a table with
+    // rows: a non-constant default (`CURRENT_TIMESTAMP`, or any expression
+    // in parentheses) or a PRIMARY KEY / UNIQUE column. The rebuild fills
+    // the default for existing rows.
+    for col_diff in schema_diff.by_kind(EntityKind::Column) {
+        if col_diff.diff_type == DiffType::Create
+            && let Some(SqliteEntity::Column(col)) = &col_diff.right
+            && !created.contains(col.table.as_ref())
+            && !dropped.contains(col.table.as_ref())
+            && (col.default.as_deref().is_some_and(is_non_constant_default)
+                || col.unique == Some(true)
+                || col.primary_key == Some(true))
+        {
+            out.insert(col.table.to_string());
+        }
+    }
+
     // New STORED generated columns - SQLite doesn't allow ALTER TABLE ADD COLUMN for STORED
     // See: https://www.sqlite.org/gencol.html
     for col_diff in schema_diff.by_kind(EntityKind::Column) {
@@ -248,6 +265,17 @@ fn collect_tables_to_recreate(
     }
 
     out
+}
+
+/// Whether SQLite rejects `default` in `ALTER TABLE ... ADD COLUMN` on a
+/// table with rows: `CURRENT_TIME`, `CURRENT_DATE`, `CURRENT_TIMESTAMP`, or
+/// an expression in parentheses.
+fn is_non_constant_default(default: &str) -> bool {
+    let default = default.trim();
+    default.starts_with('(')
+        || ["CURRENT_TIME", "CURRENT_DATE", "CURRENT_TIMESTAMP"]
+            .iter()
+            .any(|keyword| default.eq_ignore_ascii_case(keyword))
 }
 
 /// Computes the migration (diff plus SQL) between two SQLite DDL states.
@@ -324,6 +352,21 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
         &created_table_names,
         &tables_to_recreate,
     );
+    for col_diff in schema_diff.by_kind(EntityKind::Column) {
+        if col_diff.diff_type == DiffType::Create
+            && let Some(SqliteEntity::Column(col)) = &col_diff.right
+            && !created_table_names.contains(col.table.as_ref())
+            && col.not_null
+            && col.default.is_none()
+            && col.generated.is_none()
+            && col.primary_key != Some(true)
+        {
+            warnings.push(format!(
+                "Adding NOT NULL column '{}' to table '{}' without a default fails when the table has rows; give it a default or make it nullable first",
+                col.name, col.table
+            ));
+        }
+    }
     append_index_stmts(&mut statements, &schema_diff, cur, &tables_to_recreate);
     append_drop_column_stmts(
         &mut statements,
@@ -1143,6 +1186,46 @@ mod tests {
         let drop_column = sql.iter().position(|s| s.contains("DROP COLUMN")).unwrap();
         assert!(drop_view < drop_column, "{sql:#?}");
         assert!(!sql.iter().any(|s| s.contains("legacy")), "{sql:#?}");
+    }
+
+    /// SQLite's ADD COLUMN rejects non-constant defaults on tables with rows,
+    /// so such a column is added by rebuilding the table.
+    #[test]
+    fn new_column_with_non_constant_default_rebuilds_the_table() {
+        let base = vec![
+            SqliteEntity::Table(Table::new("t")),
+            SqliteEntity::Column(pk("t", "id")),
+        ];
+        for default in ["CURRENT_TIMESTAMP", "(abs(-1))"] {
+            let mut cur = base.clone();
+            cur.push(SqliteEntity::Column(
+                Column::new("t", "at", "text").default_value(default),
+            ));
+            let sql = compute_migration(&ddl(base.clone()), &ddl(cur))
+                .sql_statements
+                .join("\n");
+            assert!(sql.contains("CREATE TABLE `__new_t`"), "{sql}");
+            assert!(!sql.contains("ADD `at`"), "{sql}");
+        }
+        let mut constant = base.clone();
+        constant.push(SqliteEntity::Column(
+            Column::new("t", "n", "integer").default_value("0"),
+        ));
+        let sql = compute_migration(&ddl(base.clone()), &ddl(constant)).sql_statements;
+        assert_eq!(sql, ["ALTER TABLE `t` ADD `n` INTEGER DEFAULT 0;"]);
+
+        let mut required = base.clone();
+        required.push(SqliteEntity::Column(
+            Column::new("t", "r", "text").not_null(),
+        ));
+        let diff = compute_migration(&ddl(base), &ddl(required));
+        assert!(
+            diff.warnings
+                .iter()
+                .any(|w| w.contains("NOT NULL column 'r'")),
+            "{:?}",
+            diff.warnings
+        );
     }
 
     #[test]
