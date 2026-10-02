@@ -876,3 +876,92 @@ async fn tokio_postgres_repair_finishes_an_interrupted_concurrent_migration() {
         .expect("second migrate");
     assert!(outcome.is_up_to_date());
 }
+
+// =============================================================================
+// Runner interop and robustness
+// =============================================================================
+
+/// drizzle-orm's v0 -> v1 tracking upgrade (`up-migrations/pg.ts`) adds
+/// `name`/`applied_at` and writes `applied_at = NULL` on every existing row.
+/// Those rows are applied: drizzle-orm only looks at `name`.
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_migrate_accepts_rows_upgraded_by_drizzle_orm() {
+    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
+        "upstream_upgraded_sync_test",
+    );
+    let schema_name = db.schema_name().to_string();
+    let first = Migration::new(
+        "20240101000000_init",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);"),
+    );
+    let second = Migration::new(
+        "20240102000000_next",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_b (id INTEGER);"),
+    );
+    db.conn_mut()
+        .batch_execute(&format!(
+            "CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);
+             CREATE TABLE \"{schema_name}\".\"__drizzle_migrations\" (
+                 id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint);
+             INSERT INTO \"{schema_name}\".\"__drizzle_migrations\" (hash, created_at)
+                 VALUES ('{}', 1704067200000);
+             ALTER TABLE \"{schema_name}\".\"__drizzle_migrations\"
+                 ADD COLUMN IF NOT EXISTS name text;
+             ALTER TABLE \"{schema_name}\".\"__drizzle_migrations\"
+                 ADD COLUMN IF NOT EXISTS applied_at timestamp with time zone DEFAULT now();
+             UPDATE \"{schema_name}\".\"__drizzle_migrations\"
+                 SET name = '20240101000000_init', applied_at = NULL WHERE id = 1;",
+            first.hash()
+        ))
+        .expect("reproduce drizzle-orm's upgraded tracking table");
+
+    let outcome = db
+        .migrate(
+            &[first.clone(), second.clone()],
+            Tracking::POSTGRES.schema(schema_name.clone()),
+        )
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(outcome.applied_tags(), ["20240102000000_next"]);
+
+    let outcome = db
+        .migrate(&[first, second], Tracking::POSTGRES.schema(schema_name))
+        .expect("second migrate");
+    assert!(outcome.is_up_to_date());
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[tokio::test]
+async fn tokio_postgres_migrate_accepts_rows_upgraded_by_drizzle_orm() {
+    let mut db = crate::common::helpers::tokio_postgres_setup::setup_empty_named(
+        "upstream_upgraded_tokio_test",
+    )
+    .await;
+    let schema_name = db.schema_name().to_string();
+    let first = Migration::new(
+        "20240101000000_init",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);"),
+    );
+    let second = Migration::new(
+        "20240102000000_next",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_b (id INTEGER);"),
+    );
+    db.conn()
+        .batch_execute(&format!(
+            "CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);
+             CREATE TABLE \"{schema_name}\".\"__drizzle_migrations\" (
+                 id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint,
+                 name text, applied_at timestamp with time zone DEFAULT now());
+             INSERT INTO \"{schema_name}\".\"__drizzle_migrations\" (hash, created_at, name, applied_at)
+                 VALUES ('{}', 1704067200000, '20240101000000_init', NULL);",
+            first.hash()
+        ))
+        .await
+        .expect("reproduce drizzle-orm's upgraded tracking table");
+
+    let outcome = db
+        .migrate(&[first, second], Tracking::POSTGRES.schema(schema_name))
+        .await
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(outcome.applied_tags(), ["20240102000000_next"]);
+}

@@ -428,6 +428,50 @@ fn runtime_migrations_keep_the_first_failure_dirty(db: &mut TestDb<RuntimeMigrat
         .expect("clean dirty migration state");
 }
 
+/// drizzle-orm's v0 -> v1 tracking upgrade (`up-migrations/mysql.ts`)
+/// backfills `name` and writes `applied_at = NULL`. Those rows are applied,
+/// not interrupted.
+#[drizzle::test]
+fn runtime_migrations_accept_rows_upgraded_by_drizzle_orm(
+    db: &mut TestDb<RuntimeMigrationSchema>,
+) {
+    let tracking = Tracking::MYSQL.table("__drizzle_runtime_upstream");
+    let first = Migration::new(
+        "20240101000000_mysql_upstream_init",
+        "CREATE TABLE `mysql_runtime_upstream_a` (id int)",
+    );
+    let second = Migration::new(
+        "20240102000000_mysql_upstream_next",
+        "CREATE TABLE `mysql_runtime_upstream_b` (id int)",
+    );
+    for sql in [
+        "DROP TABLE IF EXISTS `__drizzle_runtime_upstream`, `mysql_runtime_upstream_a`, `mysql_runtime_upstream_b`".to_string(),
+        "CREATE TABLE `mysql_runtime_upstream_a` (id int)".to_string(),
+        "CREATE TABLE `__drizzle_runtime_upstream` (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)".to_string(),
+        format!(
+            "INSERT INTO `__drizzle_runtime_upstream` (hash, created_at) VALUES ('{}', 1704067200000)",
+            first.hash()
+        ),
+        "ALTER TABLE `__drizzle_runtime_upstream` ADD `name` text".to_string(),
+        "ALTER TABLE `__drizzle_runtime_upstream` ADD `applied_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP".to_string(),
+        "UPDATE `__drizzle_runtime_upstream` SET `name` = '20240101000000_mysql_upstream_init', `applied_at` = NULL WHERE id = 1".to_string(),
+    ] {
+        result!(db.execute(SQL::raw(sql))).expect("reproduce drizzle-orm's upgraded table");
+    }
+
+    let outcome = result!(db.migrate(&[first, second], tracking))
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(
+        outcome.applied_tags(),
+        ["20240102000000_mysql_upstream_next"]
+    );
+
+    result!(db.execute(SQL::raw(
+        "DROP TABLE IF EXISTS `__drizzle_runtime_upstream`, `mysql_runtime_upstream_a`, `mysql_runtime_upstream_b`"
+    )))
+    .expect("clean up");
+}
+
 #[drizzle::test]
 fn runtime_migrations_reject_disabled_autocommit_before_writing(
     db: &mut TestDb<RuntimeMigrationSchema>,

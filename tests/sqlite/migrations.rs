@@ -1095,6 +1095,34 @@ fn rusqlite_migrate_refuses_to_rerun_an_interrupted_migration() {
     let _ = std::fs::remove_file(path);
 }
 
+/// drizzle-orm's v0 -> v1 tracking upgrade (`up-migrations/sqlite.ts`)
+/// backfills `name` and writes `applied_at = NULL`. Those rows are applied,
+/// not interrupted.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_migrate_accepts_rows_upgraded_by_drizzle_orm() {
+    let first = Migration::new("20240101000000_init", "CREATE TABLE upstream_a (id INTEGER);");
+    let second = Migration::new("20240102000000_next", "CREATE TABLE upstream_b (id INTEGER);");
+    let connection = rusqlite::Connection::open_in_memory().expect("open DB");
+    connection
+        .execute_batch(&format!(
+            "CREATE TABLE upstream_a (id INTEGER);
+             CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric);
+             INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('{}', 1704067200000);
+             ALTER TABLE __drizzle_migrations ADD COLUMN name text;
+             ALTER TABLE __drizzle_migrations ADD COLUMN applied_at TEXT;
+             UPDATE __drizzle_migrations SET name = '20240101000000_init', applied_at = NULL WHERE id = 1;",
+            first.hash()
+        ))
+        .expect("reproduce drizzle-orm's upgraded tracking table");
+
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::<()>::new(connection);
+    let outcome = database
+        .migrate(&[first, second], Tracking::SQLITE)
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(outcome.applied_tags(), ["20240102000000_next"]);
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_repair_finishes_an_interrupted_migration() {

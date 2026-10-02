@@ -743,9 +743,14 @@ impl Migrations {
     /// Returns the `INSERT` that records `migration` as *started* (phase 1 of two-phase
     /// tracking on non-transactional paths).
     ///
-    /// The row is written with `applied_at` explicitly `NULL`, which marks the
-    /// migration **dirty**: its statements are about to run but have not been
-    /// confirmed. [`Migrations::record_migration_finished_sql`] clears the
+    /// The row is written with both `applied_at` and `created_at` explicitly
+    /// `NULL`, which marks the migration **dirty**: its statements are about
+    /// to run but have not been confirmed. The `NULL` `created_at` is what
+    /// identifies the marker: drizzle-orm always writes `created_at`, but its
+    /// own v0 → v1 tracking upgrade leaves `applied_at` `NULL` on every row it
+    /// upgrades, so `applied_at IS NULL` alone cannot tell an interrupted
+    /// drizzle-rs run from a database migrated by drizzle-orm.
+    /// [`Migrations::record_migration_finished_sql`] clears the
     /// marker once they have. A crash between the two leaves the dirty row
     /// behind, which is exactly the signal
     /// [`Migrations::interrupted_migration_error`] reports.
@@ -762,17 +767,16 @@ impl Migrations {
         let table = self.table_ident();
         let hash = escape_sql_string(migration.hash());
         let name = escape_sql_string(migration.name());
-        let created_at = migration.created_at();
 
         match self.dialect {
             Dialect::SQLite | Dialect::PostgreSQL => {
                 format!(
-                    r#"INSERT INTO {table} ("hash", "created_at", "name", "applied_at") VALUES ('{hash}', {created_at}, '{name}', NULL);"#
+                    r#"INSERT INTO {table} ("hash", "created_at", "name", "applied_at") VALUES ('{hash}', NULL, '{name}', NULL);"#
                 )
             }
             Dialect::MySQL => {
                 format!(
-                    r"INSERT INTO {table} (`hash`, `created_at`, `name`, `applied_at`) VALUES ('{hash}', {created_at}, '{name}', NULL);"
+                    r"INSERT INTO {table} (`hash`, `created_at`, `name`, `applied_at`) VALUES ('{hash}', NULL, '{name}', NULL);"
                 )
             }
         }
@@ -781,20 +785,34 @@ impl Migrations {
     /// Returns the `UPDATE` that marks a started migration as finished
     /// (phase 3 of two-phase tracking; phase 2 runs the statements).
     ///
-    /// Only clears rows that are still dirty, so a concurrent runner that
-    /// already completed the migration is not re-stamped.
+    /// Sets `applied_at` and fills in `created_at`. Only touches rows that are
+    /// still dirty, so a concurrent runner that already completed the
+    /// migration is not re-stamped.
     #[must_use]
     pub fn record_migration_finished_sql(&self, migration: &Migration) -> String {
         let table = self.table_ident();
         let name = escape_sql_string(migration.name());
+        let dirty = self.dirty_predicate();
 
         match self.dialect {
             Dialect::MySQL => format!(
-                r"UPDATE {table} SET `applied_at` = CURRENT_TIMESTAMP WHERE `name` = '{name}' AND `applied_at` IS NULL;"
+                r"UPDATE {table} SET `applied_at` = CURRENT_TIMESTAMP, `created_at` = {created_at} WHERE `name` = '{name}' AND {dirty};"
             ),
             _ => format!(
-                r#"UPDATE {table} SET "applied_at" = CURRENT_TIMESTAMP WHERE "name" = '{name}' AND "applied_at" IS NULL;"#
+                r#"UPDATE {table} SET "applied_at" = CURRENT_TIMESTAMP, "created_at" = {created_at} WHERE "name" = '{name}' AND {dirty};"#
             ),
+        }
+    }
+
+    /// SQL predicate matching a two-phase dirty marker: `applied_at` and
+    /// `created_at` both `NULL` (see
+    /// [`record_migration_started_sql`](Self::record_migration_started_sql)).
+    const fn dirty_predicate(&self) -> &'static str {
+        match self.dialect {
+            Dialect::MySQL => "(`applied_at` IS NULL AND `created_at` IS NULL)",
+            Dialect::SQLite | Dialect::PostgreSQL => {
+                r#"("applied_at" IS NULL AND "created_at" IS NULL)"#
+            }
         }
     }
 
@@ -807,13 +825,15 @@ impl Migrations {
     pub fn clear_migration_started_sql(&self, migration: &Migration) -> String {
         let table = self.table_ident();
         let name = escape_sql_string(migration.name());
+        let created_at = migration.created_at();
+        let dirty = self.dirty_predicate();
 
         match self.dialect {
             Dialect::MySQL => {
-                format!(r"DELETE FROM {table} WHERE `name` = '{name}' AND `applied_at` IS NULL;")
+                format!(r"DELETE FROM {table} WHERE `name` = '{name}' AND {dirty};")
             }
             _ => {
-                format!(r#"DELETE FROM {table} WHERE "name" = '{name}' AND "applied_at" IS NULL;"#)
+                format!(r#"DELETE FROM {table} WHERE "name" = '{name}' AND {dirty};"#)
             }
         }
     }
@@ -823,9 +843,8 @@ impl Migrations {
     ///
     /// The v0 tracking table had only `id`/`hash`/`created_at`; the upgrade
     /// adds `name` and `applied_at` and backfills both. `applied_at` is derived
-    /// from the row's `created_at` rather than left `NULL` — a `NULL` here
-    /// would be indistinguishable from an interrupted migration and would make
-    /// every upgraded database look dirty.
+    /// from the row's `created_at` rather than left `NULL`, so the row reads
+    /// as applied without relying on the `created_at` sentinel.
     #[must_use]
     pub fn backfill_migration_metadata_sql(&self, row: &MatchedMigrationMetadata) -> String {
         let table = self.table_ident();
@@ -884,35 +903,41 @@ impl Migrations {
 
     /// Returns the `SELECT` that loads applied migration names.
     ///
-    /// A row counts as applied only when it has both a non-null `name` *and* a
-    /// non-null `applied_at`:
+    /// A row counts as applied when it has a non-null `name` and is not a
+    /// two-phase dirty marker:
     ///
     /// * `name IS NULL` — written before the v0 → v1 tracking-table upgrade
     ///   (which backfills `name`), so it cannot be matched to a local
     ///   migration.
-    /// * `applied_at IS NULL` — a two-phase **dirty marker**: the migration
-    ///   started but was never confirmed complete. Reporting it as applied
-    ///   would silently skip a half-applied migration. See
+    /// * `applied_at IS NULL AND created_at IS NULL` — a **dirty marker**: the
+    ///   migration started but was never confirmed complete. Reporting it as
+    ///   applied would silently skip a half-applied migration. See
     ///   [`Migrations::dirty_names_sql`].
+    ///
+    /// A named row with a `NULL` `applied_at` but a `created_at` is applied:
+    /// drizzle-orm's tracking-table upgrade writes exactly such rows, and
+    /// drizzle-orm itself treats every named row as applied.
     ///
     /// Pair with [`Migrations::pending`].
     #[must_use]
     pub fn applied_names_sql(&self) -> String {
         let table = self.table_ident();
+        let dirty = self.dirty_predicate();
         match self.dialect {
             Dialect::MySQL => {
                 format!(
-                    "SELECT `name` FROM {table} WHERE `name` IS NOT NULL AND `applied_at` IS NOT NULL ORDER BY id;"
+                    "SELECT `name` FROM {table} WHERE `name` IS NOT NULL AND NOT {dirty} ORDER BY id;"
                 )
             }
             _ => format!(
-                r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL AND "applied_at" IS NOT NULL ORDER BY id;"#
+                r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL AND NOT {dirty} ORDER BY id;"#
             ),
         }
     }
 
     /// Returns the `SELECT` that loads `hash`, `name`, and a `dirty` flag
-    /// (`applied_at IS NULL`: started but never finished) for every named row.
+    /// (`applied_at` and `created_at` both `NULL`: started but never
+    /// finished) for every named row.
     ///
     /// Unlike [`Migrations::applied_names_sql`] this returns interrupted rows
     /// too, so integrity checks can report drift, missing-local, and
@@ -920,34 +945,37 @@ impl Migrations {
     #[must_use]
     pub fn applied_records_sql(&self) -> String {
         let table = self.table_ident();
+        let dirty = self.dirty_predicate();
         match self.dialect {
             Dialect::MySQL => {
                 format!(
-                    "SELECT `hash`, `name`, (`applied_at` IS NULL) AS dirty FROM {table} WHERE `name` IS NOT NULL ORDER BY id;"
+                    "SELECT `hash`, `name`, {dirty} AS dirty FROM {table} WHERE `name` IS NOT NULL ORDER BY id;"
                 )
             }
             _ => format!(
-                r#"SELECT "hash", "name", ("applied_at" IS NULL) AS dirty FROM {table} WHERE "name" IS NOT NULL ORDER BY id;"#
+                r#"SELECT "hash", "name", {dirty} AS dirty FROM {table} WHERE "name" IS NOT NULL ORDER BY id;"#
             ),
         }
     }
 
     /// Returns the `SELECT` that loads interrupted ("dirty") migration names.
     ///
-    /// These are rows whose `name` is known but whose `applied_at` is `NULL` —
-    /// a migration that started on a non-transactional path and never reported
-    /// completion.
+    /// These are named rows whose `applied_at` and `created_at` are both
+    /// `NULL` — a migration that started on a non-transactional path and never
+    /// reported completion. Rows where only `applied_at` is `NULL` come from
+    /// drizzle-orm's tracking-table upgrade and count as applied.
     #[must_use]
     pub fn dirty_names_sql(&self) -> String {
         let table = self.table_ident();
+        let dirty = self.dirty_predicate();
         match self.dialect {
             Dialect::MySQL => {
                 format!(
-                    "SELECT `name` FROM {table} WHERE `name` IS NOT NULL AND `applied_at` IS NULL ORDER BY id;"
+                    "SELECT `name` FROM {table} WHERE `name` IS NOT NULL AND {dirty} ORDER BY id;"
                 )
             }
             _ => format!(
-                r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL AND "applied_at" IS NULL ORDER BY id;"#
+                r#"SELECT "name" FROM {table} WHERE "name" IS NOT NULL AND {dirty} ORDER BY id;"#
             ),
         }
     }
@@ -1002,8 +1030,8 @@ impl Migrations {
 
         Some(MigratorError::InterruptedMigration(format!(
             "migration{plural} {names} {} interrupted mid-apply: the tracking row in {table} has \
-             a NULL `applied_at`, so an earlier run recorded the migration as started but never \
-             recorded it as finished. The database may be in a partially-migrated state, and \
+             NULL `applied_at` and `created_at`, so an earlier run recorded the migration as \
+             started but never recorded it as finished. The database may be in a partially-migrated state, and \
              re-running the migration as-is would fail (for example with `table already exists`).\n\
              {recovery}",
             if dirty_names.len() == 1 {
@@ -2175,15 +2203,15 @@ mod tests {
         let set = Migrations::new(Vec::new(), Dialect::PostgreSQL);
         let sql = set.applied_records_sql();
         assert!(sql.contains("\"hash\""));
-        assert!(sql.contains("(\"applied_at\" IS NULL) AS dirty"));
+        assert!(sql.contains(r#"("applied_at" IS NULL AND "created_at" IS NULL) AS dirty"#));
         // Unlike applied_names_sql, dirty rows are included so integrity
         // checks can report them.
-        assert!(!sql.contains("\"applied_at\" IS NOT NULL"));
+        assert!(!sql.contains("NOT ("));
 
         let mysql = Migrations::new(Vec::new(), Dialect::MySQL);
         let sql = mysql.applied_records_sql();
         assert!(sql.contains("`hash`"));
-        assert!(sql.contains("(`applied_at` IS NULL) AS dirty"));
+        assert!(sql.contains("(`applied_at` IS NULL AND `created_at` IS NULL) AS dirty"));
     }
 
     fn sample_migration() -> super::Migration {
@@ -2203,12 +2231,14 @@ mod tests {
             let dirty = set.dirty_names_sql();
 
             if dialect == Dialect::MySQL {
-                assert!(applied.contains("`applied_at` IS NOT NULL"), "{applied}");
-                assert!(dirty.contains("`applied_at` IS NULL"), "{dirty}");
+                let marker = "(`applied_at` IS NULL AND `created_at` IS NULL)";
+                assert!(applied.contains(&format!("NOT {marker}")), "{applied}");
+                assert!(dirty.contains(&format!("AND {marker}")), "{dirty}");
                 assert!(dirty.contains("`name` IS NOT NULL"), "{dirty}");
             } else {
-                assert!(applied.contains("\"applied_at\" IS NOT NULL"), "{applied}");
-                assert!(dirty.contains("\"applied_at\" IS NULL"), "{dirty}");
+                let marker = r#"("applied_at" IS NULL AND "created_at" IS NULL)"#;
+                assert!(applied.contains(&format!("NOT {marker}")), "{applied}");
+                assert!(dirty.contains(&format!("AND {marker}")), "{dirty}");
                 assert!(dirty.contains("\"name\" IS NOT NULL"), "{dirty}");
             }
             assert!(dirty.contains("ORDER BY id"));
@@ -2223,21 +2253,99 @@ mod tests {
         let started = set.record_migration_started_sql(&migration);
         assert!(started.starts_with("INSERT INTO"));
         assert!(
-            started.contains("'20230331141203_test', NULL)"),
-            "phase 1 must write applied_at NULL explicitly: {started}"
+            started.contains("('abc123', NULL, '20230331141203_test', NULL)"),
+            "phase 1 must write created_at and applied_at NULL explicitly: {started}"
         );
 
         let finished = set.record_migration_finished_sql(&migration);
         assert!(finished.starts_with("UPDATE"));
         assert!(finished.contains("\"applied_at\" = CURRENT_TIMESTAMP"));
+        assert!(finished.contains("\"created_at\" = 1680271923000"), "{finished}");
         assert!(
-            finished.contains("\"applied_at\" IS NULL"),
+            finished.contains(r#"("applied_at" IS NULL AND "created_at" IS NULL)"#),
             "phase 3 must only clear a still-dirty row: {finished}"
         );
 
         let cleared = set.clear_migration_started_sql(&migration);
         assert!(cleared.starts_with("DELETE FROM"));
-        assert!(cleared.contains("\"applied_at\" IS NULL"));
+        assert!(cleared.contains(r#"("applied_at" IS NULL AND "created_at" IS NULL)"#));
+    }
+
+    /// Runs `sql` against an in-memory SQLite tracking table and returns the
+    /// names it yields.
+    fn sqlite_names(conn: &rusqlite::Connection, sql: &str) -> Vec<String> {
+        let mut statement = conn.prepare(sql).expect("prepare");
+        statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("rows")
+    }
+
+    #[test]
+    fn upstream_upgraded_rows_are_applied_but_drizzle_rs_markers_are_dirty() {
+        let upgraded = Migration::new("20240101000000_init", "CREATE TABLE a (id INTEGER);");
+        let interrupted = Migration::new("20240102000000_next", "CREATE TABLE b (id INTEGER);");
+        let set = Migrations::new(vec![upgraded.clone(), interrupted.clone()], Dialect::SQLite);
+        let conn = rusqlite::Connection::open_in_memory().expect("sqlite");
+        conn.execute_batch(&set.create_table_sql()).expect("tracking table");
+
+        // drizzle-orm's v0 -> v1 upgrade (up-migrations/sqlite.ts) backfills
+        // `name` and writes `applied_at = NULL` on every pre-existing row.
+        conn.execute_batch(&format!(
+            "INSERT INTO \"__drizzle_migrations\" (hash, created_at) VALUES ('{}', 1704067200123);
+             UPDATE \"__drizzle_migrations\" SET name = '20240101000000_init', applied_at = NULL;",
+            upgraded.hash()
+        ))
+        .expect("upstream upgrade state");
+        // drizzle-rs's two-phase marker for an interrupted run.
+        conn.execute_batch(&set.record_migration_started_sql(&interrupted))
+            .expect("started marker");
+
+        assert_eq!(
+            sqlite_names(&conn, &set.applied_names_sql()),
+            vec!["20240101000000_init".to_string()]
+        );
+        assert_eq!(
+            sqlite_names(&conn, &set.dirty_names_sql()),
+            vec!["20240102000000_next".to_string()]
+        );
+        let dirty_flags: Vec<(String, bool)> = conn
+            .prepare(&set.applied_records_sql())
+            .expect("prepare")
+            .query_map([], |row| Ok((row.get(1)?, row.get(2)?)))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows");
+        assert_eq!(
+            dirty_flags,
+            vec![
+                ("20240101000000_init".to_string(), false),
+                ("20240102000000_next".to_string(), true),
+            ]
+        );
+
+        // Finishing the marker stamps applied_at and created_at; it then
+        // reads as applied, and the upstream row is never touched.
+        conn.execute_batch(&set.record_migration_finished_sql(&interrupted))
+            .expect("finish");
+        assert!(sqlite_names(&conn, &set.dirty_names_sql()).is_empty());
+        assert_eq!(sqlite_names(&conn, &set.applied_names_sql()).len(), 2);
+        let (created_at, upstream_applied_at): (i64, Option<String>) = conn
+            .query_row(
+                "SELECT (SELECT created_at FROM \"__drizzle_migrations\" WHERE name = '20240102000000_next'),
+                        (SELECT applied_at FROM \"__drizzle_migrations\" WHERE name = '20240101000000_init')",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("row");
+        assert_eq!(created_at, interrupted.created_at());
+        assert_eq!(upstream_applied_at, None);
+
+        // Clearing a marker never deletes the upstream-upgraded row.
+        conn.execute_batch(&set.clear_migration_started_sql(&upgraded))
+            .expect("clear");
+        assert_eq!(sqlite_names(&conn, &set.applied_names_sql()).len(), 2);
     }
 
     #[test]
@@ -2258,12 +2366,10 @@ mod tests {
         );
         let started = mysql.record_migration_started_sql(&migration);
         assert!(started.contains("`hash`"), "{started}");
-        assert!(started.contains("NULL)"), "{started}");
-        assert!(
-            mysql
-                .record_migration_finished_sql(&migration)
-                .contains("`applied_at` = CURRENT_TIMESTAMP")
-        );
+        assert!(started.contains("NULL, '20230331141203_test', NULL)"), "{started}");
+        let finished = mysql.record_migration_finished_sql(&migration);
+        assert!(finished.contains("`applied_at` = CURRENT_TIMESTAMP"), "{finished}");
+        assert!(finished.contains("`created_at` = 1680271923000"), "{finished}");
     }
 
     #[test]
