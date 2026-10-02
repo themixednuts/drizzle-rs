@@ -118,9 +118,18 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
         .filter_map(|(name, sql)| sql.as_ref().map(|sql| (name.clone(), sql.clone())))
         .collect();
 
+    // Each table's CREATE TABLE text, parsed once, for what the PRAGMAs do
+    // not report: generated expressions, collations, CHECK constraints and
+    // constraint names.
+    let parsed_sql: HashMap<String, super::table_sql::ParsedTableSql> = table_sql_map
+        .iter()
+        .filter_map(|(table, sql)| {
+            super::table_sql::parse_table_sql(sql).map(|parsed| (table.clone(), parsed))
+        })
+        .collect();
     let mut generated_columns = HashMap::<String, ParsedGenerated>::new();
-    for (table, sql) in &table_sql_map {
-        generated_columns.extend(parse_generated_columns_from_table_sql(table, sql));
+    for (table, parsed) in &parsed_sql {
+        generated_columns.extend(generated_from_parsed(table, parsed));
     }
     let primary_key_columns: HashSet<(String, String)> = raw
         .columns
@@ -129,16 +138,56 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
         .map(|column| (column.table.clone(), column.name.clone()))
         .collect();
 
-    let (columns, primary_keys) =
+    let (mut columns, primary_keys) =
         process_columns(&raw.columns, &generated_columns, &primary_key_columns);
+    for column in &mut columns {
+        column.collate = parsed_sql
+            .get(column.table.as_ref())
+            .and_then(|parsed| {
+                parsed
+                    .columns
+                    .iter()
+                    .find(|parsed| parsed.name == column.name.as_ref())
+            })
+            .and_then(|parsed| parsed.collate.clone())
+            .map(Into::into);
+    }
     let index_sql_map: HashMap<String, String> = raw.index_sql.iter().cloned().collect();
     let indexes = process_indexes_with_sql(&raw.indexes, &raw.index_columns, &index_sql_map);
-    let foreign_keys = process_foreign_keys(&raw.foreign_keys);
-    let unique_constraints =
+    let mut foreign_keys = process_foreign_keys(&raw.foreign_keys);
+    let mut unique_constraints =
         process_unique_constraints_from_indexes(&raw.indexes, &raw.index_columns);
+    // Keep explicit constraint names, which the PRAGMAs do not report.
+    for unique in &mut unique_constraints {
+        if let Some((name, _)) = parsed_sql.get(unique.table.as_ref()).and_then(|parsed| {
+            parsed
+                .uniques
+                .iter()
+                .find(|(_, columns)| same_columns(columns, &unique.columns))
+        }) {
+            // drizzle names every constraint it writes; one that carries
+            // the default name was not given one.
+            unique.name_explicit = unique.name.as_ref() != name.as_str();
+            unique.name = name.clone().into();
+        }
+    }
+    for foreign_key in &mut foreign_keys {
+        if let Some((name, _)) = parsed_sql
+            .get(foreign_key.table.as_ref())
+            .and_then(|parsed| {
+                parsed
+                    .foreign_keys
+                    .iter()
+                    .find(|(_, columns)| same_columns(columns, &foreign_key.columns))
+            })
+        {
+            foreign_key.name_explicit = foreign_key.name.as_ref() != name.as_str();
+            foreign_key.name = name.clone().into();
+        }
+    }
 
     let mut ddl = super::SQLiteDDL::new();
-    for (table_name, table_sql) in raw.tables {
+    for (table_name, table_sql) in raw.tables.clone() {
         let mut table = Table::new(table_name);
         if let Some(sql) = table_sql {
             let (strict, without_rowid) = parse_table_options(&sql);
@@ -162,6 +211,25 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
     for unique_constraint in unique_constraints {
         ddl.uniques.push(unique_constraint);
     }
+    // CHECK constraints, with upstream's names for unnamed ones:
+    // `<table>_check_<n>`, counting across all tables.
+    let mut unnamed_checks = 0usize;
+    for (table_name, _) in &raw.tables {
+        let Some(parsed) = parsed_sql.get(table_name) else {
+            continue;
+        };
+        for (name, value) in &parsed.checks {
+            let name = name.clone().unwrap_or_else(|| {
+                unnamed_checks += 1;
+                format!("{table_name}_check_{unnamed_checks}")
+            });
+            ddl.checks.push(super::ddl::CheckConstraint::new(
+                table_name.clone(),
+                name,
+                value.clone(),
+            ));
+        }
+    }
 
     for raw_view in raw.views {
         let mut view = View::new(raw_view.name);
@@ -174,6 +242,41 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
     }
 
     ddl
+}
+
+/// Whether two column lists name the same columns, in order.
+fn same_columns<A: AsRef<str>, B: AsRef<str>>(left: &[A], right: &[B]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(a, b)| a.as_ref() == b.as_ref())
+}
+
+fn generated_from_parsed(
+    table: &str,
+    parsed: &super::table_sql::ParsedTableSql,
+) -> impl Iterator<Item = (String, ParsedGenerated)> {
+    parsed
+        .columns
+        .iter()
+        .filter_map(move |column| {
+            column.generated.as_ref().map(|(expression, stored)| {
+                (
+                    format!("{table}:{}", column.name),
+                    ParsedGenerated {
+                        expression: expression.clone(),
+                        gen_type: if *stored {
+                            GeneratedType::Stored
+                        } else {
+                            GeneratedType::Virtual
+                        },
+                    },
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// Entity filter function type
@@ -1118,89 +1221,19 @@ pub fn parse_view_sql(sql: &str) -> Option<String> {
     None
 }
 
-/// Parse the `AS (expr) [STORED|VIRTUAL]` tail of a column definition.
-///
-/// `rest` should point just past the column name. Returns `(expression, gen_type)`
-/// or `None` if the column definition is not a generated column.
-fn parse_generated_tail(rest: &str) -> Option<(String, GeneratedType)> {
-    let upper_rest = rest.to_uppercase();
-    let as_pos = upper_rest.find(" AS ")?;
-    let after_as = &rest[as_pos + 4..];
-    let expr_start_rel = after_as.find('(')?;
-    let expr_start = as_pos + 4 + expr_start_rel;
-
-    let mut expr_depth = 0i32;
-    let mut expr_end: Option<usize> = None;
-    for (i, ch) in rest.char_indices().skip(expr_start) {
-        match ch {
-            '(' => expr_depth += 1,
-            ')' => {
-                expr_depth -= 1;
-                if expr_depth == 0 {
-                    expr_end = Some(i);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let expr_end = expr_end?;
-
-    let expression = rest[expr_start + 1..expr_end].trim().to_string();
-    let after_expr = rest[expr_end + 1..].to_uppercase();
-    let gen_type = if after_expr.contains("STORED") {
-        GeneratedType::Stored
-    } else {
-        GeneratedType::Virtual
-    };
-    Some((expression, gen_type))
-}
-
 /// Parse generated columns from a CREATE TABLE SQL statement.
 ///
 /// Returns a map keyed by `"table:column"` matching the key format used by `process_columns`.
-///
-/// This is intentionally a small, tolerant parser (not a full SQL parser). It handles common
-/// `SQLite` syntax for generated columns:
-/// - `col TYPE GENERATED ALWAYS AS (expr) STORED`
-/// - `col TYPE GENERATED ALWAYS AS (expr) VIRTUAL`
+/// Handles `col TYPE [GENERATED ALWAYS] AS (expr) [STORED|VIRTUAL]`, with
+/// quoted names, comments and nested parentheses.
 #[must_use]
 pub fn parse_generated_columns_from_table_sql(
     table: &str,
     sql: &str,
 ) -> HashMap<String, ParsedGenerated> {
-    let mut out: HashMap<String, ParsedGenerated> = HashMap::new();
-
-    let Some(body) = extract_table_body(sql) else {
-        return out;
-    };
-
-    for item in split_top_level_commas(body) {
-        if item.is_empty() {
-            continue;
-        }
-        let upper = item.to_uppercase();
-        if !upper.contains("GENERATED") || is_table_level_constraint(&upper) {
-            continue;
-        }
-
-        let Some((col_name, rest)) = take_column_name(item) else {
-            continue;
-        };
-        let Some((expression, gen_type)) = parse_generated_tail(rest) else {
-            continue;
-        };
-
-        out.insert(
-            format!("{table}:{col_name}"),
-            ParsedGenerated {
-                expression,
-                gen_type,
-            },
-        );
-    }
-
-    out
+    super::table_sql::parse_table_sql(sql)
+        .map(|parsed| generated_from_parsed(table, &parsed).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

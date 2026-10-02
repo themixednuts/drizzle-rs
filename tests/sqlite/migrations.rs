@@ -828,6 +828,63 @@ fn rusqlite_push_is_idempotent() {
 }
 
 #[cfg(feature = "rusqlite")]
+#[SQLiteTable(NAME = "push_parents")]
+struct PushParent {
+    #[column(PRIMARY)]
+    id: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[SQLiteTable(
+    NAME = "push_children",
+    UNIQUE(a, b),
+    UNIQUE(b, c, name = "push_children_named_uq"),
+    CHECK(expr = "a < b")
+)]
+struct PushChild {
+    #[column(PRIMARY)]
+    id: i64,
+    a: i64,
+    b: i64,
+    c: i64,
+    #[column(check = "age >= 0")]
+    age: i64,
+    #[column(collate = "NOCASE")]
+    name: String,
+    #[column(generated(stored, "a * 2"))]
+    doubled: i64,
+    #[column(references = PushParent::id, on_delete = cascade)]
+    parent: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[derive(SQLiteSchema)]
+struct PushConstraintSchema {
+    parent: PushParent,
+    child: PushChild,
+}
+
+/// Introspection reads back CHECK constraints, collations, generated
+/// columns and constraint names, so a second push has nothing to do.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_push_converges_on_constraints_collations_and_generated_columns() {
+    use drizzle_migrations::Schema as _;
+
+    let (db, schema) =
+        crate::common::helpers::rusqlite_setup::setup_empty_db(PushConstraintSchema::default());
+    db.push(&schema).expect("first push");
+
+    let live = db.introspect().expect("introspect");
+    let plan = drizzle_migrations::diff(&live, &schema.to_snapshot()).expect("diff");
+    assert!(
+        plan.statements.is_empty(),
+        "second push should be a no-op: {:#?}",
+        plan.statements
+    );
+}
+
+#[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_push_table_is_usable() {
     let (db, schema) =

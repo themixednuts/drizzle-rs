@@ -12,6 +12,7 @@ pub mod rebuild_data;
 pub mod serializer;
 pub mod snapshot;
 pub mod statements;
+mod table_sql;
 
 pub use codegen::*;
 pub use collection::*;
