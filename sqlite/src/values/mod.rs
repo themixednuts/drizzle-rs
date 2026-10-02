@@ -4,6 +4,8 @@
 
 mod conversions;
 mod drivers;
+#[cfg(any(feature = "chrono", feature = "time"))]
+pub(crate) mod duration;
 mod insert;
 #[cfg(feature = "serde")]
 mod json;
