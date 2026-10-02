@@ -42,21 +42,25 @@
 //! The crate has no default dialect: enable `sqlite`, `postgres`, and/or
 //! `mysql`.
 //!
-//! # Examples
+//! # With the schema macros
 //!
-//! With drizzle schema macros (`drizzle` with the `rusqlite` feature; not
-//! compiled here because `drizzle` is not a dependency of this crate):
+//! This is the main path: pass the `#[derive(...Schema)]` struct. The
+//! macros already record column types, keys, `UNIQUE`, defaults and enum
+//! variants, and every table or column passed to the config is checked at
+//! compile time. (Uses `drizzle` with the `rusqlite` feature; not compiled
+//! here because `drizzle` is not a dependency of this crate.)
 //!
 //! ```text
 //! use drizzle::sqlite::prelude::*;
-//! use drizzle_seed::{GeneratorKind, SeedConfig};
+//! use drizzle_seed::{SeedConfig, generators::{self, GeneratorExt}};
 //!
 //! #[SQLiteTable]
 //! struct Users {
 //!     #[column(primary)]
 //!     id: i32,
-//!     email: String,
-//!     nickname: String,
+//!     #[column(unique)]
+//!     email: String,    // inferred from the name: distinct emails
+//!     age: i32,
 //! }
 //!
 //! #[SQLiteTable]
@@ -64,8 +68,8 @@
 //!     #[column(primary)]
 //!     id: i32,
 //!     #[column(references = Users::id)]
-//!     user_id: i32,
-//!     title: String,
+//!     user_id: i32,     // points at seeded users
+//!     title: String,    // inferred from the name: a short title
 //! }
 //!
 //! #[derive(SQLiteSchema)]
@@ -79,45 +83,61 @@
 //!     .seed(42)
 //!     .count(&schema.users, 5)                     // 5 users
 //!     .relation(&schema.users, &schema.posts, 3)   // 3 posts per user: 15 posts
-//!     .kind(&schema.users.nickname, GeneratorKind::FirstName)
+//!     .generator(&schema.users.age, generators::int(18..=90).nullable(0.1))
 //!     .generate();
 //!
-//! for statement in &statements {
-//!     println!("{}", statement.sql()); // INSERT INTO ... VALUES (...), (...), ...
+//! for statement in statements {
+//!     db.execute(statement)?; // parents first
 //! }
 //! ```
 //!
-//! A schema value only needs [`drizzle_core::SQLSchemaImpl`], so this
-//! compiles without the macros:
+//! # Without the schema macros
+//!
+//! Describe the existing tables with [`schema::Schema`], then use the
+//! `*_by_name` settings. Names are checked when the seed is generated, and
+//! [`try_generate_rows`](SeedConfig::try_generate_rows) gives plain rows
+//! for any driver:
 //!
 //! ```rust
-//! # #[cfg(feature = "sqlite")]
+//! # #[cfg(feature = "postgres")]
 //! # {
-//! use drizzle_core::{SQLSchemaImpl, TableRef};
-//! use drizzle_seed::SeedConfig;
+//! use drizzle_seed::schema::{Column, Schema, Table};
+//! use drizzle_seed::{SeedConfig, SeedError};
 //!
-//! struct AppSchema;
-//! impl SQLSchemaImpl for AppSchema {
-//!     fn table_refs(&self) -> &'static [&'static TableRef] {
-//!         &[]
-//!     }
-//!     fn create_statements(&self) -> drizzle_core::error::Result<impl Iterator<Item = String>> {
-//!         Ok(std::iter::empty())
-//!     }
+//! let schema = Schema::postgres()
+//!     .table(
+//!         Table::new("users")
+//!             .column(Column::new("id", "BIGSERIAL").primary_key())
+//!             .column(Column::new("email", "TEXT").not_null().unique()),
+//!     )
+//!     .table(
+//!         Table::new("posts")
+//!             .column(Column::new("id", "BIGSERIAL").primary_key())
+//!             .column(Column::new("user_id", "BIGINT").not_null().references("users", "id"))
+//!             .column(Column::new("title", "TEXT").not_null()),
+//!     );
+//!
+//! let config = SeedConfig::postgres(&schema)
+//!     .count_by_name("users", 5)
+//!     .relation_by_name("users", "posts", 3);
+//! for table in config.try_generate_rows()? {
+//!     // INSERT INTO {table.table} ({table.columns}) VALUES ... for each row
+//!     assert_eq!(table.rows.len(), if table.table == "users" { 5 } else { 15 });
 //! }
 //!
-//! let schema = AppSchema;
-//! let stmts = SeedConfig::sqlite(&schema)
-//!     .seed(42)
-//!     .generate();
-//! assert!(stmts.is_empty());
+//! // Execute the reset plan, children first, to empty the tables again.
+//! let reset = config.reset_plan()?;
+//! assert_eq!(reset.len(), 2);
 //!
-//! // Cleanup uses the same typed config for every dialect. Execute the
-//! // returned statements in order before generating the replacement data.
-//! let reset = SeedConfig::sqlite(&schema).reset_plan().expect("valid reset plan");
-//! assert!(reset.is_empty());
+//! // A typo is an error, which lists the names that do exist.
+//! let error = SeedConfig::postgres(&schema).count_by_name("user", 5).try_generate();
+//! assert!(matches!(error, Err(SeedError::UnknownTable { .. })));
 //! # }
+//! # Ok::<(), drizzle_seed::SeedError>(())
 //! ```
+//!
+//! Any other type that implements [`drizzle_core::SQLSchemaImpl`] works as
+//! a schema too.
 
 // The crate intentionally has no default dialect. Its planner is dormant in
 // that feature-isolation build and becomes reachable once any dialect is on.
@@ -139,6 +159,8 @@ pub(crate) mod rng;
 pub(crate) mod topology;
 
 pub mod generators;
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+pub mod schema;
 
 pub use config::SeedConfig;
 pub use error::SeedError;
@@ -432,6 +454,7 @@ where
         &self,
         dialect_max_params: usize,
     ) -> Result<Vec<GeneratedChunk<'a>>, SeedError> {
+        self.config.check_names()?;
         let active_tables = self.config.active_tables();
         let order = topology::seeding_order(&active_tables).map_err(|error| {
             SeedError::CyclicForeignKeys {
@@ -608,6 +631,7 @@ where
     }
 
     fn reset_tables(&self) -> Result<Vec<&'static TableRef>, SeedError> {
+        self.config.check_names()?;
         let all_tables = self.config.schema.table_refs();
         let active_tables = self.config.active_tables();
         let active_ids: HashSet<_> = active_tables

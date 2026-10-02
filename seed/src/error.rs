@@ -31,6 +31,38 @@ pub enum SeedError {
         /// The configured limit.
         limit: usize,
     },
+    /// A `*_by_name` setting names a table the schema does not have.
+    UnknownTable {
+        /// The name as given.
+        table: String,
+        /// The schema's tables.
+        known: Vec<String>,
+    },
+    /// A `*_by_name` setting names a table that exists in several
+    /// namespaces; qualify it as `schema.table`.
+    AmbiguousTable {
+        /// The name as given.
+        table: String,
+        /// The matching tables.
+        candidates: Vec<String>,
+    },
+    /// A `*_by_name` setting names a column the table does not have.
+    UnknownColumn {
+        /// The table.
+        table: String,
+        /// The column name as given.
+        column: String,
+        /// The table's columns.
+        known: Vec<String>,
+    },
+    /// `relation_by_name` was given a `child` with no foreign key to
+    /// `parent`.
+    NotRelated {
+        /// The parent table.
+        parent: String,
+        /// The child table.
+        child: String,
+    },
     /// A generated value cannot be stored in the column's SQL type.
     InvalidValue {
         /// The table being seeded.
@@ -68,6 +100,29 @@ impl fmt::Display for SeedError {
             } => write!(
                 formatter,
                 "cannot seed {table}: one row needs {required} bind parameters, above limit {limit}"
+            ),
+            Self::UnknownTable { table, known } => write!(
+                formatter,
+                "no table `{table}` in the schema (tables: {})",
+                known.join(", ")
+            ),
+            Self::AmbiguousTable { table, candidates } => write!(
+                formatter,
+                "table name `{table}` matches {}; qualify it as `schema.table`",
+                candidates.join(", ")
+            ),
+            Self::UnknownColumn {
+                table,
+                column,
+                known,
+            } => write!(
+                formatter,
+                "table {table} has no column `{column}` (columns: {})",
+                known.join(", ")
+            ),
+            Self::NotRelated { parent, child } => write!(
+                formatter,
+                "cannot set a relation count from {parent} to {child}: {child} has no foreign key to {parent}"
             ),
             Self::InvalidValue {
                 table,
