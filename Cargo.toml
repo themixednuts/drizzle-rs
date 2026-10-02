@@ -105,7 +105,7 @@ tokio = { version = ">=1.48, <2" }
 # when turso_sdk_kit 0.8.0-pre.12 shipped). The downstream-crate CI job
 # resolves fresh and catches that. Crates that ask for `turso = "0.7"`
 # themselves still unify on 0.7.x.
-turso = { version = ">=0.7, <=0.8.0-pre.12", default-features = false, features = ["pure-rust-crypto"] }
+turso = { version = ">=0.7, <0.9", default-features = false, features = ["pure-rust-crypto"] }
 worker = { version = ">=0.8, <0.9", default-features = false }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }

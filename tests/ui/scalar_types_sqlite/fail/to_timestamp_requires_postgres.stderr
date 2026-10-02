@@ -1,20 +1,23 @@
-error[E0277]: this date/time function is not available for this dialect
+error[E0277]: `PostgresDateTime` is not available for `SQLiteDialect`
  --> tests/ui/scalar_types_sqlite/fail/to_timestamp_requires_postgres.rs:5:13
   |
 5 |     let _ = to_timestamp(raw_non_null::<SQLiteValue, drizzle::sqlite::types::Integer>("1700000000"));
-  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use a dialect-specific alternative
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this function is not supported by this dialect
   |
-  = help: the trait `PostgresDateTimeSupport` is not implemented for `SQLiteDialect`
-help: the trait `PostgresDateTimeSupport` is implemented for `PostgresDialect`
- --> core/src/expr/datetime.rs
-  |
-  | impl PostgresDateTimeSupport for PostgresDialect {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: the trait `DialectSupports<PostgresDateTime>` is not implemented for `SQLiteDialect`
+  = note: use a dialect-specific alternative
+  = help: `SQLiteDialect` implements trait `DialectSupports<Feature>`:
+            DialectSupports<AggregateFilter>
+            DialectSupports<GroupConcat>
+            DialectSupports<SQLiteAggregate>
+            DialectSupports<SQLiteDateTime>
+            DialectSupports<Typeof>
+            DialectSupports<drizzle::core::dialect::feature::Excluded>
 note: required by a bound in `to_timestamp`
  --> core/src/expr/datetime.rs
   |
-  | pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate>
+  | pub fn to_timestamp<'a, V, E>(
   |        ------------ required by a bound in this function
 ...
-  |     V::DialectMarker: PostgresDateTimeSupport,
-  |                       ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `to_timestamp`
+  |     V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `to_timestamp`

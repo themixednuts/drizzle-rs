@@ -1,27 +1,12 @@
 use proc_macro2::{Ident, TokenStream};
 use quote::{ToTokens, quote};
 
+/// Records the column's table as its expression source.
 pub fn generate_column_scope_impl(column: &impl ToTokens, table: &Ident) -> TokenStream {
     quote! {
-        impl<Scope, Witness>
-            drizzle::core::ProjectionInScope<
-                Scope,
-                drizzle::core::ColumnScope<#table, Witness>,
-            >
-            for #column
-        where
-            Scope: drizzle::core::ScopeContains<#table, Witness>,
-        {}
-
-        impl<'a, Scope, Witness>
-            drizzle::core::ProjectionInScope<
-                Scope,
-                drizzle::core::ColumnScope<&'a #table, Witness>,
-            >
-            for #column
-        where
-            Scope: drizzle::core::ScopeContains<&'a #table, Witness>,
-        {}
+        impl drizzle::core::expr::ExprSources for #column {
+            type Sources = drizzle::core::Src<#table>;
+        }
     }
 }
 

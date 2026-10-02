@@ -12,15 +12,15 @@ fn main() {
     let item = Item::default();
 
     // abs(sum(price)) preserves Agg — verify via .over() and type annotation
-    let windowed: SQLExpr<'_, SQLiteValue, _, _, Scalar> =
+    let windowed: SQLExpr<'_, SQLiteValue, _, _, Scalar, _> =
         abs(sum(item.price)).over(window());
     let _ = windowed;
 
     // round(count(())) preserves Agg
-    let _: SQLExpr<'_, SQLiteValue, _, NonNull, Scalar> =
+    let _: SQLExpr<'_, SQLiteValue, _, NonNull, Scalar, _> =
         round(count(())).over(window());
 
     // Negation preserves Agg: -sum(price) is still Agg
-    let _: SQLExpr<'_, SQLiteValue, _, Null, Scalar> =
+    let _: SQLExpr<'_, SQLiteValue, _, Null, Scalar, _> =
         (-sum(item.price)).over(window());
 }

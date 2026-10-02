@@ -4,8 +4,8 @@ use drizzle_core::{SQL, SQLTable, ToSQL, Token};
 use super::ExecutableState;
 
 pub use drizzle_core::builder::{
-    AsCteState, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
-    SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+    SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
+    SelectOrderSet, SelectSetOpSet, SelectWhereSet,
 };
 
 /// Marker for a SELECT after its single HAVING clause.
@@ -13,8 +13,6 @@ pub use drizzle_core::builder::{
 pub struct SelectHavingSet;
 
 impl ExecutableState for SelectHavingSet {}
-impl drizzle_core::GroupByApplied for SelectHavingSet {}
-impl AsCteState for SelectHavingSet {}
 
 /// Marker for a base table that already carries one MySQL index hint.
 ///
@@ -25,9 +23,6 @@ impl AsCteState for SelectHavingSet {}
 pub struct SelectIndexHintSet<Kind>(core::marker::PhantomData<Kind>);
 
 impl<Kind> ExecutableState for SelectIndexHintSet<Kind> {}
-impl<Kind> AsCteState for SelectIndexHintSet<Kind> {}
-impl<Kind> drizzle_core::JoinAllowed for SelectIndexHintSet<Kind> {}
-impl<Kind> drizzle_core::GroupByAllowed for SelectIndexHintSet<Kind> {}
 
 /// Marker for the MySQL `FOR UPDATE` lock strength.
 #[doc(hidden)]
@@ -60,55 +55,77 @@ pub struct SelectForSet<Strength, Modifier = Wait>(core::marker::PhantomData<(St
 
 impl<Strength, Modifier> ExecutableState for SelectForSet<Strength, Modifier> {}
 
+/// Clause gate for SELECT methods whose names collide with INSERT/UPDATE/DELETE
+/// builder methods on the shared `QueryBuilder` type.
+///
+/// Coherence can only rule out overlapping inherent impls through a trait
+/// local to this crate, so these clauses use this trait instead of
+/// [`drizzle_core::ClauseAllowed`].
 #[doc(hidden)]
-pub trait SelectWhereAllowed {}
-impl SelectWhereAllowed for SelectFromSet {}
-impl<Kind> SelectWhereAllowed for SelectIndexHintSet<Kind> {}
-impl SelectWhereAllowed for SelectJoinSet {}
+#[diagnostic::on_unimplemented(
+    message = "builder state `{Self}` does not allow `{C}`",
+    label = "not available at this point of the query",
+    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET",
+    note = "only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source"
+)]
+pub trait SelectClause<C> {}
 
+/// MySQL clause marker: `OFFSET` (rendered with `LIMIT` when needed).
 #[doc(hidden)]
-pub trait SelectLimitAllowed {}
-impl SelectLimitAllowed for SelectFromSet {}
-impl<Kind> SelectLimitAllowed for SelectIndexHintSet<Kind> {}
-impl SelectLimitAllowed for SelectJoinSet {}
-impl SelectLimitAllowed for SelectWhereSet {}
-impl SelectLimitAllowed for SelectGroupSet {}
-impl SelectLimitAllowed for SelectHavingSet {}
-impl SelectLimitAllowed for SelectOrderSet {}
-impl SelectLimitAllowed for SelectSetOpSet {}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MySqlOffset;
 
-#[doc(hidden)]
-pub trait SelectOrderAllowed {}
-impl SelectOrderAllowed for SelectFromSet {}
-impl<Kind> SelectOrderAllowed for SelectIndexHintSet<Kind> {}
-impl SelectOrderAllowed for SelectJoinSet {}
-impl SelectOrderAllowed for SelectWhereSet {}
-impl SelectOrderAllowed for SelectGroupSet {}
-impl SelectOrderAllowed for SelectHavingSet {}
+// The shared SELECT states cover JOIN, GROUP BY, HAVING and the
+// CTE/locking-read gate; MySQL adds its own states to those and keeps
+// its own lists for clauses whose order rules differ.
+impl SelectClause<drizzle_core::clause::Where> for SelectFromSet {}
+impl<Kind> SelectClause<drizzle_core::clause::Where> for SelectIndexHintSet<Kind> {}
+impl SelectClause<drizzle_core::clause::Where> for SelectJoinSet {}
 
-#[doc(hidden)]
-pub trait SelectOffsetAllowed {}
-impl SelectOffsetAllowed for SelectFromSet {}
-impl<Kind> SelectOffsetAllowed for SelectIndexHintSet<Kind> {}
-impl SelectOffsetAllowed for SelectJoinSet {}
-impl SelectOffsetAllowed for SelectWhereSet {}
-impl SelectOffsetAllowed for SelectGroupSet {}
-impl SelectOffsetAllowed for SelectHavingSet {}
-impl SelectOffsetAllowed for SelectOrderSet {}
-impl SelectOffsetAllowed for SelectSetOpSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectFromSet {}
+impl<Kind> SelectClause<drizzle_core::clause::OrderBy> for SelectIndexHintSet<Kind> {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectWhereSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectGroupSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectHavingSet {}
 
-#[doc(hidden)]
-pub trait SetOperationAllowed {}
-impl SetOperationAllowed for SelectFromSet {}
-impl<Kind> SetOperationAllowed for SelectIndexHintSet<Kind> {}
-impl SetOperationAllowed for SelectJoinSet {}
-impl SetOperationAllowed for SelectWhereSet {}
-impl SetOperationAllowed for SelectGroupSet {}
-impl SetOperationAllowed for SelectHavingSet {}
-impl SetOperationAllowed for SelectOrderSet {}
-impl SetOperationAllowed for SelectLimitSet {}
-impl SetOperationAllowed for SelectOffsetSet {}
-impl SetOperationAllowed for SelectSetOpSet {}
+impl SelectClause<drizzle_core::clause::Limit> for SelectFromSet {}
+impl<Kind> SelectClause<drizzle_core::clause::Limit> for SelectIndexHintSet<Kind> {}
+impl SelectClause<drizzle_core::clause::Limit> for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::Limit> for SelectWhereSet {}
+impl SelectClause<drizzle_core::clause::Limit> for SelectGroupSet {}
+impl SelectClause<drizzle_core::clause::Limit> for SelectHavingSet {}
+impl SelectClause<drizzle_core::clause::Limit> for SelectOrderSet {}
+impl SelectClause<drizzle_core::clause::Limit> for SelectSetOpSet {}
+
+impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectFromSet {}
+impl<Kind> drizzle_core::ClauseAllowed<MySqlOffset> for SelectIndexHintSet<Kind> {}
+impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectJoinSet {}
+impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectWhereSet {}
+impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectGroupSet {}
+impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectHavingSet {}
+impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectOrderSet {}
+impl drizzle_core::ClauseAllowed<MySqlOffset> for SelectSetOpSet {}
+
+impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>
+    for SelectIndexHintSet<Kind>
+{
+}
+impl drizzle_core::ClauseAllowed<drizzle_core::clause::Compound> for SelectHavingSet {}
+
+impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Source> for SelectIndexHintSet<Kind> {}
+impl drizzle_core::ClauseAllowed<drizzle_core::clause::Source> for SelectHavingSet {}
+impl<Strength, Modifier> drizzle_core::ClauseAllowed<drizzle_core::clause::Source>
+    for SelectForSet<Strength, Modifier>
+{
+}
+
+impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Join> for SelectIndexHintSet<Kind> {}
+
+impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy> for SelectIndexHintSet<Kind> {}
+
+impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> for SelectIndexHintSet<Kind> {}
+impl drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> for SelectHavingSet {}
 
 /// Typed MySQL `SELECT` builder.
 pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Grouped = ()> =
@@ -124,7 +141,6 @@ mod private {
     pub trait SealedSelect {}
 
     pub trait Prepare {}
-    pub trait Completed: super::ExecutableState {}
 
     impl Prepare for SelectFromSet {}
     impl<Kind> Prepare for SelectIndexHintSet<Kind> {}
@@ -137,17 +153,6 @@ mod private {
     impl Prepare for SelectOffsetSet {}
     impl Prepare for SelectSetOpSet {}
     impl<Strength, Modifier> Prepare for SelectForSet<Strength, Modifier> {}
-
-    impl Completed for SelectFromSet {}
-    impl<Kind> Completed for SelectIndexHintSet<Kind> {}
-    impl Completed for SelectJoinSet {}
-    impl Completed for SelectWhereSet {}
-    impl Completed for SelectGroupSet {}
-    impl Completed for SelectHavingSet {}
-    impl Completed for SelectOrderSet {}
-    impl Completed for SelectLimitSet {}
-    impl Completed for SelectOffsetSet {}
-    impl Completed for SelectSetOpSet {}
 }
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
@@ -179,11 +184,11 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
         S,
         SelectFromSet,
         T,
-        drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+        drizzle_core::FromMarker<M, T>,
         <M as drizzle_core::ResolveRow<T>>::Row,
     >
     where
-        T: ToSQL<'a, MySQLValue<'a>>,
+        T: ToSQL<'a, MySQLValue<'a>> + drizzle_core::ScopeEntry,
         M: drizzle_core::ResolveRow<T>,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::from(table)))
@@ -242,7 +247,7 @@ where
 }
 
 macro_rules! join_on_method {
-    ($name:ident, $join:expr, $row_trait:ident) => {
+    ($name:ident, $join:expr, $kind:ident) => {
         #[doc = concat!("Adds a typed `", stringify!($name), "` join.")]
         #[allow(clippy::type_complexity)]
         pub fn $name<J: helpers::JoinArg<'a, T>>(
@@ -253,13 +258,12 @@ macro_rules! join_on_method {
             S,
             SelectJoinSet,
             J::JoinedTable,
-            <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-            <M as drizzle_core::$row_trait<R, J::JoinedTable>>::NewRow,
+            <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::$kind, J::OnSources>>::Marker,
+            <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::$kind, J::OnSources>>::Row,
             G,
         >
         where
-            M: drizzle_core::$row_trait<R, J::JoinedTable>
-                + drizzle_core::ScopePush<J::JoinedTable>,
+            M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::$kind, J::OnSources>,
         {
             SelectBuilder::from_sql(self.sql.append(arg.into_join_sql($join)))
         }
@@ -268,25 +272,21 @@ macro_rules! join_on_method {
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::JoinAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Join>,
 {
-    join_on_method!(join, drizzle_core::Join::new(), AfterJoin);
-    join_on_method!(inner_join, drizzle_core::Join::new().inner(), AfterJoin);
-    join_on_method!(left_join, drizzle_core::Join::new().left(), AfterLeftJoin);
+    join_on_method!(join, drizzle_core::Join::new(), InnerJoin);
+    join_on_method!(inner_join, drizzle_core::Join::new().inner(), InnerJoin);
+    join_on_method!(left_join, drizzle_core::Join::new().left(), LeftJoin);
     join_on_method!(
         left_outer_join,
         drizzle_core::Join::new().left().outer(),
-        AfterLeftJoin
+        LeftJoin
     );
-    join_on_method!(
-        right_join,
-        drizzle_core::Join::new().right(),
-        AfterRightJoin
-    );
+    join_on_method!(right_join, drizzle_core::Join::new().right(), RightJoin);
     join_on_method!(
         right_outer_join,
         drizzle_core::Join::new().right().outer(),
-        AfterRightJoin
+        RightJoin
     );
 
     /// Adds a cross join.
@@ -302,12 +302,22 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::InnerJoin,
+            Arg::OnSources,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::InnerJoin,
+            Arg::OnSources,
+        >>::Row,
         G,
     >
     where
-        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+        M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>,
     {
         SelectBuilder::from_sql(self.sql.append(arg.into_cross_join_sql()))
     }
@@ -322,13 +332,28 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+            Arg::OnSources,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+            Arg::OnSources,
+        >>::Row,
         G,
     >
     where
         Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
-        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+        M: drizzle_core::JoinStep<
+                R,
+                Arg::JoinedTable,
+                drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                Arg::OnSources,
+            >,
     {
         SelectBuilder::from_sql(
             self.sql
@@ -346,15 +371,28 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-        <M as drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::LeftJoin>,
+            Arg::OnSources,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::LeftJoin>,
+            Arg::OnSources,
+        >>::Row,
         G,
     >
     where
         Arg: drizzle_core::LateralArg<'a, MySQLValue<'a>>,
-        M: drizzle_core::AfterLeftJoin<R, Arg::JoinedTable>
-            + drizzle_core::ScopePush<Arg::JoinedTable>
-            + drizzle_core::LeftLateralSelection<SelectionProof>,
+        M: drizzle_core::JoinStep<
+                R,
+                Arg::JoinedTable,
+                drizzle_core::Lateral<drizzle_core::LeftJoin>,
+                Arg::OnSources,
+            > + drizzle_core::LeftLateralSelection<SelectionProof>,
     {
         SelectBuilder::from_sql(
             self.sql
@@ -372,14 +410,25 @@ where
         S,
         SelectJoinSet,
         Source::JoinedTable,
-        <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            Source::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            Source::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+        >>::Row,
         G,
     >
     where
         Source: drizzle_core::LateralSource<'a, MySQLValue<'a>>,
-        M: drizzle_core::AfterJoin<R, Source::JoinedTable>
-            + drizzle_core::ScopePush<Source::JoinedTable>,
+        M: drizzle_core::JoinStep<
+                R,
+                Source::JoinedTable,
+                drizzle_core::Lateral<drizzle_core::InnerJoin>,
+            >,
     {
         SelectBuilder::from_sql(self.sql.append(source.into_cross_lateral_sql()))
     }
@@ -387,11 +436,24 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectWhereAllowed,
+    State: SelectClause<drizzle_core::clause::Where>,
 {
     /// Filters rows before grouping and projection.
-    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn r#where<E>(
+        self,
+        condition: E,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectWhereSet,
+        T,
+        <M as drizzle_core::HasScope>::With<E::Sources>,
+        R,
+        G,
+    >
     where
+        M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -401,14 +463,24 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::GroupByAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy>,
 {
     /// Groups rows by the supplied expressions.
+    #[allow(clippy::type_complexity)]
     pub fn group_by<Gr>(
         self,
         columns: Gr,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R, Gr::Columns>
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectGroupSet,
+        T,
+        <M as drizzle_core::HasScope>::With<Gr::Sources>,
+        R,
+        Gr::Columns,
+    >
     where
+        M: drizzle_core::HasScope,
         Gr: drizzle_core::IntoGroupBy<'a, MySQLValue<'a>>,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::group_by_expr(columns)))
@@ -417,11 +489,24 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::HavingAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Having>,
 {
     /// Filters grouped rows.
-    pub fn having<E>(self, condition: E) -> SelectBuilder<'a, S, SelectHavingSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn having<E>(
+        self,
+        condition: E,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectHavingSet,
+        T,
+        <M as drizzle_core::HasScope>::With<E::Sources>,
+        R,
+        G,
+    >
     where
+        M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -431,12 +516,25 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectOrderAllowed,
+    State: SelectClause<drizzle_core::clause::OrderBy>,
 {
     /// Orders the selected rows.
-    pub fn order_by<O>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn order_by<O>(
+        self,
+        order: O,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectOrderSet,
+        T,
+        <M as drizzle_core::HasScope>::With<O::Sources>,
+        R,
+        G,
+    >
     where
-        O: ToSQL<'a, MySQLValue<'a>>,
+        M: drizzle_core::HasScope,
+        O: ToSQL<'a, MySQLValue<'a>> + drizzle_core::expr::ExprSources,
     {
         SelectBuilder::from_sql(self.sql.append(helpers::order_by(order)))
     }
@@ -458,7 +556,7 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectLimitAllowed,
+    State: SelectClause<drizzle_core::clause::Limit>,
 {
     /// Limits the number of returned rows.
     #[track_caller]
@@ -472,7 +570,7 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectOffsetAllowed,
+    State: drizzle_core::ClauseAllowed<MySqlOffset>,
 {
     /// Skips rows without an explicit limit.
     ///
@@ -498,23 +596,9 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
     }
 }
 
-/// Select states on which MySQL permits a terminal locking clause.
-#[doc(hidden)]
-pub trait LockingReadAllowed {}
-
-impl LockingReadAllowed for SelectFromSet {}
-impl<Kind> LockingReadAllowed for SelectIndexHintSet<Kind> {}
-impl LockingReadAllowed for SelectJoinSet {}
-impl LockingReadAllowed for SelectWhereSet {}
-impl LockingReadAllowed for SelectGroupSet {}
-impl LockingReadAllowed for SelectHavingSet {}
-impl LockingReadAllowed for SelectOrderSet {}
-impl LockingReadAllowed for SelectLimitSet {}
-impl LockingReadAllowed for SelectOffsetSet {}
-
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: LockingReadAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
 {
     /// Locks matching rows for update.
     #[must_use]
@@ -559,7 +643,7 @@ impl<'a, S, Strength, T, M, R, G> SelectBuilder<'a, S, SelectForSet<Strength, Wa
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: AsCteState + ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> + ExecutableState,
     T: SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>,
 {
     /// Converts this query into a named common table expression.
@@ -578,17 +662,17 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     /// Names this completed projection for use as a derived table.
     ///
     /// # Panics
     ///
     /// Panics when the projection contains duplicate output names. Name a
-    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to
     /// make each output unique.
     #[must_use]
-    pub fn alias<Tag, ScopeProof, AggProof>(
+    pub fn alias<Tag, AggProof>(
         self,
         _tag: Tag,
     ) -> drizzle_core::Derived<
@@ -601,13 +685,13 @@ where
     where
         Tag: drizzle_core::Tag,
         M: drizzle_core::DerivedSelection<'a, MySQLValue<'a>, MySQLSchemaType, T>
-            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
         <M as drizzle_core::DerivedSelection<'a, MySQLValue<'a>, MySQLSchemaType, T>>::Projection:
             drizzle_core::DerivedProjection<Tag>,
     {
-        // SAFETY: The executable-state, scope, aggregate, and projection
-        // bounds above prove that this query matches the derived projection.
+        // SAFETY: The executable-state, aggregate, and projection bounds
+        // above prove that this query matches the derived projection; its
+        // scope travels in `Self`'s sources and is checked where it is used.
         unsafe { drizzle_core::Derived::new_unchecked(self) }
     }
 }
@@ -615,10 +699,23 @@ where
 macro_rules! set_operation {
     ($name:ident, $token:expr, $all:expr) => {
         #[doc = concat!("Combines this query with another using `", stringify!($name), "`.")]
-        pub fn $name(
+        #[allow(clippy::type_complexity)]
+        pub fn $name<O>(
             self,
-            other: impl IntoSelectQuery<'a, S, R>,
-        ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+            other: O,
+        ) -> SelectBuilder<
+            'a,
+            S,
+            SelectSetOpSet,
+            T,
+            <M as drizzle_core::SetOperand<O::Marker>>::Combined,
+            R,
+            G,
+        >
+        where
+            O: IntoSelectQuery<'a, S, R>,
+            M: drizzle_core::SetOperand<O::Marker>,
+        {
             SelectBuilder::from_sql(helpers::set_op(
                 self.sql,
                 $token,
@@ -631,7 +728,7 @@ macro_rules! set_operation {
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SetOperationAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     set_operation!(union, drizzle_core::Token::UNION, false);
     set_operation!(union_all, drizzle_core::Token::UNION, true);
@@ -667,13 +764,13 @@ pub trait IntoSelectQuery<'a, S, R> {
 }
 
 impl<'a, S, State, T, M, R, G> private::SealedSelect for SelectBuilder<'a, S, State, T, M, R, G> where
-    State: private::Completed
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>
 {
 }
 
 impl<'a, S, State, T, M, R, G> CompletedSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     type Marker = M;
     type Grouped = G;
@@ -685,7 +782,7 @@ where
 
 impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     type Marker = M;
     type Grouped = G;
@@ -699,10 +796,23 @@ where
 impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, MySQLValue<'a>>
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: private::Completed,
-    M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound> + ExecutableState,
+    M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>> + drizzle_core::SelectSources,
 {
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType;
     type Nullable = drizzle_core::expr::Null;
     type Aggregate = drizzle_core::expr::Scalar;
+}
+
+impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>
+    drizzle_core::expr::SelectQuery for SelectBuilder<'_, S, State, T, M, R, G>
+{
+}
+
+impl<S, State, T, M, R, G> drizzle_core::expr::ExprSources
+    for SelectBuilder<'_, S, State, T, M, R, G>
+where
+    M: drizzle_core::SelectSources,
+{
+    type Sources = M::Sources;
 }

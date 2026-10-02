@@ -5,7 +5,20 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{Compatible, DataType};
 
-use super::{AggregateKind, ComparisonOperand, Expr, NonNull, SQLExpr, Scalar};
+use super::{AggregateKind, ComparisonOperand, Expr, ExprSources, NonNull, SQLExpr, Scalar};
+use crate::scope::{Arg, ScopeOnly};
+
+/// Sources of `expr IN (values)`: NULL when the operand or a value is.
+type InArraySources<'a, V, E, R> = (
+    Arg<<E as Expr<'a, V>>::Nullable, <E as ExprSources>::Sources>,
+    Arg<<R as ComparisonOperand<'a, V, E>>::Nullable, <R as ComparisonOperand<'a, V, E>>::Sources>,
+);
+
+/// Sources of `lhs IN (subquery)`: NULL when the operand or a subquery value is.
+type InSubquerySources<'a, V, L, S, M> = (
+    <L as InSubqueryLhs<'a, V, M>>::Sources,
+    Arg<<S as Expr<'a, V>>::Nullable, <S as ExprSources>::Sources>,
+);
 
 #[inline]
 fn operand_sql<'a, V, T>(value: T) -> SQL<'a, V>
@@ -35,6 +48,8 @@ pub enum Multi {}
 pub trait InSubqueryLhs<'a, V: SQLParam, M>: Sized {
     type SQLType: DataType;
     type Aggregate: AggregateKind;
+    /// Operand sources, with each element's declared nullability.
+    type Sources;
     fn into_lhs_sql(self) -> SQL<'a, V>;
 }
 
@@ -54,6 +69,7 @@ where
 {
     type SQLType = E::SQLType;
     type Aggregate = E::Aggregate;
+    type Sources = Arg<E::Nullable, E::Sources>;
     fn into_lhs_sql(self) -> SQL<'a, V> {
         self.into_expr_sql()
     }
@@ -69,10 +85,20 @@ macro_rules! impl_in_subquery_lhs_tuple {
         {
             type SQLType = ($($E::SQLType,)+);
             type Aggregate = Scalar;
+            type Sources = impl_in_subquery_lhs_tuple!(@sources $($E),+);
             fn into_lhs_sql(self) -> SQL<'a, V> {
                 ToSQL::into_sql(self).parens()
             }
         }
+    };
+    (@sources $E:ident) => {
+        Arg<<$E as Expr<'a, V>>::Nullable, <$E as ExprSources>::Sources>
+    };
+    (@sources $E:ident, $($rest:ident),+) => {
+        (
+            Arg<<$E as Expr<'a, V>>::Nullable, <$E as ExprSources>::Sources>,
+            impl_in_subquery_lhs_tuple!(@sources $($rest),+),
+        )
     };
 }
 
@@ -112,10 +138,18 @@ with_col_sizes_200!(impl_in_subquery_lhs_tuple);
 ///
 /// Returns true if the expression's value is in the provided array.
 /// Requires the expression type to be compatible with the array element type.
+#[allow(clippy::type_complexity)]
 pub fn in_array<'a, V, E, I, R>(
     expr: E,
     values: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    E::Aggregate,
+    InArraySources<'a, V, E, R>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -130,10 +164,18 @@ where
 ///
 /// Returns true if the expression's value is NOT in the provided array.
 /// Requires the expression type to be compatible with the array element type.
+#[allow(clippy::type_complexity)]
 pub fn not_in_array<'a, V, E, I, R>(
     expr: E,
     values: I,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    E::Aggregate,
+    InArraySources<'a, V, E, R>,
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -188,10 +230,18 @@ where
 /// in_subquery((users.id, users.name), sub)        // multi-column
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn in_subquery<'a, V, L, S, M>(
     lhs: L,
     subquery: S,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, L::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    L::Aggregate,
+    InSubquerySources<'a, V, L, S, M>,
+>
 where
     V: SQLParam + 'a,
     L: InSubqueryLhs<'a, V, M>,
@@ -215,10 +265,18 @@ where
 /// not_in_subquery((users.id, users.name), sub)    // multi-column
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn not_in_subquery<'a, V, L, S, M>(
     lhs: L,
     subquery: S,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, L::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Bool,
+    NonNull,
+    L::Aggregate,
+    InSubquerySources<'a, V, L, S, M>,
+>
 where
     V: SQLParam + 'a,
     L: InSubqueryLhs<'a, V, M>,
@@ -237,15 +295,29 @@ where
 // EXISTS
 // =============================================================================
 
+/// A complete SELECT statement, usable as an `EXISTS` subquery.
+///
+/// Dialect select builders implement it once they are a finished SELECT;
+/// INSERT/UPDATE/DELETE builders never do, even with `RETURNING`. Raw
+/// [`SQL`] is accepted as an escape hatch.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a SELECT query",
+    label = "EXISTS takes a subquery built with `select(...).from(...)`"
+)]
+pub trait SelectQuery {}
+
+impl<V: SQLParam> SelectQuery for SQL<'_, V> {}
+impl<T: SelectQuery + ?Sized> SelectQuery for &T {}
+
 /// EXISTS subquery check.
 ///
 /// Returns true if the subquery returns any rows.
 pub fn exists<'a, V, S>(
     subquery: S,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar, ScopeOnly<S::Sources>>
 where
     V: SQLParam + 'a,
-    S: ToSQL<'a, V>,
+    S: ToSQL<'a, V> + ExprSources + SelectQuery,
 {
     SQLExpr::new(
         SQL::from_iter([Token::EXISTS, Token::LPAREN])
@@ -259,10 +331,10 @@ where
 /// Returns true if the subquery returns no rows.
 pub fn not_exists<'a, V, S>(
     subquery: S,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, NonNull, Scalar, ScopeOnly<S::Sources>>
 where
     V: SQLParam + 'a,
-    S: ToSQL<'a, V>,
+    S: ToSQL<'a, V> + ExprSources + SelectQuery,
 {
     SQLExpr::new(
         SQL::from_iter([Token::NOT, Token::EXISTS, Token::LPAREN])

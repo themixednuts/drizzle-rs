@@ -18,8 +18,11 @@ pub type DeleteBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
 
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// Filters the rows deleted by this statement.
-    pub fn r#where<E>(self, condition: E) -> DeleteBuilder<'a, S, DeleteWhereSet, T>
+    pub fn r#where<E, ScopeProof>(self, condition: E) -> DeleteBuilder<'a, S, DeleteWhereSet, T>
     where
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, MySQLValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {

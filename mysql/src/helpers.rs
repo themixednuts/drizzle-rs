@@ -94,6 +94,8 @@ where
 #[doc(hidden)]
 pub trait CrossJoinArg<'a, FromTable>: cross_join_arg_private::Sealed {
     type JoinedTable;
+    /// Sources read by the legacy `ON` predicate (see [`drizzle_core::scope`]).
+    type OnSources;
 
     fn into_cross_join_sql(self) -> SQL<'a, MySQLValue<'a>>;
 }
@@ -116,6 +118,7 @@ where
     Source: JoinSource<'a>,
 {
     type JoinedTable = Source::JoinedTable;
+    type OnSources = ();
 
     fn into_cross_join_sql(self) -> SQL<'a, MySQLValue<'a>> {
         Join::new()
@@ -128,9 +131,10 @@ where
 impl<'a, Source, Condition, FromTable> CrossJoinArg<'a, FromTable> for (Source, Condition)
 where
     Source: JoinSource<'a>,
-    Condition: JoinCondition<'a>,
+    Condition: JoinCondition<'a> + drizzle_core::expr::ExprSources,
 {
     type JoinedTable = Source::JoinedTable;
+    type OnSources = Condition::Sources;
 
     fn into_cross_join_sql(self) -> SQL<'a, MySQLValue<'a>> {
         let (source, condition) = self;
@@ -371,6 +375,7 @@ where
     Kind: IndexHintKind,
 {
     type JoinedTable = Joined;
+    type OnSources = ();
 
     fn into_join_sql(self, join: Join) -> SQL<'a, MySQLValue<'a>> {
         join.into_sql()
@@ -485,6 +490,17 @@ pub struct OrderExpr<T> {
     direction: drizzle_core::OrderBy,
 }
 
+impl<T: drizzle_core::expr::ExprSources> drizzle_core::expr::ExprSources for OrderExpr<T> {
+    type Sources = T::Sources;
+}
+
+impl<T: drizzle_core::expr::ExprSources> drizzle_core::OrderTerm for OrderExpr<T> {}
+
+/// An output alias names a SELECT output, not a FROM source.
+impl drizzle_core::expr::ExprSources for OutputAlias {
+    type Sources = ();
+}
+
 impl<'a, T> ToSQL<'a, MySQLValue<'a>> for OrderExpr<T>
 where
     T: ToSQL<'a, MySQLValue<'a>>,
@@ -538,17 +554,17 @@ mod set_order_private {
 
     pub trait ProjectionAllows<'a, Item, Table, Proof> {}
 
-    impl<'a, Cols, Scope, Item, Table, Proof> ProjectionAllows<'a, Item, Table, Proof>
-        for drizzle_core::Scoped<drizzle_core::SelectCols<Cols>, Scope>
+    impl<'a, Cols, Scope, Used, Item, Table, Proof> ProjectionAllows<'a, Item, Table, Proof>
+        for drizzle_core::Scoped<drizzle_core::SelectCols<Cols>, Scope, Used>
     where
         Cols: drizzle_core::row::SelectedExpressionList,
         <Cols as drizzle_core::row::SelectedExpressionList>::Expressions:
-            drizzle_core::row::ScopeContains<Item, Proof>,
+            drizzle_core::scope::ListContains<Item, Proof>,
     {
     }
 
-    impl<'a, Scope, Item, Table> ProjectionAllows<'a, Item, Table, ()>
-        for drizzle_core::Scoped<drizzle_core::SelectStar, Scope>
+    impl<'a, Scope, Used, Item, Table> ProjectionAllows<'a, Item, Table, ()>
+        for drizzle_core::Scoped<drizzle_core::SelectStar, Scope, Used>
     where
         Item: drizzle_core::traits::SQLColumn<'a, MySQLValue<'a>>
             + drizzle_core::traits::ColumnOf<Table>,

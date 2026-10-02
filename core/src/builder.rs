@@ -30,30 +30,49 @@ impl ExecutableState for BuilderInit {}
 // overlap rules prevent trait-gated generics when other builder types
 // (insert/update/delete) define methods with the same name.
 
-/// States where `.where()` is available.
-pub trait WhereAllowed {}
+/// Clause markers for [`ClauseAllowed`].
+pub mod clause {
+    /// `.where()`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Where;
+    /// `.group_by()`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct GroupBy;
+    /// `.having()` (requires GROUP BY).
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Having;
+    /// `.order_by()`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct OrderBy;
+    /// `.limit()`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Limit;
+    /// `.offset()`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Offset;
+    /// `.join()` and its variants.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Join;
+    /// Use as a CTE or a locking read: a single, non-compound SELECT.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Simple;
+    /// Operand of `UNION`/`INTERSECT`/`EXCEPT`: a SELECT, possibly compound,
+    /// without a locking clause.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Compound;
+    /// Row source for a derived table or `INSERT ... SELECT`: any completed
+    /// SELECT. Never an INSERT/UPDATE/DELETE, even with `RETURNING`.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Source;
+}
 
-/// States where `.group_by()` is available.
-pub trait GroupByAllowed {}
-
-/// States where `.order_by()` is available.
-pub trait OrderByAllowed {}
-
-/// States where `.limit()` is available.
-pub trait LimitAllowed {}
-
-/// States where `.offset()` is available.
-pub trait OffsetAllowed {}
-
-/// States where `.join()` and variant joins are available.
-pub trait JoinAllowed {}
-
-/// States where `.having()` is available (requires GROUP BY).
-pub trait HavingAllowed {}
-
-/// States where GROUP BY has been applied (allows mixed agg/scalar selects).
+/// The builder state `Self` accepts the clause `Clause` next.
+///
+/// Dialect crates add their own clause markers for dialect-only clauses.
 #[diagnostic::on_unimplemented(
-    message = "SELECT mixes aggregate and non-aggregate expressions without GROUP BY",
-    label = "add .group_by(...) before executing this query"
+    message = "builder state `{Self}` does not allow `{Clause}`",
+    label = "not available at this point of the query",
+    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET",
+    note = "only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source"
 )]
-pub trait GroupByApplied {}
+pub trait ClauseAllowed<Clause> {}

@@ -21,11 +21,11 @@ help: the following other types implement trait `BooleanLike`
 ...
    | impl BooleanLike for crate::mysql::types::Boolean {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::ddl::mysql::types::Boolean`
-note: required by a bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg>>::filter`
+note: required by a bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg, S>>::filter`
   --> core/src/expr/window.rs
    |
-   |     pub fn filter<C>(self, condition: C) -> Self
+   |     pub fn filter<C>(self, condition: C) -> SQLExpr<'a, V, T, N, Agg, (S, ScopeOnly<C::Sources>)>
    |            ------ required by a bound in this associated function
 ...
    |         C::SQLType: BooleanLike,
-   |                     ^^^^^^^^^^^ required by this bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg>>::filter`
+   |                     ^^^^^^^^^^^ required by this bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg, S>>::filter`

@@ -40,6 +40,11 @@ mod typed;
 mod util;
 mod window;
 
+/// Zero-sized marker for type parameters a struct only carries at the type
+/// level. `fn() -> T` keeps the struct `Send`, `Sync` and covariant in `T`
+/// whatever `T` is.
+pub(crate) type TypeMarker<T> = core::marker::PhantomData<fn() -> T>;
+
 pub use agg::*;
 pub use case::*;
 pub use cmp::*;
@@ -79,7 +84,23 @@ mod private {
     message = "`{Self}` is not a valid nullability marker",
     label = "expected `NonNull` or `Null`"
 )]
-pub trait Nullability: private::Sealed + Copy + Default + 'static {}
+pub trait Nullability: private::Sealed + Copy + Default + 'static {
+    /// A decoded value of type `T` under this nullability: `T` for
+    /// [`NonNull`], [`MaybeNull<T>`](crate::row::MaybeNull) for [`Null`].
+    type Decoded<T>;
+
+    /// NULL propagation: nullable when either side is (`a + b`, `f(a, b)`).
+    ///
+    /// | Self | Rhs | Or |
+    /// |------|-----|----|
+    /// | NonNull | NonNull | NonNull |
+    /// | NonNull | Null | Null |
+    /// | Null | _ | Null |
+    type Or<Rhs: Nullability>: Nullability;
+
+    /// NULL absorption: nullable only when both sides are (`COALESCE(a, b)`).
+    type And<Rhs: Nullability>: Nullability;
+}
 
 /// Marker indicating an expression cannot be NULL.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -91,8 +112,16 @@ pub struct Null;
 
 impl private::Sealed for NonNull {}
 impl private::Sealed for Null {}
-impl Nullability for NonNull {}
-impl Nullability for Null {}
+impl Nullability for NonNull {
+    type Decoded<T> = T;
+    type Or<Rhs: Nullability> = Rhs;
+    type And<Rhs: Nullability> = Self;
+}
+impl Nullability for Null {
+    type Decoded<T> = crate::row::MaybeNull<T>;
+    type Or<Rhs: Nullability> = Self;
+    type And<Rhs: Nullability> = Rhs;
+}
 
 /// Compile-time relation between a column's nullability and an assigned value.
 ///
@@ -119,7 +148,20 @@ impl AcceptsNullability<Null> for Null {}
     message = "`{Self}` is not a valid aggregate marker",
     label = "expected `Scalar` or `Agg`"
 )]
-pub trait AggregateKind: private::Sealed + Copy + Default + 'static {}
+pub trait AggregateKind: private::Sealed + Copy + Default + 'static {
+    /// Aggregate propagation: an expression over any aggregate is itself
+    /// aggregate (`SUM(x) + 5`).
+    ///
+    /// | Self | Rhs | Or |
+    /// |------|-----|----|
+    /// | Scalar | Scalar | Scalar |
+    /// | Scalar | Agg | Agg |
+    /// | Agg | _ | Agg |
+    type Or<Rhs: AggregateKind>: AggregateKind;
+
+    /// The SELECT-list status this kind starts from.
+    type Status;
+}
 
 /// Marker indicating a scalar (non-aggregate) expression.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -131,39 +173,13 @@ pub struct Agg;
 
 impl private::Sealed for Scalar {}
 impl private::Sealed for Agg {}
-impl AggregateKind for Scalar {}
-impl AggregateKind for Agg {}
-
-/// Combine aggregate kinds: if either input is Agg, output is Agg.
-///
-/// This follows SQL's aggregate propagation semantics: an expression
-/// derived from any aggregate sub-expression is itself aggregate
-/// (e.g. `SUM(x) + 5` is aggregate, not scalar).
-///
-/// # Truth Table
-///
-/// | Left | Right | Output |
-/// |------|-------|--------|
-/// | Scalar | Scalar | Scalar |
-/// | Scalar | Agg | Agg |
-/// | Agg | Scalar | Agg |
-/// | Agg | Agg | Agg |
-pub trait AggOr<Rhs: AggregateKind>: AggregateKind {
-    /// The resulting aggregate kind.
-    type Output: AggregateKind;
+impl AggregateKind for Scalar {
+    type Or<Rhs: AggregateKind> = Rhs;
+    type Status = AllScalar;
 }
-
-impl AggOr<Self> for Scalar {
-    type Output = Self;
-}
-impl AggOr<Agg> for Scalar {
-    type Output = Agg;
-}
-impl AggOr<Scalar> for Agg {
-    type Output = Self;
-}
-impl AggOr<Self> for Agg {
-    type Output = Self;
+impl AggregateKind for Agg {
+    type Or<Rhs: AggregateKind> = Self;
+    type Status = AllAgg;
 }
 
 // =============================================================================
@@ -181,19 +197,6 @@ pub struct AllAgg;
 /// Status indicating a mix of scalar and aggregate expressions.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MixedAgg;
-
-/// Convert an `AggregateKind` to an initial `AggStatus`.
-pub trait AggToStatus: AggregateKind {
-    type Status;
-}
-
-impl AggToStatus for Scalar {
-    type Status = AllScalar;
-}
-
-impl AggToStatus for Agg {
-    type Status = AllAgg;
-}
 
 /// Combine two aggregate statuses.
 ///
@@ -277,12 +280,67 @@ impl<T: HasAggStatus + ?Sized> HasAggStatus for &T {
 /// check_expr::<_, i32>(); // SQLType=Int, Nullable=NonNull, Aggregate=Scalar
 /// # "####;
 /// ```
+/// The sources an expression reads, as a type-level tree.
+///
+/// Columns record their table, operators combine their operands' trees, and
+/// literals, placeholders and raw SQL read nothing (`()`). Query builders
+/// check the tree against the FROM/JOIN scope, so a column of a table that
+/// was never joined is a compile error in any clause. See [`crate::scope`]
+/// for the node types.
+pub trait ExprSources {
+    /// Type-level tree of [`Src`](crate::scope::Src) leaves.
+    type Sources;
+}
+
+impl<T: ExprSources + ?Sized> ExprSources for &T {
+    type Sources = T::Sources;
+}
+
+/// Expression lists (`Cons<E, ...>`) read every element's sources.
+impl ExprSources for crate::Nil {
+    type Sources = ();
+}
+
+impl<Head: ExprSources, Tail: ExprSources> ExprSources for crate::Cons<Head, Tail> {
+    type Sources = (Head::Sources, Tail::Sources);
+}
+
+/// `()` reads nothing (`COUNT(*)`).
+impl ExprSources for () {
+    type Sources = ();
+}
+
+// Tuples (condition lists, GROUP BY keys, ORDER BY terms) read the sources of
+// every element, nested as NULL-propagating pairs.
+macro_rules! impl_tuple_expr_sources {
+    ($($T:ident),+; $($i:tt),+) => {
+        impl<$($T: ExprSources),+> ExprSources for ($($T,)+) {
+            type Sources = impl_tuple_expr_sources!(@nest $($T),+);
+        }
+    };
+    (@nest $T:ident) => { <$T as ExprSources>::Sources };
+    (@nest $T:ident, $($rest:ident),+) => {
+        (<$T as ExprSources>::Sources, impl_tuple_expr_sources!(@nest $($rest),+))
+    };
+}
+
+with_col_sizes_8!(impl_tuple_expr_sources);
+
+#[cfg(any(
+    feature = "col16",
+    feature = "col32",
+    feature = "col64",
+    feature = "col128",
+    feature = "col200"
+))]
+with_col_sizes_16!(impl_tuple_expr_sources);
+
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid SQL expression",
     label = "expected a column, literal, or expression — does this type implement Expr?",
     note = "SQL expressions must have an associated SQLType, Nullable, and Aggregate kind"
 )]
-pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> {
+pub trait Expr<'a, V: SQLParam>: ToSQL<'a, V> + ExprSources {
     /// The SQL data type this expression evaluates to.
     type SQLType: DataType;
 

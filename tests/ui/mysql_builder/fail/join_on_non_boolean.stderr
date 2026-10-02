@@ -12,8 +12,8 @@ help: the trait `JoinArg<'_, T>` is conditionally implemented for `(U, C)`
    | /         impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
    | |         where
    | |             U: $JoinSourceTrait,
-   | |             C: $ConditionTrait,
-   | |________________---------------^
+   | |             C: $ConditionTrait + $crate::expr::ExprSources,
+   | |________________---------------____________________________^
    |                  |
    |                  unsatisfied requirement introduced here: `UserId: drizzle::mysql::helpers::JoinCondition<'_>`
    |
@@ -33,7 +33,7 @@ note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, 
    |         pub fn $name<J: helpers::JoinArg<'a, T>>(
    |                         ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
 ...
-   |     join_on_method!(inner_join, drizzle_core::Join::new().inner(), AfterJoin);
+   |     join_on_method!(inner_join, drizzle_core::Join::new().inner(), InnerJoin);
    |     -------------------------------------------------------------------------
    |     |               |
    |     |               required by a bound in this associated function

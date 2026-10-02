@@ -1,0 +1,43 @@
+error[E0277]: selected column decodes as `drizzle::core::MaybeNull<_>`, but the decode target uses `i32`
+  --> tests/ui/query_scope_sqlite/fail/left_join_arithmetic_requires_option.rs:50:10
+   |
+50 |         .all();
+   |          ^^^ the decode target does not match the selected columns
+   |
+   = help: the trait `for<'r> drizzle_core::row::ColumnTypeCompatible<Row<'r>, drizzle::core::MaybeNull<_>, i32>` is not implemented for `()`
+   = note: a selected `MaybeNull<T>` can be NULL (an outer join or a nullable operand) and must be decoded as `Option<T>`
+   = help: `()` implements trait `drizzle_core::row::ColumnTypeCompatible<Row, Expected, Actual>`:
+             drizzle_core::row::ColumnTypeCompatible<Row, T, T>
+             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::MaybeNull<Expected>, std::option::Option<Actual>>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, bool>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, isize>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u64>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, usize>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<bool>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<isize>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u64>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<usize>>
+   = note: required for `Cons<drizzle::core::MaybeNull<_>, Nil>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<i32, Nil>>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Cons<i32, Cons<drizzle::core::MaybeNull<_>, Nil>>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<i32, Cons<i32, Nil>>>`
+   = note: required for `Scoped<SelectCols<(users::Id, ColumnBinOp<Views, {integer}, drizzle::core::types::AddOp, SQLiteDialect, _, _>)>, Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (((), ()), At<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, ((drizzle::core::expr::NonNull, Src<Posts>), (drizzle::core::expr::NonNull, Src<Users>))>)>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i32, _), (i32, i32), ((((), ()), (((), ScopeFound), ((), ScopeFound))), (ScopeFound, ((ScopeFound, _), ())))>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/sqlite/rusqlite/mod.rs
+   |
+   |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

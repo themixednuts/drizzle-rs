@@ -3,6 +3,6 @@ use drizzle::postgres::prelude::*;
 
 fn main() {
     // in_array(count(()), [1, 2, 3]) — aggregate tested against scalar array
-    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar, _> =
         in_array(count(()), [1i64, 2, 3]).over(window());
 }

@@ -1,0 +1,27 @@
+error[E0277]: `Posts` is not in this query's FROM/JOIN scope
+  --> tests/ui/query_scope_sqlite/fail/window_partition_reads_unjoined_table.rs:48:10
+   |
+48 |         .all();
+   |          ^^^ this expression reads a table that the query never joins
+   |
+   = help: the trait `drizzle::core::scope::FindTable<Posts>` is not implemented for `Nil`
+   = note: add the table with .from(...) or a .join(...) before using its columns
+help: the trait `drizzle::core::scope::FindTable<Table>` is implemented for `Cons<Head, Tail>`
+  --> core/src/scope.rs
+   |
+   | / impl<Table, Head, Tail> FindTable<Table> for Cons<Head, Tail>
+   | | where
+   | |     Head: ScopeEntry,
+   | |     Head::Key: IsTable<Table>,
+   | |     <Head::Key as IsTable<Table>>::Out: FoundOr<Head::Nullable, Tail, Table>,
+   | |_____________________________________________________________________________^
+   = note: required for `False` to implement `drizzle::core::scope::FoundOr<drizzle::core::expr::NonNull, Nil, Posts>`
+   = note: required for `Scoped<SelectCols<(SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Scalar, ((), ((), Coalesce<Src<Posts>, drizzle::core::expr::NonNull>))>,)>, Cons<Users, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), _, ((), (((), ((), (ScopeFound, ()))), ()))>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/sqlite/rusqlite/mod.rs
+   |
+   |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

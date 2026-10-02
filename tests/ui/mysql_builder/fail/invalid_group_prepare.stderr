@@ -10,16 +10,16 @@ help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<Active, Nil>, _>` i
  4 | #[MySQLTable]
    | ^^^^^^^^^^^^^
    = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
-             `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
-             `Scoped<SelectAs<R>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
-             `Scoped<SelectCols<Cols>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>, Proof>`
-             `Scoped<SelectCols<Cols>, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>, Proof>`
-             `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
-             `Scoped<SelectExpr, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
-             `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
-             `Scoped<SelectStar, Scope>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
-   = note: required for `(Name, SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull, Agg>)` to implement `drizzle_core::row::ScalarColumnsIn<Cons<Active, Nil>, (_, drizzle_core::row::AggSkip)>`
-   = note: required for `Scoped<SelectCols<(Name, SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull, Agg>)>, Cons<Users, Nil>>` to implement `drizzle_core::row::MarkerAggValidFor<Cons<Active, Nil>, (_, drizzle_core::row::AggSkip)>`
+             `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+             `Scoped<SelectCols<Cols>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>, Proof>`
+             `Scoped<SelectCols<Cols>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>, Proof>`
+             `Scoped<SelectExpr, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectExpr, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+             `Scoped<SelectStar, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
+             `Scoped<SelectStar, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`
+   = note: required for `(Name, SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull, Agg, Coalesce<Src<Users>, drizzle::core::expr::NonNull>>)` to implement `drizzle_core::row::ScalarColumnsIn<Cons<Active, Nil>, (_, drizzle_core::row::AggSkip)>`
+   = note: required for `Scoped<SelectCols<(Name, SQLExpr<'_, drizzle::mysql::MySQLValue<'_>, drizzle::mysql::types::BigInt, drizzle::core::expr::NonNull, Agg, Coalesce<Src<Users>, drizzle::core::expr::NonNull>>)>, Cons<Users, Nil>, ((), At<Cons<Users, Nil>, Src<Users>>)>` to implement `drizzle_core::row::MarkerAggValidFor<Cons<Active, Nil>, (_, drizzle_core::row::AggSkip)>`
 note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::prepare`
   --> mysql/src/builder/select.rs
    |

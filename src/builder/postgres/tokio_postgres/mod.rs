@@ -1426,7 +1426,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = {
@@ -1458,8 +1458,12 @@ where
     }
 
     /// Runs the query and returns a lazy row cursor using the builder's row type.
-    pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
+            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, Rw, Proof>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
@@ -1491,7 +1495,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         let (sql_str, params) = {

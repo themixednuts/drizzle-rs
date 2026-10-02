@@ -135,8 +135,17 @@ pub mod core {
 
     #[doc(hidden)]
     pub use drizzle_core::{
-        ColumnScope, InsertColumn, InsertSelectAllColumns, InsertSelectTable, OpaqueScope,
-        ProjectionInScope, ScopeContains,
+        InsertColumn, InsertSelectAllColumns, InsertSelectTable, MaybeNull, ProjectionIn,
+    };
+
+    /// Type-level query scope: which sources a query reads, and how outer
+    /// joins make them nullable.
+    #[doc(inline)]
+    pub use drizzle_core::scope;
+
+    #[doc(inline)]
+    pub use drizzle_core::{
+        AliasKey, ScopeContains, ScopeEntry, SelectTableFields, Src, TableFields,
     };
 
     /// Bind parameter type mapping trait.
@@ -183,11 +192,15 @@ pub mod core {
     /// Row inference types and traits.
     #[doc(inline)]
     pub use drizzle_core::row::{
-        AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
-        FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-        LeftLateralSelection, MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup,
-        ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs, SelectAsFrom,
-        SelectCols, SelectExpr, SelectRequiredTables, SelectStar, WrapNullable,
+        DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel,
+        IntoGroupBy, IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerColumnCountValid,
+        MarkerScopeValidFor, NullProbeRow, OuterJoined, PkGroup, ResolveRow, RowColumnList,
+        SQLTypeToRust, Scoped, SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectStar,
+        WrapNullable,
+    };
+    #[doc(inline)]
+    pub use drizzle_core::scope::{
+        FullJoin, HasScope, InnerJoin, JoinStep, Lateral, LeftJoin, RightJoin,
     };
 }
 
@@ -499,8 +512,7 @@ pub mod mysql {
         };
         pub use drizzle_mysql::{AccessMode, IsolationLevel, TransactionConfig};
         pub use drizzle_mysql::{
-            IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMetadata,
-            MySQLIndexMethod,
+            IndexKeyPart, IndexOrder, MySQLIndexAlgorithm, MySQLIndexLock, MySQLIndexMethod,
         };
         pub use drizzle_mysql::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
     }

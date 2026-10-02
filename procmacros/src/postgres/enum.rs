@@ -691,6 +691,10 @@ pub fn generate_enum_impl(
                 type Aggregate = #core_expr::Scalar;
             }
 
+            impl #core_expr::ExprSources for #name {
+                type Sources = ();
+            }
+
             // DrizzlePostgresColumn for integer-stored enum
             #drizzle_postgres_column_impl
 
@@ -793,6 +797,10 @@ pub fn generate_enum_impl(
                 type SQLType = #postgres_types::Enum;
                 type Nullable = #core_expr::NonNull;
                 type Aggregate = #core_expr::Scalar;
+            }
+
+            impl #core_expr::ExprSources for #name {
+                type Sources = ();
             }
 
             // DrizzlePostgresColumn for native enum

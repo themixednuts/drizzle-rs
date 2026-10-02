@@ -12,14 +12,14 @@ help: the trait `IntoSelectQuery<'_, Schema, (u64,)>` is not implemented for `Qu
    |
    | / impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
    | | where
-   | |     State: private::Completed,
-   | |______________________________^
+   | |     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
+   | |_______________________________________________________________________^
    = help: for that trait implementation, expected `std::string::String`, found `u64`
 note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
   --> mysql/src/builder/select.rs
    |
-   |             other: impl IntoSelectQuery<'a, S, R>,
-   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
+   |             O: IntoSelectQuery<'a, S, R>,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
 ...
    |     set_operation!(union, drizzle_core::Token::UNION, false);
    |     --------------------------------------------------------

@@ -1,11 +1,13 @@
 //! Utility SQL functions (alias, cast, distinct, typeof, concat, excluded).
 
+use crate::dialect::{DialectSupports, feature};
 use crate::dialect::{MySQLDialect, PostgresDialect, SQLiteDialect};
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLColumnInfo, SQLParam, ToSQL};
 use crate::types::{Compatible, DataType, Textual};
 
-use super::{AggOr, AggregateKind, Expr, NonNull, Null, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggregateKind, Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
+use crate::scope::ScopeOnly;
 
 // =============================================================================
 // ALIAS
@@ -54,6 +56,10 @@ where
     }
 }
 
+impl<E: super::ExprSources> super::ExprSources for AliasedExpr<E> {
+    type Sources = E::Sources;
+}
+
 impl<E: super::HasAggStatus> super::HasAggStatus for AliasedExpr<E> {
     type Status = E::Status;
 }
@@ -69,21 +75,28 @@ where
     type Marker = crate::row::SelectCols<(Self,)>;
 }
 
-/// Extension trait providing `.alias()` method syntax on any expression.
-///
-/// This is a blanket impl on all `Sized` types. The `AliasedExpr` it creates
-/// is only useful when the inner type implements `ToSQL`/`Expr`/`ExprValueType`,
-/// so calling `.alias()` on non-SQL types is harmless but useless.
+/// Extension trait naming a selected expression: `.alias("name")` for a
+/// runtime name, `.named::<Tag>()` for a type-level name that derived tables
+/// can reference.
 ///
 /// For `SQL<'a, V>` values, the inherent `SQL::alias()` method takes
 /// precedence and returns `SQL<'a, V>` (no type preservation needed for raw SQL).
 pub trait AliasExt: Sized {
+    /// Renders this expression as `expr AS name`.
     fn alias(self, name: &'static str) -> AliasedExpr<Self> {
         AliasedExpr { expr: self, name }
     }
+
+    /// Names this expression with a type-level [`crate::Tag`].
+    fn named<Name: crate::Tag>(self) -> NamedExpr<Self, Name> {
+        NamedExpr {
+            expr: self,
+            name: core::marker::PhantomData,
+        }
+    }
 }
 
-impl<T: Sized> AliasExt for T {}
+impl<T: crate::row::ExprValueType> AliasExt for T {}
 
 /// Create an aliased expression.
 ///
@@ -138,6 +151,10 @@ where
     }
 }
 
+impl<E: super::ExprSources, Name> super::ExprSources for NamedExpr<E, Name> {
+    type Sources = E::Sources;
+}
+
 impl<'a, V, E, Name> Expr<'a, V> for NamedExpr<E, Name>
 where
     V: SQLParam + 'a,
@@ -185,30 +202,11 @@ where
     type Identity = E::Identity;
 }
 
-/// Extension trait providing a static output name for derived projections.
-pub trait NamedExt: Sized {
-    /// Names this expression with a type-level [`crate::Tag`].
-    fn named<Name: crate::Tag>(self) -> NamedExpr<Self, Name> {
-        NamedExpr {
-            expr: self,
-            name: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<T: crate::row::ExprValueType> NamedExt for T {}
-
 // =============================================================================
 // TYPEOF
 // =============================================================================
 
-#[diagnostic::on_unimplemented(
-    message = "TYPEOF is not available for this dialect",
-    label = "use a dialect-specific type inspection expression"
-)]
-pub trait TypeofSupport {}
-
-impl TypeofSupport for SQLiteDialect {}
+impl DialectSupports<feature::Typeof> for SQLiteDialect {}
 
 /// Get the SQL type of an expression.
 ///
@@ -224,24 +222,40 @@ impl TypeofSupport for SQLiteDialect {}
 /// let age_type = typeof_(users.age);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn typeof_<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as crate::dialect::DialectTypes>::Text,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: TypeofSupport,
+    V::DialectMarker: DialectSupports<feature::Typeof>,
     E: Expr<'a, V>,
 {
     SQLExpr::new(SQL::func("TYPEOF", expr.into_expr_sql()))
 }
 
 /// Alias for typeof_ (uses Rust raw identifier syntax).
+#[allow(clippy::type_complexity)]
 pub fn r#typeof<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as crate::dialect::DialectTypes>::Text, NonNull, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as crate::dialect::DialectTypes>::Text,
+    NonNull,
+    E::Aggregate,
+    ScopeOnly<E::Sources>,
+>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: TypeofSupport,
+    V::DialectMarker: DialectSupports<feature::Typeof>,
     E: Expr<'a, V>,
 {
     typeof_(expr)
@@ -550,6 +564,7 @@ pub fn cast<'a, V, E, Target>(
     Target,
     <Target as CastNullabilityPolicy<V::DialectMarker, E::Nullable>>::Output,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -610,8 +625,9 @@ pub fn string_concat<'a, V, L, R>(
     'a,
     V,
     <V::DialectMarker as crate::dialect::DialectTypes>::Text,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Nullable as Nullability>::Or<R::Nullable>,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -619,9 +635,7 @@ where
     R: Expr<'a, V>,
     L::SQLType: Textual,
     R::SQLType: Textual,
-    L::Nullable: NullOr<R::Nullable>,
     R::Nullable: Nullability,
-    L::Aggregate: AggOr<R::Aggregate>,
     R::Aggregate: AggregateKind,
 {
     super::concat(left, right)
@@ -651,7 +665,7 @@ where
 /// # "####;
 /// ```
 #[must_use]
-pub fn raw<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar>
+pub fn raw<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar, ()>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -661,7 +675,7 @@ where
 
 /// Create a raw SQL expression with explicit nullable nullability.
 #[must_use]
-pub fn raw_nullable<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar>
+pub fn raw_nullable<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, Null, Scalar, ()>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -671,7 +685,7 @@ where
 
 /// Create a raw SQL expression with explicit non-null nullability.
 #[must_use]
-pub fn raw_non_null<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, NonNull, Scalar>
+pub fn raw_non_null<'a, V, T>(sql: &'a str) -> SQLExpr<'a, V, T, NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -690,11 +704,8 @@ pub struct Excluded<C> {
     column: C,
 }
 
-/// Dialects whose upsert syntax exposes the proposed row as `EXCLUDED`.
-pub trait ExcludedSupport {}
-
-impl ExcludedSupport for SQLiteDialect {}
-impl ExcludedSupport for PostgresDialect {}
+impl DialectSupports<feature::Excluded> for SQLiteDialect {}
+impl DialectSupports<feature::Excluded> for PostgresDialect {}
 
 /// Reference a column's value from the proposed insert row (EXCLUDED).
 ///
@@ -715,10 +726,15 @@ pub const fn excluded<C>(column: C) -> Excluded<C> {
     Excluded { column }
 }
 
+/// `EXCLUDED` is the proposed insert row, not a FROM source.
+impl<C> super::ExprSources for Excluded<C> {
+    type Sources = ();
+}
+
 impl<'a, V, C> Expr<'a, V> for Excluded<C>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: ExcludedSupport,
+    V::DialectMarker: DialectSupports<feature::Excluded>,
     C: Expr<'a, V> + SQLColumnInfo,
 {
     type SQLType = C::SQLType;
@@ -729,7 +745,7 @@ where
 impl<'a, V, C> ToSQL<'a, V> for Excluded<C>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: ExcludedSupport,
+    V::DialectMarker: DialectSupports<feature::Excluded>,
     C: SQLColumnInfo,
 {
     fn to_sql(&self) -> SQL<'a, V> {

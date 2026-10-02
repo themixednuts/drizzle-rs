@@ -8,11 +8,11 @@
 //! # Example
 //!
 //! ```
-//! # use drizzle_postgres::expr::array_contains;
+//! # use drizzle_postgres::expr::{array_contains, PgArray};
 //! # use drizzle_core::{SQL, ToSQL};
 //! # use drizzle_postgres::values::PostgresValue;
 //! let tags = SQL::<PostgresValue>::raw("tags");
-//! let condition = array_contains(tags, "test");
+//! let condition = array_contains(tags, PgArray(vec!["test"]));
 //! assert!(condition.to_sql().sql().contains("@>"));
 //! ```
 
@@ -20,9 +20,26 @@
 use crate::prelude::*;
 use crate::values::PostgresValue;
 use drizzle_core::ToSQL;
-use drizzle_core::expr::{Expr, NonNull, SQLExpr, Scalar};
+use drizzle_core::expr::{AggregateKind, Expr, ExprSources, NonNull, SQLExpr, Scalar};
+use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk};
-use drizzle_types::postgres::types::Boolean;
+use drizzle_types::postgres::types::{Any, Boolean};
+use drizzle_types::{Array, Compatible, DataType, Placeholder};
+
+/// Left operand type `Self` of an array operator accepts the right operand
+/// type `Rhs`: both are arrays of compatible element types, or one side is
+/// untyped SQL or a placeholder.
+#[diagnostic::on_unimplemented(
+    message = "PostgreSQL array operators cannot combine `{Self}` with `{Rhs}`",
+    label = "both operands must be arrays with compatible element types",
+    note = "pass a bound array with `PgArray(vec![...])`; a bare value is not an array"
+)]
+pub trait ArrayOperand<Rhs> {}
+
+impl<T: DataType, U: DataType> ArrayOperand<Array<U>> for Array<T> where T: Compatible<U> {}
+impl<T: DataType> ArrayOperand<Any> for Array<T> {}
+impl<T: DataType> ArrayOperand<Placeholder> for Array<T> {}
+impl<R> ArrayOperand<R> for Any {}
 
 /// Wrapper for passing a `Vec<T>` as a single `PostgreSQL` array parameter.
 ///
@@ -53,6 +70,19 @@ where
     }
 }
 
+impl<T> ExprSources for PgArray<T> {
+    type Sources = ();
+}
+
+impl<'a, T> Expr<'a, PostgresValue<'a>> for PgArray<T>
+where
+    T: Expr<'a, PostgresValue<'a>> + Into<PostgresValue<'a>> + Clone,
+{
+    type SQLType = Array<T::SQLType>;
+    type Nullable = NonNull;
+    type Aggregate = Scalar;
+}
+
 /// `PostgreSQL` `@>` operator - array contains.
 ///
 /// Returns true if the left array contains all elements of the right array.
@@ -60,21 +90,30 @@ where
 /// # Example
 ///
 /// ```
-/// # use drizzle_postgres::expr::array_contains;
+/// # use drizzle_postgres::expr::{array_contains, PgArray};
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
 /// let tags = SQL::<PostgresValue>::raw("tags");
-/// let condition = array_contains(tags, "rust");
+/// let condition = array_contains(tags, PgArray(vec!["rust"]));
 /// assert!(condition.to_sql().sql().contains("@>"));
 /// // Generates: tags @> $1
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn array_contains<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
-    R: ToSQL<'a, PostgresValue<'a>>,
+    R: Expr<'a, PostgresValue<'a>>,
+    L::SQLType: ArrayOperand<R::SQLType>,
 {
     SQLExpr::new(
         left.to_sql()
@@ -91,21 +130,30 @@ where
 /// # Example
 ///
 /// ```
-/// # use drizzle_postgres::expr::array_contained;
+/// # use drizzle_postgres::expr::{array_contained, PgArray};
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
 /// let tags = SQL::<PostgresValue>::raw("tags");
-/// let condition = array_contained(tags, "rust");
+/// let condition = array_contained(tags, PgArray(vec!["rust"]));
 /// assert!(condition.to_sql().sql().contains("<@"));
 /// // Generates: tags <@ $1
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn array_contained<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
-    R: ToSQL<'a, PostgresValue<'a>>,
+    R: Expr<'a, PostgresValue<'a>>,
+    L::SQLType: ArrayOperand<R::SQLType>,
 {
     SQLExpr::new(
         left.to_sql()
@@ -121,21 +169,30 @@ where
 /// # Example
 ///
 /// ```
-/// # use drizzle_postgres::expr::array_overlaps;
+/// # use drizzle_postgres::expr::{array_overlaps, PgArray};
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
 /// let tags = SQL::<PostgresValue>::raw("tags");
-/// let condition = array_overlaps(tags, "rust");
+/// let condition = array_overlaps(tags, PgArray(vec!["rust"]));
 /// assert!(condition.to_sql().sql().contains("&&"));
 /// // Generates: tags && $1
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn array_overlaps<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
-    R: ToSQL<'a, PostgresValue<'a>>,
+    R: Expr<'a, PostgresValue<'a>>,
+    L::SQLType: ArrayOperand<R::SQLType>,
 {
     SQLExpr::new(
         left.to_sql()
@@ -152,20 +209,35 @@ where
 /// # Example
 ///
 /// ```
-/// # use drizzle_postgres::expr::ArrayExprExt;
+/// # use drizzle_postgres::expr::{ArrayExprExt, PgArray};
 /// # use drizzle_core::{SQL, ToSQL};
 /// # use drizzle_postgres::values::PostgresValue;
 /// let tags = SQL::<PostgresValue>::raw("tags");
-/// let condition = tags.array_contains("rust");
+/// let condition = tags.array_contains(PgArray(vec!["rust"]));
 /// assert!(condition.to_sql().sql().contains("@>"));
 /// ```
 pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `@>` operator - array contains.
     ///
     /// Returns true if self contains all elements of the other array.
-    fn array_contains<R>(self, other: R) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    #[allow(clippy::type_complexity)]
+    fn array_contains<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
+    >
     where
-        R: ToSQL<'a, PostgresValue<'a>>,
+        R: Expr<'a, PostgresValue<'a>>,
+        Self::SQLType: ArrayOperand<R::SQLType>,
     {
         array_contains(self, other)
     }
@@ -173,12 +245,24 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `<@` operator - array is contained by.
     ///
     /// Returns true if self is contained by the other array.
+    #[allow(clippy::type_complexity)]
     fn array_contained<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
+    >
     where
-        R: ToSQL<'a, PostgresValue<'a>>,
+        R: Expr<'a, PostgresValue<'a>>,
+        Self::SQLType: ArrayOperand<R::SQLType>,
     {
         array_contained(self, other)
     }
@@ -186,9 +270,24 @@ pub trait ArrayExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// `PostgreSQL` `&&` operator - arrays overlap.
     ///
     /// Returns true if self and the other array have any elements in common.
-    fn array_overlaps<R>(self, other: R) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    #[allow(clippy::type_complexity)]
+    fn array_overlaps<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
+    >
     where
-        R: ToSQL<'a, PostgresValue<'a>>,
+        R: Expr<'a, PostgresValue<'a>>,
+        Self::SQLType: ArrayOperand<R::SQLType>,
     {
         array_overlaps(self, other)
     }

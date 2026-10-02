@@ -1,23 +1,23 @@
-error[E0277]: the trait bound `Nil: ScopeContains<posts::Title, _>` is not satisfied
+error[E0277]: the trait bound `Nil: ListContains<posts::Title, _>` is not satisfied
   --> tests/ui/mysql_builder/fail/insert_select_missing_required_column.rs:30:10
    |
 30 |         .select(selected);
-   |          ^^^^^^ the trait `ScopeContains<posts::Title, _>` is not implemented for `Nil`
+   |          ^^^^^^ the trait `ListContains<posts::Title, _>` is not implemented for `Nil`
    |
-help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
-  --> core/src/row/mod.rs
+help: `Cons<Head, Tail>` implements trait `ListContains<T, Witness>`
+  --> core/src/scope.rs
    |
-   |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, drizzle_core::row::ScopeHere>`
+   |   impl<Head, Tail> ListContains<Head, ScopeHere> for Cons<Head, Tail> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ListContains<Head, ScopeHere>`
    |
-   | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
-   | |     Tail: ScopeContains<Table, Witness>
-   | |_______________________________________^ `ScopeContains<Table, drizzle_core::row::ScopeThere<Witness>>`
-   = note: required for `Cons<UserId, Nil>` to implement `ScopeContains<posts::Title, drizzle_core::row::ScopeThere<_>>`
-   = note: required for `Cons<UserId, Nil>` to implement `drizzle_core::row::ScopeSatisfies<Cons<posts::Title, Nil>, (drizzle_core::row::ScopeThere<_>, ())>`
+   | / impl<Head, Tail, T, Witness> ListContains<T, ScopeThere<Witness>> for Cons<Head, Tail> where
+   | |     Tail: ListContains<T, Witness>
+   | |__________________________________^ `ListContains<T, ScopeThere<Witness>>`
+   = note: required for `Cons<UserId, Nil>` to implement `ListContains<posts::Title, ScopeThere<_>>`
+   = note: required for `Cons<UserId, Nil>` to implement `ListIncludes<Cons<posts::Title, Nil>, (ScopeThere<_>, ())>`
    = note: 1 redundant requirement hidden
-   = note: required for `Cons<UserId, Nil>` to implement `drizzle_core::row::ScopeSatisfies<Cons<UserId, Cons<posts::Title, Nil>>, (drizzle_core::row::ScopeHere, (drizzle_core::row::ScopeThere<_>, ()))>`
-   = note: required for `Cons<UserId, Nil>` to implement `drizzle_core::builder::insert_select::IncludesRequired<Cons<UserId, Cons<posts::Title, Nil>>, (drizzle_core::row::ScopeHere, (drizzle_core::row::ScopeThere<_>, ()))>`
+   = note: required for `Cons<UserId, Nil>` to implement `ListIncludes<Cons<UserId, Cons<posts::Title, Nil>>, (ScopeHere, (ScopeThere<_>, ()))>`
+   = note: required for `Cons<UserId, Nil>` to implement `drizzle_core::builder::insert_select::IncludesRequired<Cons<UserId, Cons<posts::Title, Nil>>, (ScopeHere, (ScopeThere<_>, ()))>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
   --> mysql/src/builder/insert.rs
    |

@@ -73,7 +73,7 @@ with_col_sizes_128!(impl_subquery_type_tuple);
 #[cfg(feature = "col200")]
 with_col_sizes_200!(impl_subquery_type_tuple);
 
-impl<'a, V, M, Scope> SubqueryType<'a, V> for crate::row::Scoped<M, Scope>
+impl<'a, V, M, Scope, Used> SubqueryType<'a, V> for crate::row::Scoped<M, Scope, Used>
 where
     V: SQLParam + 'a,
     M: SubqueryType<'a, V>,

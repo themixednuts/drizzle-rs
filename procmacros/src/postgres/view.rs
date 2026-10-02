@@ -276,6 +276,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         ctx.struct_ident,
         ctx.struct_vis,
         &column_field_idents,
+        &format!("{view_schema}.{}", ctx.table_name),
     );
     let (column_definitions, column_zst_idents) =
         column_definitions::generate_column_definitions(&ctx)?;
@@ -393,7 +394,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
     let _sql_column_info = core_paths::sql_column_info();
     let sql_view = core_paths::sql_view();
     let sql_view_info = core_paths::sql_view_info();
-    let no_primary_key = core_paths::no_primary_key();
+    let no_primary_key = core_paths::no_constraint();
     let no_constraint = core_paths::no_constraint();
     let schema_item_tables = core_paths::schema_item_tables();
     let type_set_nil = core_paths::type_set_nil();

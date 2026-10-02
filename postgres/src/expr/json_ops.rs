@@ -11,8 +11,8 @@
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
 use crate::values::PostgresValue;
-use drizzle_core::ToSQL;
-use drizzle_core::expr::{Expr, NonNull, Null, SQLExpr, Scalar};
+use drizzle_core::expr::{AggregateKind, Expr, NonNull, Null, SQLExpr};
+use drizzle_core::scope::Arg;
 use drizzle_core::sql::{SQL, SQLChunk, Token};
 
 /// `CAST($n AS type)` around an operator argument.
@@ -40,7 +40,52 @@ fn typed_param<'a>(
     )
 }
 
-use drizzle_types::postgres::types::{Boolean, Json, Text};
+use drizzle_types::postgres::types::{Any, Boolean, Json, Jsonb, Text, Varchar};
+
+/// SQL types the JSON access operators (`->`, `->>`, `#>`, `#>>`) accept.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a PostgreSQL JSON type",
+    label = "JSON operators need a `json` or `jsonb` operand"
+)]
+pub trait JsonType {
+    /// The type `->` and `#>` return: `json` for `json`, `jsonb` for `jsonb`.
+    type Field: drizzle_types::DataType;
+}
+
+impl JsonType for Json {
+    type Field = Json;
+}
+impl JsonType for Jsonb {
+    type Field = Jsonb;
+}
+impl JsonType for Any {
+    type Field = Json;
+}
+
+/// SQL types the JSONB-only operators (`@>`, `<@`, `?`, `?|`, `?&`) accept.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not `jsonb`",
+    label = "this operator exists only for `jsonb`",
+    note = "PostgreSQL has no `@>`, `<@`, `?`, `?|` or `?&` for `json`; declare the column as `jsonb`"
+)]
+pub trait JsonbType {}
+
+impl JsonbType for Jsonb {}
+impl JsonbType for Any {}
+
+/// Right operand types of `@>` / `<@`. The operand is cast to `jsonb`, so JSON
+/// text is accepted as well.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be cast to `jsonb` for a containment check",
+    label = "expected a JSON value, JSON text, or untyped SQL"
+)]
+pub trait JsonbOperand {}
+
+impl JsonbOperand for Json {}
+impl JsonbOperand for Jsonb {}
+impl JsonbOperand for Text {}
+impl JsonbOperand for Varchar {}
+impl JsonbOperand for Any {}
 
 /// `PostgreSQL` `->` operator - get JSON object field by key, returns JSON.
 ///
@@ -54,9 +99,13 @@ use drizzle_types::postgres::types::{Boolean, Json, Text};
 /// let field = json_get(data, "name");
 /// assert!(field.to_sql().sql().contains("->"));
 /// ```
-pub fn json_get<'a, E>(expr: E, key: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar>
+pub fn json_get<'a, E>(
+    expr: E,
+    key: &'a str,
+) -> SQLExpr<'a, PostgresValue<'a>, <E::SQLType as JsonType>::Field, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -80,9 +129,10 @@ where
 pub fn json_get_idx<'a, E>(
     expr: E,
     index: i32,
-) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, <E::SQLType as JsonType>::Field, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -106,9 +156,10 @@ where
 pub fn json_get_text<'a, E>(
     expr: E,
     key: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -132,9 +183,10 @@ where
 pub fn json_get_text_idx<'a, E>(
     expr: E,
     index: i32,
-) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -158,9 +210,10 @@ where
 pub fn json_get_path<'a, E>(
     expr: E,
     path: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, <E::SQLType as JsonType>::Field, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -184,9 +237,10 @@ where
 pub fn json_get_path_text<'a, E>(
     expr: E,
     path: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, E::Aggregate, E::Sources>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -207,13 +261,23 @@ where
 /// let cond = jsonb_contains(data, r#"{"key": "value"}"#);
 /// assert!(cond.to_sql().sql().contains("@>"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_contains<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
-    R: ToSQL<'a, PostgresValue<'a>>,
+    L::SQLType: JsonbType,
+    R: Expr<'a, PostgresValue<'a>>,
+    R::SQLType: JsonbOperand,
 {
     SQLExpr::new(
         left.to_sql()
@@ -234,13 +298,23 @@ where
 /// let cond = jsonb_contained(data, r#"{"key": "value", "other": 1}"#);
 /// assert!(cond.to_sql().sql().contains("<@"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_contained<'a, L, R>(
     left: L,
     right: R,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<
+    'a,
+    PostgresValue<'a>,
+    Boolean,
+    NonNull,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (Arg<L::Nullable, L::Sources>, Arg<R::Nullable, R::Sources>),
+>
 where
     L: Expr<'a, PostgresValue<'a>>,
-    R: ToSQL<'a, PostgresValue<'a>>,
+    L::SQLType: JsonbType,
+    R: Expr<'a, PostgresValue<'a>>,
+    R::SQLType: JsonbOperand,
 {
     SQLExpr::new(
         left.to_sql()
@@ -261,12 +335,14 @@ where
 /// let cond = jsonb_exists_key(data, "name");
 /// assert!(cond.to_sql().sql().contains("?"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_exists_key<'a, E>(
     expr: E,
     key: &'a str,
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonbType,
 {
     SQLExpr::new(
         expr.to_sql()
@@ -287,12 +363,14 @@ where
 /// let cond = jsonb_exists_any(data, &["name", "email"]);
 /// assert!(cond.to_sql().sql().contains("?|"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_exists_any<'a, E>(
     expr: E,
     keys: &[&'a str],
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonbType,
 {
     let arr: Vec<PostgresValue<'a>> = keys
         .iter()
@@ -317,12 +395,14 @@ where
 /// let cond = jsonb_exists_all(data, &["name", "email"]);
 /// assert!(cond.to_sql().sql().contains("?&"));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn jsonb_exists_all<'a, E>(
     expr: E,
     keys: &[&'a str],
-) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, E::Aggregate, Arg<E::Nullable, E::Sources>>
 where
     E: Expr<'a, PostgresValue<'a>>,
+    E::SQLType: JsonbType,
 {
     let arr: Vec<PostgresValue<'a>> = keys
         .iter()
@@ -338,27 +418,78 @@ where
 /// Extension trait providing method-based JSON operators for `PostgreSQL` expressions.
 pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     /// Get JSON object field by key (`->` operator), returns JSON.
-    fn json_get(self, key: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar> {
+    fn json_get(
+        self,
+        key: &'a str,
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        <Self::SQLType as JsonType>::Field,
+        Null,
+        Self::Aggregate,
+        Self::Sources,
+    >
+    where
+        Self::SQLType: JsonType,
+    {
         json_get(self, key)
     }
 
     /// Get JSON array element by index (`->` operator), returns JSON.
-    fn json_get_idx(self, index: i32) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar> {
+    fn json_get_idx(
+        self,
+        index: i32,
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        <Self::SQLType as JsonType>::Field,
+        Null,
+        Self::Aggregate,
+        Self::Sources,
+    >
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_idx(self, index)
     }
 
     /// Get JSON object field as text (`->>` operator).
-    fn json_get_text(self, key: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar> {
+    fn json_get_text(
+        self,
+        key: &'a str,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Self::Aggregate, Self::Sources>
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_text(self, key)
     }
 
     /// Get JSON array element as text (`->>` operator).
-    fn json_get_text_idx(self, index: i32) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar> {
+    fn json_get_text_idx(
+        self,
+        index: i32,
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Self::Aggregate, Self::Sources>
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_text_idx(self, index)
     }
 
     /// Get JSON object at path (`#>` operator), returns JSON.
-    fn json_get_path(self, path: &'a str) -> SQLExpr<'a, PostgresValue<'a>, Json, Null, Scalar> {
+    fn json_get_path(
+        self,
+        path: &'a str,
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        <Self::SQLType as JsonType>::Field,
+        Null,
+        Self::Aggregate,
+        Self::Sources,
+    >
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_path(self, path)
     }
 
@@ -366,34 +497,77 @@ pub trait JsonExprExt<'a>: Expr<'a, PostgresValue<'a>> + Sized {
     fn json_get_path_text(
         self,
         path: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Scalar> {
+    ) -> SQLExpr<'a, PostgresValue<'a>, Text, Null, Self::Aggregate, Self::Sources>
+    where
+        Self::SQLType: JsonType,
+    {
         json_get_path_text(self, path)
     }
 
     /// JSONB contains (`@>` operator).
-    fn jsonb_contains<R>(self, other: R) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    #[allow(clippy::type_complexity)]
+    fn jsonb_contains<R>(
+        self,
+        other: R,
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
+    >
     where
-        R: ToSQL<'a, PostgresValue<'a>>,
+        Self::SQLType: JsonbType,
+        R: Expr<'a, PostgresValue<'a>>,
+        R::SQLType: JsonbOperand,
     {
         jsonb_contains(self, other)
     }
 
     /// JSONB is contained by (`<@` operator).
+    #[allow(clippy::type_complexity)]
     fn jsonb_contained<R>(
         self,
         other: R,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar>
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        <Self::Aggregate as AggregateKind>::Or<R::Aggregate>,
+        (
+            Arg<Self::Nullable, Self::Sources>,
+            Arg<R::Nullable, R::Sources>,
+        ),
+    >
     where
-        R: ToSQL<'a, PostgresValue<'a>>,
+        Self::SQLType: JsonbType,
+        R: Expr<'a, PostgresValue<'a>>,
+        R::SQLType: JsonbOperand,
     {
         jsonb_contained(self, other)
     }
 
     /// JSONB key exists (`?` operator).
+    #[allow(clippy::type_complexity)]
     fn jsonb_exists_key(
         self,
         key: &'a str,
-    ) -> SQLExpr<'a, PostgresValue<'a>, Boolean, NonNull, Scalar> {
+    ) -> SQLExpr<
+        'a,
+        PostgresValue<'a>,
+        Boolean,
+        NonNull,
+        Self::Aggregate,
+        Arg<Self::Nullable, Self::Sources>,
+    >
+    where
+        Self::SQLType: JsonbType,
+    {
         jsonb_exists_key(self, key)
     }
 }

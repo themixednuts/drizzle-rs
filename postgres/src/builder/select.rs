@@ -15,25 +15,33 @@ use super::ExecutableState;
 //------------------------------------------------------------------------------
 
 pub use drizzle_core::builder::{
-    AsCteState, SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet,
-    SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
+    SelectFromSet, SelectGroupSet, SelectInitial, SelectJoinSet, SelectLimitSet, SelectOffsetSet,
+    SelectOrderSet, SelectSetOpSet, SelectWhereSet,
 };
 
-/// States that accept a plain `ORDER BY`.
+/// Clause gate for SELECT methods whose names collide with INSERT/UPDATE/DELETE
+/// builder methods on the shared `QueryBuilder` type.
 ///
-/// `SelectSetOpSet` is excluded on purpose: a compound query orders by its
-/// output columns, which the dedicated `order_by` on that state renders.
-pub trait SelectOrderAllowed {}
-impl SelectOrderAllowed for SelectFromSet {}
-impl SelectOrderAllowed for SelectJoinSet {}
-impl SelectOrderAllowed for SelectWhereSet {}
-impl SelectOrderAllowed for SelectGroupSet {}
-
+/// Coherence can only rule out overlapping inherent impls through a trait
+/// local to this crate, so these clauses use this trait instead of
+/// [`drizzle_core::ClauseAllowed`].
 #[doc(hidden)]
-pub trait SelectWhereAllowed: drizzle_core::WhereAllowed {}
+#[diagnostic::on_unimplemented(
+    message = "builder state `{Self}` does not allow `{C}`",
+    label = "not available at this point of the query",
+    note = "SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET",
+    note = "only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source"
+)]
+pub trait SelectClause<C> {}
 
-impl SelectWhereAllowed for SelectFromSet {}
-impl SelectWhereAllowed for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::Where> for SelectFromSet {}
+impl SelectClause<drizzle_core::clause::Where> for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectFromSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectJoinSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectWhereSet {}
+impl SelectClause<drizzle_core::clause::OrderBy> for SelectGroupSet {}
+// `SelectSetOpSet` takes no plain ORDER BY: a compound query orders by its
+// output columns, which the dedicated `order_by` on that state renders.
 
 /// Marker for the state after FOR UPDATE/SHARE clause
 #[derive(Debug, Clone, Copy, Default)]
@@ -46,31 +54,31 @@ pub struct SelectForSet;
 #[doc(hidden)]
 macro_rules! join_impl {
     () => {
-        join_impl!(@natural natural, Join::new().natural(), drizzle_core::AfterJoin);
-        join_impl!(@natural natural_left, Join::new().natural().left(), drizzle_core::AfterLeftJoin);
-        join_impl!(left, Join::new().left(), drizzle_core::AfterLeftJoin);
-        join_impl!(left_outer, Join::new().left().outer(), drizzle_core::AfterLeftJoin);
-        join_impl!(@natural natural_left_outer, Join::new().natural().left().outer(), drizzle_core::AfterLeftJoin);
-        join_impl!(@natural natural_right, Join::new().natural().right(), drizzle_core::AfterRightJoin);
-        join_impl!(right, Join::new().right(), drizzle_core::AfterRightJoin);
-        join_impl!(right_outer, Join::new().right().outer(), drizzle_core::AfterRightJoin);
-        join_impl!(@natural natural_right_outer, Join::new().natural().right().outer(), drizzle_core::AfterRightJoin);
-        join_impl!(@natural natural_full, Join::new().natural().full(), drizzle_core::AfterFullJoin);
-        join_impl!(full, Join::new().full(), drizzle_core::AfterFullJoin);
-        join_impl!(full_outer, Join::new().full().outer(), drizzle_core::AfterFullJoin);
-        join_impl!(@natural natural_full_outer, Join::new().natural().full().outer(), drizzle_core::AfterFullJoin);
-        join_impl!(inner, Join::new().inner(), drizzle_core::AfterJoin);
+        join_impl!(@natural natural, Join::new().natural(), drizzle_core::InnerJoin);
+        join_impl!(@natural natural_left, Join::new().natural().left(), drizzle_core::LeftJoin);
+        join_impl!(left, Join::new().left(), drizzle_core::LeftJoin);
+        join_impl!(left_outer, Join::new().left().outer(), drizzle_core::LeftJoin);
+        join_impl!(@natural natural_left_outer, Join::new().natural().left().outer(), drizzle_core::LeftJoin);
+        join_impl!(@natural natural_right, Join::new().natural().right(), drizzle_core::RightJoin);
+        join_impl!(right, Join::new().right(), drizzle_core::RightJoin);
+        join_impl!(right_outer, Join::new().right().outer(), drizzle_core::RightJoin);
+        join_impl!(@natural natural_right_outer, Join::new().natural().right().outer(), drizzle_core::RightJoin);
+        join_impl!(@natural natural_full, Join::new().natural().full(), drizzle_core::FullJoin);
+        join_impl!(full, Join::new().full(), drizzle_core::FullJoin);
+        join_impl!(full_outer, Join::new().full().outer(), drizzle_core::FullJoin);
+        join_impl!(@natural natural_full_outer, Join::new().natural().full().outer(), drizzle_core::FullJoin);
+        join_impl!(inner, Join::new().inner(), drizzle_core::InnerJoin);
         // USING variants only for non-natural, non-cross joins
-        join_using_impl!(left, drizzle_core::AfterLeftJoin);
-        join_using_impl!(left_outer, drizzle_core::AfterLeftJoin);
-        join_using_impl!(right, drizzle_core::AfterRightJoin);
-        join_using_impl!(right_outer, drizzle_core::AfterRightJoin);
-        join_using_impl!(full, drizzle_core::AfterFullJoin);
-        join_using_impl!(full_outer, drizzle_core::AfterFullJoin);
-        join_using_impl!(inner, drizzle_core::AfterJoin);
+        join_using_impl!(left, drizzle_core::LeftJoin);
+        join_using_impl!(left_outer, drizzle_core::LeftJoin);
+        join_using_impl!(right, drizzle_core::RightJoin);
+        join_using_impl!(right_outer, drizzle_core::RightJoin);
+        join_using_impl!(full, drizzle_core::FullJoin);
+        join_using_impl!(full_outer, drizzle_core::FullJoin);
+        join_using_impl!(inner, drizzle_core::InnerJoin);
         join_using_impl!(); // Plain JOIN
     };
-    (@natural $type:ident, $join_expr:expr, $join_trait:path) => {
+    (@natural $type:ident, $join_expr:expr, $kind:ty) => {
         paste! {
             /// Adds a NATURAL join. The database matches the columns both
             /// sides share by name, so it takes a source and no ON condition.
@@ -78,9 +86,9 @@ macro_rules! join_impl {
             pub fn [<$type _join>]<J: crate::helpers::JoinSource<'a>>(
                 self,
                 source: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind>>::Row, G>
             where
-                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+                M: drizzle_core::JoinStep<R, J::JoinedTable, $kind>,
             {
                 use drizzle_core::{Join, ToSQL};
                 SelectBuilder {
@@ -99,15 +107,15 @@ macro_rules! join_impl {
             }
         }
     };
-    ($type:ident, $join_expr:expr, $join_trait:path) => {
+    ($type:ident, $join_expr:expr, $kind:ty) => {
         paste! {
             /// JOIN with ON clause
             pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,
-            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::ScopePush<J::JoinedTable>>::Out, <M as $join_trait<R, J::JoinedTable>>::NewRow, G>
+            ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Row, G>
             where
-                M: $join_trait<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+                M: drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>,
             {
                 use drizzle_core::Join;
                 SelectBuilder {
@@ -136,12 +144,12 @@ macro_rules! join_using_impl {
             S,
             SelectJoinSet,
             U,
-            <M as drizzle_core::ScopePush<U>>::Out,
-            <M as drizzle_core::AfterJoin<R, U>>::NewRow,
+            <M as drizzle_core::JoinStep<R, U, drizzle_core::InnerJoin>>::Marker,
+            <M as drizzle_core::JoinStep<R, U, drizzle_core::InnerJoin>>::Row,
             G,
         >
         where
-            M: drizzle_core::AfterJoin<R, U> + drizzle_core::ScopePush<U>,
+            M: drizzle_core::JoinStep<R, U, drizzle_core::InnerJoin>,
         {
             SelectBuilder {
                 sql: self.sql.append(helpers::join_using(table, columns)),
@@ -154,7 +162,7 @@ macro_rules! join_using_impl {
             }
         }
     };
-    ($type:ident, $join_trait:path) => {
+    ($type:ident, $kind:ty) => {
         paste! {
             /// JOIN with USING clause (PostgreSQL-specific)
             pub fn [<$type _join_using>]<U: PostgresTable<'a>>(
@@ -166,12 +174,12 @@ macro_rules! join_using_impl {
                 S,
                 SelectJoinSet,
                 U,
-                <M as drizzle_core::ScopePush<U>>::Out,
-                <M as $join_trait<R, U>>::NewRow,
+                <M as drizzle_core::JoinStep<R, U, $kind>>::Marker,
+                <M as drizzle_core::JoinStep<R, U, $kind>>::Row,
                 G,
             >
             where
-                M: $join_trait<R, U> + drizzle_core::ScopePush<U>,
+                M: drizzle_core::JoinStep<R, U, $kind>,
             {
                 SelectBuilder {
                     sql: self.sql.append(helpers::[<$type _join_using>](table, columns)),
@@ -192,6 +200,9 @@ macro_rules! join_using_impl {
 //------------------------------------------------------------------------------
 
 impl ExecutableState for SelectForSet {}
+// A locking SELECT still feeds a derived table or INSERT ... SELECT, but
+// cannot be a set operand.
+impl drizzle_core::ClauseAllowed<drizzle_core::clause::Source> for SelectForSet {}
 
 //------------------------------------------------------------------------------
 // SelectBuilder Definition
@@ -217,11 +228,11 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
         S,
         SelectFromSet,
         T,
-        drizzle_core::Scoped<M, drizzle_core::Cons<T, drizzle_core::Nil>>,
+        drizzle_core::FromMarker<M, T>,
         <M as drizzle_core::ResolveRow<T>>::Row,
     >
     where
-        T: ToSQL<'a, PostgresValue<'a>>,
+        T: ToSQL<'a, PostgresValue<'a>> + drizzle_core::ScopeEntry,
         M: drizzle_core::ResolveRow<T>,
     {
         SelectBuilder {
@@ -243,7 +254,7 @@ impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
 // JOIN (available from SelectFromSet and SelectJoinSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::JoinAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Join>,
 {
     /// Adds an INNER JOIN clause to the query.
     #[inline]
@@ -256,13 +267,13 @@ where
         S,
         SelectJoinSet,
         J::JoinedTable,
-        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Marker,
+        <M as drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>>::Row,
         G,
     >
     where
-        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
-    {
+        M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>,
+{
         use drizzle_core::Join;
         SelectBuilder {
             sql: self.sql.append(arg.into_join_sql(Join::new())),
@@ -291,12 +302,22 @@ where
         S,
         SelectJoinSet,
         Arg::JoinedTable,
-        <M as drizzle_core::ScopePush<Arg::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Arg::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::InnerJoin,
+            Arg::OnSources,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            Arg::JoinedTable,
+            drizzle_core::InnerJoin,
+            Arg::OnSources,
+        >>::Row,
         G,
     >
     where
-        M: drizzle_core::AfterJoin<R, Arg::JoinedTable> + drizzle_core::ScopePush<Arg::JoinedTable>,
+        M: drizzle_core::JoinStep<R, Arg::JoinedTable, drizzle_core::InnerJoin, Arg::OnSources>,
     {
         SelectBuilder {
             sql: self.sql.append(arg.into_cross_join_sql()),
@@ -320,13 +341,28 @@ where
         S,
         SelectJoinSet,
         J::JoinedTable,
-        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, J::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            J::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+            J::OnSources,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            J::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+            J::OnSources,
+        >>::Row,
         G,
     >
     where
         J: drizzle_core::LateralArg<'a, PostgresValue<'a>>,
-        M: drizzle_core::AfterJoin<R, J::JoinedTable> + drizzle_core::ScopePush<J::JoinedTable>,
+        M: drizzle_core::JoinStep<
+                R,
+                J::JoinedTable,
+                drizzle_core::Lateral<drizzle_core::InnerJoin>,
+                J::OnSources,
+            >,
     {
         use drizzle_core::Join;
         SelectBuilder {
@@ -351,15 +387,28 @@ where
         S,
         SelectJoinSet,
         J::JoinedTable,
-        <M as drizzle_core::ScopePush<J::JoinedTable>>::Out,
-        <M as drizzle_core::AfterLeftJoin<R, J::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            J::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::LeftJoin>,
+            J::OnSources,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            J::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::LeftJoin>,
+            J::OnSources,
+        >>::Row,
         G,
     >
     where
         J: drizzle_core::LateralArg<'a, PostgresValue<'a>>,
-        M: drizzle_core::AfterLeftJoin<R, J::JoinedTable>
-            + drizzle_core::ScopePush<J::JoinedTable>
-            + drizzle_core::LeftLateralSelection<SelectionProof>,
+        M: drizzle_core::JoinStep<
+                R,
+                J::JoinedTable,
+                drizzle_core::Lateral<drizzle_core::LeftJoin>,
+                J::OnSources,
+            > + drizzle_core::LeftLateralSelection<SelectionProof>,
     {
         use drizzle_core::Join;
         SelectBuilder {
@@ -384,14 +433,25 @@ where
         S,
         SelectJoinSet,
         Source::JoinedTable,
-        <M as drizzle_core::ScopePush<Source::JoinedTable>>::Out,
-        <M as drizzle_core::AfterJoin<R, Source::JoinedTable>>::NewRow,
+        <M as drizzle_core::JoinStep<
+            R,
+            Source::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+        >>::Marker,
+        <M as drizzle_core::JoinStep<
+            R,
+            Source::JoinedTable,
+            drizzle_core::Lateral<drizzle_core::InnerJoin>,
+        >>::Row,
         G,
     >
     where
         Source: drizzle_core::LateralSource<'a, PostgresValue<'a>>,
-        M: drizzle_core::AfterJoin<R, Source::JoinedTable>
-            + drizzle_core::ScopePush<Source::JoinedTable>,
+        M: drizzle_core::JoinStep<
+                R,
+                Source::JoinedTable,
+                drizzle_core::Lateral<drizzle_core::InnerJoin>,
+            >,
     {
         SelectBuilder {
             sql: self.sql.append(source.into_cross_lateral_sql()),
@@ -408,12 +468,25 @@ where
 // WHERE (available from SelectFromSet and SelectJoinSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectWhereAllowed,
+    State: SelectClause<drizzle_core::clause::Where>,
 {
     /// Adds a WHERE clause to filter query results.
     #[inline]
-    pub fn r#where<E>(self, condition: E) -> SelectBuilder<'a, S, SelectWhereSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn r#where<E>(
+        self,
+        condition: E,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectWhereSet,
+        T,
+        <M as drizzle_core::HasScope>::With<E::Sources>,
+        R,
+        G,
+    >
     where
+        M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -432,7 +505,7 @@ where
 // GROUP BY (available from SelectFromSet, SelectJoinSet, SelectWhereSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::GroupByAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy>,
 {
     /// Adds a GROUP BY clause to the query.
     ///
@@ -441,11 +514,21 @@ where
     /// functionally determines the whole row (SQL:1999, which `PostgreSQL`
     /// implements natively), so any scalar column of that table may be
     /// selected without being listed.
+    #[allow(clippy::type_complexity)]
     pub fn group_by<Gr>(
         self,
         columns: Gr,
-    ) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R, Gr::Columns>
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectGroupSet,
+        T,
+        <M as drizzle_core::HasScope>::With<Gr::Sources>,
+        R,
+        Gr::Columns,
+    >
     where
+        M: drizzle_core::HasScope,
         Gr: drizzle_core::IntoGroupBy<'a, PostgresValue<'a>>,
     {
         SelectBuilder {
@@ -463,11 +546,24 @@ where
 // HAVING (available only from SelectGroupSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::HavingAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Having>,
 {
     /// Adds a HAVING clause after GROUP BY.
-    pub fn having<E>(self, condition: E) -> SelectBuilder<'a, S, SelectGroupSet, T, M, R, G>
+    #[allow(clippy::type_complexity)]
+    pub fn having<E>(
+        self,
+        condition: E,
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectGroupSet,
+        T,
+        <M as drizzle_core::HasScope>::With<E::Sources>,
+        R,
+        G,
+    >
     where
+        M: drizzle_core::HasScope,
         E: drizzle_core::expr::Expr<'a, PostgresValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -486,16 +582,25 @@ where
 // ORDER BY (available from many states)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: SelectOrderAllowed,
+    State: SelectClause<drizzle_core::clause::OrderBy>,
 {
     /// Sorts the query results.
     #[inline]
     pub fn order_by<TOrderBy>(
         self,
         expressions: TOrderBy,
-    ) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
+    ) -> SelectBuilder<
+        'a,
+        S,
+        SelectOrderSet,
+        T,
+        <M as drizzle_core::HasScope>::With<TOrderBy::Sources>,
+        R,
+        G,
+    >
     where
-        TOrderBy: ToSQL<'a, PostgresValue<'a>>,
+        M: drizzle_core::HasScope,
+        TOrderBy: ToSQL<'a, PostgresValue<'a>> + drizzle_core::expr::ExprSources,
     {
         SelectBuilder {
             sql: self.sql.append(helpers::order_by(expressions)),
@@ -540,7 +645,7 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
 // LIMIT (available from many states)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::LimitAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Limit>,
 {
     /// Limits the number of rows returned.
     ///
@@ -570,7 +675,7 @@ where
 // OFFSET (available from SelectFromSet, SelectLimitSet, SelectSetOpSet)
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: drizzle_core::OffsetAllowed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Offset>,
 {
     /// Sets the offset for the query results.
     ///
@@ -603,18 +708,18 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     /// Names this completed projection for use as a derived table.
     ///
     /// # Panics
     ///
     /// Panics when the projection contains duplicate output names. Name a
-    /// computed expression with [`drizzle_core::expr::NamedExt::named`] to
+    /// computed expression with [`drizzle_core::expr::AliasExt::named`] to
     /// make each output unique.
     #[inline]
     #[must_use]
-    pub fn alias<Tag, ScopeProof, AggProof>(
+    pub fn alias<Tag, AggProof>(
         self,
         _tag: Tag,
     ) -> drizzle_core::Derived<
@@ -632,7 +737,6 @@ where
     where
         Tag: drizzle_core::Tag,
         M: drizzle_core::DerivedSelection<'a, PostgresValue<'a>, PostgresSchemaType, T>
-            + drizzle_core::row::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::row::MarkerAggValidFor<G, AggProof>,
         <M as drizzle_core::DerivedSelection<
             'a,
@@ -641,15 +745,16 @@ where
             T,
         >>::Projection: drizzle_core::DerivedProjection<Tag>,
 {
-        // SAFETY: The executable-state, scope, aggregate, and projection
-        // bounds above prove that this query matches the derived projection.
+        // SAFETY: The executable-state, aggregate, and projection bounds
+        // above prove that this query matches the derived projection; its
+        // scope travels in `Self`'s sources and is checked where it is used.
         unsafe { drizzle_core::Derived::new_unchecked(self) }
     }
 }
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: AsCteState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
     T: SQLTable<'a, PostgresSchemaType, PostgresValue<'a>>,
 {
     /// Converts this SELECT query into a typed CTE using alias tag name.
@@ -677,13 +782,17 @@ where
 
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ExecutableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>,
 {
     /// Combines this query with another using UNION.
-    pub fn union(
+    #[allow(clippy::type_complexity)]
+    pub fn union<M2>(
         self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+        other: impl IntoSelect<'a, S, M2, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R, G>
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         SelectBuilder {
             sql: helpers::union(self.sql, other.into_select()),
             schema: PhantomData,
@@ -696,10 +805,14 @@ where
     }
 
     /// Combines this query with another using UNION ALL.
-    pub fn union_all(
+    #[allow(clippy::type_complexity)]
+    pub fn union_all<M2>(
         self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+        other: impl IntoSelect<'a, S, M2, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R, G>
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         SelectBuilder {
             sql: helpers::union_all(self.sql, other.into_select()),
             schema: PhantomData,
@@ -712,10 +825,14 @@ where
     }
 
     /// Combines this query with another using INTERSECT.
-    pub fn intersect(
+    #[allow(clippy::type_complexity)]
+    pub fn intersect<M2>(
         self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+        other: impl IntoSelect<'a, S, M2, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R, G>
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         SelectBuilder {
             sql: helpers::intersect(self.sql, other.into_select()),
             schema: PhantomData,
@@ -728,10 +845,14 @@ where
     }
 
     /// Combines this query with another using INTERSECT ALL.
-    pub fn intersect_all(
+    #[allow(clippy::type_complexity)]
+    pub fn intersect_all<M2>(
         self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+        other: impl IntoSelect<'a, S, M2, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R, G>
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         SelectBuilder {
             sql: helpers::intersect_all(self.sql, other.into_select()),
             schema: PhantomData,
@@ -744,10 +865,14 @@ where
     }
 
     /// Combines this query with another using EXCEPT.
-    pub fn except(
+    #[allow(clippy::type_complexity)]
+    pub fn except<M2>(
         self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+        other: impl IntoSelect<'a, S, M2, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R, G>
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         SelectBuilder {
             sql: helpers::except(self.sql, other.into_select()),
             schema: PhantomData,
@@ -760,10 +885,14 @@ where
     }
 
     /// Combines this query with another using EXCEPT ALL.
-    pub fn except_all(
+    #[allow(clippy::type_complexity)]
+    pub fn except_all<M2>(
         self,
-        other: impl IntoSelect<'a, S, M, R>,
-    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+        other: impl IntoSelect<'a, S, M2, R>,
+    ) -> SelectBuilder<'a, S, SelectSetOpSet, T, <M as drizzle_core::SetOperand<M2>>::Combined, R, G>
+    where
+        M: drizzle_core::SetOperand<M2>,
+    {
         SelectBuilder {
             sql: helpers::except_all(self.sql, other.into_select()),
             schema: PhantomData,
@@ -783,12 +912,25 @@ where
 impl<'a, S, State, T, M, R, G> drizzle_core::expr::Expr<'a, PostgresValue<'a>>
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ExecutableState,
-    M: drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>>,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
+    M: drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>> + drizzle_core::SelectSources,
 {
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>>>::SQLType;
     type Nullable = drizzle_core::expr::Null;
     type Aggregate = drizzle_core::expr::Scalar;
+}
+
+impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>
+    drizzle_core::expr::SelectQuery for SelectBuilder<'_, S, State, T, M, R, G>
+{
+}
+
+impl<S, State, T, M, R, G> drizzle_core::expr::ExprSources
+    for SelectBuilder<'_, S, State, T, M, R, G>
+where
+    M: drizzle_core::SelectSources,
+{
+    type Sources = M::Sources;
 }
 
 //------------------------------------------------------------------------------
@@ -798,13 +940,13 @@ where
 /// Conversion trait for types that can become a `SelectBuilder`.
 /// Used by set operations to accept both raw `SelectBuilder` and `DrizzleBuilder`.
 pub trait IntoSelect<'a, S, M, R> {
-    type State: ExecutableState;
+    type State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>;
     type Table;
     fn into_select(self) -> SelectBuilder<'a, S, Self::State, Self::Table, M, R>;
 }
 
-impl<'a, S, State: ExecutableState, T, M, R, G> IntoSelect<'a, S, M, R>
-    for SelectBuilder<'a, S, State, T, M, R, G>
+impl<'a, S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>, T, M, R, G>
+    IntoSelect<'a, S, M, R> for SelectBuilder<'a, S, State, T, M, R, G>
 {
     type State = State;
     type Table = T;
@@ -822,23 +964,7 @@ impl<'a, S, State: ExecutableState, T, M, R, G> IntoSelect<'a, S, M, R>
 }
 
 mod insert_select_private {
-    use super::{
-        SelectForSet, SelectFromSet, SelectGroupSet, SelectJoinSet, SelectLimitSet,
-        SelectOffsetSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet,
-    };
-
     pub trait Sealed {}
-    pub trait Completed: super::ExecutableState {}
-
-    impl Completed for SelectFromSet {}
-    impl Completed for SelectJoinSet {}
-    impl Completed for SelectWhereSet {}
-    impl Completed for SelectGroupSet {}
-    impl Completed for SelectOrderSet {}
-    impl Completed for SelectLimitSet {}
-    impl Completed for SelectOffsetSet {}
-    impl Completed for SelectSetOpSet {}
-    impl Completed for SelectForSet {}
 }
 
 /// A completed SELECT that can supply rows to an INSERT.
@@ -863,13 +989,13 @@ pub trait IntoSelectQuery<'a, S, R> {
 impl<'a, S, State, T, M, R, G> insert_select_private::Sealed
     for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: insert_select_private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
 }
 
 impl<'a, S, State, T, M, R, G> CompletedSelect<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: insert_select_private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     type Marker = M;
     type Grouped = G;
@@ -881,7 +1007,7 @@ where
 
 impl<'a, S, State, T, M, R, G> IntoSelectQuery<'a, S, R> for SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: insert_select_private::Completed,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
     type Marker = M;
     type Grouped = G;
@@ -896,20 +1022,9 @@ where
 // FOR UPDATE/SHARE Row Locking (PostgreSQL-specific)
 //------------------------------------------------------------------------------
 
-/// Trait for states that can have FOR UPDATE/SHARE clauses applied.
-pub trait ForLockableState {}
-
-impl ForLockableState for SelectFromSet {}
-impl ForLockableState for SelectWhereSet {}
-impl ForLockableState for SelectOrderSet {}
-impl ForLockableState for SelectLimitSet {}
-impl ForLockableState for SelectOffsetSet {}
-impl ForLockableState for SelectJoinSet {}
-impl ForLockableState for SelectGroupSet {}
-
 impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
-    State: ForLockableState,
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
 {
     /// Adds FOR UPDATE clause to lock selected rows for update.
     #[must_use]

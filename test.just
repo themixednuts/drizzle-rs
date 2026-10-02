@@ -50,6 +50,7 @@ mysql-sync *ARGS:
     cargo test -p drizzle --no-default-features --features mysql-sync {{ARGS}}
     cargo test -p drizzle --no-default-features --features mysql-sync,serde --test compile_fail mysql_macros_ui
     cargo test -p drizzle --no-default-features --features mysql-sync,serde --test compile_fail mysql_builder_ui
+    cargo test -p drizzle --no-default-features --features mysql-sync,serde --test compile_fail query_scope_mysql_ui
     cargo test -p drizzle --no-default-features --features "mysql-sync,{{_mysql-ext}}" {{ARGS}}
     cargo test -p drizzle-cli --no-default-features --features mysql-sync --test parity_integration {{ARGS}}
 
@@ -82,6 +83,7 @@ sqlite-matrix:
     cargo test --workspace --exclude bench-runner --features rusqlite
     cargo test -p drizzle --no-default-features --features std,sqlite,serde --test compile_fail insert_select_sqlite_ui
     cargo test -p drizzle --features "rusqlite,uuid,serde" --test compile_fail strict_decode_ui
+    cargo test -p drizzle --features "rusqlite,uuid,serde" --test compile_fail query_scope_sqlite_ui
     cargo test --workspace --exclude bench-runner --features "rusqlite,{{_sqlite-ext}}"
     # libsql: bare then full
     cargo test --workspace --exclude bench-runner --features libsql
@@ -99,6 +101,7 @@ pg-matrix:
     # postgres-sync: bare then full
     cargo test --workspace --exclude bench-runner --features postgres-sync
     cargo test -p drizzle --no-default-features --features std,postgres,serde --test compile_fail insert_select_postgres_ui
+    cargo test -p drizzle --no-default-features --features std,postgres-sync,serde --test compile_fail query_scope_postgres_ui
     cargo test --workspace --exclude bench-runner --features "postgres-sync,{{_pg-ext}}"
     # tokio-postgres: bare then full
     cargo test --workspace --exclude bench-runner --features tokio-postgres

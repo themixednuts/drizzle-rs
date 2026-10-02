@@ -10,6 +10,19 @@ pub mod postgres;
 #[macro_use]
 pub mod mysql;
 
+/// Maps a relational query runner to the detached prepared-query driver marker.
+///
+/// Each dialect implements it for `&Drizzle<Conn, _>` (mapping to `Conn`) and
+/// for its transaction references (mapping to that driver's connection type),
+/// so a query prepared inside a transaction produces the same prepared query,
+/// with the same SQL shape and executors, as one prepared on the database
+/// handle.
+#[cfg(feature = "query")]
+pub trait RelationalPreparedDriver {
+    /// Connection type the prepared query will execute against.
+    type PreparedDriver;
+}
+
 #[macro_export]
 macro_rules! drizzle_prepare_impl {
     () => {

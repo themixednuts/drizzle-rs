@@ -7,5 +7,5 @@ fn main() {
         .when(gt(count(()), 5i64), 1)
         .r#else(0);
 
-    let _: SQLExpr<'_, PostgresValue, _, _, Scalar> = expr.over(window());
+    let _: SQLExpr<'_, PostgresValue, _, _, Scalar, _> = expr.over(window());
 }

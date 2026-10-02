@@ -112,6 +112,11 @@ impl<T> Json<T> {
     }
 }
 
+/// A JSON value is a literal: it reads no source.
+impl<T> crate::expr::ExprSources for Json<T> {
+    type Sources = ();
+}
+
 impl<T> From<T> for Json<T> {
     #[inline]
     fn from(value: T) -> Self {
@@ -357,7 +362,7 @@ impl<T: DataType, N: Nullability> JsonColumnOperand for TypedPlaceholder<T, N> {
 
 impl<C> JsonColumnOperand for Excluded<C> {}
 
-impl<V, T, N, A> JsonColumnOperand for SQLExpr<'_, V, T, N, A>
+impl<V, T, N, A, S> JsonColumnOperand for SQLExpr<'_, V, T, N, A, S>
 where
     V: SQLParam,
     T: DataType,

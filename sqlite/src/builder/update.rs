@@ -323,8 +323,11 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     ///     .r#where(and(gt(user.id, 10), eq(user.age, 25)));
     /// ```
     #[inline]
-    pub fn r#where<E>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
+    pub fn r#where<E, ScopeProof>(self, condition: E) -> UpdateBuilder<'a, S, UpdateWhereSet, T>
     where
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -342,8 +345,14 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 
     /// Adds a RETURNING clause and transitions to the `ReturningSet` state
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(
+        self,
+        columns: Columns,
+    ) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
@@ -367,8 +376,14 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateWhereSet, T> {
     /// Adds a RETURNING clause after WHERE
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(
+        self,
+        columns: Columns,
+    ) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {

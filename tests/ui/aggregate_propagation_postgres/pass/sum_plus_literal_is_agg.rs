@@ -12,8 +12,8 @@ fn main() {
     let item = Item::default();
 
     // sum(price) + 5 should preserve Agg
-    let expr: SQLExpr<'_, PostgresValue, _, _, Agg> = sum(item.price) + 5;
+    let expr: SQLExpr<'_, PostgresValue, _, _, Agg, _> = sum(item.price) + 5;
 
     // Verify .over() converts Agg → Scalar
-    let _: SQLExpr<'_, PostgresValue, _, _, Scalar> = expr.over(window());
+    let _: SQLExpr<'_, PostgresValue, _, _, Scalar, _> = expr.over(window());
 }

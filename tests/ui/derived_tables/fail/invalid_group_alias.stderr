@@ -1,18 +1,18 @@
-error[E0277]: the trait bound `Cons<Email, Nil>: ScopeContains<Name, ScopeHere>` is not satisfied
+error[E0277]: the trait bound `Cons<Email, Nil>: ListContains<Name, ScopeHere>` is not satisfied
   --> tests/ui/derived_tables/fail/invalid_group_alias.rs:23:27
    |
 23 |     require_valid_group::<InvalidGroupedSelection>();
-   |                           ^^^^^^^^^^^^^^^^^^^^^^^ the trait `ScopeContains<Name, ScopeHere>` is not implemented for `Cons<Email, Nil>`
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^ the trait `ListContains<Name, ScopeHere>` is not implemented for `Cons<Email, Nil>`
    |
-help: `Cons<Head, Tail>` implements trait `ScopeContains<Table, Witness>`
-  --> core/src/row/mod.rs
+help: `Cons<Head, Tail>` implements trait `ListContains<T, Witness>`
+  --> core/src/scope.rs
    |
-   |   impl<Head, Tail> ScopeContains<Head, ScopeHere> for Cons<Head, Tail> {}
-   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ScopeContains<Head, ScopeHere>`
+   |   impl<Head, Tail> ListContains<Head, ScopeHere> for Cons<Head, Tail> {}
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ListContains<Head, ScopeHere>`
    |
-   | / impl<Head, Tail, Table, Witness> ScopeContains<Table, ScopeThere<Witness>> for Cons<Head, Tail> where
-   | |     Tail: ScopeContains<Table, Witness>
-   | |_______________________________________^ `ScopeContains<Table, ScopeThere<Witness>>`
+   | / impl<Head, Tail, T, Witness> ListContains<T, ScopeThere<Witness>> for Cons<Head, Tail> where
+   | |     Tail: ListContains<T, Witness>
+   | |__________________________________^ `ListContains<T, ScopeThere<Witness>>`
    = note: required for `Name` to implement `SingleColGroupCheck<Cons<Email, Nil>, ScalarCheck<ScopeHere>>`
    = note: required for `(Name,)` to implement `ScalarColumnsIn<Cons<Email, Nil>, (ScalarCheck<ScopeHere>,)>`
    = note: required for `Scoped<SelectCols<(Name,)>, Cons<Users, Nil>>` to implement `MarkerAggValidFor<Cons<Email, Nil>, (ScalarCheck<ScopeHere>,)>`

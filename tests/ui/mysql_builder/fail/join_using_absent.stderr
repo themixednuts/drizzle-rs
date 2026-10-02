@@ -16,10 +16,10 @@ help: there is a method `left_join` with a similar name, but with different argu
    | |             arg: J,
    | |         ) -> SelectBuilder<
 ...  |
-   | |             M: drizzle_core::$row_trait<R, J::JoinedTable>
-   | |                 + drizzle_core::ScopePush<J::JoinedTable>,
-   | |__________________________________________________________^
+   | |         where
+   | |             M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::$kind, J::OnSources>,
+   | |____________________________________________________________________________________________^
 ...
-   |       join_on_method!(left_join, drizzle_core::Join::new().left(), AfterLeftJoin);
-   |       --------------------------------------------------------------------------- in this macro invocation
+   |       join_on_method!(left_join, drizzle_core::Join::new().left(), LeftJoin);
+   |       ---------------------------------------------------------------------- in this macro invocation
    = note: this error originates in the macro `join_on_method` (in Nightly builds, run with -Z macro-backtrace for more info)

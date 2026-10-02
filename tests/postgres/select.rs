@@ -489,7 +489,7 @@ fn select_with_multiple_order_by(db: &mut TestDb<ComplexSchema>) {
     let stmt = db
         .select((complex.id, complex.name, complex.email, complex.age))
         .from(complex)
-        .order_by([desc(complex.age), asc(complex.name)]);
+        .order_by((desc(complex.age), asc(complex.name)));
 
     let results: Vec<PgComplexResult> = stmt.all();
     assert_eq!(results.len(), 3);

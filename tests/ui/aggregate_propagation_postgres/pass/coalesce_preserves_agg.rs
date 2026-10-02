@@ -12,6 +12,6 @@ fn main() {
     let item = Item::default();
 
     // coalesce(sum(price), 0) preserves Agg
-    let _: SQLExpr<'_, PostgresValue, _, _, Scalar> =
+    let _: SQLExpr<'_, PostgresValue, _, _, Scalar, _> =
         coalesce(sum(item.price), 0).over(window());
 }

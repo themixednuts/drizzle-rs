@@ -634,7 +634,6 @@ fn mysql_fk_sql_type_validation(source: &TokenStream, target: &TokenStream) -> T
 
 fn generate_mysql_constraint_capabilities(ctx: &MacroContext, has_check: bool) -> TokenStream {
     let table = ctx.struct_ident;
-    let has_primary_key = core_paths::has_primary_key();
     let has_constraint = core_paths::has_constraint();
     let primary_key_kind = core_paths::primary_key_kind();
     let foreign_key_kind = core_paths::foreign_key_kind();
@@ -655,7 +654,6 @@ fn generate_mysql_constraint_capabilities(ctx: &MacroContext, has_check: bool) -
 
     let primary_impl = primary.then(|| {
         quote! {
-            impl #has_primary_key for #table {}
             impl #has_constraint<#primary_key_kind> for #table {}
         }
     });

@@ -1,0 +1,27 @@
+error[E0277]: a field read from the nullable side of an outer join must be an `Option`
+  --> tests/ui/query_scope_mysql/fail/left_join_from_row_requires_option.rs:45:10
+   |
+45 |         .all();
+   |          ^^^ LEFT/RIGHT/FULL JOIN can return NULL for every column of this table
+   |
+   = note: change the field type to `Option<_>`, or use an inner join
+help: the trait `drizzle_core::row::FieldsAcceptNullability<drizzle::core::expr::Null>` is not implemented for `Cons<std::string::String, Nil>`
+      but it is implemented for `Cons<std::option::Option<_>, _>`
+  --> core/src/row/mod.rs
+   |
+   | / impl<T, Tail> FieldsAcceptNullability<crate::expr::Null> for Cons<Option<T>, Tail> where
+   | |     Tail: FieldsAcceptNullability<crate::expr::Null>
+   | |____________________________________________________^
+   = help: for that trait implementation, expected `std::option::Option<_>`, found `std::string::String`
+   = note: required for `Cons<TableFields<Posts, Cons<std::string::String, Nil>>, Nil>` to implement `drizzle_core::row::TableFieldsIn<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (ScopeFound, ())>`
+   = note: 1 redundant requirement hidden
+   = note: required for `Cons<TableFields<Users, Cons<std::string::String, Nil>>, Cons<TableFields<Posts, Cons<std::string::String, Nil>>, Nil>>` to implement `drizzle_core::row::TableFieldsIn<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (ScopeFound, (ScopeFound, ()))>`
+   = note: required for `Scoped<SelectAs<UserPost>, Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (((), ()), At<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, ((drizzle::core::expr::NonNull, Src<Posts>), (drizzle::core::expr::NonNull, Src<Users>))>)>` to implement `MarkerScopeValidFor<((((), ()), (((), ScopeFound), ((), ScopeFound))), (ScopeFound, (ScopeFound, ())))>`
+note: required by a bound in `drizzle::builder::mysql::mysql_sync::<impl drizzle::builder::mysql::common::DrizzleBuilder<'db, &'db mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/mysql/mysql_sync/mod.rs
+   |
+   |     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + MarkerScopeValidFor<ScopeProof>
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::mysql::mysql_sync::<impl DrizzleBuilder<'db, &mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

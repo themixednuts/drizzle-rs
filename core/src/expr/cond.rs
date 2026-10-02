@@ -46,7 +46,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::BooleanLike;
 
-use super::{AggOr, AggregateKind, Expr, NullOr, Nullability, SQLExpr};
+use super::{AggregateKind, Expr, Nullability, SQLExpr};
 
 /// Rendered SQL for a conjunction whose elements are all absent.
 const EMPTY_CONJUNCTION: &str = "TRUE";
@@ -124,7 +124,7 @@ impl<'a, V: SQLParam + 'a> ConditionSink<'a, V> {
     label = "expected a tuple of boolean expressions",
     note = "every element must be a boolean-typed expression, or an `Option` of one"
 )]
-pub trait ConditionList<'a, V: SQLParam>: sealed::Sealed {
+pub trait ConditionList<'a, V: SQLParam>: sealed::Sealed + super::ExprSources {
     /// Nullability folded across every element.
     type Nullable: Nullability;
 
@@ -186,7 +186,7 @@ where
 #[allow(clippy::type_complexity)]
 pub fn all<'a, V, L>(
     conditions: L,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, L::Nullable, L::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, L::Nullable, L::Aggregate, L::Sources>
 where
     V: SQLParam + 'a,
     L: ConditionList<'a, V>,
@@ -213,7 +213,7 @@ where
 #[allow(clippy::type_complexity)]
 pub fn any<'a, V, L>(
     conditions: L,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, L::Nullable, L::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, L::Nullable, L::Aggregate, L::Sources>
 where
     V: SQLParam + 'a,
     L: ConditionList<'a, V>,
@@ -259,15 +259,9 @@ macro_rules! impl_condition_many {
             $($all: Expr<'a, V>,)+
             <$last as Expr<'a, V>>::SQLType: BooleanLike,
             ($($prev,)+): ConditionList<'a, V>,
-            <($($prev,)+) as ConditionList<'a, V>>::Nullable:
-                NullOr<<$last as Expr<'a, V>>::Nullable>,
-            <($($prev,)+) as ConditionList<'a, V>>::Aggregate:
-                AggOr<<$last as Expr<'a, V>>::Aggregate>,
         {
-            type Nullable = <<($($prev,)+) as ConditionList<'a, V>>::Nullable
-                as NullOr<<$last as Expr<'a, V>>::Nullable>>::Output;
-            type Aggregate = <<($($prev,)+) as ConditionList<'a, V>>::Aggregate
-                as AggOr<<$last as Expr<'a, V>>::Aggregate>>::Output;
+            type Nullable = <<($($prev,)+) as ConditionList<'a, V>>::Nullable as Nullability>::Or<<$last as Expr<'a, V>>::Nullable>;
+            type Aggregate = <<($($prev,)+) as ConditionList<'a, V>>::Aggregate as AggregateKind>::Or<<$last as Expr<'a, V>>::Aggregate>;
 
             fn push_conditions(self, sink: &mut ConditionSink<'a, V>) {
                 $( sink.push(self.$i.into_condition_sql()); )+

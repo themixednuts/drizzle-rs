@@ -1,22 +1,27 @@
-error[E0277]: GROUP_CONCAT is not available for this dialect
+error[E0277]: `GroupConcat` is not available for `PostgresDialect`
  --> tests/ui/aggregate_types_postgres/fail/group_concat_requires_sqlite.rs:5:13
   |
 5 |     let _ = group_concat(raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'x'"));
-  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ use the dialect's native string aggregate
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this function is not supported by this dialect
   |
-  = help: the trait `GroupConcatSupport` is not implemented for `PostgresDialect`
-help: the following other types implement trait `GroupConcatSupport`
- --> core/src/expr/agg.rs
-  |
-  | impl GroupConcatSupport for SQLiteDialect {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `SQLiteDialect`
-  | impl GroupConcatSupport for MySQLDialect {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `MySQLDialect`
+  = help: the trait `DialectSupports<GroupConcat>` is not implemented for `PostgresDialect`
+  = note: use a dialect-specific alternative
+  = help: `PostgresDialect` implements trait `DialectSupports<Feature>`:
+            DialectSupports<AggregateFilter>
+            DialectSupports<LeftRight>
+            DialectSupports<Pad>
+            DialectSupports<PostgresAggregate>
+            DialectSupports<PostgresDateTime>
+            DialectSupports<PostgresString>
+            DialectSupports<drizzle::core::dialect::feature::Excluded>
+            DialectSupports<drizzle::core::dialect::feature::Repeat>
+            DialectSupports<drizzle::core::dialect::feature::Reverse>
+            DialectSupports<drizzle::core::dialect::feature::Sequence>
 note: required by a bound in `group_concat`
  --> core/src/expr/agg.rs
   |
   | pub fn group_concat<'a, V, E>(
   |        ------------ required by a bound in this function
 ...
-  |     V::DialectMarker: GroupConcatSupport,
-  |                       ^^^^^^^^^^^^^^^^^^ required by this bound in `group_concat`
+  |     V::DialectMarker: DialectSupports<feature::GroupConcat>,
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `group_concat`

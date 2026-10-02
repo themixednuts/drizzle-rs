@@ -186,7 +186,7 @@ where
         Table: InsertSelectTable,
         Q: IntoSelectQuery<'a, Schema, R>,
         Q::Marker: InsertSelectCompatible<'a, SQLiteValue<'a>, Table, R>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         let select = query.into_select_query().into_select_sql();
@@ -239,7 +239,7 @@ where
         Targets: drizzle_core::IncludesRequired<Table::RequiredColumns, RequiredProof>,
         Q: IntoSelectQuery<'a, Schema, R>,
         Q::Marker: PartialInsertSelectCompatible<'a, SQLiteValue<'a>, Targets>
-            + drizzle_core::InsertSourceInScope<ScopeProof>
+            + drizzle_core::MarkerScopeValidFor<ScopeProof>
             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
     {
         let select = query.into_select_query().into_select_sql();
@@ -380,8 +380,14 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 
     /// Adds a RETURNING clause and transitions to `ReturningSet` state
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(
+        self,
+        columns: Columns,
+    ) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
@@ -405,8 +411,14 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
 impl<'a, S, T> InsertBuilder<'a, S, InsertOnConflictSet, T> {
     /// Adds a RETURNING clause after ON CONFLICT
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(
+        self,
+        columns: Columns,
+    ) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {
@@ -431,8 +443,14 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
     /// Adds a WHERE clause to the DO UPDATE SET clause.
     ///
     /// Generates: `ON CONFLICT (col) DO UPDATE SET ... WHERE condition`
-    pub fn r#where<E>(self, condition: E) -> InsertBuilder<'a, S, InsertOnConflictSet, T>
+    pub fn r#where<E, ScopeProof>(
+        self,
+        condition: E,
+    ) -> InsertBuilder<'a, S, InsertOnConflictSet, T>
     where
+        E: drizzle_core::expr::ExprSources,
+        E::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         E: drizzle_core::expr::Expr<'a, SQLiteValue<'a>>,
         E::SQLType: drizzle_core::types::BooleanLike,
     {
@@ -453,8 +471,14 @@ impl<'a, S, T> InsertBuilder<'a, S, InsertDoUpdateSet, T> {
 
     /// Adds a RETURNING clause after DO UPDATE SET
     #[inline]
-    pub fn returning<Columns>(self, columns: Columns) -> ReturningBuilder<'a, S, T, Columns>
+    pub fn returning<Columns, ScopeProof>(
+        self,
+        columns: Columns,
+    ) -> ReturningBuilder<'a, S, T, Columns>
     where
+        Columns: drizzle_core::expr::ExprSources,
+        Columns::Sources:
+            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
         Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
         Columns::Marker: drizzle_core::ResolveRow<T>,
     {

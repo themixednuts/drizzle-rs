@@ -135,11 +135,32 @@ fn visibility_one_level_down(vis: &syn::Visibility) -> TokenStream {
 /// inside are as visible as the table (see [`visibility_one_level_down`]).
 /// The insert markers are `pub`: the insert model is always `pub` and names
 /// them in its default type parameter, and they name nothing private.
+/// Type-level SQL name used to compare scope entries (see `drizzle_core::scope`).
+fn sql_name_key(sql_identity: &str) -> TokenStream {
+    const NIBBLES: [&str; 16] = [
+        "H0", "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "HA", "HB", "HC", "HD", "HE",
+        "HF",
+    ];
+    sql_identity
+        .bytes()
+        .flat_map(|byte| [byte >> 4, byte & 0x0f])
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .fold(quote!(drizzle::core::Nil), |tail, nibble| {
+            let nibble = quote::format_ident!("{}", NIBBLES[usize::from(nibble)]);
+            quote!(drizzle::core::Cons<drizzle::core::scope::name::#nibble, #tail>)
+        })
+}
+
+/// `sql_identity` is the table's SQL name, schema-qualified when it has one.
 pub fn generate_columns_module(
     table: &Ident,
     vis: &syn::Visibility,
     fields: &[&Ident],
+    sql_identity: &str,
 ) -> TokenStream {
+    let name_key = sql_name_key(sql_identity);
     let module = columns_module(table);
     let doc = format!(" Column types of `{table}`.");
     let item_vis = visibility_one_level_down(vis);
@@ -152,9 +173,44 @@ pub fn generate_columns_module(
             #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
             #item_vis struct #column;
 
-            #[derive(Debug, Clone, Copy, Default, PartialOrd, Ord, Eq, PartialEq, Hash)]
-            #item_vis struct #aliased {
+            /// A column of an aliased source, tagged with the alias type.
+            #item_vis struct #aliased<Tag> {
                 pub(super) alias: &'static str,
+                pub(super) _tag: ::core::marker::PhantomData<fn() -> Tag>,
+            }
+
+            impl<Tag> ::core::clone::Clone for #aliased<Tag> {
+                fn clone(&self) -> Self {
+                    *self
+                }
+            }
+
+            impl<Tag> ::core::marker::Copy for #aliased<Tag> {}
+
+            impl<Tag> ::core::default::Default for #aliased<Tag> {
+                fn default() -> Self {
+                    Self { alias: "", _tag: ::core::marker::PhantomData }
+                }
+            }
+
+            impl<Tag> ::core::fmt::Debug for #aliased<Tag> {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    f.debug_struct(stringify!(#aliased)).field("alias", &self.alias).finish()
+                }
+            }
+
+            impl<Tag> ::core::cmp::PartialEq for #aliased<Tag> {
+                fn eq(&self, other: &Self) -> bool {
+                    self.alias == other.alias
+                }
+            }
+
+            impl<Tag> ::core::cmp::Eq for #aliased<Tag> {}
+
+            impl<Tag> ::core::hash::Hash for #aliased<Tag> {
+                fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
+                    self.alias.hash(state);
+                }
             }
 
             pub struct #set;
@@ -166,6 +222,18 @@ pub fn generate_columns_module(
         #[allow(non_camel_case_types, dead_code)]
         #vis mod #module {
             #(#items)*
+        }
+
+        // A table or view used as an expression (`returning(table)`) reads itself.
+        impl drizzle::core::expr::ExprSources for #table {
+            type Sources = drizzle::core::Src<Self>;
+        }
+
+        // Scope entries for tables and views compare by SQL name.
+        impl drizzle::core::ScopeEntry for #table {
+            type Key = drizzle::core::scope::TableKey<#name_key, Self>;
+            type Nullable = drizzle::core::expr::NonNull;
+            type Sources = ();
         }
     }
 }

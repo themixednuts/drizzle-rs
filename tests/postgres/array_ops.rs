@@ -1,95 +1,104 @@
 //! PostgreSQL array operator tests
 //!
-//! Tests for PostgreSQL-specific array operators (@>, <@, &&).
+//! Tests for PostgreSQL-specific array operators (@>, <@, &&), executed
+//! against `text[]` and `int4[]` columns.
 
 #![cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 
-use crate::common::schema::postgres::*;
-use drizzle::postgres::expr::{array_contained, array_contains, array_overlaps};
+use drizzle::core::expr::count;
+use drizzle::postgres::expr::{PgArray, array_contained, array_contains, array_overlaps};
 use drizzle::postgres::prelude::*;
 
-// Test SQL generation for array_contains (@>) operator
-#[drizzle::test]
-fn array_contains_sql_generation(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    // Note: This test verifies SQL generation. The simple.name column is TEXT,
-    // not an array type, but the SQL generation should still work correctly.
-    // In production, this would be used with actual TEXT[] columns.
-    let stmt = db
-        .select(())
-        .from(simple)
-        .r#where(array_contains(simple.name, "test"));
-
-    let sql = stmt.to_sql().sql();
-
-    // Verify the @> operator is present in the generated SQL
-    assert!(sql.contains("@>"), "Expected @> operator in SQL: {}", sql);
+#[PostgresTable(NAME = "pg_array_ops_posts")]
+struct ArrayPost {
+    #[column(serial, primary)]
+    id: i32,
+    tags: Vec<String>,
+    scores: Vec<i32>,
 }
 
-// Test SQL generation for array_contained (<@) operator
-#[drizzle::test]
-fn array_contained_sql_generation(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    let stmt = db
-        .select(())
-        .from(simple)
-        .r#where(array_contained(simple.name, "test"));
-
-    let sql = stmt.to_sql().sql();
-
-    // Verify the <@ operator is present in the generated SQL
-    assert!(sql.contains("<@"), "Expected <@ operator in SQL: {}", sql);
+#[derive(PostgresSchema)]
+struct ArrayPostSchema {
+    posts: ArrayPost,
 }
 
-// Test SQL generation for array_overlaps (&&) operator
-#[drizzle::test]
-fn array_overlaps_sql_generation(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-
-    let stmt = db
-        .select(())
-        .from(simple)
-        .r#where(array_overlaps(simple.name, "test"));
-
-    let sql = stmt.to_sql().sql();
-
-    // Verify the && operator is present in the generated SQL
-    assert!(sql.contains("&&"), "Expected && operator in SQL: {}", sql);
+macro_rules! seed {
+    ($db:expr, $posts:expr) => {
+        $db.insert($posts).values([
+            InsertArrayPost::new(vec!["rust".to_string(), "sql".to_string()], vec![1, 2, 3]),
+            InsertArrayPost::new(vec!["python".to_string()], vec![4]),
+        ])
+    };
 }
 
-// Test that array operators work with method syntax via ArrayExprExt trait
 #[drizzle::test]
-fn array_ops_method_syntax(db: &mut TestDb<SimpleSchema>) {
+fn array_contains_matches_rows(db: &mut TestDb<ArrayPostSchema>) {
+    let ArrayPostSchema { posts } = schema;
+    seed!(db, posts).execute();
+
+    let stmt = db
+        .select(count(posts.id))
+        .from(posts)
+        .r#where(array_contains(posts.tags, PgArray(vec!["rust"])));
+    assert!(stmt.to_sql().sql().contains("@>"));
+    let n: i64 = stmt.get();
+    assert_eq!(n, 1);
+}
+
+#[drizzle::test]
+fn array_contained_matches_rows(db: &mut TestDb<ArrayPostSchema>) {
+    let ArrayPostSchema { posts } = schema;
+    seed!(db, posts).execute();
+
+    let stmt = db
+        .select(count(posts.id))
+        .from(posts)
+        .r#where(array_contained(posts.scores, PgArray(vec![1, 2, 3, 4])));
+    assert!(stmt.to_sql().sql().contains("<@"));
+    let n: i64 = stmt.get();
+    assert_eq!(n, 2);
+}
+
+#[drizzle::test]
+fn array_overlaps_matches_rows(db: &mut TestDb<ArrayPostSchema>) {
+    let ArrayPostSchema { posts } = schema;
+    seed!(db, posts).execute();
+
+    let stmt = db
+        .select(count(posts.id))
+        .from(posts)
+        .r#where(array_overlaps(posts.tags, PgArray(vec!["python", "go"])));
+    assert!(stmt.to_sql().sql().contains("&&"));
+    let n: i64 = stmt.get();
+    assert_eq!(n, 1);
+}
+
+// Method syntax via the ArrayExprExt trait, and column-to-column operands.
+#[drizzle::test]
+fn array_ops_method_syntax(db: &mut TestDb<ArrayPostSchema>) {
     use drizzle::postgres::expr::ArrayExprExt;
 
-    let SimpleSchema { simple } = schema;
+    let ArrayPostSchema { posts } = schema;
+    seed!(db, posts).execute();
 
-    // Test method syntax for array_contains
-    let stmt = db
-        .select(())
-        .from(simple)
-        .r#where(simple.name.array_contains("test"));
+    let n: i64 = db
+        .select(count(posts.id))
+        .from(posts)
+        .r#where(posts.tags.array_contains(PgArray(vec!["sql"])))
+        .get();
+    assert_eq!(n, 1);
 
-    let sql = stmt.to_sql().sql();
-    assert!(sql.contains("@>"), "Expected @> operator in SQL: {}", sql);
+    let n: i64 = db
+        .select(count(posts.id))
+        .from(posts)
+        .r#where(posts.scores.array_contained(PgArray(vec![4, 5])))
+        .get();
+    assert_eq!(n, 1);
 
-    // Test method syntax for array_contained
-    let stmt = db
-        .select(())
-        .from(simple)
-        .r#where(simple.name.array_contained("test"));
-
-    let sql = stmt.to_sql().sql();
-    assert!(sql.contains("<@"), "Expected <@ operator in SQL: {}", sql);
-
-    // Test method syntax for array_overlaps
-    let stmt = db
-        .select(())
-        .from(simple)
-        .r#where(simple.name.array_overlaps("test"));
-
-    let sql = stmt.to_sql().sql();
-    assert!(sql.contains("&&"), "Expected && operator in SQL: {}", sql);
+    let n: i64 = db
+        .select(count(posts.id))
+        .from(posts)
+        .r#where(posts.tags.array_overlaps(posts.tags))
+        .get();
+    assert_eq!(n, 2);
 }

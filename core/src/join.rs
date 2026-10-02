@@ -130,6 +130,8 @@ impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for Join {
 #[doc(hidden)]
 pub trait LateralArg<'a, V: SQLParam>: lateral_private::Arg {
     type JoinedTable;
+    /// Sources read by the `ON` condition (see [`crate::scope`]).
+    type OnSources;
 
     fn into_lateral_sql(self, join: Join) -> SQL<'a, V>;
 }
@@ -145,6 +147,7 @@ where
     Condition::SQLType: crate::types::BooleanLike,
 {
     type JoinedTable = crate::Derived<'a, V, Name, Projection, Query>;
+    type OnSources = Condition::Sources;
 
     fn into_lateral_sql(self, join: Join) -> SQL<'a, V> {
         let (source, condition) = self;
@@ -464,6 +467,9 @@ macro_rules! impl_join_arg_trait {
             /// Table added to the query scope by this join.
             type JoinedTable;
 
+            /// Sources read by the `ON` condition (see [`crate::scope`]).
+            type OnSources;
+
             /// Renders the join source and its `ON` condition.
             fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType>;
         }
@@ -475,6 +481,8 @@ macro_rules! impl_join_arg_trait {
             T: $TableInfoTrait + ::core::default::Default,
         {
             type JoinedTable = U;
+            // The derived condition reads only the joined and current tables.
+            type OnSources = ();
 
             fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType> {
                 use $crate::ToSQL;
@@ -513,9 +521,10 @@ macro_rules! impl_join_arg_trait {
         impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
         where
             U: $JoinSourceTrait,
-            C: $ConditionTrait,
+            C: $ConditionTrait + $crate::expr::ExprSources,
         {
             type JoinedTable = U::JoinedTable;
+            type OnSources = C::Sources;
 
             fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType> {
                 let (source, condition) = self;

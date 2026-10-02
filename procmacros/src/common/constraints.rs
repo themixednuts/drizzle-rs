@@ -138,14 +138,13 @@ pub fn generate_primary_key<F: ConstraintFieldInfo>(
     struct_ident: &Ident,
     struct_vis: &syn::Visibility,
 ) -> (TokenStream, TokenStream, TokenStream, Option<Ident>) {
-    let sql_primary_key = core_paths::sql_primary_key();
     let sql_constraint = core_paths::sql_constraint();
     let primary_key_kind = core_paths::primary_key_kind();
     let columns_belong_to = core_paths::columns_belong_to();
     let non_empty_col_set = core_paths::non_empty_col_set();
     let no_duplicate_col_set = core_paths::no_duplicate_col_set();
     let pk_not_null = core_paths::pk_not_null();
-    let no_primary_key = core_paths::no_primary_key();
+    let no_primary_key = core_paths::no_constraint();
 
     let pk_fields: Vec<_> = field_infos
         .iter()
@@ -206,11 +205,6 @@ pub fn generate_primary_key<F: ConstraintFieldInfo>(
             }
             assert_pk();
         };
-
-        impl #sql_primary_key for #pk_zst_ident {
-            type Table = #struct_ident;
-            type Columns = (#(#pk_col_zst_idents,)*);
-        }
 
         impl #sql_constraint for #pk_zst_ident {
             type Table = #struct_ident;
@@ -465,7 +459,6 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     has_check_constraints: bool,
     dt: &DialectTypes,
 ) -> TokenStream {
-    let has_primary_key = core_paths::has_primary_key();
     let has_constraint = core_paths::has_constraint();
     let primary_key_kind = core_paths::primary_key_kind();
     let foreign_key_kind = core_paths::foreign_key_kind();
@@ -482,7 +475,6 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
 
     if has_primary {
         tokens.extend(quote! {
-            impl #has_primary_key for #struct_ident {}
             impl #has_constraint<#primary_key_kind> for #struct_ident {}
         });
 

@@ -1428,7 +1428,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]
@@ -1458,8 +1458,12 @@ where
     }
 
     /// Runs the query and returns a row cursor using the builder's row type.
-    pub fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
+    pub fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::StrictDecodeMarker
+            + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, Rw, Proof>,
+        Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         Rw: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <Rw as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
@@ -1495,7 +1499,7 @@ where
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
-            + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R>,
+            + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
         Mk: drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
     {
         #[cfg(feature = "profiling")]

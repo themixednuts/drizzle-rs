@@ -83,6 +83,7 @@ pub use serde;
 pub use serde_json;
 pub mod row;
 pub mod schema;
+pub mod scope;
 pub mod sql;
 pub mod tracing;
 pub mod types;
@@ -90,16 +91,17 @@ pub mod types;
 // Re-export key types and traits
 pub use bind::{BindValue, NullableBindValue, ValueTypeForDialect};
 pub use builder::{
-    BuilderInit, ExecutableState, GroupByAllowed, GroupByApplied, HavingAllowed, IncludesRequired,
-    InsertColumn, InsertColumnsSet, InsertSelectAllColumns, InsertSelectColumns,
-    InsertSelectCompatible, InsertSelectTable, InsertSourceInScope, InsertTargetColumnList,
-    InsertTargetColumns, InsertTargetMarker, JoinAllowed, LimitAllowed, OffsetAllowed,
-    OrderByAllowed, PartialInsertSelectCompatible, WhereAllowed,
+    BuilderInit, ClauseAllowed, ExecutableState, IncludesRequired, InsertColumn, InsertColumnsSet,
+    InsertSelectAllColumns, InsertSelectColumns, InsertSelectCompatible, InsertSelectTable,
+    InsertTargetColumnList, InsertTargetColumns, InsertTargetMarker, PartialInsertSelectCompatible,
+    clause,
 };
 pub use derived::{
     Derived, DerivedField, DerivedProjection, DerivedSelection, ProjectionOutput, TableProjection,
 };
-pub use dialect::{Dialect, DialectTypes, MySQLDialect, PostgresDialect, SQLiteDialect};
+pub use dialect::{
+    Dialect, DialectSupports, DialectTypes, MySQLDialect, PostgresDialect, SQLiteDialect, feature,
+};
 pub use join::{Join, JoinType, LateralArg, LateralSource};
 #[cfg(feature = "serde")]
 pub use json::Json;
@@ -110,16 +112,19 @@ pub use placeholder::*;
 pub use relation::{AssembleRel, CardWrap, Many, One, OptionalOne, RelationDef};
 pub use relation::{Joinable, Relation, SchemaHasTable};
 pub use row::{
-    AfterFullJoin, AfterJoin, AfterLeftJoin, AfterRightJoin, DecodeSelectedRef, ExprValueType,
-    FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy, IntoSelectTarget,
-    LeftLateralSelection, MarkerAggValidFor, MarkerColumnCountValid, MarkerScopeValidFor,
-    NullProbeRow, PkGroup, ResolveRow, RowColumnList, SQLTypeToRust, ScopePush, Scoped, SelectAs,
-    SelectAsFrom, SelectCols, SelectExpr, SelectRequiredTables, SelectStar, SelectedExpressionList,
-    WrapNullable,
+    DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy,
+    IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerAggValidFor,
+    MarkerColumnCountValid, MarkerScopeValidFor, NullProbeRow, PkGroup, ResolveRow, RowColumnList,
+    SQLTypeToRust, SelectAs, SelectAsFrom, SelectCols, SelectExpr, SelectStar, SelectTableFields,
+    SelectedExpressionList, TableFields, WrapNullable,
 };
 #[doc(hidden)]
-pub use row::{ColumnScope, OpaqueScope, ProjectionInScope, ScopeContains};
-pub use schema::{OrderBy, asc, desc};
+pub use row::{MaybeNull, ProjectionIn};
+pub use schema::{OrderBy, OrderTerm, Ordered, asc, desc};
+pub use scope::{
+    AliasKey, FromMarker, FullJoin, HasScope, InnerJoin, JoinStep, Lateral, LeftJoin, OuterJoined,
+    RightJoin, ScopeContains, ScopeEntry, Scoped, SelectSources, SetOperand, Src,
+};
 pub use sql::{
     ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,
     OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, TableSqlRef, Token,

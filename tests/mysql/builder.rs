@@ -276,18 +276,22 @@ fn joins_render_only_mysql_supported_kinds() {
             .contains(" LEFT OUTER JOIN `posts` ON ")
     );
     assert!(
-        sql(builder()
+        builder()
             .select(users.id)
             .from(users)
-            .right_join((posts, condition())))
-        .contains(" RIGHT JOIN `posts` ON ")
+            .right_join((posts, condition()))
+            .to_sql()
+            .sql()
+            .contains(" RIGHT JOIN `posts` ON ")
     );
     assert!(
-        sql(builder()
+        builder()
             .select(users.id)
             .from(users)
-            .right_outer_join((posts, condition())))
-        .contains(" RIGHT OUTER JOIN `posts` ON ")
+            .right_outer_join((posts, condition()))
+            .to_sql()
+            .sql()
+            .contains(" RIGHT OUTER JOIN `posts` ON ")
     );
 }
 

@@ -1,0 +1,93 @@
+error[E0599]: the method `union` exists for struct `drizzle::sqlite::builder::QueryBuilder<'_, Schema, DeleteReturningSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>`, but its trait bounds were not satisfied
+  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:24:20
+   |
+24 |     let _ = delete.union(builder.select(users.id).from(users));
+   |                    ^^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+  ::: core/src/builder/states.rs
+   |
+   | pub struct DeleteReturningSet;
+   | ----------------------------- doesn't satisfy `_: ClauseAllowed<Compound>`
+   |
+   = note: the following trait bounds were not satisfied:
+           `DeleteReturningSet: drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Compound>`
+
+error[E0277]: builder state `UpdateReturningSet` does not allow `drizzle_core::builder::clause::Compound`
+  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:29:56
+   |
+29 |     let _ = builder.select(users.id).from(users).union(update);
+   |                                                  ----- ^^^^^^ not available at this point of the query
+   |                                                  |
+   |                                                  required by a bound introduced by this call
+   |
+   = help: the trait `drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Compound>` is not implemented for `UpdateReturningSet`
+   = note: SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+   = note: only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source
+   = help: the following other types implement trait `drizzle_core::builder::ClauseAllowed<Clause>`:
+             SelectFromSet
+             SelectGroupSet
+             SelectJoinSet
+             SelectLimitSet
+             SelectOffsetSet
+             SelectOrderSet
+             SelectSetOpSet
+             SelectWhereSet
+   = note: required for `drizzle::sqlite::builder::QueryBuilder<'_, Schema, UpdateReturningSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>` to implement `IntoSelect<'_, Schema, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>`
+note: required by a bound in `select::<impl drizzle::sqlite::builder::QueryBuilder<'a, S, State, T, M, R, G>>::union`
+  --> sqlite/src/builder/select.rs
+   |
+   |     pub fn union<M2>(
+   |            ----- required by a bound in this associated function
+   |         self,
+   |         other: impl IntoSelect<'a, S, M2, R>,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
+
+error[E0277]: builder state `DeleteReturningSet` does not allow `drizzle_core::builder::clause::Source`
+  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:35:40
+   |
+35 |         .r#where(in_subquery(users.id, returning));
+   |                  -----------           ^^^^^^^^^ not available at this point of the query
+   |                  |
+   |                  required by a bound introduced by this call
+   |
+   = help: the trait `drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Source>` is not implemented for `DeleteReturningSet`
+   = note: SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+   = note: only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source
+   = help: the following other types implement trait `drizzle_core::builder::ClauseAllowed<Clause>`:
+             SelectFromSet
+             SelectGroupSet
+             SelectJoinSet
+             SelectLimitSet
+             SelectOffsetSet
+             SelectOrderSet
+             SelectSetOpSet
+             SelectWhereSet
+   = note: required for `drizzle::sqlite::builder::QueryBuilder<'_, Schema, DeleteReturningSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>` to implement `Expr<'_, SQLiteValue<'_>>`
+note: required by a bound in `drizzle::core::expr::in_subquery`
+  --> core/src/expr/set.rs
+   |
+   | pub fn in_subquery<'a, V, L, S, M>(
+   |        ----------- required by a bound in this function
+...
+   |     S: Expr<'a, V>,
+   |        ^^^^^^^^^^^ required by this bound in `in_subquery`
+
+error[E0277]: builder state `DeleteReturningSet` does not allow `drizzle_core::builder::clause::Source`
+  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:35:18
+   |
+35 |         .r#where(in_subquery(users.id, returning));
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not available at this point of the query
+   |
+   = help: the trait `drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Source>` is not implemented for `DeleteReturningSet`
+   = note: SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+   = note: only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source
+   = help: the following other types implement trait `drizzle_core::builder::ClauseAllowed<Clause>`:
+             SelectFromSet
+             SelectGroupSet
+             SelectJoinSet
+             SelectLimitSet
+             SelectOffsetSet
+             SelectOrderSet
+             SelectSetOpSet
+             SelectWhereSet
+   = note: required for `drizzle::sqlite::builder::QueryBuilder<'_, Schema, DeleteReturningSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>` to implement `Expr<'_, SQLiteValue<'_>>`

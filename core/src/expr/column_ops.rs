@@ -10,7 +10,7 @@ use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{AlwaysNullable, ArithmeticOutput, NegOutput, Numeric, PropagateNullability};
 
-use super::{AggOr, AggregateKind, Expr, NonNull, NullOr, Nullability};
+use super::{AggregateKind, Expr, NonNull, Nullability};
 
 /// Binary operation result for column arithmetic.
 ///
@@ -139,7 +139,7 @@ where
     type Nullable = T::Nullable;
 }
 
-impl<D, V, T, N, A> ArithmeticRhs<D> for super::SQLExpr<'_, V, T, N, A>
+impl<D, V, T, N, A, S> ArithmeticRhs<D> for super::SQLExpr<'_, V, T, N, A, S>
 where
     V: SQLParam<DialectMarker = D>,
     T: Numeric,
@@ -152,10 +152,10 @@ where
 
 impl<Lhs, Rhs> ResolveArithmeticNullability<Lhs, Rhs> for PropagateNullability
 where
-    Lhs: Nullability + NullOr<Rhs>,
+    Lhs: Nullability,
     Rhs: Nullability,
 {
-    type Output = <Lhs as NullOr<Rhs>>::Output;
+    type Output = <Lhs as Nullability>::Or<Rhs>;
 }
 
 impl<Lhs: Nullability, Rhs: Nullability> ResolveArithmeticNullability<Lhs, Rhs> for AlwaysNullable {
@@ -208,7 +208,6 @@ where
     Lhs::SQLType: Numeric + ArithmeticOutput<Rhs::SQLType, Op, Output = SQLType>,
     Rhs::SQLType: Numeric,
     Rhs::Nullable: Nullability,
-    Lhs::Aggregate: AggOr<Rhs::Aggregate>,
     Rhs::Aggregate: AggregateKind,
     Op: BinOpToken,
     SQLType: crate::types::DataType,
@@ -218,7 +217,16 @@ where
 {
     type SQLType = SQLType;
     type Nullable = Nullable;
-    type Aggregate = <Lhs::Aggregate as AggOr<Rhs::Aggregate>>::Output;
+    type Aggregate = <Lhs::Aggregate as AggregateKind>::Or<Rhs::Aggregate>;
+}
+
+impl<Lhs, Rhs, Op, D, SQLType, Nullable> super::ExprSources
+    for ColumnBinOp<Lhs, Rhs, Op, D, SQLType, Nullable>
+where
+    Lhs: super::ExprSources,
+    Rhs: super::ExprSources,
+{
+    type Sources = (Lhs::Sources, Rhs::Sources);
 }
 
 impl<Lhs, Rhs, Op, D, SQLType, Nullable> super::HasAggStatus
@@ -301,6 +309,12 @@ where
     type SQLType = SQLType;
     type Nullable = Nullable;
     type Aggregate = T::Aggregate;
+}
+
+impl<T: super::ExprSources, D, SQLType, Nullable> super::ExprSources
+    for ColumnNeg<T, D, SQLType, Nullable>
+{
+    type Sources = T::Sources;
 }
 
 impl<T: super::HasAggStatus, D, SQLType, Nullable> super::HasAggStatus

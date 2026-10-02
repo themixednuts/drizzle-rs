@@ -30,7 +30,7 @@ use crate::sql::{SQL, SQLChunk, Token};
 use crate::traits::SQLParam;
 use crate::types::BooleanLike;
 
-use super::{AggOr, AggregateKind, Expr, NullOr, Nullability, SQLExpr};
+use super::{AggregateKind, Expr, Nullability, SQLExpr};
 
 #[inline]
 fn operand_sql<'a, V, E>(value: E) -> SQL<'a, V>
@@ -65,9 +65,10 @@ where
 /// Logical NOT.
 ///
 /// Negates a boolean expression.
+#[allow(clippy::type_complexity)]
 pub fn not<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -113,15 +114,14 @@ pub fn and<'a, V, L, R>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Bool,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Nullable as Nullability>::Or<R::Nullable>,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
-    L::Nullable: NullOr<R::Nullable>,
-    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
     R::Nullable: Nullability,
@@ -150,15 +150,14 @@ pub fn or<'a, V, L, R>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Bool,
-    <L::Nullable as NullOr<R::Nullable>>::Output,
-    <L::Aggregate as AggOr<R::Aggregate>>::Output,
+    <L::Nullable as Nullability>::Or<R::Nullable>,
+    <L::Aggregate as AggregateKind>::Or<R::Aggregate>,
+    (L::Sources, R::Sources),
 >
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
     L::SQLType: BooleanLike,
-    L::Nullable: NullOr<R::Nullable>,
-    L::Aggregate: AggOr<R::Aggregate>,
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
     R::Nullable: Nullability,
@@ -180,14 +179,14 @@ where
 /// let negated = !condition;  // NOT "users"."active" = TRUE
 /// # "####;
 /// ```
-impl<'a, V, T, N, A> Not for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S> Not for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
     N: Nullability,
     A: AggregateKind,
 {
-    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, N, A>;
+    type Output = SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Bool, N, A, S>;
 
     fn not(self) -> Self::Output {
         not(self)
@@ -204,12 +203,12 @@ where
 /// // ("users"."active" = TRUE AND "users"."age" > 18)
 /// # "####;
 /// ```
-impl<'a, V, T, N, A, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> BitAnd<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
-    N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggOr<Rhs::Aggregate>,
+    N: Nullability,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
     Rhs::Nullable: Nullability,
@@ -218,8 +217,9 @@ where
         'a,
         V,
         <V::DialectMarker as DialectTypes>::Bool,
-        <N as NullOr<Rhs::Nullable>>::Output,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <N as Nullability>::Or<Rhs::Nullable>,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
+        (S, Rhs::Sources),
     >;
 
     fn bitand(self, rhs: Rhs) -> Self::Output {
@@ -237,12 +237,12 @@ where
 /// // ("users"."role" = 'admin' OR "users"."role" = 'moderator')
 /// # "####;
 /// ```
-impl<'a, V, T, N, A, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A>
+impl<'a, V, T, N, A, S, Rhs> BitOr<Rhs> for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,
     T: BooleanLike,
-    N: Nullability + NullOr<Rhs::Nullable>,
-    A: AggOr<Rhs::Aggregate>,
+    N: Nullability,
+    A: AggregateKind,
     Rhs: Expr<'a, V>,
     Rhs::SQLType: BooleanLike,
     Rhs::Nullable: Nullability,
@@ -251,8 +251,9 @@ where
         'a,
         V,
         <V::DialectMarker as DialectTypes>::Bool,
-        <N as NullOr<Rhs::Nullable>>::Output,
-        <A as AggOr<Rhs::Aggregate>>::Output,
+        <N as Nullability>::Or<Rhs::Nullable>,
+        <A as AggregateKind>::Or<Rhs::Aggregate>,
+        (S, Rhs::Sources),
     >;
 
     fn bitor(self, rhs: Rhs) -> Self::Output {

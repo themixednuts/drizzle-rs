@@ -23,22 +23,19 @@
 //! # "####;
 //! ```
 
+use crate::dialect::{DialectSupports, feature};
 use core::marker::PhantomData;
 
 use crate::sql::{SQL, Token};
 use crate::traits::{SQLParam, ToSQL};
 use crate::types::{BooleanLike, Compatible, DataType};
 
-use super::agg::{CountPolicy, FloatPolicy};
-use super::null::NullOr;
-use super::{Agg, Expr, NonNull, Null, Nullability, SQLExpr, Scalar};
+use super::{Agg, Expr, ExprSources, NonNull, Null, Nullability, SQLExpr, Scalar};
 use crate::dialect::DialectTypes;
+use crate::scope::ScopeOnly;
 
-/// Dialects that support an aggregate `FILTER (WHERE ...)` clause.
-pub trait AggregateFilterSupport {}
-
-impl AggregateFilterSupport for crate::SQLiteDialect {}
-impl AggregateFilterSupport for crate::PostgresDialect {}
+impl DialectSupports<feature::AggregateFilter> for crate::SQLiteDialect {}
+impl DialectSupports<feature::AggregateFilter> for crate::PostgresDialect {}
 
 // =============================================================================
 // Frame Bounds
@@ -92,10 +89,12 @@ impl FrameBound {
 /// # "####;
 /// ```
 #[derive(Debug, Clone)]
-pub struct WindowSpec<'a, V: SQLParam> {
+pub struct WindowSpec<'a, V: SQLParam, S = ()> {
     partition: Option<SQL<'a, V>>,
     order: Option<SQL<'a, V>>,
     frame: Option<SQL<'a, V>>,
+    /// Sources read by `PARTITION BY` / `ORDER BY` (never NULL-making).
+    sources: PhantomData<fn() -> S>,
 }
 
 /// Create an empty window specification.
@@ -105,34 +104,51 @@ pub const fn window<'a, V: SQLParam>() -> WindowSpec<'a, V> {
         partition: None,
         order: None,
         frame: None,
+        sources: PhantomData,
     }
 }
 
-impl<'a, V: SQLParam + 'a> WindowSpec<'a, V> {
+impl<'a, V: SQLParam + 'a, S> WindowSpec<'a, V, S> {
+    fn with_sources<S2>(self) -> WindowSpec<'a, V, S2> {
+        WindowSpec {
+            partition: self.partition,
+            order: self.order,
+            frame: self.frame,
+            sources: PhantomData,
+        }
+    }
+
     /// Set the PARTITION BY clause.
     #[must_use]
-    pub fn partition_by<I>(mut self, exprs: I) -> Self
+    #[allow(clippy::type_complexity)]
+    pub fn partition_by<I>(
+        mut self,
+        exprs: I,
+    ) -> WindowSpec<'a, V, (S, ScopeOnly<<I::Item as ExprSources>::Sources>)>
     where
         I: IntoIterator,
-        I::Item: ToSQL<'a, V>,
+        I::Item: ToSQL<'a, V> + ExprSources,
     {
         self.partition = Some(
             SQL::from(Token::PARTITION)
                 .push(Token::BY)
                 .append(SQL::join(exprs, Token::COMMA)),
         );
-        self
+        self.with_sources()
     }
 
     /// Set the ORDER BY clause.
     #[must_use]
-    pub fn order_by<T: ToSQL<'a, V>>(mut self, exprs: T) -> Self {
+    pub fn order_by<T: ToSQL<'a, V> + ExprSources>(
+        mut self,
+        exprs: T,
+    ) -> WindowSpec<'a, V, (S, ScopeOnly<T::Sources>)> {
         self.order = Some(
             SQL::from(Token::ORDER)
                 .push(Token::BY)
                 .append(exprs.into_sql()),
         );
-        self
+        self.with_sources()
     }
 
     /// Set a ROWS frame specification.
@@ -181,7 +197,7 @@ impl<'a, V: SQLParam + 'a> WindowSpec<'a, V> {
 // .over() on aggregate expressions — Agg → Scalar
 // =============================================================================
 
-impl<'a, V, T, N> SQLExpr<'a, V, T, N, Agg>
+impl<'a, V, T, N, S> SQLExpr<'a, V, T, N, Agg, S>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -203,7 +219,7 @@ where
     /// )
     /// # "####;
     /// ```
-    pub fn over(self, spec: WindowSpec<'a, V>) -> SQLExpr<'a, V, T, N, Scalar> {
+    pub fn over<W>(self, spec: WindowSpec<'a, V, W>) -> SQLExpr<'a, V, T, N, Scalar, (S, W)> {
         let sql = self
             .into_sql()
             .push(Token::OVER)
@@ -216,12 +232,12 @@ where
     /// Apply a FILTER clause to this aggregate (`PostgreSQL` extension).
     ///
     /// Generates `<agg> FILTER (WHERE <condition>)`.
-    #[must_use]
-    pub fn filter<C>(self, condition: C) -> Self
+    #[allow(clippy::type_complexity)]
+    pub fn filter<C>(self, condition: C) -> SQLExpr<'a, V, T, N, Agg, (S, ScopeOnly<C::Sources>)>
     where
         C: Expr<'a, V>,
         C::SQLType: BooleanLike,
-        V::DialectMarker: AggregateFilterSupport,
+        V::DialectMarker: DialectSupports<feature::AggregateFilter>,
     {
         let sql = self
             .into_sql()
@@ -244,12 +260,12 @@ where
 /// `.over()` call before they can be used in a query. This type enforces
 /// that at compile time by not implementing `Expr` or `ToSQL`.
 #[derive(Debug, Clone)]
-pub struct WindowFnExpr<'a, V: SQLParam, T: DataType, N: Nullability> {
+pub struct WindowFnExpr<'a, V: SQLParam, T: DataType, N: Nullability, S = ()> {
     sql: SQL<'a, V>,
-    _marker: PhantomData<(T, N)>,
+    _marker: super::TypeMarker<(T, N, S)>,
 }
 
-impl<'a, V, T, N> WindowFnExpr<'a, V, T, N>
+impl<'a, V, T, N, S> WindowFnExpr<'a, V, T, N, S>
 where
     V: SQLParam + 'a,
     T: DataType,
@@ -265,7 +281,7 @@ where
     /// Apply a window specification, producing a usable scalar expression.
     ///
     /// Generates `<fn> OVER (...)`.
-    pub fn over(self, spec: WindowSpec<'a, V>) -> SQLExpr<'a, V, T, N, Scalar> {
+    pub fn over<W>(self, spec: WindowSpec<'a, V, W>) -> SQLExpr<'a, V, T, N, Scalar, (S, W)> {
         let sql = self
             .sql
             .push(Token::OVER)
@@ -284,10 +300,10 @@ where
 ///
 /// Returns an integer, never NULL.
 #[must_use]
-pub fn row_number<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
+pub fn row_number<'a, V>()
+-> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::raw("ROW_NUMBER()"))
 }
@@ -296,10 +312,9 @@ where
 ///
 /// Returns an integer, never NULL.
 #[must_use]
-pub fn rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
+pub fn rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::raw("RANK()"))
 }
@@ -308,10 +323,10 @@ where
 ///
 /// Returns an integer, never NULL.
 #[must_use]
-pub fn dense_rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as CountPolicy>::Count, NonNull>
+pub fn dense_rank<'a, V>()
+-> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: CountPolicy,
 {
     WindowFnExpr::new(SQL::raw("DENSE_RANK()"))
 }
@@ -334,10 +349,9 @@ where
 /// Returns a float between 0.0 and 1.0, never NULL.
 #[must_use]
 pub fn percent_rank<'a, V>()
--> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
+-> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: FloatPolicy,
 {
     WindowFnExpr::new(SQL::raw("PERCENT_RANK()"))
 }
@@ -346,10 +360,9 @@ where
 ///
 /// Returns a float between 0.0 and 1.0 (exclusive of 0), never NULL.
 #[must_use]
-pub fn cume_dist<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as FloatPolicy>::Float, NonNull>
+pub fn cume_dist<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: FloatPolicy,
 {
     WindowFnExpr::new(SQL::raw("CUME_DIST()"))
 }
@@ -357,7 +370,7 @@ where
 /// LAG(expr) — value of expr from the previous row.
 ///
 /// Returns the same type as expr, always nullable (no previous row → NULL).
-pub fn lag<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null>
+pub fn lag<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -368,17 +381,23 @@ where
 /// LAG(expr, offset, default) — value of expr from N rows back with a default.
 ///
 /// Nullability is the combination of the expression's and default's nullability.
+#[allow(clippy::type_complexity)]
 pub fn lag_with_default<'a, V, E, D>(
     expr: E,
     offset: usize,
     default: D,
-) -> WindowFnExpr<'a, V, E::SQLType, <E::Nullable as NullOr<D::Nullable>>::Output>
+) -> WindowFnExpr<
+    'a,
+    V,
+    E::SQLType,
+    <E::Nullable as Nullability>::Or<D::Nullable>,
+    (E::Sources, D::Sources),
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     D: Expr<'a, V>,
     E::SQLType: Compatible<D::SQLType>,
-    E::Nullable: NullOr<D::Nullable>,
     D::Nullable: Nullability,
 {
     let args = expr
@@ -393,7 +412,7 @@ where
 /// LEAD(expr) — value of expr from the next row.
 ///
 /// Returns the same type as expr, always nullable (no next row → NULL).
-pub fn lead<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null>
+pub fn lead<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -404,17 +423,23 @@ where
 /// LEAD(expr, offset, default) — value of expr from N rows ahead with a default.
 ///
 /// Nullability is the combination of the expression's and default's nullability.
+#[allow(clippy::type_complexity)]
 pub fn lead_with_default<'a, V, E, D>(
     expr: E,
     offset: usize,
     default: D,
-) -> WindowFnExpr<'a, V, E::SQLType, <E::Nullable as NullOr<D::Nullable>>::Output>
+) -> WindowFnExpr<
+    'a,
+    V,
+    E::SQLType,
+    <E::Nullable as Nullability>::Or<D::Nullable>,
+    (E::Sources, D::Sources),
+>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     D: Expr<'a, V>,
     E::SQLType: Compatible<D::SQLType>,
-    E::Nullable: NullOr<D::Nullable>,
     D::Nullable: Nullability,
 {
     let args = expr
@@ -429,7 +454,7 @@ where
 /// `FIRST_VALUE(expr)` — value of expr from the first row of the frame.
 ///
 /// Always nullable (frame may be empty for some edge cases).
-pub fn first_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null>
+pub fn first_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -440,7 +465,7 @@ where
 /// `LAST_VALUE(expr)` — value of expr from the last row of the frame.
 ///
 /// Always nullable (frame boundaries affect result).
-pub fn last_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null>
+pub fn last_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -451,7 +476,7 @@ where
 /// `NTH_VALUE(expr`, n) — value of expr from the nth row of the frame.
 ///
 /// Always nullable (n may exceed frame size).
-pub fn nth_value<'a, V, E>(expr: E, n: usize) -> WindowFnExpr<'a, V, E::SQLType, Null>
+pub fn nth_value<'a, V, E>(expr: E, n: usize) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,

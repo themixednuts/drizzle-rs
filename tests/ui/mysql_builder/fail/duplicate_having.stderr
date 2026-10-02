@@ -1,4 +1,4 @@
-error[E0599]: the method `having` exists for struct `QueryBuilder<'_, Schema, SelectHavingSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (u64,), PkGroup<Users>>`, but its trait bounds were not satisfied
+error[E0599]: the method `having` exists for struct `QueryBuilder<'_, Schema, SelectHavingSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>, (((), At<Cons<Users, Nil>, Src<Users>>), At<Cons<Users, Nil>, ((drizzle::core::expr::NonNull, Coalesce<Src<Users>, drizzle::core::expr::NonNull>), (_, _))>)>, (u64,), PkGroup<Users>>`, but its trait bounds were not satisfied
   --> tests/ui/mysql_builder/fail/duplicate_having.rs:13:41
    |
 12 |       let _ = builder.select(users.id).from(users).group_by(users.id)
@@ -11,7 +11,7 @@ error[E0599]: the method `having` exists for struct `QueryBuilder<'_, Schema, Se
   ::: mysql/src/builder/select.rs
    |
    |   pub struct SelectHavingSet;
-   |   -------------------------- doesn't satisfy `_: HavingAllowed`
+   |   -------------------------- doesn't satisfy `_: ClauseAllowed<Having>`
    |
    = note: the following trait bounds were not satisfied:
-           `SelectHavingSet: drizzle_core::builder::HavingAllowed`
+           `SelectHavingSet: drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Having>`

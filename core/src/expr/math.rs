@@ -26,7 +26,7 @@ use drizzle_types::sqlite::types::{
     Integer as SqliteInteger, Numeric as SqliteNumeric, Real as SqliteReal,
 };
 
-use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
+use super::{AggregateKind, Expr, Nullability, SQLExpr, Scalar};
 
 /// Math functions that are optional on SQLite.
 ///
@@ -57,61 +57,11 @@ pub trait Log2Policy {
     type Nullable: Nullability;
 }
 
-/// Nullability policy for math functions whose numeric domain is narrower
-/// than their SQL input type.
-#[doc(hidden)]
-pub trait DomainMathPolicy<Input: Nullability> {
-    type Nullable: Nullability;
-}
-
-#[diagnostic::on_unimplemented(
-    message = "this math function is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait PiSupport {}
-
 impl Log2Policy for SQLiteDialect {
     type Nullable = super::Null;
 }
 impl Log2Policy for MySQLDialect {
     type Nullable = super::Null;
-}
-impl<Input: Nullability> DomainMathPolicy<Input> for SQLiteDialect {
-    type Nullable = super::Null;
-}
-impl<Input: Nullability> DomainMathPolicy<Input> for MySQLDialect {
-    type Nullable = super::Null;
-}
-impl<Input: Nullability> DomainMathPolicy<Input> for PostgresDialect {
-    type Nullable = Input;
-}
-impl PiSupport for PostgresDialect {}
-impl PiSupport for MySQLDialect {}
-#[cfg(feature = "math")]
-impl PiSupport for SQLiteDialect {}
-
-/// Dialect-specific return type for `RANDOM()`.
-///
-/// `SQLite` `RANDOM()` returns an integer in [-2^63, 2^63).
-/// `PostgreSQL` `RANDOM()` returns a float in [0, 1).
-#[diagnostic::on_unimplemented(
-    message = "no RANDOM return type defined for this dialect",
-    label = "RANDOM result type is not configured for this dialect marker"
-)]
-pub trait RandomPolicy {
-    type Random: DataType;
-}
-
-impl RandomPolicy for SQLiteDialect {
-    type Random = SqliteInteger;
-}
-
-impl RandomPolicy for PostgresDialect {
-    type Random = drizzle_types::postgres::types::Float8;
-}
-
-impl RandomPolicy for MySQLDialect {
-    type Random = drizzle_types::mysql::types::Double;
 }
 
 #[diagnostic::on_unimplemented(
@@ -255,7 +205,7 @@ impl RoundingPolicy<MySQLDialect> for MyDecimal {
 /// abs(users.name);
 /// # "####;
 /// ```
-pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate>
+pub fn abs<'a, V, E>(expr: E) -> SQLExpr<'a, V, E::SQLType, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
@@ -291,6 +241,7 @@ pub fn round<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -327,8 +278,9 @@ pub fn round_to<'a, V, E, P>(
     'a,
     V,
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
-    <E::Nullable as NullOr<P::Nullable>>::Output,
-    <E::Aggregate as AggOr<P::Aggregate>>::Output,
+    <E::Nullable as Nullability>::Or<P::Nullable>,
+    <E::Aggregate as AggregateKind>::Or<P::Aggregate>,
+    (E::Sources, P::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -336,9 +288,7 @@ where
     E::SQLType: RoundingPolicy<V::DialectMarker>,
     P: Expr<'a, V>,
     P::SQLType: Integral,
-    E::Nullable: NullOr<P::Nullable>,
     P::Nullable: Nullability,
-    E::Aggregate: AggOr<P::Aggregate>,
 {
     SQLExpr::new(
         <E::SQLType as RoundingPolicy<V::DialectMarker>>::coerce_result(SQL::func(
@@ -373,6 +323,7 @@ pub fn ceil<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -411,6 +362,7 @@ pub fn floor<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -449,6 +401,7 @@ pub fn trunc<'a, V, E>(
     <E::SQLType as RoundingPolicy<V::DialectMarker>>::Output,
     E::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
@@ -490,13 +443,13 @@ pub fn sqrt<'a, V, E>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Double,
-    <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
+    <V::DialectMarker as DialectTypes>::DomainNullable<E::Nullable>,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
-    V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -525,8 +478,9 @@ pub fn power<'a, V, E1, E2>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Double,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -535,9 +489,7 @@ where
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
     E2::SQLType: Numeric,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(pg_double(SQL::func(
         "POWER",
@@ -565,9 +517,10 @@ where
 /// let exponential = exp(users.rate);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn exp<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
@@ -599,13 +552,13 @@ pub fn ln<'a, V, E>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Double,
-    <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
+    <V::DialectMarker as DialectTypes>::DomainNullable<E::Nullable>,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
-    V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -634,13 +587,13 @@ pub fn log10<'a, V, E>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Double,
-    <V::DialectMarker as DomainMathPolicy<E::Nullable>>::Nullable,
+    <V::DialectMarker as DialectTypes>::DomainNullable<E::Nullable>,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
-    V::DialectMarker: DomainMathPolicy<E::Nullable>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -669,23 +622,20 @@ pub fn log<'a, V, E1, E2>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Double,
-    <V::DialectMarker as DomainMathPolicy<
-        <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    >>::Nullable,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <V::DialectMarker as DialectTypes>::DomainNullable<
+        <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    >,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
-    V::DialectMarker:
-        DomainMathPolicy<<E1::Nullable as NullOr<E2::Nullable>>::Output>,
     E1: Expr<'a, V>,
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
     E2::SQLType: Numeric,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     let (base, value) = (base.into_sql(), value.into_sql());
     // PostgreSQL only defines the two-argument LOG for NUMERIC operands.
@@ -703,31 +653,9 @@ where
 // SIGN AND MODULO
 // =============================================================================
 
-/// The type `SIGN` returns on each dialect.
-///
-/// SQLite and MySQL answer an integer; PostgreSQL answers `numeric` or
-/// `double precision` depending on the argument, which [`sign`] coerces to
-/// `double precision`.
-pub trait SignPolicy {
-    /// The SQL type of `SIGN(expr)`.
-    type Sign: DataType;
-}
-
-impl SignPolicy for SQLiteDialect {
-    type Sign = SqliteInteger;
-}
-
-impl SignPolicy for PostgresDialect {
-    type Sign = Float8;
-}
-
-impl SignPolicy for MySQLDialect {
-    type Sign = MyBigInt;
-}
-
 /// SIGN - returns the sign of a number (-1, 0, or 1).
 ///
-/// Returns the dialect's [`SignPolicy::Sign`] type (an integer on SQLite and
+/// Returns the dialect's [`DialectTypes::Sign`] type (an integer on SQLite and
 /// MySQL, `double precision` on PostgreSQL), preserves nullability.
 ///
 /// # Example
@@ -740,12 +668,12 @@ impl SignPolicy for MySQLDialect {
 /// let balance_sign = sign(users.balance);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn sign<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as SignPolicy>::Sign, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Sign, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SignPolicy,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -777,8 +705,9 @@ pub fn mod_<'a, V, E1, E2>(
     'a,
     V,
     E1::SQLType,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
@@ -786,9 +715,7 @@ where
     E1::SQLType: Numeric,
     E2: Expr<'a, V>,
     E2::SQLType: Numeric,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(super::ops::binary_operator_sql(
         dividend.into_expr_sql(),
@@ -815,11 +742,11 @@ where
 /// ```
 #[must_use]
 pub fn pi<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar>
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
     V::DialectMarker: MathExt,
-    V::DialectMarker: PiSupport,
+    V::DialectMarker: MathExt,
 {
     SQLExpr::new(SQL::raw("PI()"))
 }
@@ -842,10 +769,9 @@ where
 /// ```
 #[must_use]
 pub fn random<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as RandomPolicy>::Random, super::NonNull, Scalar>
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Random, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: RandomPolicy,
 {
     SQLExpr::new(SQL::raw(match V::DIALECT {
         Dialect::MySQL => "RAND()",
@@ -883,6 +809,7 @@ pub fn log2<'a, V, E>(
     <V::DialectMarker as DialectTypes>::Double,
     <V::DialectMarker as Log2Policy>::Nullable,
     E::Aggregate,
+    E::Sources,
 >
 where
     V: SQLParam + 'a,

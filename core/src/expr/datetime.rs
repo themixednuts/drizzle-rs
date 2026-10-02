@@ -12,25 +12,14 @@
 //! Cross-database functions try to use compatible SQL where possible.
 
 use crate::dialect::DialectTypes;
+use crate::dialect::{DialectSupports, feature};
 use crate::sql::{SQL, Token};
 use crate::traits::SQLParam;
 use crate::types::{DataType, Numeric, Temporal, Textual};
 use crate::{PostgresDialect, SQLiteDialect};
 use drizzle_types::postgres::types::{Timestamp as PgTimestamp, Timestamptz as PgTimestamptz};
 
-use super::{AggOr, Expr, NullOr, Nullability, SQLExpr, Scalar};
-
-#[diagnostic::on_unimplemented(
-    message = "this date/time function is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait SQLiteDateTimeSupport {}
-
-#[diagnostic::on_unimplemented(
-    message = "this date/time function is not available for this dialect",
-    label = "use a dialect-specific alternative"
-)]
-pub trait PostgresDateTimeSupport {}
+use super::{AggregateKind, Expr, Nullability, SQLExpr, Scalar};
 
 #[diagnostic::on_unimplemented(
     message = "DATE_TRUNC output type is not defined for `{Self}` on this dialect",
@@ -40,8 +29,8 @@ pub trait DateTruncPolicy<D>: Temporal {
     type Output: DataType;
 }
 
-impl SQLiteDateTimeSupport for SQLiteDialect {}
-impl PostgresDateTimeSupport for PostgresDialect {}
+impl DialectSupports<feature::SQLiteDateTime> for SQLiteDialect {}
+impl DialectSupports<feature::PostgresDateTime> for PostgresDialect {}
 
 impl DateTruncPolicy<PostgresDialect> for PgTimestamptz {
     type Output = Self;
@@ -70,7 +59,7 @@ impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
 /// ```
 #[must_use]
 pub fn current_date<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, super::NonNull, Scalar>
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
 {
@@ -93,7 +82,7 @@ where
 /// ```
 #[must_use]
 pub fn current_time<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
 {
@@ -119,7 +108,7 @@ where
 /// ```
 #[must_use]
 pub fn current_timestamp<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
 {
@@ -144,12 +133,13 @@ where
 /// let created_date = date(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn date<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Date, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -170,12 +160,13 @@ where
 /// let created_time = time(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn time<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -196,12 +187,20 @@ where
 /// let dt = datetime(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn datetime<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Timestamp, E::Nullable, E::Aggregate>
+) -> SQLExpr<
+    'a,
+    V,
+    <V::DialectMarker as DialectTypes>::Timestamp,
+    E::Nullable,
+    E::Aggregate,
+    E::Sources,
+>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -243,16 +242,16 @@ pub fn strftime<'a, V, F, E>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
-    <F::Aggregate as AggOr<E::Aggregate>>::Output,
+    <F::Aggregate as AggregateKind>::Or<E::Aggregate>,
+    (F::Sources, E::Sources),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     F: Expr<'a, V>,
     F::SQLType: Textual,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
-    F::Aggregate: AggOr<E::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "STRFTIME",
@@ -274,12 +273,13 @@ where
 /// let julian = julianday(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn julianday<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -300,12 +300,13 @@ where
 /// let unix_ts = unixepoch(users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn unixepoch<'a, V, E>(
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -330,10 +331,10 @@ where
 /// ```
 #[must_use]
 pub fn now<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar>
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::TimestampTz, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("NOW()"))
 }
@@ -365,16 +366,16 @@ pub fn date_trunc<'a, V, P, E>(
     V,
     <E::SQLType as DateTruncPolicy<V::DialectMarker>>::Output,
     E::Nullable,
-    <P::Aggregate as AggOr<E::Aggregate>>::Output,
+    <P::Aggregate as AggregateKind>::Or<E::Aggregate>,
+    (P::Sources, E::Sources),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     P: Expr<'a, V>,
     P::SQLType: Textual,
     E: Expr<'a, V>,
     E::SQLType: DateTruncPolicy<V::DialectMarker>,
-    P::Aggregate: AggOr<E::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "DATE_TRUNC",
@@ -403,14 +404,15 @@ where
 /// let year = extract("YEAR", users.created_at);
 /// # "####;
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn extract<'a, 'f, V, E>(
     field: &'f str,
     expr: E,
-) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate>
+) -> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, E::Nullable, E::Aggregate, E::Sources>
 where
     'f: 'a,
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
 {
@@ -451,19 +453,18 @@ pub fn age<'a, V, E1, E2>(
     'a,
     V,
     drizzle_types::postgres::types::Interval,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E1: Expr<'a, V>,
     E1::SQLType: Temporal,
     E2: Expr<'a, V>,
     E2::SQLType: Temporal,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "AGE",
@@ -508,16 +509,16 @@ pub fn to_char<'a, V, E, F>(
     V,
     <V::DialectMarker as DialectTypes>::Text,
     E::Nullable,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<F::Aggregate>,
+    (E::Sources, F::Sources),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
     F: Expr<'a, V>,
     F::SQLType: Textual,
-    E::Aggregate: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TO_CHAR",
@@ -539,10 +540,12 @@ where
 /// let ts = to_timestamp(users.created_unix);
 /// # "####;
 /// ```
-pub fn to_timestamp<'a, V, E>(expr: E) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate>
+pub fn to_timestamp<'a, V, E>(
+    expr: E,
+) -> SQLExpr<'a, V, PgTimestamptz, E::Nullable, E::Aggregate, E::Sources>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Numeric,
 {
@@ -576,16 +579,16 @@ pub fn to_date<'a, V, E, F>(
     V,
     <V::DialectMarker as DialectTypes>::Date,
     E::Nullable,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<F::Aggregate>,
+    (E::Sources, F::Sources),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     F: Expr<'a, V>,
     F::SQLType: Textual,
-    E::Aggregate: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TO_DATE",
@@ -616,16 +619,16 @@ pub fn to_number<'a, V, E, F>(
     V,
     drizzle_types::postgres::types::Numeric,
     E::Nullable,
-    <E::Aggregate as AggOr<F::Aggregate>>::Output,
+    <E::Aggregate as AggregateKind>::Or<F::Aggregate>,
+    (E::Sources, F::Sources),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     E: Expr<'a, V>,
     E::SQLType: Textual,
     F: Expr<'a, V>,
     F::SQLType: Textual,
-    E::Aggregate: AggOr<F::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TO_NUMBER",
@@ -661,23 +664,20 @@ pub fn date_bin<'a, V, S, E, O>(
     'a,
     V,
     E::SQLType,
-    <<S::Nullable as NullOr<E::Nullable>>::Output as NullOr<O::Nullable>>::Output,
-    <<S::Aggregate as AggOr<E::Aggregate>>::Output as AggOr<O::Aggregate>>::Output,
+    <<S::Nullable as Nullability>::Or<E::Nullable> as Nullability>::Or<O::Nullable>,
+    <<S::Aggregate as AggregateKind>::Or<E::Aggregate> as AggregateKind>::Or<O::Aggregate>,
+    (S::Sources, (E::Sources, O::Sources)),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     S: Expr<'a, V>,
     E: Expr<'a, V>,
     E::SQLType: Temporal,
     O: Expr<'a, V>,
     O::SQLType: Temporal,
-    S::Nullable: NullOr<E::Nullable>,
     E::Nullable: Nullability,
-    <S::Nullable as NullOr<E::Nullable>>::Output: NullOr<O::Nullable>,
     O::Nullable: Nullability,
-    S::Aggregate: AggOr<E::Aggregate>,
-    <S::Aggregate as AggOr<E::Aggregate>>::Output: AggOr<O::Aggregate>,
     O::Aggregate: super::AggregateKind,
 {
     // The stride parameter binds as text; PostgreSQL resolves the overload at
@@ -717,24 +717,21 @@ pub fn make_date<'a, V, Y, M, D>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Date,
-    <<Y::Nullable as NullOr<M::Nullable>>::Output as NullOr<D::Nullable>>::Output,
-    <<Y::Aggregate as AggOr<M::Aggregate>>::Output as AggOr<D::Aggregate>>::Output,
+    <<Y::Nullable as Nullability>::Or<M::Nullable> as Nullability>::Or<D::Nullable>,
+    <<Y::Aggregate as AggregateKind>::Or<M::Aggregate> as AggregateKind>::Or<D::Aggregate>,
+    (Y::Sources, (M::Sources, D::Sources)),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     Y: Expr<'a, V>,
     Y::SQLType: Numeric,
     M: Expr<'a, V>,
     M::SQLType: Numeric,
     D: Expr<'a, V>,
     D::SQLType: Numeric,
-    Y::Nullable: NullOr<M::Nullable>,
     M::Nullable: Nullability,
-    <Y::Nullable as NullOr<M::Nullable>>::Output: NullOr<D::Nullable>,
     D::Nullable: Nullability,
-    Y::Aggregate: AggOr<M::Aggregate>,
-    <Y::Aggregate as AggOr<M::Aggregate>>::Output: AggOr<D::Aggregate>,
     D::Aggregate: super::AggregateKind,
 {
     SQLExpr::new(SQL::func(
@@ -771,16 +768,19 @@ pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Timestamp,
-    <<<<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output as NullOr<
-        H::Nullable,
-    >>::Output as NullOr<<Mi::Nullable as NullOr<S::Nullable>>::Output>>::Output,
-    <<<<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output as AggOr<
-        H::Aggregate,
-    >>::Output as AggOr<<Mi::Aggregate as AggOr<S::Aggregate>>::Output>>::Output,
+    <<<<Y::Nullable as Nullability>::Or<Mo::Nullable> as Nullability>::Or<D::Nullable> as Nullability>::Or<H::Nullable,> as Nullability>::Or<<Mi::Nullable as Nullability>::Or<S::Nullable>>,
+    <<<<Y::Aggregate as AggregateKind>::Or<Mo::Aggregate> as AggregateKind>::Or<D::Aggregate> as AggregateKind>::Or<H::Aggregate,> as AggregateKind>::Or<<Mi::Aggregate as AggregateKind>::Or<S::Aggregate>>,
+    (
+        Y::Sources,
+        (
+            Mo::Sources,
+            (D::Sources, (H::Sources, (Mi::Sources, S::Sources))),
+        ),
+    ),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
     Y: Expr<'a, V>,
     Y::SQLType: Numeric,
     Mo: Expr<'a, V>,
@@ -793,26 +793,10 @@ where
     Mi::SQLType: Numeric,
     S: Expr<'a, V>,
     S::SQLType: Numeric,
-    Y::Nullable: NullOr<Mo::Nullable>,
-    <Y::Nullable as NullOr<Mo::Nullable>>::Output: NullOr<D::Nullable>,
-    <<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output:
-        NullOr<H::Nullable>,
-    Mi::Nullable: NullOr<S::Nullable>,
-    <<<Y::Nullable as NullOr<Mo::Nullable>>::Output as NullOr<D::Nullable>>::Output as NullOr<
-        H::Nullable,
-    >>::Output: NullOr<<Mi::Nullable as NullOr<S::Nullable>>::Output>,
     H::Nullable: Nullability,
     D::Nullable: Nullability,
     Mo::Nullable: Nullability,
     S::Nullable: Nullability,
-    Y::Aggregate: AggOr<Mo::Aggregate>,
-    <Y::Aggregate as AggOr<Mo::Aggregate>>::Output: AggOr<D::Aggregate>,
-    <<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output:
-        AggOr<H::Aggregate>,
-    Mi::Aggregate: AggOr<S::Aggregate>,
-    <<<Y::Aggregate as AggOr<Mo::Aggregate>>::Output as AggOr<D::Aggregate>>::Output as AggOr<
-        H::Aggregate,
-    >>::Output: AggOr<<Mi::Aggregate as AggOr<S::Aggregate>>::Output>,
     H::Aggregate: super::AggregateKind,
     D::Aggregate: super::AggregateKind,
     S::Aggregate: super::AggregateKind,
@@ -851,10 +835,10 @@ where
 /// ```
 #[must_use]
 pub fn localtime<'a, V>()
--> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar>
+-> SQLExpr<'a, V, <V::DialectMarker as DialectTypes>::Time, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("LOCALTIME"))
 }
@@ -872,10 +856,10 @@ where
 /// # "####;
 /// ```
 #[must_use]
-pub fn localtimestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar>
+pub fn localtimestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("LOCALTIMESTAMP"))
 }
@@ -895,10 +879,10 @@ where
 /// # "####;
 /// ```
 #[must_use]
-pub fn clock_timestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamptz, super::NonNull, Scalar>
+pub fn clock_timestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamptz, super::NonNull, Scalar, ()>
 where
     V: SQLParam + 'a,
-    V::DialectMarker: PostgresDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::PostgresDateTime>,
 {
     SQLExpr::new(SQL::raw("CLOCK_TIMESTAMP()"))
 }
@@ -929,19 +913,18 @@ pub fn timediff<'a, V, E1, E2>(
     'a,
     V,
     <V::DialectMarker as DialectTypes>::Text,
-    <E1::Nullable as NullOr<E2::Nullable>>::Output,
-    <E1::Aggregate as AggOr<E2::Aggregate>>::Output,
+    <E1::Nullable as Nullability>::Or<E2::Nullable>,
+    <E1::Aggregate as AggregateKind>::Or<E2::Aggregate>,
+    (E1::Sources, E2::Sources),
 >
 where
     V: SQLParam + 'a,
-    V::DialectMarker: SQLiteDateTimeSupport,
+    V::DialectMarker: DialectSupports<feature::SQLiteDateTime>,
     E1: Expr<'a, V>,
     E1::SQLType: Temporal,
     E2: Expr<'a, V>,
     E2::SQLType: Temporal,
-    E1::Nullable: NullOr<E2::Nullable>,
     E2::Nullable: Nullability,
-    E1::Aggregate: AggOr<E2::Aggregate>,
 {
     SQLExpr::new(SQL::func(
         "TIMEDIFF",

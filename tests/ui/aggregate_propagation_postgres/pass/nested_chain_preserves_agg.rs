@@ -14,5 +14,5 @@ fn main() {
     // Deep chain: gt(abs(coalesce(sum(price), 0)), 100)
     // sum → Agg, coalesce(Agg, Scalar) → Agg, abs(Agg) → Agg, gt(Agg, Scalar) → Agg
     let deep_expr = gt(abs(coalesce(sum(item.price), 0)), 100);
-    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar> = deep_expr.over(window());
+    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar, _> = deep_expr.over(window());
 }

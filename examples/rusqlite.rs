@@ -48,12 +48,13 @@ fn main() {
         id: Uuid,
         #[cfg(not(feature = "uuid"))]
         id: i64,
+        // LEFT JOIN: users without posts come back with NULL post columns.
         #[cfg(feature = "uuid")]
         #[column(Posts::id)]
-        post_id: Uuid,
+        post_id: Option<Uuid>,
         #[cfg(not(feature = "uuid"))]
         #[column(Posts::id)]
-        post_id: i64,
+        post_id: Option<i64>,
         name: String,
         age: i64,
     }
@@ -69,9 +70,9 @@ fn main() {
     assert_eq!(row.name, "Alex Smith");
     assert_eq!(row.age, 26);
     #[cfg(feature = "uuid")]
-    assert!(!row.post_id.is_nil());
+    assert!(row.post_id.is_some_and(|post_id| !post_id.is_nil()));
     #[cfg(not(feature = "uuid"))]
-    assert_eq!(row.post_id, 1);
+    assert_eq!(row.post_id, Some(1));
 }
 
 #[cfg(not(feature = "rusqlite"))]

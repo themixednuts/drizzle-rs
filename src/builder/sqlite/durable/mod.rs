@@ -549,8 +549,10 @@ where
     }
 
     /// Runs the query and returns all matching rows deserialized into `R`.
-    pub fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
+    pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,
     {
         let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;
@@ -560,8 +562,10 @@ where
     }
 
     /// Runs the query and returns the first matching row.
-    pub fn get<R>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
+            + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,
     {
         let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;

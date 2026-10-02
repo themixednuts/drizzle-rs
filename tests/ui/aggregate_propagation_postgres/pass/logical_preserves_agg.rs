@@ -8,5 +8,5 @@ fn main() {
         lt::<PostgresValue, _, _>(count(()), 100i64),
     );
 
-    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar> = expr.over(window());
+    let _: SQLExpr<'_, PostgresValue, _, NonNull, Scalar, _> = expr.over(window());
 }

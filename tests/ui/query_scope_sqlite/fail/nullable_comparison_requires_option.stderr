@@ -1,0 +1,41 @@
+error[E0277]: selected column decodes as `drizzle::core::MaybeNull<i64>`, but the decode target uses `bool`
+  --> tests/ui/query_scope_sqlite/fail/nullable_comparison_requires_option.rs:47:53
+   |
+47 |         db.select(eq(users.email, "x")).from(users).all();
+   |                                                     ^^^ the decode target does not match the selected columns
+   |
+   = help: the trait `for<'r> drizzle_core::row::ColumnTypeCompatible<Row<'r>, drizzle::core::MaybeNull<i64>, bool>` is not implemented for `()`
+   = note: a selected `MaybeNull<T>` can be NULL (an outer join or a nullable operand) and must be decoded as `Option<T>`
+   = help: `()` implements trait `drizzle_core::row::ColumnTypeCompatible<Row, Expected, Actual>`:
+             drizzle_core::row::ColumnTypeCompatible<Row, T, T>
+             drizzle_core::row::ColumnTypeCompatible<Row, drizzle::core::MaybeNull<Expected>, std::option::Option<Actual>>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, bool>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, i8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, isize>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u16>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u32>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u64>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, u8>
+             drizzle_core::row::ColumnTypeCompatible<Row, i64, usize>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<bool>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<i8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<isize>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u16>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u32>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u64>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<u8>>
+             drizzle_core::row::ColumnTypeCompatible<Row, std::option::Option<i64>, std::option::Option<usize>>
+   = note: required for `Cons<drizzle::core::MaybeNull<i64>, Nil>` to implement `for<'r> drizzle_core::row::TypeListCompatible<Row<'r>, Cons<bool, Nil>>`
+   = note: required for `Scoped<SelectCols<(SQLExpr<'_, SQLiteValue<'_>, drizzle::sqlite::types::Integer, drizzle::core::expr::NonNull, Scalar, ((drizzle::core::expr::Null, Src<Users>), (drizzle::core::expr::NonNull, ()))>,)>, Cons<Users, Nil>>` to implement `for<'r> MarkerColumnCountValid<Row<'r>, (i64,), bool, ((), ((((), ScopeFound), ((), ())), ()))>`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/sqlite/rusqlite/mod.rs
+   |
+   |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, R, Proof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::sqlite::rusqlite::<impl DrizzleBuilder<'_, Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

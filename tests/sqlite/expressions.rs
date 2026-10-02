@@ -1,7 +1,7 @@
 //! SQLite-only expression functions, executed against the database.
 //!
 //! Portable functions run in `crate::common::expressions`; this file covers
-//! the `SQLiteDateTimeSupport`, `GroupConcatSupport`, `TypeofSupport` and
+//! the SQLite date/time functions, `GROUP_CONCAT`, `TYPEOF` and
 //! `IFNULL` surface that only SQLite (and, for some, MySQL) provides.
 
 #![cfg(any(feature = "rusqlite", feature = "turso", feature = "libsql"))]

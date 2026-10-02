@@ -1,0 +1,24 @@
+error[E0277]: this half of the joined `SELECT *` row decodes as `std::option::Option<SelectPosts>`, not `SelectPosts`
+  --> tests/ui/query_scope_mysql/fail/left_join_star_requires_option.rs:38:10
+   |
+38 |         .all();
+   |          ^^^ the decode target does not match the joined row type
+   |
+   = help: the trait `drizzle_core::row::JoinedStarPart<SelectPosts>` is not implemented for `std::option::Option<SelectPosts>`
+   = note: LEFT/RIGHT/FULL JOIN sources can be NULL: decode them as `Option<_>`
+   = help: the following other types implement trait `MarkerColumnCountValid<Row, Inferred, Actual, Proof>`:
+             `Scoped<SelectAs<R>, Scope, Used>` implements `MarkerColumnCountValid<Row, Inferred, Actual, Proof>`
+             `Scoped<SelectCols<Cols>, Scope, Used>` implements `MarkerColumnCountValid<Row, Inferred, Actual, (UsedProof, ColsProof)>`
+             `Scoped<SelectExpr, Scope, Used>` implements `MarkerColumnCountValid<Row, Inferred, Actual, Proof>`
+             `Scoped<SelectStar, Cons<First, Cons<Second, Rest>>, Used>` implements `MarkerColumnCountValid<Row, Inferred, Actual, Proof>`
+             `Scoped<SelectStar, Cons<Table, Nil>, Used>` implements `MarkerColumnCountValid<Row, Inferred, Actual, Proof>`
+   = note: required for `(SelectUsers, std::option::Option<SelectPosts>)` to implement `JoinedStarRow<(SelectUsers, SelectPosts)>`
+   = note: required for `Scoped<SelectStar, Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (((), ()), At<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, ((drizzle::core::expr::NonNull, Src<Posts>), (drizzle::core::expr::NonNull, Src<Users>))>)>` to implement `for<'row> MarkerColumnCountValid<MySQLRow<'row, Row>, (SelectUsers, std::option::Option<SelectPosts>), (SelectUsers, SelectPosts), (((), ()), (((), ScopeFound), ((), ScopeFound)))>`
+note: required by a bound in `drizzle::builder::mysql::mysql_sync::<impl drizzle::builder::mysql::common::DrizzleBuilder<'db, &'db mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+  --> src/builder/mysql/mysql_sync/mod.rs
+   |
+   |     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
+   |            --- required by a bound in this associated function
+...
+   |             + MarkerColumnCountValid<MySQLRow<'row, Row>, Rw, R, ScopeProof>,
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::mysql::mysql_sync::<impl DrizzleBuilder<'db, &mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

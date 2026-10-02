@@ -12,7 +12,7 @@ fn main() {
     let item = Item::default();
 
     // sum(price) + count(()) — two aggregates combined remain Agg
-    let combined: SQLExpr<'_, SQLiteValue, _, _, Agg> = sum(item.price) + count(());
+    let combined: SQLExpr<'_, SQLiteValue, _, _, Agg, _> = sum(item.price) + count(());
 
     // The combined Agg expression can be windowed
     let _ = combined.over(window());

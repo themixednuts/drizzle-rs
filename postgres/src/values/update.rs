@@ -171,8 +171,8 @@ where
     }
 }
 
-impl<'a, T, Target, TargetNull, Actual, ActualNull>
-    From<SQLExpr<'a, PostgresValue<'a>, Actual, ActualNull, Scalar>>
+impl<'a, T, Target, TargetNull, Actual, ActualNull, Sources>
+    From<SQLExpr<'a, PostgresValue<'a>, Actual, ActualNull, Scalar, Sources>>
     for PostgresUpdateValue<'a, PostgresValue<'a>, T, Target, TargetNull>
 where
     Target: DataType + Assignable<Actual>,
@@ -180,7 +180,7 @@ where
     Actual: DataType,
     ActualNull: Nullability,
 {
-    fn from(value: SQLExpr<'a, PostgresValue<'a>, Actual, ActualNull, Scalar>) -> Self {
+    fn from(value: SQLExpr<'a, PostgresValue<'a>, Actual, ActualNull, Scalar, Sources>) -> Self {
         Self::Value(ValueWrapper::<PostgresValue<'a>, T>::new(
             value.into_expr_sql(),
         ))

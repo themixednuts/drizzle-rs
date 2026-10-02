@@ -1,12 +1,15 @@
-error[E0277]: the trait bound `DeleteReturningSet: select::insert_select_private::Completed` is not satisfied
+error[E0277]: builder state `DeleteReturningSet` does not allow `drizzle_core::builder::clause::Source`
   --> tests/ui/insert_select/sqlite/fail/insert_select_dml.rs:22:42
    |
 22 |     let _ = builder.insert(users).select(delete);
-   |                                   ------ ^^^^^^ the trait `select::insert_select_private::Completed` is not implemented for `DeleteReturningSet`
+   |                                   ------ ^^^^^^ not available at this point of the query
    |                                   |
    |                                   required by a bound introduced by this call
    |
-   = help: the following other types implement trait `select::insert_select_private::Completed`:
+   = help: the trait `drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Source>` is not implemented for `DeleteReturningSet`
+   = note: SELECT clauses go in order: FROM, JOIN, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+   = note: only a SELECT can be a set operand, a subquery, a derived table, or an INSERT source
+   = help: the following other types implement trait `drizzle_core::builder::ClauseAllowed<Clause>`:
              SelectFromSet
              SelectGroupSet
              SelectJoinSet
