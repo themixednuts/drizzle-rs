@@ -11,7 +11,7 @@ use super::ddl::{
     IndexMethod, InlineType, ReferentialAction, Table, UniqueConstraint, View, ViewAlgorithm,
     ViewCheckOption, ViewSqlSecurity,
 };
-use crate::utils::{default_expression, escape_for_rust_literal, unsupported_default_comment};
+use crate::utils::{default_expression_with, escape_for_rust_literal, unsupported_default_comment};
 use drizzle_types::mysql::{MySQLType, MySQLTypeCategory};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -1634,7 +1634,46 @@ fn enum_variant_identifier(value: &str) -> Option<String> {
 }
 
 fn default_attribute(default: &str) -> Option<String> {
-    default_expression(default).map(|expression| format!("DEFAULT = {expression}"))
+    // Canonical snapshot defaults wrap expressions (and literals on
+    // TEXT/BLOB/JSON columns) in one pair of parentheses; the table macro
+    // adds them back, so the attribute carries the bare literal or call.
+    let mut sql = default.trim();
+    if drizzle_types::mysql::default::is_parenthesized(sql) {
+        sql = sql[1..sql.len() - 1].trim();
+    }
+    if let Some(bytes) = hex_literal_bytes(sql) {
+        let escaped: String = bytes
+            .iter()
+            .flat_map(|byte| std::ascii::escape_default(*byte))
+            .map(char::from)
+            .collect();
+        return Some(format!("DEFAULT = b\"{escaped}\""));
+    }
+    if let Some(bits) = sql
+        .strip_prefix("b'")
+        .or_else(|| sql.strip_prefix("B'"))
+        .and_then(|bits| bits.strip_suffix('\''))
+        .filter(|bits| !bits.is_empty() && bits.bytes().all(|bit| matches!(bit, b'0' | b'1')))
+    {
+        return Some(format!("DEFAULT = 0b{bits}"));
+    }
+    default_expression_with(sql, true).map(|expression| format!("DEFAULT = {expression}"))
+}
+
+/// Bytes of an `X'AB'` or `0xAB` literal.
+fn hex_literal_bytes(sql: &str) -> Option<Vec<u8>> {
+    let digits = sql
+        .strip_prefix("X'")
+        .or_else(|| sql.strip_prefix("x'"))
+        .and_then(|digits| digits.strip_suffix('\''))
+        .or_else(|| sql.strip_prefix("0x"))?;
+    if digits.len() % 2 != 0 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    (0..digits.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&digits[index..index + 2], 16).ok())
+        .collect()
 }
 
 fn type_supports_on_update(category: &MySQLTypeCategory) -> bool {
