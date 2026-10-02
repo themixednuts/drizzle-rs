@@ -306,6 +306,92 @@ fn postgres_sync_second_push_of_a_macro_schema_plans_nothing() {
     db.push(&schema).expect("second push");
 }
 
+const AUDIT_SCHEMA: &str = "push_audit_test";
+
+#[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+#[postgres_enum(schema = "push_audit_test")]
+enum PushAuditMood {
+    #[default]
+    Happy,
+    Sad,
+}
+
+#[PostgresTable(schema = "push_audit_test", name = "MixedCase")]
+struct PushAuditMixedCase {
+    #[column(primary, identity(by_default))]
+    id: i32,
+    #[column(name = "DisplayName", default = "it's")]
+    display_name: String,
+    #[column(enum)]
+    mood: PushAuditMood,
+    #[column(CHECK = "score >= 0")]
+    score: i32,
+    #[column(generated(stored, "score * 2"))]
+    double_score: i32,
+    #[column(default = 5)]
+    five: i32,
+    #[column(default = true)]
+    flag: bool,
+    #[column(default = 1.5)]
+    ratio: f64,
+    #[column(unique)]
+    email: String,
+    #[column(COLLATE = C)]
+    collated: String,
+    #[column(varchar(20), default = "x")]
+    short: String,
+}
+
+#[PostgresTable(
+    schema = "push_audit_test",
+    UNIQUE(columns(a, b)),
+    CHECK(name = "kids_a_check", expr = "a <> 'bad'")
+)]
+struct PushAuditKids {
+    #[column(primary)]
+    id: i64,
+    a: String,
+    b: String,
+    #[column(references = PushAuditMixedCase::id, on_delete = CASCADE)]
+    parent_id: i32,
+    tags: Vec<String>,
+    #[column(default = "{}")]
+    empty_tags: Vec<String>,
+}
+
+#[PostgresIndex(unique, where = "a IS NOT NULL")]
+struct PushAuditKidsAIdx(PushAuditKids::a);
+
+#[derive(PostgresSchema)]
+struct PushAuditSchema {
+    mood: PushAuditMood,
+    mixed_case: PushAuditMixedCase,
+    kids: PushAuditKids,
+    kids_a_idx: PushAuditKidsAIdx,
+}
+
+#[test]
+fn postgres_sync_second_push_of_mixed_case_quoted_schema_plans_nothing() {
+    let (mut db, schema) = crate::common::helpers::postgres_sync_setup::setup_empty_named_db(
+        AUDIT_SCHEMA,
+        PushAuditSchema::default(),
+    );
+
+    db.push(&schema).expect("first push");
+
+    let Snapshot::Postgres(desired) = schema.to_snapshot() else {
+        panic!("expected a PostgreSQL snapshot");
+    };
+    let live = introspect_schema(db.conn_mut(), AUDIT_SCHEMA).prepare_for_push(&desired);
+    let plan = drizzle_migrations::diff(&Snapshot::Postgres(live), &Snapshot::Postgres(desired))
+        .expect("diff");
+    assert!(
+        plan.statements.is_empty(),
+        "an unchanged schema must push nothing: {:#?}",
+        plan.statements
+    );
+}
+
 // =============================================================================
 // create_statements in a non-public schema
 // =============================================================================
