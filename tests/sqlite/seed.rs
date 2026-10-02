@@ -781,3 +781,84 @@ fn seeder_email_column_produces_emails() {
         "should have produced at least one non-NULL email"
     );
 }
+
+/// Seeds column shapes that used to produce values the column could not
+/// hold, executes the statements, and reads the rows back through the typed
+/// models.
+mod executed {
+    use drizzle::sqlite::prelude::*;
+    use drizzle_seed::SeedConfig;
+
+    #[derive(SQLiteEnum, Default, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SeedRole {
+        #[default]
+        Guest,
+        Member,
+        Admin,
+    }
+
+    #[derive(SQLiteEnum, Default, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SeedStatus {
+        Suspended = -1,
+        #[default]
+        Inactive = 3,
+        Active,
+    }
+
+    #[SQLiteTable(NAME = "seed_typed", STRICT)]
+    pub struct SeedTyped {
+        #[column(PRIMARY)]
+        pub id: i64,
+        #[column(UNIQUE)]
+        pub username: String,
+        #[column(ENUM)]
+        pub role: SeedRole,
+        #[column(integer, ENUM)]
+        pub status: SeedStatus,
+        pub position: i64,
+        pub email_count: i64,
+        pub hotel_id: i64,
+        pub is_active: bool,
+    }
+
+    #[derive(SQLiteSchema)]
+    pub struct SeedTypedSchema {
+        pub typed: SeedTyped,
+    }
+
+    #[drizzle::test]
+    fn seeded_rows_insert_and_decode(db: &mut TestDb<SeedTypedSchema>) {
+        let SeedTypedSchema { typed } = schema;
+        for statement in SeedConfig::sqlite(&schema)
+            .seed(3)
+            .count(&typed, 200)
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedTyped> = db.select(()).from(typed).all();
+        assert_eq!(rows.len(), 200);
+        let mut usernames: Vec<&str> = rows.iter().map(|row| row.username.as_str()).collect();
+        usernames.sort_unstable();
+        usernames.dedup();
+        assert_eq!(usernames.len(), 200, "UNIQUE username values repeat");
+        // Every enum variant shows up across 200 rows.
+        for role in [SeedRole::Guest, SeedRole::Member, SeedRole::Admin] {
+            assert!(
+                rows.iter().any(|row| row.role == role),
+                "{role:?} never seeded"
+            );
+        }
+        for status in [
+            SeedStatus::Suspended,
+            SeedStatus::Inactive,
+            SeedStatus::Active,
+        ] {
+            assert!(
+                rows.iter().any(|row| row.status == status),
+                "{status:?} never seeded"
+            );
+        }
+    }
+}
