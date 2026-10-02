@@ -1080,6 +1080,72 @@ mod tests {
         Column::new("public", "users", "value", sql_type.to_string())
     }
 
+    /// What drizzle-kit writes and what the macros write for the same
+    /// schema: neither side may plan a change.
+    #[test]
+    fn drizzle_kit_spellings_compare_equal() {
+        use super::super::ddl::{Identity, IdentityType, Index, IndexColumn, Schema};
+
+        let mut kit_flag = column_with_type("boolean");
+        kit_flag.default = Some("true".into());
+        let mut rust_flag = column_with_type("BOOLEAN");
+        rust_flag.default = Some("TRUE".into());
+        assert!(columns_equivalent(&kit_flag, &rust_flag));
+
+        let identity = |schema: Option<&'static str>| Identity {
+            name: "users_value_seq".into(),
+            schema: schema.map(Into::into),
+            type_: IdentityType::Always,
+            increment: None,
+            min_value: None,
+            max_value: None,
+            start_with: None,
+            cache: None,
+            cycle: None,
+        };
+        let mut kit_id = column_with_type("integer");
+        kit_id.identity = Some(identity(None));
+        let mut rust_id = column_with_type("INTEGER");
+        rust_id.identity = Some(identity(Some("public")));
+        assert!(columns_equivalent(&kit_id, &rust_id));
+
+        let mut kit_index = Index::new(
+            "public",
+            "users",
+            "users_value_idx",
+            vec![IndexColumn::new("value")],
+        );
+        kit_index.with = Some("".into());
+        kit_index.name_explicit = true;
+        kit_index.method = Some("btree".into());
+        let rust_index = Index::new(
+            "public",
+            "users",
+            "users_value_idx",
+            vec![IndexColumn::new("value")],
+        );
+        assert!(indexes_equivalent(&kit_index, &rust_index));
+
+        // drizzle-rs lists `public`; drizzle-kit does not. Nothing to run.
+        let kit = PostgresDDL::from_entities(vec![
+            PostgresEntity::Table(Table::new("public", "users")),
+            PostgresEntity::Column(column_with_type("integer")),
+        ]);
+        let rust = PostgresDDL::from_entities(vec![
+            PostgresEntity::Schema(Schema::new("public")),
+            PostgresEntity::Table(Table::new("public", "users")),
+            PostgresEntity::Column(column_with_type("integer")),
+        ]);
+        for (prev, cur) in [(&kit, &rust), (&rust, &kit)] {
+            let migration = super::super::diff::compute_migration(prev, cur);
+            assert!(
+                migration.sql_statements.is_empty(),
+                "{:?}",
+                migration.sql_statements
+            );
+        }
+    }
+
     #[test]
     fn postgres_type_aliases_compare_equal() {
         let cases = [

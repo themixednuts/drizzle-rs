@@ -780,6 +780,21 @@ mod tests {
     }
 
     #[test]
+    fn boolean_keyword_defaults_equal_their_integers() {
+        // drizzle-kit writes boolean-mode defaults as `false`; the macros as 0.
+        let no_pks = HashSet::new();
+        let mut kit = Column::new("users", "is_admin", "integer").not_null();
+        kit.default = Some("false".into());
+        let mut rust = Column::new("users", "is_admin", "INTEGER").not_null();
+        rust.default = Some("0".into());
+        assert!(columns_equivalent(&kit, &rust, &no_pks));
+        rust.default = Some("1".into());
+        assert!(!columns_equivalent(&kit, &rust, &no_pks));
+        kit.default = Some("TRUE".into());
+        assert!(columns_equivalent(&kit, &rust, &no_pks));
+    }
+
+    #[test]
     fn test_ddl_collection_push() {
         let mut ddl = SQLiteDDL::new();
 
