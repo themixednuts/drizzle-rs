@@ -162,32 +162,20 @@ fn up_converts_legacy_layout_to_folders() {
     // drizzle-kit's `up` names it (and drizzle-orm records once applied).
     assert!(!migrations_dir.join("0000_flimsy_shard").exists());
     assert_eq!(
-        fs::read_to_string(
-            migrations_dir
-                .join(FIRST_FOLDER)
-                .join("migration.sql")
-        )
-        .expect("read converted sql"),
+        fs::read_to_string(migrations_dir.join(FIRST_FOLDER).join("migration.sql"))
+            .expect("read converted sql"),
         INITIAL_SQL
     );
     assert_eq!(
-        fs::read_to_string(
-            migrations_dir
-                .join(SECOND_FOLDER)
-                .join("migration.sql")
-        )
-        .expect("read converted sql"),
+        fs::read_to_string(migrations_dir.join(SECOND_FOLDER).join("migration.sql"))
+            .expect("read converted sql"),
         SECOND_SQL
     );
 
     // Snapshots converted to the current entity-array format, ids preserved.
     let snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::from_json(
-        &fs::read_to_string(
-            migrations_dir
-                .join(SECOND_FOLDER)
-                .join("snapshot.json"),
-        )
-        .expect("read converted snapshot"),
+        &fs::read_to_string(migrations_dir.join(SECOND_FOLDER).join("snapshot.json"))
+            .expect("read converted snapshot"),
     )
     .expect("converted snapshot parses as the current format");
     assert_eq!(
@@ -232,12 +220,9 @@ fn up_is_idempotent_after_conversion() {
         .assert()
         .success();
 
-    let snapshot_before = fs::read_to_string(
-        migrations_dir
-            .join(FIRST_FOLDER)
-            .join("snapshot.json"),
-    )
-    .expect("read snapshot");
+    let snapshot_before =
+        fs::read_to_string(migrations_dir.join(FIRST_FOLDER).join("snapshot.json"))
+            .expect("read snapshot");
 
     // Second run: nothing legacy left, snapshots already current.
     cargo_bin_cmd!("drizzle")
@@ -247,12 +232,9 @@ fn up_is_idempotent_after_conversion() {
         .success()
         .stdout(predicates::str::contains("already at the latest version"));
 
-    let snapshot_after = fs::read_to_string(
-        migrations_dir
-            .join(FIRST_FOLDER)
-            .join("snapshot.json"),
-    )
-    .expect("read snapshot");
+    let snapshot_after =
+        fs::read_to_string(migrations_dir.join(FIRST_FOLDER).join("snapshot.json"))
+            .expect("read snapshot");
     assert_eq!(snapshot_before, snapshot_after);
 }
 

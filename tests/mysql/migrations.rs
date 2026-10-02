@@ -432,9 +432,7 @@ fn runtime_migrations_keep_the_first_failure_dirty(db: &mut TestDb<RuntimeMigrat
 /// backfills `name` and writes `applied_at = NULL`. Those rows are applied,
 /// not interrupted.
 #[drizzle::test]
-fn runtime_migrations_accept_rows_upgraded_by_drizzle_orm(
-    db: &mut TestDb<RuntimeMigrationSchema>,
-) {
+fn runtime_migrations_accept_rows_upgraded_by_drizzle_orm(db: &mut TestDb<RuntimeMigrationSchema>) {
     let tracking = Tracking::MYSQL.table("__drizzle_runtime_upstream");
     let first = Migration::new(
         "20240101000000_mysql_upstream_init",
@@ -541,10 +539,9 @@ async fn runtime_migrations_run_hand_written_mysql_programs_async() {
         admin.query_drop(sql).expect("clear prior state");
     }
 
-    let connection =
-        mysql_async::Conn::new(crate::common::helpers::mysql_async_setup::options())
-            .await
-            .expect("connect");
+    let connection = mysql_async::Conn::new(crate::common::helpers::mysql_async_setup::options())
+        .await
+        .expect("connect");
     let (mut db, ()) = drizzle::mysql::mysql_async::Drizzle::new(connection);
     let outcome = db
         .migrate(

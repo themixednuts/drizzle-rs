@@ -672,11 +672,8 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
 
     let current_snapshot =
         Snapshot::from_parse_result(&parse_result, config.dialect, config.casing);
-    let merge_base = crate::history::load_merge_base(
-        &config.out_dir,
-        config.dialect,
-        config.ignore_conflicts,
-    )?;
+    let merge_base =
+        crate::history::load_merge_base(&config.out_dir, config.dialect, config.ignore_conflicts)?;
     let previous_snapshot = merge_base.snapshot;
     let sqlite_rebuild_data = config
         .sqlite_rebuild_data
@@ -751,7 +748,6 @@ fn parse_files(files: &[PathBuf]) -> Result<crate::parser::ParseResult, BuildErr
     }
     Ok(SchemaParser::parse(&combined))
 }
-
 
 fn next_migration_index(out_dir: &Path) -> Result<u32, BuildError> {
     let entries = collect_v3_migration_dirs(out_dir)?;
@@ -880,8 +876,7 @@ pub struct Users {{
                 std::fs::write(&schema_path, body).expect("write schema");
             };
             let generate = |out: &Path, name: &str| {
-                run(&Config::new(dialect).file(&schema_path).out(out).name(name))
-                    .expect("generate")
+                run(&Config::new(dialect).file(&schema_path).out(out).name(name)).expect("generate")
             };
             let copy_folders = |from: &Path, to: &Path| {
                 for entry in std::fs::read_dir(from).expect("read") {
@@ -910,7 +905,11 @@ pub struct Users {{
             // The merged schema is what both branches produce: no changes,
             // instead of re-emitting the other branch's CREATE TABLE.
             schema(&["Users", "Alpha", "Beta"]);
-            assert_eq!(generate(&main_out, "3_noop"), Output::NoChanges, "{dialect:?}");
+            assert_eq!(
+                generate(&main_out, "3_noop"),
+                Output::NoChanges,
+                "{dialect:?}"
+            );
 
             schema(&["Users", "Alpha", "Beta", "Gamma"]);
             let Output::Generated { path, .. } = generate(&main_out, "4_gamma") else {

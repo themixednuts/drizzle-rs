@@ -2395,9 +2395,9 @@ fn run_postgres_sync_migrations_locked(
             for statement in migration.statements() {
                 if !statement.trim().is_empty() {
                     // Simple-query protocol: a breakpoint chunk runs whole.
-                    transaction.batch_execute(statement).map_err(|error| {
-                        migration_statement_error(migration, statement, &error)
-                    })?;
+                    transaction
+                        .batch_execute(statement)
+                        .map_err(|error| migration_statement_error(migration, statement, &error))?;
                 }
             }
             transaction

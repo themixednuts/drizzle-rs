@@ -1101,8 +1101,14 @@ fn rusqlite_migrate_refuses_to_rerun_an_interrupted_migration() {
 #[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_migrate_accepts_rows_upgraded_by_drizzle_orm() {
-    let first = Migration::new("20240101000000_init", "CREATE TABLE upstream_a (id INTEGER);");
-    let second = Migration::new("20240102000000_next", "CREATE TABLE upstream_b (id INTEGER);");
+    let first = Migration::new(
+        "20240101000000_init",
+        "CREATE TABLE upstream_a (id INTEGER);",
+    );
+    let second = Migration::new(
+        "20240102000000_next",
+        "CREATE TABLE upstream_b (id INTEGER);",
+    );
     let connection = rusqlite::Connection::open_in_memory().expect("open DB");
     connection
         .execute_batch(&format!(

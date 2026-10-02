@@ -61,9 +61,10 @@ impl std::fmt::Display for BranchConflict {
             "`{}` and `{}` (branched from {}): {}",
             self.left,
             self.right,
-            self.parent
-                .as_deref()
-                .map_or_else(|| "an empty schema".to_string(), |parent| format!("`{parent}`")),
+            self.parent.as_deref().map_or_else(
+                || "an empty schema".to_string(),
+                |parent| format!("`{parent}`")
+            ),
             self.reason
         )
     }
@@ -284,7 +285,10 @@ fn load_nodes(out_dir: &Path, dialect: Dialect) -> Result<Vec<Node>, HistoryErro
             let entities = json
                 .get("ddl")
                 .and_then(Value::as_array)
-                .map(|ddl| ddl.iter().map(|entity| (entity_key(entity), entity.clone())))
+                .map(|ddl| {
+                    ddl.iter()
+                        .map(|entity| (entity_key(entity), entity.clone()))
+                })
                 .into_iter()
                 .flatten()
                 .collect();
@@ -586,7 +590,13 @@ mod tests {
     #[test]
     fn linear_history_uses_the_newest_snapshot() {
         let dir = tempfile::tempdir().expect("tempdir");
-        write(dir.path(), "20240101000000_a", "a", &[ORIGIN_UUID], json!([table("alpha")]));
+        write(
+            dir.path(),
+            "20240101000000_a",
+            "a",
+            &[ORIGIN_UUID],
+            json!([table("alpha")]),
+        );
         write(
             dir.path(),
             "20240102000000_b",
@@ -603,7 +613,13 @@ mod tests {
     #[test]
     fn merged_branches_diff_against_the_union_of_their_changes() {
         let dir = tempfile::tempdir().expect("tempdir");
-        write(dir.path(), "20240101000000_init", "init", &[ORIGIN_UUID], json!([table("users")]));
+        write(
+            dir.path(),
+            "20240101000000_init",
+            "init",
+            &[ORIGIN_UUID],
+            json!([table("users")]),
+        );
         // Two branches off `init`, one of them two migrations long.
         write(
             dir.path(),
@@ -617,18 +633,29 @@ mod tests {
             "20240103000000_alpha_cols",
             "alpha2",
             &["alpha"],
-            json!([table("users"), table("alpha"), column("alpha", "id", "integer")]),
+            json!([
+                table("users"),
+                table("alpha"),
+                column("alpha", "id", "integer")
+            ]),
         );
         write(
             dir.path(),
             "20240102000001_beta",
             "beta",
             &["init"],
-            json!([table("users"), table("beta"), column("users", "email", "text")]),
+            json!([
+                table("users"),
+                table("beta"),
+                column("users", "email", "text")
+            ]),
         );
 
         let base = load_merge_base(dir.path(), Dialect::SQLite, false).expect("merge base");
-        assert_eq!(base.prev_ids, Some(vec!["alpha2".to_string(), "beta".to_string()]));
+        assert_eq!(
+            base.prev_ids,
+            Some(vec!["alpha2".to_string(), "beta".to_string()])
+        );
         assert_eq!(table_names(&base.snapshot), ["alpha", "beta", "users"]);
         assert_eq!(base.snapshot.as_sqlite().expect("sqlite").ddl.len(), 5);
     }
@@ -636,8 +663,20 @@ mod tests {
     #[test]
     fn branches_from_an_empty_schema_merge() {
         let dir = tempfile::tempdir().expect("tempdir");
-        write(dir.path(), "20240101000000_a", "a", &[ORIGIN_UUID], json!([table("alpha")]));
-        write(dir.path(), "20240101000001_b", "b", &[ORIGIN_UUID], json!([table("beta")]));
+        write(
+            dir.path(),
+            "20240101000000_a",
+            "a",
+            &[ORIGIN_UUID],
+            json!([table("alpha")]),
+        );
+        write(
+            dir.path(),
+            "20240101000001_b",
+            "b",
+            &[ORIGIN_UUID],
+            json!([table("beta")]),
+        );
 
         let base = load_merge_base(dir.path(), Dialect::SQLite, false).expect("merge base");
         assert_eq!(table_names(&base.snapshot), ["alpha", "beta"]);
@@ -647,7 +686,13 @@ mod tests {
     #[test]
     fn conflicting_branches_are_rejected_unless_ignored() {
         let dir = tempfile::tempdir().expect("tempdir");
-        write(dir.path(), "20240101000000_init", "init", &[ORIGIN_UUID], json!([table("users")]));
+        write(
+            dir.path(),
+            "20240101000000_init",
+            "init",
+            &[ORIGIN_UUID],
+            json!([table("users")]),
+        );
         write(
             dir.path(),
             "20240102000000_left",
@@ -668,7 +713,10 @@ mod tests {
             panic!("{error}");
         };
         assert_eq!(conflicts.len(), 1);
-        assert!(conflicts[0].reason.contains("columns `users.email`"), "{error}");
+        assert!(
+            conflicts[0].reason.contains("columns `users.email`"),
+            "{error}"
+        );
         assert!(error.to_string().contains("20240102000000_left"), "{error}");
 
         let base = load_merge_base(dir.path(), Dialect::SQLite, true).expect("ignored");
@@ -679,8 +727,20 @@ mod tests {
     #[test]
     fn dropping_a_table_conflicts_with_changes_inside_it() {
         let dir = tempfile::tempdir().expect("tempdir");
-        write(dir.path(), "20240101000000_init", "init", &[ORIGIN_UUID], json!([table("users")]));
-        write(dir.path(), "20240102000000_drop", "drop", &["init"], json!([]));
+        write(
+            dir.path(),
+            "20240101000000_init",
+            "init",
+            &[ORIGIN_UUID],
+            json!([table("users")]),
+        );
+        write(
+            dir.path(),
+            "20240102000000_drop",
+            "drop",
+            &["init"],
+            json!([]),
+        );
         write(
             dir.path(),
             "20240102000001_add",
@@ -690,14 +750,25 @@ mod tests {
         );
 
         let error = load_merge_base(dir.path(), Dialect::SQLite, false).expect_err("conflict");
-        assert!(error.to_string().contains("drops or renames tables `users`"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains("drops or renames tables `users`"),
+            "{error}"
+        );
     }
 
     #[test]
     fn sqlite_rebuild_conflicts_with_a_column_added_on_the_other_branch() {
         let dir = tempfile::tempdir().expect("tempdir");
         let users = json!([table("users"), column("users", "id", "integer")]);
-        write(dir.path(), "20240101000000_init", "init", &[ORIGIN_UUID], users);
+        write(
+            dir.path(),
+            "20240101000000_init",
+            "init",
+            &[ORIGIN_UUID],
+            users,
+        );
         // Changing a column definition rebuilds `users` from a copy that does
         // not know about the other branch's new column.
         write(
@@ -712,19 +783,44 @@ mod tests {
             "20240102000001_add",
             "add",
             &["init"],
-            json!([table("users"), column("users", "id", "integer"), column("users", "note", "text")]),
+            json!([
+                table("users"),
+                column("users", "id", "integer"),
+                column("users", "note", "text")
+            ]),
         );
 
         let error = load_merge_base(dir.path(), Dialect::SQLite, false).expect_err("conflict");
-        assert!(error.to_string().contains("rebuilds tables `users`"), "{error}");
+        assert!(
+            error.to_string().contains("rebuilds tables `users`"),
+            "{error}"
+        );
     }
 
     #[test]
     fn an_already_merged_fork_is_not_merged_again() {
         let dir = tempfile::tempdir().expect("tempdir");
-        write(dir.path(), "20240101000000_init", "init", &[ORIGIN_UUID], json!([]));
-        write(dir.path(), "20240102000000_a", "a", &["init"], json!([table("alpha")]));
-        write(dir.path(), "20240102000001_b", "b", &["init"], json!([table("beta")]));
+        write(
+            dir.path(),
+            "20240101000000_init",
+            "init",
+            &[ORIGIN_UUID],
+            json!([]),
+        );
+        write(
+            dir.path(),
+            "20240102000000_a",
+            "a",
+            &["init"],
+            json!([table("alpha")]),
+        );
+        write(
+            dir.path(),
+            "20240102000001_b",
+            "b",
+            &["init"],
+            json!([table("beta")]),
+        );
         write(
             dir.path(),
             "20240103000000_merge",

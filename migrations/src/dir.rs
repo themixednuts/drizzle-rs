@@ -157,7 +157,9 @@ mod tests {
         if let Some(dialect) = dialect {
             std::fs::write(
                 folder.join("snapshot.json"),
-                format!(r#"{{"version":"6","dialect":"{dialect}","id":"x","prevIds":[],"ddl":[]}}"#),
+                format!(
+                    r#"{{"version":"6","dialect":"{dialect}","id":"x","prevIds":[],"ddl":[]}}"#
+                ),
             )
             .expect("snapshot.json");
         }
@@ -173,7 +175,10 @@ mod tests {
         let migrations = MigrationDir::new(dir.path()).discover().expect("discover");
         assert_eq!(
             migrations[0].statements(),
-            ["INSERT INTO t VALUES ('a\\';b')", "# it's a comment; really\nSELECT 1"]
+            [
+                "INSERT INTO t VALUES ('a\\';b')",
+                "# it's a comment; really\nSELECT 1"
+            ]
         );
     }
 

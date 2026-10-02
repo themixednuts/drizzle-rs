@@ -5,8 +5,8 @@
 //! * **Legacy stable-kit layout** (flat `NNNN_name.sql` files plus
 //!   `meta/_journal.json` and `meta/NNNN_snapshot.json`): the whole
 //!   directory is converted to the v1-beta layout (`{folder}/migration.sql`
-//!   + `{folder}/snapshot.json`) with every snapshot structurally upgraded to
-//!   the current entity-array format. SQL files are moved verbatim. Folders
+//!   and `{folder}/snapshot.json`) with every snapshot structurally upgraded
+//!   to the current entity-array format. SQL files are moved verbatim. Folders
 //!   are named like drizzle-kit names them: the UTC `YYYYMMDDHHMMSS` of the
 //!   journal entry's `when`, then the tag without its index
 //!   (`0000_flimsy_shard` becomes `20231114221320_flimsy_shard`).

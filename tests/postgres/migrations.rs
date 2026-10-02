@@ -978,9 +978,8 @@ fn pg_test_url() -> String {
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_migrate_finishes_a_half_upgraded_tracking_table() {
-    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
-        "half_upgraded_sync_test",
-    );
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("half_upgraded_sync_test");
     let schema_name = db.schema_name().to_string();
     crate::common::helpers::postgres_sync_setup::create_legacy_tracking_table(
         db.conn_mut(),
@@ -1035,9 +1034,8 @@ fn postgres_sync_migrate_finishes_a_half_upgraded_tracking_table() {
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_legacy_tracking_upgrade_is_atomic() {
-    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
-        "atomic_upgrade_sync_test",
-    );
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("atomic_upgrade_sync_test");
     let schema_name = db.schema_name().to_string();
     crate::common::helpers::postgres_sync_setup::create_legacy_tracking_table(
         db.conn_mut(),
@@ -1057,7 +1055,12 @@ fn postgres_sync_legacy_tracking_upgrade_is_atomic() {
         ))
         .expect("arm the failing backfill");
 
-    let migration = Migration::with_hash("20230331141203_atomic", "atomic_hash", 1_680_271_923_000, vec![]);
+    let migration = Migration::with_hash(
+        "20230331141203_atomic",
+        "atomic_hash",
+        1_680_271_923_000,
+        vec![],
+    );
     let error = db
         .migrate(
             std::slice::from_ref(&migration),
@@ -1109,8 +1112,7 @@ fn postgres_sync_concurrent_first_migrate_creates_tracking_schema_once() {
                 let migration = migration.clone();
                 let tracking_schema = tracking_schema.clone();
                 std::thread::spawn(move || {
-                    let client =
-                        postgres::Client::connect(&url, postgres::NoTls).expect("connect");
+                    let client = postgres::Client::connect(&url, postgres::NoTls).expect("connect");
                     let (mut db, ()) = drizzle::postgres::sync::Drizzle::new(client);
                     barrier.wait();
                     db.migrate(&[migration], Tracking::POSTGRES.schema(tracking_schema))
@@ -1140,10 +1142,9 @@ fn postgres_sync_concurrent_first_migrate_creates_tracking_schema_once() {
 #[cfg(feature = "tokio-postgres")]
 #[tokio::test]
 async fn tokio_postgres_migrate_finishes_a_half_upgraded_tracking_table() {
-    let mut db = crate::common::helpers::tokio_postgres_setup::setup_empty_named(
-        "half_upgraded_tokio_test",
-    )
-    .await;
+    let mut db =
+        crate::common::helpers::tokio_postgres_setup::setup_empty_named("half_upgraded_tokio_test")
+            .await;
     let schema_name = db.schema_name().to_string();
     db.conn()
         .batch_execute(&format!(
@@ -1191,9 +1192,8 @@ async fn tokio_postgres_migrate_finishes_a_half_upgraded_tracking_table() {
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_migrate_runs_whole_chunks_and_reports_server_errors() {
-    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
-        "chunk_errors_sync_test",
-    );
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("chunk_errors_sync_test");
     let schema_name = db.schema_name().to_string();
     let tracking = Tracking::POSTGRES.schema(schema_name.clone());
 
@@ -1220,5 +1220,8 @@ fn postgres_sync_migrate_runs_whole_chunks_and_reports_server_errors() {
     let text = error.to_string();
     assert!(text.contains("20240102000000_broken"), "{text}");
     assert!(text.contains("missing_table"), "{text}");
-    assert!(text.contains("does not exist"), "server message is kept: {text}");
+    assert!(
+        text.contains("does not exist"),
+        "server message is kept: {text}"
+    );
 }

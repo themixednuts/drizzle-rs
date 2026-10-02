@@ -334,7 +334,6 @@ const fn map_prefix_mode(p: MigrationPrefix) -> drizzle_migrations::PrefixMode {
     }
 }
 
-
 fn next_migration_index(out_dir: &Path) -> Result<u32, CliError> {
     let entries = collect_v3_migration_tags(out_dir)?;
     let mut max_index: Option<u32> = None;

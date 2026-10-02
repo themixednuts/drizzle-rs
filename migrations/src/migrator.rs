@@ -268,8 +268,8 @@ impl Migration {
     /// Hashes and splits a migration file. Without a dialect, a file with no
     /// breakpoints keeps its text so a [`Migrations`] set can re-split it.
     pub(crate) fn from_sql(tag: String, sql: &str, dialect: Option<Dialect>) -> Self {
-        let unsplit = (dialect.is_none() && !sql.contains(STATEMENT_BREAKPOINT))
-            .then(|| sql.to_string());
+        let unsplit =
+            (dialect.is_none() && !sql.contains(STATEMENT_BREAKPOINT)).then(|| sql.to_string());
         Self {
             created_at: parse_timestamp_from_tag(&tag),
             tag,
@@ -932,14 +932,19 @@ impl Migrations {
                 "\"name\" TEXT",
                 "\"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
             ),
-            Dialect::MySQL => ("`name` TEXT NULL", "`applied_at` TIMESTAMP NULL DEFAULT NULL"),
+            Dialect::MySQL => (
+                "`name` TEXT NULL",
+                "`applied_at` TIMESTAMP NULL DEFAULT NULL",
+            ),
         };
         let mut statements = Vec::with_capacity(matched.len() + 2);
         if !has_name {
             statements.push(format!("ALTER TABLE {table} ADD COLUMN {name_column}"));
         }
         if !has_applied_at {
-            statements.push(format!("ALTER TABLE {table} ADD COLUMN {applied_at_column}"));
+            statements.push(format!(
+                "ALTER TABLE {table} ADD COLUMN {applied_at_column}"
+            ));
         }
         statements.extend(
             matched
@@ -1639,7 +1644,10 @@ fn split_on_semicolons(sql: &str, rules: SplitRules) -> Vec<String> {
                     || (rules.escape_string_prefix
                         && pos > 0
                         && matches!(sql.as_bytes()[pos - 1], b'e' | b'E')
-                        && sql[..pos - 1].chars().next_back().is_none_or(|c| !is_word_char(c)));
+                        && sql[..pos - 1]
+                            .chars()
+                            .next_back()
+                            .is_none_or(|c| !is_word_char(c)));
                 Some(('\'', escaped))
             }
             '"' => Some(('"', rules.backslash_strings)),
@@ -1698,9 +1706,7 @@ fn split_on_semicolons(sql: &str, rules: SplitRules) -> Vec<String> {
         }
 
         if !state.last_char_wordy && (character.is_ascii_alphabetic() || character == '_') {
-            let token_len = rest
-                .find(|c: char| !is_word_char(c))
-                .unwrap_or(rest.len());
+            let token_len = rest.find(|c: char| !is_word_char(c)).unwrap_or(rest.len());
             state.note_token(&rest[..token_len], rules);
             pos += token_len;
             continue;
@@ -2205,7 +2211,9 @@ mod tests {
 
         // Same line, CRLF, no semicolons, and empty chunks.
         assert_eq!(
-            split_statements("CREATE TABLE a (id int);--> statement-breakpoint\nCREATE TABLE b (id int)"),
+            split_statements(
+                "CREATE TABLE a (id int);--> statement-breakpoint\nCREATE TABLE b (id int)"
+            ),
             ["CREATE TABLE a (id int);", "CREATE TABLE b (id int)"]
         );
         assert_eq!(
@@ -2217,7 +2225,10 @@ mod tests {
 
         // Every dialect splits a breakpoint file the same way.
         for dialect in [Dialect::SQLite, Dialect::PostgreSQL, Dialect::MySQL] {
-            assert_eq!(split_statements_for(sql, Some(dialect)), split_statements(sql));
+            assert_eq!(
+                split_statements_for(sql, Some(dialect)),
+                split_statements(sql)
+            );
         }
     }
 
@@ -2227,20 +2238,33 @@ mod tests {
 
         assert_eq!(
             mysql("INSERT INTO t VALUES ('a\\';b');\nINSERT INTO t VALUES (\"c\\\";d\");"),
-            ["INSERT INTO t VALUES ('a\\';b')", "INSERT INTO t VALUES (\"c\\\";d\")"]
+            [
+                "INSERT INTO t VALUES ('a\\';b')",
+                "INSERT INTO t VALUES (\"c\\\";d\")"
+            ]
         );
         assert_eq!(
             mysql("# it's a comment; really\nCREATE TABLE a (id int);\nCREATE TABLE b (id int);"),
-            ["# it's a comment; really\nCREATE TABLE a (id int)", "CREATE TABLE b (id int)"]
+            [
+                "# it's a comment; really\nCREATE TABLE a (id int)",
+                "CREATE TABLE b (id int)"
+            ]
         );
         // `--` needs trailing whitespace to start a MySQL comment.
         assert_eq!(
             mysql("UPDATE t SET a = a--1;\nUPDATE t SET b = 1;-- trailing; comment\n"),
-            ["UPDATE t SET a = a--1", "UPDATE t SET b = 1", "-- trailing; comment"]
+            [
+                "UPDATE t SET a = a--1",
+                "UPDATE t SET b = 1",
+                "-- trailing; comment"
+            ]
         );
         assert_eq!(
             mysql("CREATE TABLE `it's` (id int);\nCREATE TABLE `a;b` (id int);"),
-            ["CREATE TABLE `it's` (id int)", "CREATE TABLE `a;b` (id int)"]
+            [
+                "CREATE TABLE `it's` (id int)",
+                "CREATE TABLE `a;b` (id int)"
+            ]
         );
 
         let nested = "CREATE PROCEDURE p()\nBEGIN\n  DECLARE x INT;\n  BEGIN\n    SET x = 1;\n  END;\n  \
@@ -2295,7 +2319,10 @@ mod tests {
         );
         assert_eq!(
             postgres("/* outer /* inner */ still ; comment */ SELECT 1; SELECT 2;"),
-            ["/* outer /* inner */ still ; comment */ SELECT 1", "SELECT 2"]
+            [
+                "/* outer /* inner */ still ; comment */ SELECT 1",
+                "SELECT 2"
+            ]
         );
         assert_eq!(
             postgres("CREATE INDEX i ON event (begin);\nCREATE TABLE z (id int);"),
@@ -2308,7 +2335,11 @@ mod tests {
         let sqlite = |sql: &str| split_statements_for(sql, Some(Dialect::SQLite));
         assert_eq!(
             sqlite("CREATE TABLE [a;b] (id int);\nCREATE TABLE `it's` (id int);\nSELECT 'x\\';"),
-            ["CREATE TABLE [a;b] (id int)", "CREATE TABLE `it's` (id int)", "SELECT 'x\\'"]
+            [
+                "CREATE TABLE [a;b] (id int)",
+                "CREATE TABLE `it's` (id int)",
+                "SELECT 'x\\'"
+            ]
         );
     }
 
@@ -2319,7 +2350,10 @@ mod tests {
         let set = Migrations::new(vec![migration.clone()], Dialect::MySQL);
         assert_eq!(
             set.all()[0].statements(),
-            ["INSERT INTO t VALUES ('a\\';b')", "INSERT INTO t VALUES ('c')"]
+            [
+                "INSERT INTO t VALUES ('a\\';b')",
+                "INSERT INTO t VALUES ('c')"
+            ]
         );
         // The hash always covers the original file.
         assert_eq!(set.all()[0].hash(), migration.hash());
@@ -2571,7 +2605,10 @@ mod tests {
         let finished = set.record_migration_finished_sql(&migration);
         assert!(finished.starts_with("UPDATE"));
         assert!(finished.contains("\"applied_at\" = CURRENT_TIMESTAMP"));
-        assert!(finished.contains("\"created_at\" = 1680271923000"), "{finished}");
+        assert!(
+            finished.contains("\"created_at\" = 1680271923000"),
+            "{finished}"
+        );
         assert!(
             finished.contains(r#"("applied_at" IS NULL AND "created_at" IS NULL)"#),
             "phase 3 must only clear a still-dirty row: {finished}"
@@ -2599,7 +2636,8 @@ mod tests {
         let interrupted = Migration::new("20240102000000_next", "CREATE TABLE b (id INTEGER);");
         let set = Migrations::new(vec![upgraded.clone(), interrupted.clone()], Dialect::SQLite);
         let conn = rusqlite::Connection::open_in_memory().expect("sqlite");
-        conn.execute_batch(&set.create_table_sql()).expect("tracking table");
+        conn.execute_batch(&set.create_table_sql())
+            .expect("tracking table");
 
         // drizzle-orm's v0 -> v1 upgrade (up-migrations/sqlite.ts) backfills
         // `name` and writes `applied_at = NULL` on every pre-existing row.
@@ -2677,10 +2715,19 @@ mod tests {
         );
         let started = mysql.record_migration_started_sql(&migration);
         assert!(started.contains("`hash`"), "{started}");
-        assert!(started.contains("NULL, '20230331141203_test', NULL)"), "{started}");
+        assert!(
+            started.contains("NULL, '20230331141203_test', NULL)"),
+            "{started}"
+        );
         let finished = mysql.record_migration_finished_sql(&migration);
-        assert!(finished.contains("`applied_at` = CURRENT_TIMESTAMP"), "{finished}");
-        assert!(finished.contains("`created_at` = 1680271923000"), "{finished}");
+        assert!(
+            finished.contains("`applied_at` = CURRENT_TIMESTAMP"),
+            "{finished}"
+        );
+        assert!(
+            finished.contains("`created_at` = 1680271923000"),
+            "{finished}"
+        );
     }
 
     #[test]
