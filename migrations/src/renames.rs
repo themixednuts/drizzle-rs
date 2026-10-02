@@ -930,9 +930,9 @@ mod tests {
             plan.statements,
             [
                 "ALTER SCHEMA \"old_s\" RENAME TO \"new_s\";",
-                "ALTER TYPE \"public\".\"mood\" RENAME TO \"feeling\";",
-                "ALTER INDEX \"public\".\"users_email_idx\" RENAME TO \"users_mail_idx\";",
-                "ALTER VIEW \"public\".\"v_old\" RENAME TO \"v_new\";",
+                "ALTER TYPE \"mood\" RENAME TO \"feeling\";",
+                "ALTER INDEX \"users_email_idx\" RENAME TO \"users_mail_idx\";",
+                "ALTER VIEW \"v_old\" RENAME TO \"v_new\";",
             ]
         );
     }
@@ -1004,8 +1004,7 @@ mod tests {
         );
         assert!(
             plan.statements.contains(
-                &"ALTER TABLE \"public\".\"users\" RENAME COLUMN \"name\" TO \"full_name\";"
-                    .to_string()
+                &"ALTER TABLE \"users\" RENAME COLUMN \"name\" TO \"full_name\";".to_string()
             ),
             "{:?}",
             plan.statements

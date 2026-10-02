@@ -1105,9 +1105,8 @@ pub(crate) fn apply_postgres_rename_hints(
         }
 
         statements.push(format!(
-            "ALTER TYPE {}.{} RENAME TO {};",
-            pg_ident(schema),
-            pg_ident(&hint.from),
+            "ALTER TYPE {} RENAME TO {};",
+            pg_qualified(schema, &hint.from),
             pg_ident(&hint.to)
         ));
         apply_postgres_enum_rename(prev, schema, &hint.from, &hint.to);
@@ -1144,8 +1143,9 @@ pub(crate) fn apply_postgres_rename_hints(
         }
 
         statements.push(format!(
-            "ALTER TABLE \"{}\".\"{}\" RENAME TO \"{}\";",
-            schema, hint.from, hint.to
+            "ALTER TABLE {} RENAME TO {};",
+            pg_qualified(schema, &hint.from),
+            pg_ident(&hint.to)
         ));
         apply_postgres_table_rename(prev, schema, &hint.from, &hint.to);
     }
@@ -1182,8 +1182,10 @@ pub(crate) fn apply_postgres_rename_hints(
         }
 
         statements.push(format!(
-            "ALTER TABLE \"{}\".\"{}\" RENAME COLUMN \"{}\" TO \"{}\";",
-            schema, hint.table, hint.from, hint.to
+            "ALTER TABLE {} RENAME COLUMN {} TO {};",
+            pg_qualified(schema, &hint.table),
+            pg_ident(&hint.from),
+            pg_ident(&hint.to)
         ));
         apply_postgres_column_rename(prev, schema, &hint.table, &hint.from, &hint.to);
     }
@@ -1212,9 +1214,8 @@ pub(crate) fn apply_postgres_rename_hints(
         }
 
         statements.push(format!(
-            "ALTER INDEX {}.{} RENAME TO {};",
-            pg_ident(schema),
-            pg_ident(&hint.from),
+            "ALTER INDEX {} RENAME TO {};",
+            pg_qualified(schema, &hint.from),
             pg_ident(&hint.to)
         ));
         if let Some(index) = prev
@@ -1254,10 +1255,9 @@ pub(crate) fn apply_postgres_rename_hints(
             "VIEW"
         };
         statements.push(format!(
-            "ALTER {kind} \"{}\".\"{}\" RENAME TO \"{}\";",
-            schema.replace('"', "\"\""),
-            hint.from.replace('"', "\"\""),
-            hint.to.replace('"', "\"\"")
+            "ALTER {kind} {} RENAME TO {};",
+            pg_qualified(schema, &hint.from),
+            pg_ident(&hint.to)
         ));
         if let Some(previous) = prev
             .views
@@ -1653,6 +1653,15 @@ fn pg_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
+/// `"schema"."name"`, or just `"name"` in `public`, as drizzle-kit writes it.
+fn pg_qualified(schema: &str, name: &str) -> String {
+    if schema == "public" {
+        pg_ident(name)
+    } else {
+        format!("{}.{}", pg_ident(schema), pg_ident(name))
+    }
+}
+
 /// Renames enum `schema.from` to `to` in `ddl`, along with the columns that
 /// use it.
 fn apply_postgres_enum_rename(ddl: &mut PostgresDDL, schema: &str, from: &str, to: &str) {
@@ -1749,7 +1758,7 @@ mod tests {
             (
                 Snapshot::Postgres(postgres_previous),
                 Snapshot::Postgres(postgres_current),
-                vec!["ALTER VIEW \"public\".\"old_view\" RENAME TO \"new_view\";".to_string()],
+                vec!["ALTER VIEW \"old_view\" RENAME TO \"new_view\";".to_string()],
             ),
             (
                 Snapshot::MySQL(mysql_previous),
@@ -1900,7 +1909,7 @@ mod tests {
         assert_eq!(
             migration.statements,
             vec![
-                "ALTER TABLE \"public\".\"users\" RENAME TO \"accounts\";".to_string(),
+                "ALTER TABLE \"users\" RENAME TO \"accounts\";".to_string(),
                 "ALTER TABLE \"accounts\" ADD COLUMN \"email\" text;".to_string(),
             ]
         );

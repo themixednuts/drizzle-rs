@@ -739,3 +739,41 @@ fn index_nulls_order_is_rendered_and_compared() {
         ]
     );
 }
+
+/// The CLI path: renames come from hints with inference off. Default-named
+/// constraints must still be renamed in place, not dropped and re-added.
+#[test]
+fn hinted_rename_keeps_default_named_constraints_by_renaming_them() {
+    use crate::{DiffOptions, Snapshot, diff_with};
+
+    let snapshot = |ddl: &PostgresDDL| {
+        let mut snapshot = super::PostgresSnapshot::new();
+        for entity in ddl.to_entities() {
+            snapshot.add_entity(entity);
+        }
+        Snapshot::Postgres(snapshot)
+    };
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    posts(&mut prev, "users");
+    let mut cur = PostgresDDL::new();
+    table(&mut cur, "accounts");
+    column(&mut cur, "accounts", "id", "integer");
+    col(&mut cur, "accounts", "id").not_null = true;
+    pk(&mut cur, "accounts", &["id"]);
+    posts(&mut cur, "accounts");
+
+    let options = DiffOptions::new()
+        .infer_renames(false)
+        .rename_table("users", "accounts");
+    let statements = diff_with(&snapshot(&prev), &snapshot(&cur), &options)
+        .expect("diff")
+        .statements;
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"users\" RENAME TO \"accounts\";",
+            "ALTER TABLE \"accounts\" RENAME CONSTRAINT \"users_pkey\" TO \"accounts_pkey\";",
+        ]
+    );
+}
