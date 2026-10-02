@@ -460,6 +460,97 @@ pub fn postgres_index_attr_macro(
     Ok(expanded)
 }
 
+/// Information about a column reference in an index
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct ColumnReference {
+    table_name: String,
+    column_name: String,
+}
+
+/// Parse column references from expressions
+fn parse_column_references(columns: &[Expr]) -> Result<Vec<ColumnReference>> {
+    let mut column_refs = Vec::new();
+
+    for column in columns {
+        if let Expr::Path(ExprPath { path, .. }) = column {
+            let segments: Vec<_> = path.segments.iter().collect();
+
+            if segments.len() < 2 {
+                return Err(Error::new_spanned(
+                    column,
+                    "Column references must be in the format Table::column",
+                ));
+            }
+
+            // `schema::Users::name`: the table is the segment before the column.
+            let table_name = segments[segments.len() - 2].ident.to_string();
+            let column_name = segments[segments.len() - 1].ident.to_string();
+
+            column_refs.push(ColumnReference {
+                table_name,
+                column_name,
+            });
+        } else {
+            return Err(Error::new_spanned(
+                column,
+                "Expected column reference in the format Table::column",
+            ));
+        }
+    }
+
+    Ok(column_refs)
+}
+
+/// Generate index name from struct name and columns
+fn generate_index_name(struct_ident: &Ident, _columns: &[ColumnReference]) -> String {
+    // Convert from CamelCase to snake_case
+    let struct_name = struct_ident.to_string();
+    let snake_case = heck::AsSnakeCase(struct_name).to_string();
+
+    // If the name already looks like an index name, use it as is
+    if snake_case.ends_with("_idx") || snake_case.ends_with("_index") {
+        snake_case
+    } else {
+        // Otherwise append _idx
+        format!("{snake_case}_idx")
+    }
+}
+
+/// Extract table type from column expression (similar to `SQLite` implementation)
+fn extract_table_from_column(column: &Expr) -> Result<Type> {
+    if let Expr::Path(expr_path) = column {
+        let path = &expr_path.path;
+        if path.segments.len() >= 2 {
+            // The table is every segment but the column, so a qualified
+            // path (`schema::Users::name`) keeps its module path.
+            let segments = path
+                .segments
+                .iter()
+                .take(path.segments.len() - 1)
+                .cloned()
+                .collect();
+            Ok(Type::Path(syn::TypePath {
+                qself: None,
+                path: syn::Path {
+                    leading_colon: path.leading_colon,
+                    segments,
+                },
+            }))
+        } else {
+            Err(Error::new_spanned(
+                column,
+                "column must be in format Table::column",
+            ))
+        }
+    } else {
+        Err(Error::new_spanned(
+            column,
+            "Column must be a path expression",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{IndexAttributes, create_index_prefix, postgres_index_attr_macro};
@@ -560,96 +651,5 @@ mod tests {
 
         assert!(expanded.contains("ConflictTarget"));
         assert!(!expanded.contains("NamedConstraint"));
-    }
-}
-
-/// Information about a column reference in an index
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct ColumnReference {
-    table_name: String,
-    column_name: String,
-}
-
-/// Parse column references from expressions
-fn parse_column_references(columns: &[Expr]) -> Result<Vec<ColumnReference>> {
-    let mut column_refs = Vec::new();
-
-    for column in columns {
-        if let Expr::Path(ExprPath { path, .. }) = column {
-            let segments: Vec<_> = path.segments.iter().collect();
-
-            if segments.len() < 2 {
-                return Err(Error::new_spanned(
-                    column,
-                    "Column references must be in the format Table::column",
-                ));
-            }
-
-            // `schema::Users::name`: the table is the segment before the column.
-            let table_name = segments[segments.len() - 2].ident.to_string();
-            let column_name = segments[segments.len() - 1].ident.to_string();
-
-            column_refs.push(ColumnReference {
-                table_name,
-                column_name,
-            });
-        } else {
-            return Err(Error::new_spanned(
-                column,
-                "Expected column reference in the format Table::column",
-            ));
-        }
-    }
-
-    Ok(column_refs)
-}
-
-/// Generate index name from struct name and columns
-fn generate_index_name(struct_ident: &Ident, _columns: &[ColumnReference]) -> String {
-    // Convert from CamelCase to snake_case
-    let struct_name = struct_ident.to_string();
-    let snake_case = heck::AsSnakeCase(struct_name).to_string();
-
-    // If the name already looks like an index name, use it as is
-    if snake_case.ends_with("_idx") || snake_case.ends_with("_index") {
-        snake_case
-    } else {
-        // Otherwise append _idx
-        format!("{snake_case}_idx")
-    }
-}
-
-/// Extract table type from column expression (similar to `SQLite` implementation)
-fn extract_table_from_column(column: &Expr) -> Result<Type> {
-    if let Expr::Path(expr_path) = column {
-        let path = &expr_path.path;
-        if path.segments.len() >= 2 {
-            // The table is every segment but the column, so a qualified
-            // path (`schema::Users::name`) keeps its module path.
-            let segments = path
-                .segments
-                .iter()
-                .take(path.segments.len() - 1)
-                .cloned()
-                .collect();
-            Ok(Type::Path(syn::TypePath {
-                qself: None,
-                path: syn::Path {
-                    leading_colon: path.leading_colon,
-                    segments,
-                },
-            }))
-        } else {
-            Err(Error::new_spanned(
-                column,
-                "column must be in format Table::column",
-            ))
-        }
-    } else {
-        Err(Error::new_spanned(
-            column,
-            "Column must be a path expression",
-        ))
     }
 }
