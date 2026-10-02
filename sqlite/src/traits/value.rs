@@ -1454,13 +1454,15 @@ impl FromSQLiteValue for chrono::Duration {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        // Parse seconds from the text representation
-        let secs: i64 = value.trim_end_matches('s').parse().map_err(|e| {
+        let error = || {
             DrizzleError::ConversionError(
-                format!("cannot parse '{value}' as chrono::Duration: {e}").into(),
+                format!("cannot parse '{value}' as chrono::Duration").into(),
             )
-        })?;
-        Ok(Self::seconds(secs))
+        };
+        let (negative, secs, nanos) = crate::values::duration::parse(value).ok_or_else(error)?;
+        let secs = i64::try_from(secs).map_err(|_| error())?;
+        let duration = Self::new(secs, nanos).ok_or_else(error)?;
+        Ok(if negative { -duration } else { duration })
     }
 
     fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
@@ -1486,13 +1488,16 @@ impl FromSQLiteValue for time::Duration {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        // Parse seconds from the "Ns" text representation
-        let secs: i64 = value.trim_end_matches('s').parse().map_err(|e| {
+        let error = || {
             DrizzleError::ConversionError(
-                format!("cannot parse '{value}' as time::Duration: {e}").into(),
+                format!("cannot parse '{value}' as time::Duration").into(),
             )
-        })?;
-        Ok(Self::seconds(secs))
+        };
+        let (negative, secs, nanos) = crate::values::duration::parse(value).ok_or_else(error)?;
+        let secs = i64::try_from(secs).map_err(|_| error())?;
+        // `nanos` is below 1_000_000_000, so it always fits in an i32.
+        let duration = Self::new(secs, nanos as i32);
+        Ok(if negative { -duration } else { duration })
     }
 
     fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {

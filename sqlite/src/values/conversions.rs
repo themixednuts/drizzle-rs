@@ -506,14 +506,19 @@ impl From<&chrono::DateTime<chrono::Utc>> for SQLiteValue<'_> {
 #[cfg(feature = "chrono")]
 impl From<chrono::Duration> for SQLiteValue<'_> {
     fn from(value: chrono::Duration) -> Self {
-        SQLiteValue::Text(Cow::Owned(value.to_string()))
+        SQLiteValue::from(&value)
     }
 }
 
 #[cfg(feature = "chrono")]
 impl From<&chrono::Duration> for SQLiteValue<'_> {
     fn from(value: &chrono::Duration) -> Self {
-        SQLiteValue::Text(Cow::Owned(value.to_string()))
+        let abs = value.abs();
+        SQLiteValue::Text(Cow::Owned(super::duration::format(
+            *value < chrono::Duration::zero(),
+            abs.num_seconds().unsigned_abs(),
+            abs.subsec_nanos().unsigned_abs(),
+        )))
     }
 }
 
@@ -610,14 +615,18 @@ impl From<&time::OffsetDateTime> for SQLiteValue<'_> {
 #[cfg(feature = "time")]
 impl From<time::Duration> for SQLiteValue<'_> {
     fn from(value: time::Duration) -> Self {
-        SQLiteValue::Text(Cow::Owned(format!("{}s", value.whole_seconds())))
+        SQLiteValue::from(&value)
     }
 }
 
 #[cfg(feature = "time")]
 impl From<&time::Duration> for SQLiteValue<'_> {
     fn from(value: &time::Duration) -> Self {
-        SQLiteValue::Text(Cow::Owned(format!("{}s", value.whole_seconds())))
+        SQLiteValue::Text(Cow::Owned(super::duration::format(
+            value.is_negative(),
+            value.whole_seconds().unsigned_abs(),
+            value.subsec_nanoseconds().unsigned_abs(),
+        )))
     }
 }
 

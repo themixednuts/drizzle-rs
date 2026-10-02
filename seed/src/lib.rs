@@ -987,17 +987,20 @@ fn seed_value_to_postgres_sql(
         SeedValue::Default => SQL::token(Token::DEFAULT),
         SeedValue::Null => SQL::param(Cow::Owned(OwnedPostgresValue::Null)),
         SeedValue::Integer(v) => {
-            let ty = normalize_pg_type(col.sql_type);
-            let owned = if ty.contains("SMALLINT") {
-                let clamped = (*v).clamp(i64::from(i16::MIN), i64::from(i16::MAX));
-                // Clamp guarantees the value fits in i16, so try_from cannot fail.
-                OwnedPostgresValue::Smallint(i16::try_from(clamped).unwrap_or(0))
-            } else if ty.contains("INT") || ty.contains("SERIAL") {
-                let clamped = (*v).clamp(i64::from(i32::MIN), i64::from(i32::MAX));
-                // Clamp guarantees the value fits in i32, so try_from cannot fail.
-                OwnedPostgresValue::Integer(i32::try_from(clamped).unwrap_or(0))
-            } else {
-                OwnedPostgresValue::Bigint(*v)
+            // Match whole type names: substring checks would send BIGINT,
+            // INT8 and BIGSERIAL (which contain "INT" or "SERIAL") as int4.
+            let owned = match normalize_pg_type(col.sql_type).as_str() {
+                "SMALLINT" | "INT2" | "SMALLSERIAL" | "SERIAL2" => {
+                    let clamped = (*v).clamp(i64::from(i16::MIN), i64::from(i16::MAX));
+                    // Clamp guarantees the value fits in i16, so try_from cannot fail.
+                    OwnedPostgresValue::Smallint(i16::try_from(clamped).unwrap_or(0))
+                }
+                "INTEGER" | "INT" | "INT4" | "SERIAL" | "SERIAL4" => {
+                    let clamped = (*v).clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+                    // Clamp guarantees the value fits in i32, so try_from cannot fail.
+                    OwnedPostgresValue::Integer(i32::try_from(clamped).unwrap_or(0))
+                }
+                _ => OwnedPostgresValue::Bigint(*v),
             };
             SQL::param(Cow::Owned(owned))
         }
@@ -1420,6 +1423,48 @@ mod tests {
         let (_, params) = sql.build();
 
         assert!(matches!(params[0], OwnedPostgresValue::Date(_)));
+    }
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn postgres_integers_bind_at_the_column_width() {
+        use drizzle_core::{ColumnDialect, ColumnFlags};
+
+        fn bind(sql_type: &'static str, value: i64) -> OwnedPostgresValue {
+            let col = ColumnRef {
+                table: "t",
+                name: "c",
+                sql_type,
+                flags: ColumnFlags::empty(),
+                dialect: ColumnDialect::PostgreSQL {
+                    postgres_type: sql_type,
+                    dimensions: None,
+                    is_serial: false,
+                    is_bigserial: false,
+                    is_generated_identity: false,
+                    is_identity_always: false,
+                    default: None,
+                    generated_expression: None,
+                    generated_stored: false,
+                    collate: None,
+                    comment: None,
+                },
+            };
+            let sql = seed_value_to_postgres_sql(&SeedValue::Integer(value), &col);
+            let (_, params) = sql.build();
+            params[0].clone()
+        }
+
+        let big = i64::from(i32::MAX) + 1;
+        for ty in ["BIGINT", "bigint", "INT8", "BIGSERIAL", "SERIAL8"] {
+            assert_eq!(bind(ty, big), OwnedPostgresValue::Bigint(big), "{ty}");
+        }
+        for ty in ["INTEGER", "int", "INT4", "SERIAL", "SERIAL4"] {
+            assert_eq!(bind(ty, 7), OwnedPostgresValue::Integer(7), "{ty}");
+        }
+        for ty in ["SMALLINT", "INT2", "SMALLSERIAL", "SERIAL2"] {
+            assert_eq!(bind(ty, 7), OwnedPostgresValue::Smallint(7), "{ty}");
+        }
     }
 
     #[test]
