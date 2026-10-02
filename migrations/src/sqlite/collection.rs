@@ -583,7 +583,9 @@ fn inline_integer_pk_columns(ddl: &SQLiteDDL) -> HashSet<(String, String)> {
         let is_integer = ddl
             .columns
             .one(&table, &col)
-            .is_some_and(|c| c.sql_type.to_ascii_lowercase().starts_with("int"));
+            // Only a declared type of exactly INTEGER aliases the rowid; the
+            // emitters keep NOT NULL on any other primary key.
+            .is_some_and(|c| c.sql_type.eq_ignore_ascii_case("integer"));
         if is_integer {
             out.insert((table, col));
         }

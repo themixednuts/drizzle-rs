@@ -271,8 +271,11 @@ impl Column {
             sql.push_str(&generated.to_sql());
         }
 
-        // NOT NULL - skip for INTEGER PRIMARY KEY (allows NULL by default in SQLite)
-        if self.not_null && !(inline_pk && self.sql_type().to_lowercase().starts_with("int")) {
+        // NOT NULL is implied for an INTEGER PRIMARY KEY, which aliases the
+        // rowid. Only the exact type name `INTEGER` does that: any other
+        // primary key (`INT`, `BIGINT`, ...) accepts NULL unless it says
+        // NOT NULL, so keep the constraint there.
+        if self.not_null && !(inline_pk && self.sql_type().eq_ignore_ascii_case("integer")) {
             sql.push_str(" NOT NULL");
         }
 
@@ -594,6 +597,25 @@ mod tests {
         assert!(sql.contains("`id` INTEGER PRIMARY KEY AUTOINCREMENT"));
         assert!(sql.contains("`name` TEXT NOT NULL"));
         assert!(sql.contains("`email` TEXT"));
+    }
+
+    #[test]
+    fn test_only_integer_primary_key_drops_not_null() {
+        // `INTEGER PRIMARY KEY` aliases the rowid and can never hold NULL.
+        // Any other primary key type accepts NULL without the constraint.
+        for (sql_type, expected) in [
+            ("INTEGER", "`id` INTEGER PRIMARY KEY"),
+            ("integer", "`id` INTEGER PRIMARY KEY"),
+            ("INT", "`id` INT PRIMARY KEY NOT NULL"),
+            ("BIGINT", "`id` BIGINT PRIMARY KEY NOT NULL"),
+            ("TEXT", "`id` TEXT PRIMARY KEY NOT NULL"),
+        ] {
+            let column = ColumnDef::new("t", "id", sql_type)
+                .primary_key()
+                .not_null()
+                .into_column();
+            assert_eq!(column.to_column_sql(true, false), expected);
+        }
     }
 
     #[test]
