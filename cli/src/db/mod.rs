@@ -187,6 +187,11 @@ pub fn plan_push(
     let mut current = introspected.snapshot;
     exclude_tracking_table(&mut current, connection.dialect, migrations_table)?;
     apply_snapshot_filters(&mut current, connection.dialect, filters)?;
+    // PostgreSQL rewrites stored expressions into its own form; compare them
+    // the way drizzle-kit's push does, or every push would recreate them.
+    if let (Snapshot::Postgres(live), Snapshot::Postgres(wanted)) = (&mut current, desired) {
+        live.align_push_insensitive_fields(wanted);
+    }
     let mut options = drizzle_migrations::DiffOptions::new();
     if let Some(defaults) = introspected.mysql_catalog_defaults {
         options = options.mysql_catalog_defaults(defaults);

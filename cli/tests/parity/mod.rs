@@ -771,6 +771,54 @@ pub fn non_postgres_filters_warn_and_are_ignored<B: LiveDriverCase>() {
 /// `drizzle seed` fills tables it reads from the live database (made here
 /// with `drizzle push`), honors table filters, `--count`, `--relation` and
 /// `--reset`, and writes the same SQL with `--out` that it would run.
+/// A second push of an unchanged schema plans nothing, even for the
+/// expressions a database stores in its own form (CHECK constraints and
+/// defaults).
+pub fn second_push_plans_nothing<B: LiveDriverCase>() {
+    let _database = B::lock_database();
+    let dir = tempdir().expect("create parity temp directory");
+    let root = dir.path();
+    let table = format!("parity_push_twice_{}", unique_suffix());
+    let config = root.join("drizzle.config.toml");
+    let schema = root.join("schema.rs");
+    let tables = [table.as_str()];
+    B::drop_tables(root, &tables);
+    let _cleanup = TableCleanup::<B>::new(root, &tables);
+
+    let id = B::id_type();
+    fs::write(
+        &schema,
+        B::render_table(
+            "Counted",
+            &table,
+            &format!(
+                "    #[column(primary)]\n    pub id: {id},\n    #[column(unique)]\n    pub code: {id},\n    #[column(check = \"qty >= 0 AND qty < 100\", default = 0)]\n    pub qty: {id},"
+            ),
+        ),
+    )
+    .expect("write push schema");
+    write_config::<B>(root, &config, &schema, root.join("out"));
+    let config = config.to_string_lossy().into_owned();
+    let push = |extra: &str| {
+        let mut command = cargo_bin_cmd!("drizzle");
+        command.current_dir(root).args([
+            "--config",
+            &config,
+            "push",
+            "--tablesFilter",
+            &table,
+            extra,
+        ]);
+        command
+    };
+
+    push("--force").assert().success();
+    push("--explain")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("No schema changes detected."));
+}
+
 pub fn seed_fills_introspected_tables<B: LiveDriverCase>() {
     let _database = B::lock_database();
     let dir = tempdir().expect("create parity temp directory");
@@ -1021,6 +1069,11 @@ macro_rules! shared_live_driver_contract {
         #[test]
         fn pull_honors_filters_casing_breakpoints_and_driver() {
             $crate::parity::pull_honors_filters_casing_breakpoints_and_driver::<$backend>();
+        }
+
+        #[test]
+        fn second_push_plans_nothing() {
+            $crate::parity::second_push_plans_nothing::<$backend>();
         }
 
         #[test]

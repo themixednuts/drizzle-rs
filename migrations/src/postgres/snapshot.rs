@@ -350,7 +350,11 @@ impl Snapshot<PostgresEntity> {
     /// chose are kept the same way when exactly one desired entity with a
     /// derived name matches (drizzle-kit `preserveEntityNames` in push
     /// mode).
-    fn align_push_insensitive_fields(&mut self, desired: &Self) {
+    ///
+    /// [`prepare_for_push`](Self::prepare_for_push) runs this; call it on
+    /// its own to compare a whole live database (no narrowing to `desired`'s
+    /// tables) the way push does.
+    pub fn align_push_insensitive_fields(&mut self, desired: &Self) {
         use crate::postgres::collection::{
             foreign_keys_equivalent, indexes_equivalent, pks_equivalent, uniques_equivalent,
         };
