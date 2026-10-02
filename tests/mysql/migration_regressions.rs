@@ -168,21 +168,9 @@ fn created_and_pushed_schemas_need_no_further_push(db: &mut TestDb<RegressionSch
     let pending = push_plan(live, &schema, defaults.clone());
     assert!(pending.is_empty(), "push after create(): {pending:#?}");
 
-    result!(db.execute(SQL::raw("DROP VIEW IF EXISTS mysql_regress_positive_lows")))
-        .expect("drop view");
-    result!(db.execute(SQL::raw("SET FOREIGN_KEY_CHECKS = 0"))).expect("disable FK checks");
-    for table in [
-        "mysql_regress_code_pairs",
-        "mysql_regress_codes",
-        "mysql_regress_organization_membership_invitations",
-        "mysql_regress_latin",
-        "mysql_regress_defaults",
-        "mysql_regress_parents",
-    ] {
-        result!(db.execute(SQL::raw(format!("DROP TABLE IF EXISTS `{table}`"))))
-            .expect("drop table");
+    for statement in DROP_REGRESSION_SCHEMA {
+        result!(db.execute(SQL::raw(statement))).expect("drop the created schema");
     }
-    result!(db.execute(SQL::raw("SET FOREIGN_KEY_CHECKS = 1"))).expect("enable FK checks");
 
     result!(db.push(&schema)).expect("push the regression schema");
     let live = result!(db.introspect()).expect("introspect pushed schema");
@@ -190,9 +178,22 @@ fn created_and_pushed_schemas_need_no_further_push(db: &mut TestDb<RegressionSch
     assert!(pending.is_empty(), "second push: {pending:#?}");
     result!(db.push(&schema)).expect("repeated push");
 
-    result!(db.execute(SQL::raw("DROP VIEW IF EXISTS mysql_regress_positive_lows")))
-        .expect("drop view");
+    for statement in DROP_REGRESSION_SCHEMA {
+        result!(db.execute(SQL::raw(statement))).expect("drop the pushed schema");
+    }
 }
+
+const DROP_REGRESSION_SCHEMA: [&str; 9] = [
+    "DROP VIEW IF EXISTS `mysql_regress_positive_lows`",
+    "SET FOREIGN_KEY_CHECKS = 0",
+    "DROP TABLE IF EXISTS `mysql_regress_code_pairs`",
+    "DROP TABLE IF EXISTS `mysql_regress_codes`",
+    "DROP TABLE IF EXISTS `mysql_regress_organization_membership_invitations`",
+    "DROP TABLE IF EXISTS `mysql_regress_latin`",
+    "DROP TABLE IF EXISTS `mysql_regress_defaults`",
+    "DROP TABLE IF EXISTS `mysql_regress_parents`",
+    "SET FOREIGN_KEY_CHECKS = 1",
+];
 
 #[cfg(feature = "mysql-sync")]
 mod sync {
