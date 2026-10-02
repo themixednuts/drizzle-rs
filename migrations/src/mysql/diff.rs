@@ -1652,99 +1652,6 @@ fn generated_dependents_of_renames(
     }
 }
 
-fn rewrite_identifier(sql: &str, from: &str, to: &str) -> String {
-    let characters: Vec<_> = sql.chars().collect();
-    let mut rewritten = String::with_capacity(sql.len());
-    let mut position = 0;
-    while position < characters.len() {
-        let character = characters[position];
-        if character == '\'' || character == '"' {
-            let quote = character;
-            rewritten.push(character);
-            position += 1;
-            while position < characters.len() {
-                let character = characters[position];
-                rewritten.push(character);
-                position += 1;
-                if character == '\\' && position < characters.len() {
-                    rewritten.push(characters[position]);
-                    position += 1;
-                } else if character == quote {
-                    if position < characters.len() && characters[position] == quote {
-                        rewritten.push(characters[position]);
-                        position += 1;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        } else if character == '`' {
-            let start = position;
-            position += 1;
-            let identifier_start = position;
-            while position < characters.len() && characters[position] != '`' {
-                position += 1;
-            }
-            let identifier: String = characters[identifier_start..position].iter().collect();
-            if identifier == from {
-                rewritten.push('`');
-                rewritten.push_str(&to.replace('`', "``"));
-                rewritten.push('`');
-            } else {
-                rewritten.extend(&characters[start..position.min(characters.len() - 1) + 1]);
-            }
-            if position < characters.len() {
-                position += 1;
-            }
-        } else if character.is_ascii_alphanumeric() || character == '_' || character == '$' {
-            let start = position;
-            position += 1;
-            while position < characters.len()
-                && (characters[position].is_ascii_alphanumeric()
-                    || characters[position] == '_'
-                    || characters[position] == '$')
-            {
-                position += 1;
-            }
-            let identifier: String = characters[start..position].iter().collect();
-            rewritten.push_str(if identifier == from { to } else { &identifier });
-        } else {
-            rewritten.push(character);
-            position += 1;
-        }
-    }
-    rewritten
-}
-
-fn rewrite_column_definition(
-    mut definition: ColumnDefinition,
-    table: &str,
-    renames: &[(String, String, String)],
-) -> ColumnDefinition {
-    if let Some(generated) = &mut definition.generated {
-        for (_, from, to) in renames
-            .iter()
-            .filter(|(rename_table, _, _)| rename_table == table)
-        {
-            generated.expression = rewrite_identifier(&generated.expression, from, to);
-        }
-    }
-    definition
-}
-
-fn rewrite_check_definition(
-    mut definition: CheckDefinition,
-    renames: &[(String, String, String)],
-) -> CheckDefinition {
-    for (_, from, to) in renames
-        .iter()
-        .filter(|(table, _, _)| table == &definition.table)
-    {
-        definition.expression = rewrite_identifier(&definition.expression, from, to);
-    }
-    definition
-}
-
 fn flush_identifier(tokens: &mut BTreeSet<String>, token: &mut String) {
     if !token.is_empty() {
         tokens.insert(std::mem::take(token));
@@ -2408,11 +2315,7 @@ pub fn compute_migration_with(
         statements.push(MySQLStatement::AddColumn {
             database: database(&column.database),
             table: key.0.clone(),
-            column: rewrite_column_definition(
-                column_definition_for_ddl(column, &cur),
-                &key.0,
-                &renamed_columns,
-            ),
+            column: column_definition_for_ddl(column, &cur),
         });
         if column.not_null && column.default.is_none() && column.generated.is_none() {
             warnings.insert(MySQLWarning::TightenNullability {
@@ -2427,11 +2330,7 @@ pub fn compute_migration_with(
         statements.push(MySQLStatement::AddColumn {
             database: database(&column.database),
             table: column.table.to_string(),
-            column: rewrite_column_definition(
-                column_definition_for_ddl(column, &cur),
-                column.table.as_ref(),
-                &renamed_columns,
-            ),
+            column: column_definition_for_ddl(column, &cur),
         });
     }
     for new in cur.columns.list() {
@@ -2448,11 +2347,7 @@ pub fn compute_migration_with(
         if rename_generated_dependents.contains(&key) {
             continue;
         }
-        let definition = rewrite_column_definition(
-            column_definition_for_ddl(new, &cur),
-            &key.0,
-            &renamed_columns,
-        );
+        let definition = column_definition_for_ddl(new, &cur);
         let statement = if recreated_columns.contains(&key) {
             MySQLStatement::RecreateColumn {
                 database: database(&new.database),
@@ -2502,7 +2397,7 @@ pub fn compute_migration_with(
         }
         if !prev_checks.contains_key(key) || drop_checks.contains(key) {
             statements.push(MySQLStatement::AddCheck {
-                check: rewrite_check_definition(check_definition(check), &renamed_columns),
+                check: check_definition(check),
             });
         }
     }
@@ -3376,6 +3271,7 @@ mod tests {
 
         let mut renamed = prev.clone();
         renamed.columns.list_mut()[0].name = "amount".into();
+        renamed.checks.list_mut()[0].expression = "`amount` > 0".into();
         let options = DiffOptions {
             renames: RenameHints::new().column("items", "value", "amount"),
             strict_renames: true,
@@ -3691,6 +3587,10 @@ mod tests {
         });
         let mut cur = prev.clone();
         cur.columns.list_mut()[0].name = "new_value".into();
+        cur.columns.list_mut()[1].generated = Some(model::Generated {
+            expression: "`new_value` + 1".into(),
+            generation_type: model::GeneratedType::Stored,
+        });
         let options = DiffOptions {
             renames: RenameHints::new().column("metrics", "old_value", "new_value"),
             strict_renames: true,
@@ -3720,5 +3620,43 @@ mod tests {
             .unwrap();
 
         assert!(drop_dependent < rename && rename < add_dependent);
+    }
+
+    #[test]
+    fn rename_hints_never_rewrite_current_definitions() {
+        // The current schema renames qty -> amount and introduces a new
+        // column that happens to be called qty. Current CHECK and generated
+        // definitions already use current names and must be emitted as-is.
+        let mut prev = table_with_columns("orders", &["qty"]);
+        prev.checks.push(model::CheckConstraint::new(
+            "orders",
+            "orders_chk",
+            "qty > 0",
+        ));
+        let mut cur = table_with_columns("orders", &["amount", "qty", "qty_next"]);
+        cur.columns.list_mut()[2].generated = Some(model::Generated {
+            expression: "qty + 1".into(),
+            generation_type: model::GeneratedType::Stored,
+        });
+        cur.checks.push(model::CheckConstraint::new(
+            "orders",
+            "orders_chk",
+            "amount > 0 AND qty < 100",
+        ));
+        let options = DiffOptions {
+            renames: RenameHints::new().column("orders", "qty", "amount"),
+            strict_renames: true,
+            ..DiffOptions::default()
+        };
+
+        let sql = compute_migration_with(&prev, &cur, &options)
+            .unwrap()
+            .sql_statements
+            .join("\n");
+        assert!(sql.contains("RENAME COLUMN `qty` TO `amount`"), "{sql}");
+        assert!(sql.contains("GENERATED ALWAYS AS (qty + 1)"), "{sql}");
+        assert!(sql.contains("CHECK (amount > 0 AND qty < 100)"), "{sql}");
+        assert!(!sql.contains("amount + 1"), "{sql}");
+        assert!(!sql.contains("amount < 100"), "{sql}");
     }
 }
