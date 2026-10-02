@@ -1272,7 +1272,7 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// assert_eq!(Mood::Sad.to_string(), "Sad");
 /// assert_eq!(i64::from(Priority::High), 10);
-/// assert!(Entries::ddl_sql().contains(r#""mood" Mood NOT NULL"#));
+/// assert!(Entries::ddl_sql().contains(r#""mood" "Mood" NOT NULL"#));
 /// assert!(Entries::ddl_sql().contains(r#""priority" integer NOT NULL"#));
 /// # }
 /// # #[cfg(not(feature = "postgres"))]

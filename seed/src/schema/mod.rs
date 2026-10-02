@@ -587,7 +587,10 @@ impl Column {
     /// is stored instead.
     ///
     /// A MySQL `ENUM('a','b')` or `SET(...)` type already declares its
-    /// values and needs no call.
+    /// values and needs no call. A PostgreSQL enum type is named as in
+    /// `CREATE TABLE`, so a mixed-case one is quoted:
+    /// `Column::new("mood", "\"Mood\"")`, as the derive and migrations
+    /// create it.
     #[must_use]
     pub fn enum_values<I>(mut self, values: I) -> Self
     where
