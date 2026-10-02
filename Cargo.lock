@@ -2492,6 +2492,7 @@ dependencies = [
  "colored",
  "dotenvy",
  "drizzle-migrations",
+ "drizzle-seed",
  "drizzle-types",
  "glob",
  "heck",

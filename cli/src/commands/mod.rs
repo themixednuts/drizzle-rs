@@ -9,5 +9,6 @@ pub mod migrate;
 pub mod new;
 pub mod overrides;
 pub mod push;
+pub mod seed;
 pub mod status;
 pub mod upgrade;
