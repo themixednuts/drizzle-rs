@@ -5,10 +5,15 @@
 
 use super::collection::PostgresDDL;
 use super::ddl::{
-    CheckConstraint, Column, Enum, ForeignKey, Index, Policy, Table, UniqueConstraint, View,
+    CheckConstraint, Column, Enum, ForeignKey, Index, Policy, PrimaryKey, Table, UniqueConstraint,
+    View,
 };
-use crate::utils::{default_expression, escape_for_rust_literal, unsupported_default_comment};
+use crate::utils::{
+    ViewSelectItem, default_expression, escape_for_rust_literal, macro_default_name_matches,
+    rust_ident, unsupported_default_comment, view_select_columns,
+};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
@@ -58,50 +63,131 @@ pub enum FieldCasing {
     Preserve,
 }
 
-fn sanitize_rust_identifier(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    for (idx, ch) in name.chars().enumerate() {
-        let valid = if idx == 0 {
-            ch == '_' || ch.is_ascii_alphabetic()
-        } else {
-            ch == '_' || ch.is_ascii_alphanumeric()
-        };
-
-        if valid {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-
-    if out.is_empty() { "_".to_string() } else { out }
-}
-
+/// The Rust identifier for a generated field or schema member named after
+/// the SQL identifier `name`.
 fn apply_field_casing(name: &str, casing: FieldCasing) -> String {
-    match casing {
+    rust_ident(&match casing {
         FieldCasing::Snake => name.to_snake_case(),
         FieldCasing::Camel => name.to_lower_camel_case(),
-        FieldCasing::Preserve => sanitize_rust_identifier(name),
+        FieldCasing::Preserve => name.to_string(),
+    })
+}
+
+/// The Rust type name for a generated struct named after `name`.
+fn struct_ident(name: &str) -> String {
+    rust_ident(&name.to_pascal_case())
+}
+
+/// Rust primitive type names; an enum named like one would shadow it.
+const RUST_PRIMITIVES: &[&str] = &[
+    "bool", "char", "str", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64",
+    "u128", "usize", "f32", "f64",
+];
+
+/// Rust names for a `PostgreSQL` enum and its values.
+struct EnumNames {
+    type_name: String,
+    variants: Vec<String>,
+}
+
+/// `#[derive(PostgresEnum)]` writes the Rust names into the database: the
+/// type is created as `CREATE TYPE <EnumName>` (unquoted, so `PostgreSQL`
+/// folds it to lowercase) and each value is its variant's name. A
+/// lowercase SQL name and identifier-shaped values therefore keep their
+/// exact spelling (with `#[allow(non_camel_case_types)]` on the enum);
+/// anything else falls back to `PascalCase` with a warning.
+fn enum_names(e: &Enum, warnings: &mut Vec<String>) -> EnumNames {
+    let is_exact_ident = |name: &str| {
+        rust_ident(name) == name && !name.starts_with('_') && !RUST_PRIMITIVES.contains(&name)
+    };
+
+    let type_name = if is_exact_ident(&e.name) && !e.name.chars().any(|c| c.is_ascii_uppercase()) {
+        e.name.to_string()
+    } else {
+        let fallback = struct_ident(&e.name);
+        warnings.push(format!(
+            "enum `{}`: #[derive(PostgresEnum)] creates the type from the Rust name, so it is generated as `{fallback}` (PostgreSQL type `{}`); rename the type or keep the original name another way",
+            e.name,
+            fallback.to_ascii_lowercase()
+        ));
+        fallback
+    };
+
+    let mut seen = HashSet::new();
+    let exact_values = e
+        .values
+        .iter()
+        .all(|value| is_exact_ident(value) && seen.insert(value.as_ref()));
+    let variants = if exact_values {
+        e.values.iter().map(ToString::to_string).collect()
+    } else {
+        warnings.push(format!(
+            "enum `{}`: its values ({}) are not all Rust identifiers, and #[derive(PostgresEnum)] stores variant names, so the variants were renamed; the stored values change",
+            e.name,
+            e.values
+                .iter()
+                .map(|value| format!("'{value}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        e.values.iter().map(|value| struct_ident(value)).collect()
+    };
+
+    EnumNames {
+        type_name,
+        variants,
     }
+}
+
+/// The macro's default name for a column-level foreign key.
+fn default_fk_name(table: &str, column: &str) -> String {
+    format!("{table}_{column}_fkey")
+}
+
+/// Whether a foreign key can be written as `#[column(references = ...)]`
+/// (one column), which also gives the table relation accessors.
+fn is_column_level_fk(fk: &ForeignKey) -> bool {
+    fk.columns.len() == 1 && fk.columns_to.len() == 1
+}
+
+/// Picks `preferred` unless a schema struct field already uses it.
+fn unique_member_name(preferred: String, suffix: &str, used: &mut HashSet<String>) -> String {
+    if used.insert(preferred.clone()) {
+        return preferred;
+    }
+    let mut candidate = format!("{preferred}_{suffix}");
+    let mut n = 2;
+    while !used.insert(candidate.clone()) {
+        candidate = format!("{preferred}_{suffix}{n}");
+        n += 1;
+    }
+    candidate
 }
 
 /// Lookup tables derived from a [`PostgresDDL`] and shared across every
 /// per-entity generation pass.
 struct SchemaMaps<'a> {
     enum_map: HashMap<(String, String), String>,
+    enum_names: HashMap<(String, String), EnumNames>,
     table_columns: HashMap<(String, String), Vec<&'a Column>>,
     table_pks: HashMap<(String, String), HashSet<String>>,
+    table_pk: HashMap<(String, String), &'a PrimaryKey>,
+    /// Foreign keys written as table-level `foreign_key(...)` attributes.
+    table_fks: HashMap<(String, String), Vec<&'a ForeignKey>>,
     single_unique_columns: HashMap<(String, String), HashSet<String>>,
     table_uniques: HashMap<(String, String), Vec<&'a UniqueConstraint>>,
     table_checks: HashMap<(String, String), Vec<&'a CheckConstraint>>,
     fk_map: HashMap<(String, String, String), (&'a ForeignKey, usize)>,
 }
 
-fn build_schema_maps(ddl: &PostgresDDL) -> SchemaMaps<'_> {
+fn build_schema_maps<'a>(ddl: &'a PostgresDDL, warnings: &mut Vec<String>) -> SchemaMaps<'a> {
     let mut enum_map: HashMap<(String, String), String> = HashMap::new();
+    let mut enum_names_map: HashMap<(String, String), EnumNames> = HashMap::new();
     for e in ddl.enums.list() {
-        let type_name = e.name.to_pascal_case();
-        enum_map.insert((e.schema.to_string(), e.name.to_string()), type_name);
+        let names = enum_names(e, warnings);
+        let key = (e.schema.to_string(), e.name.to_string());
+        enum_map.insert(key.clone(), names.type_name.clone());
+        enum_names_map.insert(key, names);
     }
 
     let mut table_columns: HashMap<(String, String), Vec<&Column>> = HashMap::new();
@@ -113,7 +199,9 @@ fn build_schema_maps(ddl: &PostgresDDL) -> SchemaMaps<'_> {
     }
 
     let mut table_pks: HashMap<(String, String), HashSet<String>> = HashMap::new();
+    let mut table_pk: HashMap<(String, String), &PrimaryKey> = HashMap::new();
     for pk in ddl.pks.list() {
+        table_pk.insert((pk.schema.to_string(), pk.table.to_string()), pk);
         for col in pk.columns.iter() {
             table_pks
                 .entry((pk.schema.to_string(), pk.table.to_string()))
@@ -128,7 +216,7 @@ fn build_schema_maps(ddl: &PostgresDDL) -> SchemaMaps<'_> {
         let key = (unique.schema.to_string(), unique.table.to_string());
         table_uniques.entry(key.clone()).or_default().push(unique);
         if unique.columns.len() == 1
-            && !unique.name_explicit
+            && unique.name == default_unique_name(&unique.table, &unique.columns)
             && !unique.deferrable
             && !unique.initially_deferred
             && !unique.nulls_not_distinct
@@ -149,19 +237,31 @@ fn build_schema_maps(ddl: &PostgresDDL) -> SchemaMaps<'_> {
     }
 
     let mut fk_map: HashMap<(String, String, String), (&ForeignKey, usize)> = HashMap::new();
+    let mut table_fks: HashMap<(String, String), Vec<&ForeignKey>> = HashMap::new();
     for fk in ddl.fks.list() {
-        for (idx, col) in fk.columns.iter().enumerate() {
-            fk_map.insert(
-                (fk.schema.to_string(), fk.table.to_string(), col.to_string()),
-                (fk, idx),
-            );
+        let column_key = (
+            fk.schema.to_string(),
+            fk.table.to_string(),
+            fk.columns[0].to_string(),
+        );
+        // A column carries at most one `references`.
+        if is_column_level_fk(fk) && !fk_map.contains_key(&column_key) {
+            fk_map.insert(column_key, (fk, 0));
+        } else {
+            table_fks
+                .entry((fk.schema.to_string(), fk.table.to_string()))
+                .or_default()
+                .push(fk);
         }
     }
 
     SchemaMaps {
         enum_map,
+        enum_names: enum_names_map,
         table_columns,
         table_pks,
+        table_pk,
+        table_fks,
         single_unique_columns,
         table_uniques,
         table_checks,
@@ -191,13 +291,23 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
 
     write_module_header(&mut code, options);
 
-    let maps = build_schema_maps(ddl);
+    let maps = build_schema_maps(ddl, &mut result.warnings);
 
     // Generate enum definitions
+    let mut enum_types = Vec::new();
     for e in ddl.enums.list() {
-        code.push_str(&generate_enum_struct(e, options.use_pub));
+        let names = &maps.enum_names[&(e.schema.to_string(), e.name.to_string())];
+        code.push_str(&generate_enum_struct(e, names, options.use_pub));
         code.push('\n');
         result.enums.push(e.name.to_string());
+        enum_types.push(names.type_name.clone());
+    }
+
+    for sequence in ddl.sequences.list() {
+        result.warnings.push(format!(
+            "sequence `{}.{}` has no Rust schema equivalent and was not generated; `drizzle generate` would drop it",
+            sequence.schema, sequence.name
+        ));
     }
 
     // Generate table structs
@@ -217,21 +327,27 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
             .table_checks
             .get(&key)
             .map_or(&[][..], std::vec::Vec::as_slice);
-        let is_composite_pk = pk_columns.is_some_and(|pks| pks.len() > 1);
 
-        code.push_str(&generate_table_struct(&TableGenContext {
-            table,
-            columns,
-            pk_columns,
-            unique_columns,
-            unique_constraints,
-            check_constraints,
-            is_composite_pk,
-            fk_map: &maps.fk_map,
-            enum_map: &maps.enum_map,
-            use_pub: options.use_pub,
-            field_casing: options.field_casing,
-        }));
+        code.push_str(&generate_table_struct(
+            &TableGenContext {
+                table,
+                columns,
+                pk_columns,
+                pk: maps.table_pk.get(&key).copied(),
+                unique_columns,
+                unique_constraints,
+                check_constraints,
+                table_fks: maps
+                    .table_fks
+                    .get(&key)
+                    .map_or(&[][..], std::vec::Vec::as_slice),
+                fk_map: &maps.fk_map,
+                enum_map: &maps.enum_map,
+                use_pub: options.use_pub,
+                field_casing: options.field_casing,
+            },
+            &mut result.warnings,
+        ));
         code.push('\n');
         result.tables.push(table.name.to_string());
     }
@@ -242,6 +358,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
             index,
             options.use_pub,
             options.field_casing,
+            &mut result.warnings,
         ));
         code.push('\n');
         result.indexes.push(index.name.to_string());
@@ -253,10 +370,35 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
             continue;
         }
         let key = (view.schema.to_string(), view.name.to_string());
-        let columns = maps
+        let listed = maps
             .table_columns
             .get(&key)
             .map_or(&[][..], std::vec::Vec::as_slice);
+        // drizzle-kit snapshots carry no view columns; read them from the
+        // definition instead.
+        let inferred = if listed.is_empty() {
+            inferred_view_columns(view, ddl, &mut result.warnings)
+        } else {
+            Vec::new()
+        };
+        let inferred_refs: Vec<&Column> = inferred.iter().collect();
+        let columns = if listed.is_empty() {
+            &inferred_refs[..]
+        } else {
+            listed
+        };
+        if columns.is_empty() {
+            let _ = writeln!(
+                code,
+                "// TODO: view `{}` was not generated: its columns could not be read from\n// its definition. Declare it with #[PostgresView] and its fields.\n",
+                view.name
+            );
+            result.warnings.push(format!(
+                "view `{}`: its columns could not be read from the definition, so it was not generated; `drizzle generate` would drop it until you declare it",
+                view.name
+            ));
+            continue;
+        }
         code.push_str(&generate_view_struct(
             view,
             columns,
@@ -277,9 +419,13 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
     if options.include_schema {
         code.push_str(&generate_schema_struct(
             &options.schema_name,
-            &result.tables,
-            &result.indexes,
-            &result.policies,
+            &SchemaMembers {
+                enums: &enum_types,
+                tables: &result.tables,
+                indexes: &result.indexes,
+                views: &result.views,
+                policies: &result.policies,
+            },
             options.use_pub,
             options.field_casing,
         ));
@@ -294,10 +440,11 @@ struct TableGenContext<'a> {
     table: &'a Table,
     columns: &'a [&'a Column],
     pk_columns: Option<&'a HashSet<String>>,
+    pk: Option<&'a PrimaryKey>,
     unique_columns: Option<&'a HashSet<String>>,
     unique_constraints: &'a [&'a UniqueConstraint],
     check_constraints: &'a [&'a CheckConstraint],
-    is_composite_pk: bool,
+    table_fks: &'a [&'a ForeignKey],
     fk_map: &'a HashMap<(String, String, String), (&'a ForeignKey, usize)>,
     enum_map: &'a HashMap<(String, String), String>,
     use_pub: bool,
@@ -305,8 +452,8 @@ struct TableGenContext<'a> {
 }
 
 /// Generate a single table struct
-fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
-    let struct_name = ctx.table.name.to_pascal_case();
+fn generate_table_struct(ctx: &TableGenContext<'_>, warnings: &mut Vec<String>) -> String {
+    let struct_name = struct_ident(&ctx.table.name);
     let vis = if ctx.use_pub { "pub " } else { "" };
 
     let mut code = String::new();
@@ -336,7 +483,7 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
 
     // Generate fields
     for column in sorted_columns {
-        let field_code = generate_column_field(column, ctx);
+        let field_code = generate_column_field(column, ctx, warnings);
         code.push_str(&field_code);
     }
 
@@ -347,7 +494,7 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
 fn format_table_attrs(ctx: &TableGenContext<'_>) -> Vec<String> {
     let table = ctx.table;
     let mut attrs = Vec::new();
-    if table.name.to_pascal_case().to_snake_case() != table.name {
+    if !macro_default_name_matches(&struct_ident(&table.name), &table.name) {
         attrs.push(format!(
             "name = \"{}\"",
             escape_for_rust_literal(&table.name)
@@ -390,7 +537,57 @@ fn format_table_attrs(ctx: &TableGenContext<'_>) -> Vec<String> {
             attrs.push(format_table_check_attr(check, ctx, idx));
         }
     }
+    // The macro names the primary key `{table}_pkey` unless told otherwise.
+    if let Some(pk) = ctx.pk
+        && pk.name != format!("{}_pkey", table.name)
+    {
+        attrs.push(format!(
+            "primary_key(name = \"{}\")",
+            escape_for_rust_literal(&pk.name)
+        ));
+    }
+    for fk in ctx.table_fks {
+        attrs.push(format_table_fk_attr(fk, ctx.field_casing));
+    }
     attrs
+}
+
+/// A table-level `foreign_key(...)` attribute (composite keys).
+fn format_table_fk_attr(fk: &ForeignKey, field_casing: FieldCasing) -> String {
+    let columns: Vec<String> = fk
+        .columns
+        .iter()
+        .map(|col| apply_field_casing(col, field_casing))
+        .collect();
+    let target_columns: Vec<String> = fk
+        .columns_to
+        .iter()
+        .map(|col| apply_field_casing(col, field_casing))
+        .collect();
+    let mut args = vec![
+        format!("columns({})", columns.join(", ")),
+        format!(
+            "references({}, {})",
+            struct_ident(&fk.table_to),
+            target_columns.join(", ")
+        ),
+    ];
+    if fk.name != default_fk_name(&fk.table, &fk.columns[0]) {
+        args.push(format!("name = \"{}\"", escape_for_rust_literal(&fk.name)));
+    }
+    for (key, action) in [("on_delete", &fk.on_delete), ("on_update", &fk.on_update)] {
+        if let Some(action) = action
+            && !action.eq_ignore_ascii_case("NO ACTION")
+        {
+            args.push(format!("{key} = \"{}\"", action.to_ascii_uppercase()));
+        }
+    }
+    if fk.initially_deferred {
+        args.push("initially_deferred".to_string());
+    } else if fk.deferrable {
+        args.push("deferrable".to_string());
+    }
+    format!("foreign_key({})", args.join(", "))
 }
 
 fn should_emit_table_unique(unique: &UniqueConstraint) -> bool {
@@ -573,10 +770,17 @@ fn format_identity_attr(identity: &super::ddl::Identity, sql_type: &str) -> Stri
 
 /// Push FK-related attributes (`references`, `on_delete`, `on_update`) for a
 /// column onto the accumulator.
-fn push_fk_attrs(attrs: &mut Vec<String>, fk: &ForeignKey, idx: usize) {
-    let ref_table = fk.table_to.to_pascal_case();
+fn push_fk_attrs(attrs: &mut Vec<String>, fk: &ForeignKey, idx: usize, casing: FieldCasing) {
+    let ref_table = struct_ident(&fk.table_to);
     let ref_column = fk.columns_to.get(idx).cloned().unwrap_or_default();
-    attrs.push(format!("references = {ref_table}::{ref_column}"));
+    let ref_field = apply_field_casing(&ref_column, casing);
+    attrs.push(format!("references = {ref_table}::{ref_field}"));
+    if fk.name != default_fk_name(&fk.table, &fk.columns[idx]) {
+        attrs.push(format!(
+            "fk_name = \"{}\"",
+            escape_for_rust_literal(&fk.name)
+        ));
+    }
 
     if let Some(on_delete) = &fk.on_delete
         && on_delete != "NO ACTION"
@@ -601,7 +805,11 @@ fn push_fk_attrs(attrs: &mut Vec<String>, fk: &ForeignKey, idx: usize) {
 }
 
 /// Generate a single column as a struct field
-fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
+fn generate_column_field(
+    column: &Column,
+    ctx: &TableGenContext<'_>,
+    warnings: &mut Vec<String>,
+) -> String {
     let field_name = apply_field_casing(column.name.as_ref(), ctx.field_casing);
     let vis = if ctx.use_pub { "pub " } else { "" };
 
@@ -613,15 +821,20 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
         .unique_columns
         .is_some_and(|uqs| uqs.contains(&col_name_str));
 
-    // For single-column PKs, add primary. For composite, skip (handled at table level)
-    let should_add_primary = is_pk && !ctx.is_composite_pk;
+    // `primary` on several fields forms a composite key.
+    let should_add_primary = is_pk;
 
-    // Check for serial (nextval default without identity)
-    let is_serial = column
-        .default
-        .as_ref()
-        .is_some_and(|d| d.contains("nextval"))
-        && column.identity.is_none();
+    // Serial columns: drizzle-kit records the `serial` type; a database
+    // reports the integer type with a `nextval(...)` default.
+    let serial_kind = serial_attr(&column.sql_type).or_else(|| {
+        (column
+            .default
+            .as_ref()
+            .is_some_and(|d| d.contains("nextval"))
+            && column.identity.is_none())
+        .then_some("serial")
+    });
+    let is_serial = serial_kind.is_some();
 
     // Get FK info if present
     let fk_info = ctx.fk_map.get(&(
@@ -639,13 +852,27 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     // Build column attributes
     let mut attrs = Vec::new();
 
+    // The macro names the column after the field in snake_case.
+    if !macro_default_name_matches(&field_name, &column.name) {
+        attrs.push(format!(
+            "name = \"{}\"",
+            escape_for_rust_literal(&column.name)
+        ));
+    }
+
     if let Some(physical_type) = bounded_character_type_attr(column) {
         attrs.push(physical_type);
     }
 
-    // For SERIAL columns (auto-increment via nextval), use "serial" attribute
-    if is_serial {
-        attrs.push("serial".to_string());
+    // `serde_json::Value` maps to JSONB; plain JSON needs the marker.
+    if enum_type.is_none()
+        && super::collection::normalize_type_for_compare(&column.sql_type) == "json"
+    {
+        attrs.push("json".to_string());
+    }
+
+    if let Some(serial) = serial_kind {
+        attrs.push(serial.to_string());
     }
 
     // For GENERATED IDENTITY columns, use identity(always) or identity(by_default)
@@ -710,13 +937,20 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
 
     // Add FK reference if present
     if let Some((fk, idx)) = fk_info {
-        push_fk_attrs(&mut attrs, fk, *idx);
+        push_fk_attrs(&mut attrs, fk, *idx, ctx.field_casing);
     }
 
     // Generate attribute line if there are any
     let mut result = String::new();
     if let Some(default) = unsupported_default {
         result.push_str(&unsupported_default_comment("    ", default));
+    }
+    if enum_type.is_none()
+        && serial_kind.is_none()
+        && let Some(note) = unsupported_type_note(column)
+    {
+        let _ = writeln!(result, "    // TODO: {note}");
+        warnings.push(format!("column `{}.{}`: {note}", column.table, column.name));
     }
     if let Some(comment) = column.comment.as_deref() {
         write_doc_comment(&mut result, "    ", comment);
@@ -747,6 +981,145 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     result
 }
 
+/// Columns of a view whose snapshot lists none, read from its definition:
+/// plain column references copy the source column's type, `count(...)` is
+/// a `bigint`, and other expressions become nullable text (with a warning).
+fn inferred_view_columns(
+    view: &View,
+    ddl: &PostgresDDL,
+    warnings: &mut Vec<String>,
+) -> Vec<Column> {
+    let Some((from, items)) = view.definition.as_deref().and_then(view_select_columns) else {
+        return Vec::new();
+    };
+    let source = |table: Option<&str>, column: &str| {
+        let table = table.or(from.as_deref());
+        ddl.columns
+            .list()
+            .iter()
+            .find(|c| Some(c.table.as_ref()) == table && c.name == column)
+            .or_else(|| ddl.columns.list().iter().find(|c| c.name == column))
+    };
+    let view_column = |name: &str, src: Option<&Column>, sql_type: &str, not_null: bool| {
+        let mut column = src.cloned().unwrap_or_else(|| {
+            Column::new(
+                view.schema.to_string(),
+                view.name.to_string(),
+                name.to_string(),
+                sql_type.to_string(),
+            )
+        });
+        column.schema = Cow::Owned(view.schema.to_string());
+        column.table = Cow::Owned(view.name.to_string());
+        column.name = Cow::Owned(name.to_string());
+        column.not_null = not_null;
+        column.default = None;
+        column.generated = None;
+        column.identity = None;
+        column.comment = None;
+        // A serial source column is a plain integer in the view.
+        if let Some(serial) = serial_attr(&column.sql_type) {
+            column.sql_type = Cow::Borrowed(match serial {
+                "bigserial" => "bigint",
+                "smallserial" => "smallint",
+                _ => "integer",
+            });
+        }
+        column
+    };
+    let mut columns = Vec::new();
+    for item in items {
+        match item {
+            ViewSelectItem::Column {
+                output,
+                table,
+                column,
+            } => match source(table.as_deref(), &column) {
+                Some(src) => columns.push(view_column(&output, Some(src), "", src.not_null)),
+                None => {
+                    warnings.push(format!(
+                        "view `{}`: column `{output}` refers to an unknown column; typed as text",
+                        view.name
+                    ));
+                    columns.push(view_column(&output, None, "text", false));
+                }
+            },
+            ViewSelectItem::Expression { output, expression } => {
+                if expression.to_ascii_lowercase().starts_with("count(") {
+                    columns.push(view_column(&output, None, "bigint", true));
+                } else {
+                    warnings.push(format!(
+                        "view `{}`: the type of `{expression}` (column `{output}`) is unknown; typed as text",
+                        view.name
+                    ));
+                    columns.push(view_column(&output, None, "text", false));
+                }
+            }
+            ViewSelectItem::Star { table } => {
+                let table = table.or_else(|| from.clone());
+                for src in ddl
+                    .columns
+                    .list()
+                    .iter()
+                    .filter(|c| Some(c.table.as_ref()) == table.as_deref())
+                {
+                    columns.push(view_column(&src.name, Some(src), "", src.not_null));
+                }
+            }
+        }
+    }
+    columns
+}
+
+/// The `#[column(...)]` marker for a `serial`-family SQL type.
+fn serial_attr(sql_type: &str) -> Option<&'static str> {
+    match sql_type.trim().to_ascii_lowercase().as_str() {
+        "serial" | "serial4" => Some("serial"),
+        "bigserial" | "serial8" => Some("bigserial"),
+        "smallserial" | "serial2" => Some("smallserial"),
+        _ => None,
+    }
+}
+
+/// Explains why a column's type cannot be kept by the generated field, or
+/// `None` when the field's Rust type (plus any `varchar(n)` / `char(n)` /
+/// `json` marker) produces the same SQL type.
+fn unsupported_type_note(column: &Column) -> Option<String> {
+    let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
+    let base = normalized.trim_end_matches("[]");
+    let base_name = base.split('(').next().unwrap_or(base).trim();
+    let supported = matches!(
+        base_name,
+        "smallint"
+            | "integer"
+            | "bigint"
+            | "real"
+            | "double precision"
+            | "float4"
+            | "float8"
+            | "boolean"
+            | "text"
+            | "bytea"
+            | "uuid"
+            | "date"
+            | "time"
+            | "timestamp"
+            | "timestamp with time zone"
+            | "json"
+            | "jsonb"
+            | "inet"
+            | "cidr"
+    ) || (matches!(base_name, "character varying" | "character")
+        && bounded_character_type_attr(column).is_some());
+    (!supported).then(|| {
+        format!(
+            "`{}` has no built-in Rust mapping in #[PostgresTable]; the field type `{}` maps to a different SQL type, so `drizzle generate` would change the column. Use a type implementing `DrizzlePostgresColumn`.",
+            column.sql_type,
+            sql_type_to_rust_type_with_dimensions(&column.sql_type, column.dimensions, true)
+        )
+    })
+}
+
 fn bounded_character_type_attr(column: &Column) -> Option<String> {
     let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
     for (prefix, marker) in [("character varying", "VARCHAR"), ("character", "CHAR")] {
@@ -767,22 +1140,36 @@ fn bounded_character_type_attr(column: &Column) -> Option<String> {
 }
 
 /// Generate a Rust enum definition from a `PostgreSQL` enum
-fn generate_enum_struct(e: &Enum, use_pub: bool) -> String {
-    let enum_name = e.name.to_pascal_case();
+fn generate_enum_struct(e: &Enum, names: &EnumNames, use_pub: bool) -> String {
+    let enum_name = &names.type_name;
     let vis = if use_pub { "pub " } else { "" };
 
     let mut code = String::new();
 
-    // Enum derive attribute with PostgresEnum - matches the project's actual usage
-    // #[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]
-    code.push_str("#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n");
+    // The SQL type and values are spelled exactly like the Rust names.
+    let needs_allow = enum_name.starts_with(|c: char| c.is_ascii_lowercase())
+        || enum_name.contains('_')
+        || names
+            .variants
+            .iter()
+            .any(|v| v.starts_with(|c: char| c.is_ascii_lowercase()) || v.contains('_'));
+    if needs_allow {
+        code.push_str("#[allow(non_camel_case_types)]\n");
+    }
+    code.push_str("#[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]\n");
+    if e.schema != "public" {
+        let _ = writeln!(
+            code,
+            "#[postgres_enum(schema = \"{}\")]",
+            escape_for_rust_literal(&e.schema)
+        );
+    }
 
     // Enum definition
     let _ = writeln!(code, "{vis}enum {enum_name} {{");
 
     // Generate variants from enum values
-    for (idx, value) in e.values.iter().enumerate() {
-        let variant_name = value.to_pascal_case();
+    for (idx, variant_name) in names.variants.iter().enumerate() {
         // First variant gets #[default] attribute
         if idx == 0 {
             code.push_str("    #[default]\n");
@@ -846,6 +1233,13 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
         // Remove type casts like ::integer
         let value = default.split("::").next().unwrap_or(default);
         let value = value.trim_matches('\'');
+        if matches!(base_type, "float4" | "float8" | "real" | "double precision") {
+            return value.parse::<f64>().ok().map(|v| format!("{v:?}"));
+        }
+        // `numeric` fields are generated as `String`.
+        if matches!(base_type, "numeric" | "decimal") {
+            return value.parse::<f64>().is_ok().then(|| format!("\"{value}\""));
+        }
         if value.parse::<f64>().is_ok() {
             return Some(value.to_string());
         }
@@ -873,7 +1267,35 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
         };
     }
 
+    // drizzle-kit snapshots spell arrays `text[]`.
+    if let Some(elem) = sql_type.trim().strip_suffix("[]") {
+        let elem_ty = sql_type_to_rust_type(elem, true);
+        let base = format!("Vec<{elem_ty}>");
+        return if not_null {
+            base
+        } else {
+            format!("Option<{base}>")
+        };
+    }
+
+    // Match on the type name without its parameters (`varchar(255)`,
+    // `timestamp(3) with time zone`).
+    let lowered = sql_type.trim().to_ascii_lowercase();
+    let without_params = match (lowered.find('('), lowered.find(')')) {
+        (Some(open), Some(close)) if open < close => {
+            format!("{}{}", &lowered[..open], &lowered[close + 1..])
+        }
+        _ => lowered.clone(),
+    };
+    let sql_type = without_params.trim();
+
     let base_type = match sql_type {
+        "timestamp with time zone" => "chrono::DateTime<chrono::Utc>",
+        "timestamp without time zone" => "chrono::NaiveDateTime",
+        "time without time zone" => "chrono::NaiveTime",
+        "character varying" | "character" => "String",
+        "inet" => "cidr::IpInet",
+        "cidr" => "cidr::IpCidr",
         // Integer types
         s if s.eq_ignore_ascii_case("int2") || s.eq_ignore_ascii_case("smallint") => "i16",
         s if s.eq_ignore_ascii_case("int4")
@@ -969,9 +1391,24 @@ fn write_doc_comment(code: &mut String, indent: &str, comment: &str) {
 }
 
 /// Generate an index struct
-fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing) -> String {
-    let struct_name = index.name.to_pascal_case();
-    let table_name = index.table.to_pascal_case();
+fn generate_index_struct(
+    index: &Index,
+    use_pub: bool,
+    field_casing: FieldCasing,
+    warnings: &mut Vec<String>,
+) -> String {
+    let struct_name = struct_ident(&index.name);
+    let table_name = struct_ident(&index.table);
+    if let Some(column) = index
+        .columns
+        .iter()
+        .find(|c| !c.asc || c.nulls_first || c.opclass.is_some())
+    {
+        warnings.push(format!(
+            "index `{}`: the ordering or operator class of `{}` (DESC, NULLS FIRST, opclass) cannot be expressed in #[PostgresIndex] and was dropped",
+            index.name, column.value
+        ));
+    }
     let vis = if use_pub { "pub " } else { "" };
 
     let mut code = String::new();
@@ -1041,7 +1478,7 @@ fn generate_view_struct(
     use_pub: bool,
     field_casing: FieldCasing,
 ) -> String {
-    let struct_name = view.name.to_pascal_case();
+    let struct_name = struct_ident(&view.name);
     let vis = if use_pub { "pub " } else { "" };
 
     let mut code = String::new();
@@ -1049,8 +1486,8 @@ fn generate_view_struct(
     // Build view attributes
     let mut attrs = Vec::new();
 
-    // Check if view name differs from struct name (snake_case version)
-    if apply_field_casing(&struct_name, field_casing) != view.name.as_ref() {
+    // The macro names the view after the struct in snake_case.
+    if !macro_default_name_matches(&struct_name, &view.name) {
         attrs.push(format!("name = \"{}\"", view.name));
     }
 
@@ -1106,6 +1543,13 @@ fn generate_view_struct(
     // Generate fields for each column
     for column in sorted_columns {
         let field_name = apply_field_casing(column.name.as_ref(), field_casing);
+        if !macro_default_name_matches(&field_name, &column.name) {
+            let _ = writeln!(
+                code,
+                "    #[column(name = \"{}\")]",
+                escape_for_rust_literal(&column.name)
+            );
+        }
 
         // Check if this column uses an enum type
         let type_schema = column.type_schema.as_deref().unwrap_or(&column.schema);
@@ -1187,12 +1631,19 @@ fn generate_policy_struct(policy: &Policy, use_pub: bool) -> String {
     code
 }
 
+/// Everything listed in the generated schema struct.
+struct SchemaMembers<'a> {
+    enums: &'a [String],
+    tables: &'a [String],
+    indexes: &'a [String],
+    views: &'a [String],
+    policies: &'a [String],
+}
+
 /// Generate a schema struct
 fn generate_schema_struct(
     schema_name: &str,
-    tables: &[String],
-    indexes: &[String],
-    policies: &[String],
+    members: &SchemaMembers<'_>,
     use_pub: bool,
     field_casing: FieldCasing,
 ) -> String {
@@ -1204,27 +1655,28 @@ fn generate_schema_struct(
     code.push_str("#[derive(PostgresSchema)]\n");
     let _ = writeln!(code, "{vis}struct {schema_name} {{");
 
-    // Table fields
-    for table in tables {
-        let field_name = apply_field_casing(table, field_casing);
-        let type_name = table.to_pascal_case();
+    let mut used = HashSet::new();
+    // Enum types first: their `CREATE TYPE` must run before the tables.
+    for type_name in members.enums {
+        let field_name = unique_member_name(
+            apply_field_casing(type_name, FieldCasing::Snake),
+            "enum",
+            &mut used,
+        );
         let _ = writeln!(code, "    {vis}{field_name}: {type_name},");
     }
-
-    // Index fields (commented as they're typically not needed in schema)
-    if !indexes.is_empty() {
-        code.push_str("    // Indexes:\n");
-        for index in indexes {
-            let field_name = apply_field_casing(index, field_casing);
-            let type_name = index.to_pascal_case();
-            let _ = writeln!(code, "    // {field_name}: {type_name},");
+    for (items, suffix) in [
+        (members.tables, "table"),
+        (members.indexes, "index"),
+        (members.views, "view"),
+        (members.policies, "policy"),
+    ] {
+        for item in items {
+            let field_name =
+                unique_member_name(apply_field_casing(item, field_casing), suffix, &mut used);
+            let type_name = struct_ident(item);
+            let _ = writeln!(code, "    {vis}{field_name}: {type_name},");
         }
-    }
-
-    for policy in policies {
-        let field_name = apply_field_casing(policy, field_casing);
-        let type_name = policy.to_pascal_case();
-        let _ = writeln!(code, "    {vis}{field_name}: {type_name},");
     }
 
     code.push_str("}\n");
@@ -1311,9 +1763,14 @@ mod tests {
     fn test_format_default_value() {
         // Numeric
         assert_eq!(format_default_value("42", "int4"), Some("42".to_string()));
+        // `numeric` maps to a `String` field, so the default stays a string.
         assert_eq!(
             format_default_value("3.14::numeric", "numeric"),
-            Some("3.14".to_string())
+            Some("\"3.14\"".to_string())
+        );
+        assert_eq!(
+            format_default_value("0", "double precision"),
+            Some("0.0".to_string())
         );
 
         // Boolean

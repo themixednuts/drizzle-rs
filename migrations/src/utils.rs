@@ -79,6 +79,264 @@ pub fn escape_for_rust_literal(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Rust keywords (strict, reserved, and the 2024 edition's `gen`), which a
+/// generated identifier must not be.
+const RUST_KEYWORDS: &[&str] = &[
+    "Self", "abstract", "as", "async", "await", "become", "box", "break", "const", "continue",
+    "crate", "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if",
+    "impl", "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub",
+    "ref", "return", "self", "static", "struct", "super", "trait", "true", "try", "type", "typeof",
+    "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
+];
+
+/// Turns `name` into a Rust identifier for generated code: characters that
+/// cannot appear in one become `_`, a leading digit gets a `_` prefix, and a
+/// keyword gets a `_` suffix (`type` → `type_`).
+pub(crate) fn rust_ident(name: &str) -> String {
+    let mut out: String = name
+        .chars()
+        .map(|ch| {
+            if ch == '_' || ch.is_ascii_alphanumeric() {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if out.is_empty() || out.starts_with(|ch: char| ch.is_ascii_digit()) {
+        out.insert(0, '_');
+    }
+    if RUST_KEYWORDS.contains(&out.as_str()) {
+        out.push('_');
+    }
+    out
+}
+
+/// Whether the schema macros derive `sql_name` from the Rust identifier
+/// `ident` on their own. Tables, columns and views default to the
+/// identifier in `snake_case`; when that differs, generated code must spell
+/// out `name = "..."`.
+pub(crate) fn macro_default_name_matches(ident: &str, sql_name: &str) -> bool {
+    use heck::ToSnakeCase;
+    ident.to_snake_case() == sql_name
+}
+
+/// One output column of a view's `SELECT` list (see [`view_select_columns`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ViewSelectItem {
+    /// A column reference, optionally qualified (`"t"."c"`), possibly
+    /// renamed with `AS`.
+    Column {
+        output: String,
+        table: Option<String>,
+        column: String,
+    },
+    /// Any other expression with an `AS` alias.
+    Expression { output: String, expression: String },
+    /// `*` or `"t".*`.
+    Star { table: Option<String> },
+}
+
+/// The output columns of a view definition and the first table after
+/// `FROM`, read from the SQL text.
+///
+/// drizzle-kit snapshots do not record view columns, but the view macros
+/// need fields. This reads the simple `select ... from ...` shape
+/// drizzle-kit writes for query-builder views; anything it cannot follow
+/// (no `FROM`, an item without a name, unbalanced quotes) gives `None`.
+pub(crate) fn view_select_columns(
+    definition: &str,
+) -> Option<(Option<String>, Vec<ViewSelectItem>)> {
+    let text = definition.trim().trim_end_matches(';');
+    let lowered = text.to_ascii_lowercase();
+    let mut rest = lowered.strip_prefix("select")?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let mut start = text.len() - rest.len();
+    rest = rest.trim_start();
+    if let Some(after) = rest.strip_prefix("distinct")
+        && after.starts_with(char::is_whitespace)
+    {
+        start = text.len() - after.len();
+    }
+
+    // `select 1 as one` has no FROM.
+    let items_end = find_top_level_keyword(text, start, "from");
+    let mut items = Vec::new();
+    for item in split_top_level(&text[start..items_end.unwrap_or(text.len())], ',') {
+        items.push(parse_select_item(item.trim())?);
+    }
+    if items.is_empty() {
+        return None;
+    }
+
+    let from_table = match items_end {
+        Some(end) => {
+            let from = text[end + "from".len()..].trim_start();
+            read_qualified_identifier(from).map(|(parts, _)| parts.last().cloned())?
+        }
+        None => None,
+    };
+    Some((from_table, items))
+}
+
+/// Index of `keyword` as a whole word outside quotes and parentheses.
+fn find_top_level_keyword(text: &str, start: usize, keyword: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0_i32;
+    let mut quote: Option<u8> = None;
+    let mut i = start;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == q {
+                quote = None;
+            }
+        } else {
+            match b {
+                b'\'' | b'"' | b'`' => quote = Some(b),
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ if depth == 0
+                    && text[i..]
+                        .get(..keyword.len())
+                        .is_some_and(|word| word.eq_ignore_ascii_case(keyword))
+                    && (i == 0 || !is_word_byte(bytes[i - 1]))
+                    && bytes
+                        .get(i + keyword.len())
+                        .is_none_or(|next| !is_word_byte(*next)) =>
+                {
+                    return Some(i);
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+const fn is_word_byte(b: u8) -> bool {
+    b == b'_' || b.is_ascii_alphanumeric()
+}
+
+/// Splits on `separator` outside quotes and parentheses.
+fn split_top_level(text: &str, separator: char) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0_i32;
+    let mut quote: Option<char> = None;
+    let mut last = 0;
+    for (i, ch) in text.char_indices() {
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' | '`' => quote = Some(ch),
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            c if c == separator && depth == 0 => {
+                parts.push(&text[last..i]);
+                last = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(&text[last..]);
+    parts
+}
+
+/// Reads `ident` or `ident.ident...` (each part bare or quoted with `"` or
+/// `` ` ``) from the start of `text`; returns the parts and the rest.
+fn read_qualified_identifier(text: &str) -> Option<(Vec<String>, &str)> {
+    let mut parts = Vec::new();
+    let mut rest = text;
+    loop {
+        let (part, tail) = read_identifier(rest)?;
+        parts.push(part);
+        rest = tail;
+        match rest.strip_prefix('.') {
+            Some(tail) => rest = tail,
+            None => return Some((parts, rest)),
+        }
+    }
+}
+
+fn read_identifier(text: &str) -> Option<(String, &str)> {
+    let mut chars = text.char_indices();
+    let (_, first) = chars.next()?;
+    if first == '"' || first == '`' {
+        let close = text[1..].find(first)? + 1;
+        return Some((text[1..close].to_string(), &text[close + 1..]));
+    }
+    if !(first == '_' || first.is_alphabetic()) {
+        return None;
+    }
+    let end = text
+        .char_indices()
+        .find(|(_, c)| !(*c == '_' || c.is_alphanumeric() || *c == '$'))
+        .map_or(text.len(), |(i, _)| i);
+    Some((text[..end].to_string(), &text[end..]))
+}
+
+fn parse_select_item(item: &str) -> Option<ViewSelectItem> {
+    if item == "*" {
+        return Some(ViewSelectItem::Star { table: None });
+    }
+    // `expr AS alias` (the alias is the last word of the item).
+    if let Some(as_pos) = find_last_top_level_as(item) {
+        let expression = item[..as_pos].trim();
+        let (alias, tail) = read_identifier(item[as_pos + 2..].trim_start())?;
+        if !tail.trim().is_empty() {
+            return None;
+        }
+        return Some(match read_qualified_identifier(expression) {
+            Some((mut parts, tail)) if tail.trim().is_empty() && parts.len() <= 2 => {
+                let column = parts.pop()?;
+                ViewSelectItem::Column {
+                    output: alias,
+                    table: parts.pop(),
+                    column,
+                }
+            }
+            _ => ViewSelectItem::Expression {
+                output: alias,
+                expression: expression.to_string(),
+            },
+        });
+    }
+    if let Some(table) = item.strip_suffix(".*") {
+        let (parts, tail) = read_qualified_identifier(table)?;
+        return tail.is_empty().then(|| ViewSelectItem::Star {
+            table: parts.last().cloned(),
+        });
+    }
+    let (mut parts, tail) = read_qualified_identifier(item)?;
+    if !tail.trim().is_empty() || parts.len() > 2 {
+        return None;
+    }
+    let column = parts.pop()?;
+    Some(ViewSelectItem::Column {
+        output: column.clone(),
+        table: parts.pop(),
+        column,
+    })
+}
+
+/// Position of the last top-level ` as ` keyword in a select item.
+fn find_last_top_level_as(item: &str) -> Option<usize> {
+    let mut found = None;
+    let mut from = 0;
+    while let Some(pos) = find_top_level_keyword(item, from, "as") {
+        found = Some(pos);
+        from = pos + 2;
+    }
+    found
+}
+
 /// Convert a database-reported SQL default into the Rust-like expression
 /// accepted by `#[column(DEFAULT = ...)]`.
 ///
@@ -419,6 +677,81 @@ pub fn prepare_migration_renames<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rust_ident_escapes_keywords_and_digits() {
+        assert_eq!(rust_ident("type"), "type_");
+        assert_eq!(rust_ident("user_id"), "user_id");
+        assert_eq!(rust_ident("2fa"), "_2fa");
+        assert_eq!(rust_ident("a-b c"), "a_b_c");
+        assert!(macro_default_name_matches("created_at", "created_at"));
+        assert!(!macro_default_name_matches("created_at", "createdAt"));
+        // The macros snake_case `type_` back to `type`.
+        assert!(macro_default_name_matches("type_", "type"));
+    }
+
+    #[test]
+    fn view_select_columns_reads_drizzle_kit_views() {
+        let (from, items) = view_select_columns(
+            r#"select "author_id", count(*) as "total" from "posts" group by "posts"."author_id""#,
+        )
+        .expect("readable");
+        assert_eq!(from.as_deref(), Some("posts"));
+        assert_eq!(
+            items,
+            vec![
+                ViewSelectItem::Column {
+                    output: "author_id".into(),
+                    table: None,
+                    column: "author_id".into()
+                },
+                ViewSelectItem::Expression {
+                    output: "total".into(),
+                    expression: "count(*)".into()
+                },
+            ]
+        );
+
+        let (from, items) = view_select_columns(
+            "SELECT DISTINCT `u`.`id`, `u`.`email` AS `mail`, coalesce(a, ',') AS c FROM `app`.`users` AS `u`",
+        )
+        .expect("readable");
+        assert_eq!(from.as_deref(), Some("users"));
+        assert_eq!(
+            items[1],
+            ViewSelectItem::Column {
+                output: "mail".into(),
+                table: Some("u".into()),
+                column: "email".into()
+            }
+        );
+        assert_eq!(
+            items[2],
+            ViewSelectItem::Expression {
+                output: "c".into(),
+                expression: "coalesce(a, ',')".into()
+            }
+        );
+
+        assert_eq!(
+            view_select_columns("select * from users").map(|(_, items)| items),
+            Some(vec![ViewSelectItem::Star { table: None }])
+        );
+        assert_eq!(
+            view_select_columns("select 1 as one"),
+            Some((
+                None,
+                vec![ViewSelectItem::Expression {
+                    output: "one".into(),
+                    expression: "1".into()
+                }]
+            ))
+        );
+        // Unnamed expressions and non-SELECT definitions are not guessed.
+        assert!(view_select_columns("select count(*) from users").is_none());
+        assert!(view_select_columns("select 2").is_none());
+        assert!(view_select_columns("values (1)").is_none());
+    }
 
     #[test]
     fn test_hash() {

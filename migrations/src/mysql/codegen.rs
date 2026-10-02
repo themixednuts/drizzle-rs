@@ -11,7 +11,10 @@ use super::ddl::{
     IndexMethod, InlineType, ReferentialAction, Table, UniqueConstraint, View, ViewAlgorithm,
     ViewCheckOption, ViewSqlSecurity,
 };
-use crate::utils::{default_expression_with, escape_for_rust_literal, unsupported_default_comment};
+use crate::utils::{
+    ViewSelectItem, default_expression_with, escape_for_rust_literal, unsupported_default_comment,
+    view_select_columns,
+};
 use drizzle_types::mysql::{MySQLType, MySQLTypeCategory};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -236,9 +239,23 @@ pub fn generate_rust_schema(
     for view in normalized.views.list() {
         let preferred = view.name.to_pascal_case();
         let type_name = type_names.allocate(&preferred, "GeneratedView");
+        let fields = inferred_view_fields(view, &normalized, &maps, options, &mut result.warnings);
+        if fields.is_empty() && !view.is_existing {
+            let _ = writeln!(
+                code,
+                "// TODO: view `{}` was not generated: its columns could not be read from\n// its definition. Declare it with #[MySQLView] and its fields.\n",
+                view.name
+            );
+            result.warnings.push(format!(
+                "view `{}`: its columns could not be read from the definition, so it was not generated; `drizzle generate` would drop it until you declare it",
+                view.name
+            ));
+            continue;
+        }
         code.push_str(&generate_view_struct(
             view,
             &type_name,
+            &fields,
             options,
             &mut result.warnings,
         ));
@@ -428,6 +445,13 @@ fn generate_table_enums(
         };
 
         let mut enum_code = String::new();
+        // Variants are the stored labels, so they keep the labels' case.
+        if variants
+            .iter()
+            .any(|v| v.starts_with(|c: char| c.is_ascii_lowercase()) || v.contains('_'))
+        {
+            enum_code.push_str("#[allow(non_camel_case_types)]\n");
+        }
         enum_code.push_str("#[derive(Clone, Copy, Debug, PartialEq, Eq, MySQLEnum)]\n");
         let _ = writeln!(enum_code, "{visibility}enum {enum_name} {{");
         for variant in variants {
@@ -872,9 +896,124 @@ fn generate_index_struct(
     Some((type_name, code))
 }
 
+/// One field of a generated view struct.
+struct ViewField {
+    name: String,
+    ident: String,
+    attribute: String,
+    rust_type: String,
+}
+
+/// Fields of a view, read from its definition (MySQL snapshots carry no
+/// view columns): plain column references copy the source column's type,
+/// `count(...)` is a `BIGINT`, and other expressions become nullable text
+/// (with a warning).
+fn inferred_view_fields(
+    view: &View,
+    ddl: &MySQLDDL,
+    maps: &NameMaps,
+    options: &CodegenOptions,
+    warnings: &mut Vec<String>,
+) -> Vec<ViewField> {
+    let Some((from, items)) = view.definition.as_deref().and_then(view_select_columns) else {
+        return Vec::new();
+    };
+    let source = |table: Option<&str>, column: &str| -> Option<(&Table, &Column)> {
+        let table_name = table.or(from.as_deref());
+        let column = ddl
+            .columns
+            .list()
+            .iter()
+            .find(|c| Some(c.table.as_ref()) == table_name && c.name == column)
+            .or_else(|| ddl.columns.list().iter().find(|c| c.name == column))?;
+        let table = ddl
+            .tables
+            .list()
+            .iter()
+            .find(|t| t.name == column.table && t.database == column.database)?;
+        Some((table, column))
+    };
+    let mut used = HashSet::new();
+    let mut fields = Vec::new();
+    let mut push = |name: &str, attribute: String, rust_type: String, not_null: bool| {
+        let base =
+            sanitize_rust_identifier(&apply_field_casing(name, options.field_casing), "column");
+        let mut ident = base.clone();
+        let mut n = 2;
+        while !used.insert(ident.clone()) {
+            ident = format!("{base}_{n}");
+            n += 1;
+        }
+        fields.push(ViewField {
+            name: name.to_string(),
+            ident,
+            attribute,
+            rust_type: if not_null {
+                rust_type
+            } else {
+                format!("Option<{rust_type}>")
+            },
+        });
+    };
+    for item in items {
+        match item {
+            ViewSelectItem::Column {
+                output,
+                table,
+                column,
+            } => match source(table.as_deref(), &column) {
+                Some((table, src)) => {
+                    let info = column_type_info(table, src, maps);
+                    push(&output, info.attribute, info.rust_type, src.not_null);
+                }
+                None => {
+                    warnings.push(format!(
+                        "view `{}`: column `{output}` refers to an unknown column; typed as TEXT",
+                        view.name
+                    ));
+                    push(&output, "TEXT".to_string(), "String".to_string(), false);
+                }
+            },
+            ViewSelectItem::Expression { output, expression } => {
+                if expression.to_ascii_lowercase().starts_with("count(") {
+                    push(&output, "BIGINT".to_string(), "i64".to_string(), true);
+                } else {
+                    warnings.push(format!(
+                        "view `{}`: the type of `{expression}` (column `{output}`) is unknown; typed as TEXT",
+                        view.name
+                    ));
+                    push(&output, "TEXT".to_string(), "String".to_string(), false);
+                }
+            }
+            ViewSelectItem::Star { table } => {
+                let table_name = table.or_else(|| from.clone());
+                let Some(table) = ddl
+                    .tables
+                    .list()
+                    .iter()
+                    .find(|t| Some(t.name.as_ref()) == table_name.as_deref())
+                else {
+                    continue;
+                };
+                for src in ddl
+                    .columns
+                    .list()
+                    .iter()
+                    .filter(|c| c.table == table.name && c.database == table.database)
+                {
+                    let info = column_type_info(table, src, maps);
+                    push(&src.name, info.attribute, info.rust_type, src.not_null);
+                }
+            }
+        }
+    }
+    fields
+}
+
 fn generate_view_struct(
     view: &View,
     type_name: &str,
+    fields: &[ViewField],
     options: &CodegenOptions,
     warnings: &mut Vec<String>,
 ) -> String {
@@ -928,11 +1067,22 @@ fn generate_view_struct(
 
     let mut code = String::new();
     write_view_attribute(&mut code, &attrs);
-    let _ = writeln!(
-        code,
-        "{}struct {type_name} {{}}",
-        visibility(options.use_pub)
-    );
+    let vis = visibility(options.use_pub);
+    if fields.is_empty() {
+        let _ = writeln!(code, "{vis}struct {type_name} {{}}");
+    } else {
+        let _ = writeln!(code, "{vis}struct {type_name} {{");
+        for field in fields {
+            let _ = writeln!(
+                code,
+                "    #[column(NAME = \"{}\", {})]",
+                rust_literal(&field.name),
+                field.attribute
+            );
+            let _ = writeln!(code, "    {vis}{}: {},", field.ident, field.rust_type);
+        }
+        code.push_str("}\n");
+    }
     code
 }
 
@@ -1144,25 +1294,26 @@ fn foreign_key_attribute(
         }
     }
 
-    let collides = entities.foreign_keys.iter().any(|other| {
-        other.name != foreign_key.name && other.columns.first() == foreign_key.columns.first()
-    });
-    let name_columns: Vec<&str> = foreign_key.columns.iter().map(AsRef::as_ref).collect();
-    let expected_name = drizzle_types::mysql::names::foreign_key_name(
-        &table.name,
-        drizzle_types::mysql::names::composite_foreign_key_name_columns(&name_columns, collides),
-    );
-    if foreign_key.name != expected_name {
-        warnings.push(format!(
-            "foreign-key name {} on {} cannot be preserved; MySQLTable derives `{expected_name}`",
-            foreign_key.name, table.name
-        ));
-    }
-
     let mut args = vec![
         format!("columns({})", source_columns.join(", ")),
         format!("references({target_table}, {})", target_columns.join(", ")),
     ];
+    // MySQLTable derives a name (after the first column, or all of them
+    // when another key starts with the same one) unless told otherwise.
+    let collides = entities.foreign_keys.iter().any(|other| {
+        other.name != foreign_key.name && other.columns.first() == foreign_key.columns.first()
+    });
+    let name_columns: Vec<&str> = foreign_key.columns.iter().map(AsRef::as_ref).collect();
+    let default_name = drizzle_types::mysql::names::foreign_key_name(
+        &table.name,
+        drizzle_types::mysql::names::composite_foreign_key_name_columns(&name_columns, collides),
+    );
+    if foreign_key.name != default_name {
+        args.push(format!(
+            "name = \"{}\"",
+            escape_for_rust_literal(&foreign_key.name)
+        ));
+    }
     if let Some(action) = foreign_key.on_delete {
         args.push(format!("on_delete = \"{}\"", referential_action(action)));
     }

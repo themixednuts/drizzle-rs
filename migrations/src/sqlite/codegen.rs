@@ -5,7 +5,10 @@
 
 use super::collection::SQLiteDDL;
 use super::ddl::{CheckConstraint, Column, ForeignKey, Index, Table, UniqueConstraint, View};
-use crate::utils::{default_expression, escape_for_rust_literal, unsupported_default_comment};
+use crate::utils::{
+    ViewSelectItem, default_expression, escape_for_rust_literal, macro_default_name_matches,
+    rust_ident, unsupported_default_comment, view_select_columns,
+};
 use drizzle_types::sqlite::SQLTypeCategory;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
@@ -53,31 +56,19 @@ pub enum FieldCasing {
     Preserve,
 }
 
-fn sanitize_rust_identifier(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    for (idx, ch) in name.chars().enumerate() {
-        let valid = if idx == 0 {
-            ch == '_' || ch.is_ascii_alphabetic()
-        } else {
-            ch == '_' || ch.is_ascii_alphanumeric()
-        };
-
-        if valid {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-
-    if out.is_empty() { "_".to_string() } else { out }
-}
-
+/// The Rust identifier for a generated field or schema member named after
+/// the SQL identifier `name`.
 fn apply_field_casing(name: &str, casing: FieldCasing) -> String {
-    match casing {
+    rust_ident(&match casing {
         FieldCasing::Snake => name.to_snake_case(),
         FieldCasing::Camel => name.to_lower_camel_case(),
-        FieldCasing::Preserve => sanitize_rust_identifier(name),
-    }
+        FieldCasing::Preserve => name.to_string(),
+    })
+}
+
+/// The Rust type name for a generated struct named after `name`.
+fn struct_ident(name: &str) -> String {
+    rust_ident(&name.to_pascal_case())
 }
 
 struct SchemaMaps<'a> {
@@ -279,9 +270,34 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             continue;
         }
         let view_name = view.name.to_string();
-        let columns = table_columns
+        let listed = table_columns
             .get(&view_name)
             .map_or(&[][..], std::vec::Vec::as_slice);
+        // drizzle-kit snapshots carry no view columns; read them from the
+        // definition instead.
+        let inferred = if listed.is_empty() {
+            inferred_view_columns(view, ddl, &mut result.warnings)
+        } else {
+            Vec::new()
+        };
+        let inferred_refs: Vec<&Column> = inferred.iter().collect();
+        let columns = if listed.is_empty() {
+            &inferred_refs[..]
+        } else {
+            listed
+        };
+        if columns.is_empty() {
+            let _ = writeln!(
+                code,
+                "// TODO: view `{}` was not generated: its columns could not be read from\n// its definition. Declare it with #[SQLiteView] and its fields.\n",
+                view.name
+            );
+            result.warnings.push(format!(
+                "view `{}`: its columns could not be read from the definition, so it was not generated; `drizzle generate` would drop it until you declare it",
+                view.name
+            ));
+            continue;
+        }
         let view_code = generate_view_struct(view, columns, options.use_pub, options.field_casing);
         code.push_str(&view_code);
         code.push('\n');
@@ -294,6 +310,7 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             &options.schema_name,
             &result.tables,
             &result.indexes,
+            &result.views,
             options.use_pub,
             options.field_casing,
         );
@@ -325,10 +342,10 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
     let vis = if ctx.use_pub { "pub " } else { "" };
 
     // Struct name is PascalCase of table name
-    let struct_name = ctx.table.name.to_pascal_case();
+    let struct_name = struct_ident(&ctx.table.name);
 
-    // Check if table name differs from struct name
-    let needs_name_attr = apply_field_casing(&struct_name, ctx.field_casing) != ctx.table.name;
+    // The macro names the table after the struct in snake_case.
+    let needs_name_attr = !macro_default_name_matches(&struct_name, &ctx.table.name);
 
     // Build table attribute options
     let mut table_attrs = Vec::new();
@@ -416,7 +433,7 @@ fn format_composite_fk_attr(fk: &ForeignKey, field_casing: FieldCasing) -> Strin
         .iter()
         .map(|col| apply_field_casing(col.as_ref(), field_casing))
         .collect();
-    let target_struct = fk.table_to.to_pascal_case();
+    let target_struct = struct_ident(&fk.table_to);
     let target_columns: Vec<String> = fk
         .columns_to
         .iter()
@@ -527,12 +544,19 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     // Determine column attributes
     let mut attrs = Vec::new();
     let column_name = column.name.to_string();
+    let field_name = apply_field_casing(column.name.as_ref(), ctx.field_casing);
 
-    // Check if primary key
+    // The macro names the column after the field in snake_case.
+    if !macro_default_name_matches(&field_name, &column.name) {
+        attrs.push(format!(
+            "name = \"{}\"",
+            escape_for_rust_literal(&column.name)
+        ));
+    }
+
+    // Primary key; on several fields it forms a composite key.
     let is_pk = ctx.pk_columns.is_some_and(|pks| pks.contains(&column_name));
-
-    // Only add primary if it's a single-column PK (not composite)
-    if is_pk && !ctx.is_composite_pk {
+    if is_pk {
         attrs.push("primary".to_string());
     }
 
@@ -594,8 +618,9 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     if let Some((fk, idx)) = ctx.fk_map.get(&(column.table.to_string(), column_name))
         && let Some(ref_col) = fk.columns_to.get(*idx)
     {
-        let ref_table_struct = fk.table_to.to_pascal_case();
-        attrs.push(format!("references = {ref_table_struct}::{ref_col}"));
+        let ref_table_struct = struct_ident(&fk.table_to);
+        let ref_field = apply_field_casing(ref_col, ctx.field_casing);
+        attrs.push(format!("references = {ref_table_struct}::{ref_field}"));
 
         // Add ON DELETE if specified
         if let Some(on_delete) = &fk.on_delete
@@ -627,17 +652,103 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     // - Explicit NOT NULL constraint
     // - INTEGER PRIMARY KEY is implicitly NOT NULL (special case)
     // - Other PRIMARY KEY types can technically be NULL due to SQLite legacy bug
-    let is_integer_pk =
-        is_pk && SQLTypeCategory::from_sql_type(&column.sql_type) == SQLTypeCategory::Integer;
+    let is_integer_pk = is_pk
+        && !ctx.is_composite_pk
+        && SQLTypeCategory::from_sql_type(&column.sql_type) == SQLTypeCategory::Integer;
     let is_not_null = column.not_null || is_integer_pk;
 
-    // Determine Rust type from SQL type
-    let rust_type = sql_type_to_rust_type(&column.sql_type, is_not_null);
-
-    // Field name (snake_case)
-    let field_name = apply_field_casing(column.name.as_ref(), ctx.field_casing);
+    // Determine Rust type from SQL type. drizzle-orm's boolean-mode integer
+    // columns are only recognizable by a `true`/`false` default; a `bool`
+    // field stores the same INTEGER.
+    let rust_type = if is_boolean_default(column) {
+        if is_not_null {
+            "bool".to_string()
+        } else {
+            "Option<bool>".to_string()
+        }
+    } else {
+        sql_type_to_rust_type(&column.sql_type, is_not_null)
+    };
 
     format!("{attr_str}    {vis}{field_name}: {rust_type},\n")
+}
+
+/// Columns of a view whose snapshot lists none, read from its definition:
+/// plain column references copy the source column's type, `count(...)` is
+/// an integer, and other expressions become nullable text (with a warning).
+fn inferred_view_columns(view: &View, ddl: &SQLiteDDL, warnings: &mut Vec<String>) -> Vec<Column> {
+    let Some((from, items)) = view.definition.as_deref().and_then(view_select_columns) else {
+        return Vec::new();
+    };
+    let source = |table: Option<&str>, column: &str| {
+        let table = table.or(from.as_deref());
+        ddl.columns
+            .list()
+            .iter()
+            .find(|c| Some(c.table.as_ref()) == table && c.name == column)
+            .or_else(|| ddl.columns.list().iter().find(|c| c.name == column))
+    };
+    let mut columns = Vec::new();
+    let mut push = |name: &str, sql_type: &str, not_null: bool| {
+        let mut column = Column::new(
+            view.name.to_string(),
+            name.to_string(),
+            sql_type.to_string(),
+        );
+        column.not_null = not_null;
+        columns.push(column);
+    };
+    for item in items {
+        match item {
+            ViewSelectItem::Column {
+                output,
+                table,
+                column,
+            } => match source(table.as_deref(), &column) {
+                Some(src) => push(&output, &src.sql_type, src.not_null),
+                None => {
+                    warnings.push(format!(
+                        "view `{}`: column `{output}` refers to an unknown column; typed as text",
+                        view.name
+                    ));
+                    push(&output, "text", false);
+                }
+            },
+            ViewSelectItem::Expression { output, expression } => {
+                if expression.to_ascii_lowercase().starts_with("count(") {
+                    push(&output, "integer", true);
+                } else {
+                    warnings.push(format!(
+                        "view `{}`: the type of `{expression}` (column `{output}`) is unknown; typed as text",
+                        view.name
+                    ));
+                    push(&output, "text", false);
+                }
+            }
+            ViewSelectItem::Star { table } => {
+                let table = table.or_else(|| from.clone());
+                for src in ddl
+                    .columns
+                    .list()
+                    .iter()
+                    .filter(|c| Some(c.table.as_ref()) == table.as_deref())
+                {
+                    push(&src.name, &src.sql_type, src.not_null);
+                }
+            }
+        }
+    }
+    columns
+}
+
+/// An INTEGER column whose default is the SQL boolean `true` or `false`.
+fn is_boolean_default(column: &Column) -> bool {
+    SQLTypeCategory::from_sql_type(&column.sql_type) == SQLTypeCategory::Integer
+        && column.generated.is_none()
+        && column.default.as_deref().is_some_and(|default| {
+            let default = default.trim();
+            default.eq_ignore_ascii_case("true") || default.eq_ignore_ascii_case("false")
+        })
 }
 
 /// Strip exactly one layer of matching SQL quotes and un-double the escaped
@@ -679,7 +790,7 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
             // Integer defaults
             default.parse::<i64>().ok().map(|v| v.to_string())
         }
-        SQLTypeCategory::Real => default.parse::<f64>().ok().map(|v| v.to_string()),
+        SQLTypeCategory::Real => default.parse::<f64>().ok().map(|v| format!("{v:?}")),
         SQLTypeCategory::Text | SQLTypeCategory::Blob => {
             unquoted.map(|inner| format!("\"{}\"", escape_for_rust_literal(&inner)))
         }
@@ -724,8 +835,8 @@ fn generate_index_struct(index: &Index, use_pub: bool, field_casing: FieldCasing
     let vis = if use_pub { "pub " } else { "" };
 
     // Index struct name is PascalCase
-    let struct_name = index.name.to_pascal_case();
-    let table_struct = index.table.to_pascal_case();
+    let struct_name = struct_ident(&index.name);
+    let table_struct = struct_ident(&index.table);
 
     // Build column references
     let columns: Vec<String> = index
@@ -784,7 +895,7 @@ fn generate_view_struct(
     use_pub: bool,
     field_casing: FieldCasing,
 ) -> String {
-    let struct_name = view.name.to_pascal_case();
+    let struct_name = struct_ident(&view.name);
     let vis = if use_pub { "pub " } else { "" };
 
     let mut code = String::new();
@@ -792,8 +903,8 @@ fn generate_view_struct(
     // Build view attributes
     let mut attrs = Vec::new();
 
-    // Check if view name differs from struct name (snake_case version)
-    if apply_field_casing(&struct_name, field_casing) != view.name.as_ref() {
+    // The macro names the view after the struct in snake_case.
+    if !macro_default_name_matches(&struct_name, &view.name) {
         attrs.push(format!("name = \"{}\"", view.name));
     }
 
@@ -824,6 +935,13 @@ fn generate_view_struct(
     // Generate fields for each column
     for column in sorted_columns {
         let field_name = apply_field_casing(column.name.as_ref(), field_casing);
+        if !macro_default_name_matches(&field_name, &column.name) {
+            let _ = writeln!(
+                code,
+                "    #[column(name = \"{}\")]",
+                escape_for_rust_literal(&column.name)
+            );
+        }
         let rust_type = sql_type_to_rust_type(&column.sql_type, column.not_null);
         let _ = writeln!(code, "    {vis}{field_name}: {rust_type},");
     }
@@ -837,6 +955,7 @@ fn generate_schema_struct(
     schema_name: &str,
     tables: &[String],
     indexes: &[String],
+    views: &[String],
     use_pub: bool,
     field_casing: FieldCasing,
 ) -> String {
@@ -849,14 +968,14 @@ fn generate_schema_struct(
     // Add tables
     for table in tables {
         let field_name = apply_field_casing(table, field_casing);
-        let type_name = table.to_pascal_case();
+        let type_name = struct_ident(table);
         let _ = writeln!(code, "    {vis}{field_name}: {type_name},");
     }
 
-    // Add indexes
-    for index in indexes {
-        let field_name = apply_field_casing(index, field_casing);
-        let type_name = index.to_pascal_case();
+    // Add indexes and views
+    for item in indexes.iter().chain(views) {
+        let field_name = apply_field_casing(item, field_casing);
+        let type_name = struct_ident(item);
         let _ = writeln!(code, "    {vis}{field_name}: {type_name},");
     }
 

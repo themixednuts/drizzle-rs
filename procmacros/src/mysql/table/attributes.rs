@@ -29,7 +29,7 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) on_delete: Option<String>,
     pub(crate) on_update: Option<String>,
     /// Explicit constraint name; `None` derives one (see
-    /// `MySQLTableContext::composite_foreign_key_name`).
+    /// `MacroContext::composite_foreign_key_name`).
     pub(crate) name: Option<String>,
 }
 

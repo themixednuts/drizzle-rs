@@ -1785,15 +1785,17 @@ fn test_enum_codegen() {
         "Should have exactly one enum: order_status"
     );
 
-    // Verify exact enum definition in generated code
+    // #[derive(PostgresEnum)] stores the Rust names as the SQL type and
+    // values, so they keep the database spelling.
     let expected_enum = concat!(
-        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
-        "enum OrderStatus {\n",
+        "#[allow(non_camel_case_types)]\n",
+        "#[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]\n",
+        "enum order_status {\n",
         "    #[default]\n",
-        "    Pending,\n",
-        "    Processing,\n",
-        "    Completed,\n",
-        "    Cancelled,\n",
+        "    pending,\n",
+        "    processing,\n",
+        "    completed,\n",
+        "    cancelled,\n",
         "}",
     );
     assert!(
@@ -1809,8 +1811,8 @@ fn test_enum_codegen() {
 
     let status = orders.field("status").expect("Should have status field");
     assert_eq!(
-        status.ty, "OrderStatus",
-        "status should be OrderStatus type"
+        status.ty, "order_status",
+        "status should be order_status type"
     );
     assert!(status.has_attr("enum"), "status should have enum attribute");
 
@@ -1818,8 +1820,8 @@ fn test_enum_codegen() {
         .field("previous_status")
         .expect("Should have previous_status field");
     assert_eq!(
-        prev_status.ty, "Option<OrderStatus>",
-        "previous_status should be Option<OrderStatus>"
+        prev_status.ty, "Option<order_status>",
+        "previous_status should be Option<order_status>"
     );
     assert!(
         prev_status.has_attr("enum"),
@@ -1934,12 +1936,13 @@ fn test_multiple_enums_codegen() {
 
     // Verify exact enum definitions
     let expected_priority = concat!(
-        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
-        "enum Priority {\n",
+        "#[allow(non_camel_case_types)]\n",
+        "#[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]\n",
+        "enum priority {\n",
         "    #[default]\n",
-        "    Low,\n",
-        "    Medium,\n",
-        "    High,\n",
+        "    low,\n",
+        "    medium,\n",
+        "    high,\n",
         "}",
     );
     assert!(
@@ -1948,12 +1951,13 @@ fn test_multiple_enums_codegen() {
     );
 
     let expected_task_type = concat!(
-        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
-        "enum TaskType {\n",
+        "#[allow(non_camel_case_types)]\n",
+        "#[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]\n",
+        "enum task_type {\n",
         "    #[default]\n",
-        "    Bug,\n",
-        "    Feature,\n",
-        "    Chore,\n",
+        "    bug,\n",
+        "    feature,\n",
+        "    chore,\n",
         "}",
     );
     assert!(
@@ -1968,7 +1972,7 @@ fn test_multiple_enums_codegen() {
         .expect("Should have Tasks table");
 
     let priority = tasks.field("priority").expect("Should have priority field");
-    assert_eq!(priority.ty, "Priority", "priority should be Priority type");
+    assert_eq!(priority.ty, "priority", "priority should be priority type");
     assert!(
         priority.has_attr("enum"),
         "priority should have enum attribute"
@@ -1978,8 +1982,8 @@ fn test_multiple_enums_codegen() {
         .field("task_type")
         .expect("Should have task_type field");
     assert_eq!(
-        task_type.ty, "TaskType",
-        "task_type should be TaskType type"
+        task_type.ty, "task_type",
+        "task_type should be task_type type"
     );
     assert!(
         task_type.has_attr("enum"),
@@ -2009,21 +2013,50 @@ fn test_enum_with_special_values() {
 
     println!("Generated enum with special values:\n{}", generated.code);
 
-    // Verify exact enum definition with PascalCase variants
+    // Values that are Rust identifiers keep their spelling: the variant
+    // name is the stored value.
     let expected_enum = concat!(
-        "#[derive(PostgresEnum, Default, Clone, PartialEq, Debug)]\n",
-        "enum HttpMethod {\n",
+        "#[allow(non_camel_case_types)]\n",
+        "#[derive(PostgresEnum, Clone, Copy, Debug, Default, PartialEq)]\n",
+        "enum http_method {\n",
         "    #[default]\n",
-        "    Get,\n",
-        "    Post,\n",
-        "    Put,\n",
-        "    Delete,\n",
-        "    Patch,\n",
+        "    GET,\n",
+        "    POST,\n",
+        "    PUT,\n",
+        "    DELETE,\n",
+        "    PATCH,\n",
         "}",
     );
     assert!(
         generated.code.contains(expected_enum),
-        "Should have exact HttpMethod enum definition with PascalCase variants"
+        "Should have exact http_method enum definition:\n{}",
+        generated.code
+    );
+    assert!(generated.warnings.is_empty(), "{:?}", generated.warnings);
+
+    // Values that are not identifiers fall back to PascalCase variants,
+    // with a warning that the stored values change.
+    let mut ddl = PostgresDDL::new();
+    ddl.enums.push(Enum::from_strings(
+        "public".to_string(),
+        "mood".to_string(),
+        vec!["very happy".to_string(), "sad".to_string()],
+    ));
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+    assert!(
+        generated
+            .code
+            .contains("enum mood {\n    #[default]\n    VeryHappy,\n    Sad,\n}"),
+        "{}",
+        generated.code
+    );
+    assert!(
+        generated
+            .warnings
+            .iter()
+            .any(|w| w.contains("'very happy'")),
+        "{:?}",
+        generated.warnings
     );
 }
 

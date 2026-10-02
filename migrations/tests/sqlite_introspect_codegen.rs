@@ -1671,8 +1671,14 @@ fn test_view_codegen() {
 
     let mut ddl = SQLiteDDL::new();
 
-    // Add a table that the view references
+    // Add a table that the view references. The views have no columns of
+    // their own, so codegen reads them from the definitions.
     ddl.tables.push(Table::new("users"));
+    ddl.columns
+        .push(Column::new("users", "id", "integer").not_null());
+    ddl.columns.push(Column::new("users", "name", "text"));
+    ddl.columns
+        .push(Column::new("users", "is_active", "integer").not_null());
 
     // Add a simple view
     let mut view = View::new("active_users");
@@ -1718,6 +1724,25 @@ fn test_view_codegen() {
     assert!(
         generated.code.contains("pub struct UserStats {"),
         "Should have UserStats struct"
+    );
+    // `*` expands to the table's columns; `"status"` is not a users column,
+    // so it is typed as text with a warning.
+    assert!(
+        generated.code.contains(
+            "pub struct ActiveUsers {\n    pub id: i64,\n    pub is_active: i64,\n    pub name: Option<String>,\n}"
+        ),
+        "{}",
+        generated.code
+    );
+    assert!(
+        generated.code.contains("    pub status: Option<String>,\n"),
+        "{}",
+        generated.code
+    );
+    assert!(
+        generated.warnings.iter().any(|w| w.contains("`status`")),
+        "{:?}",
+        generated.warnings
     );
 }
 
@@ -1785,7 +1810,7 @@ fn test_existing_view_skipped() {
 
     // Add a regular view
     let mut regular_view = View::new("regular_view");
-    regular_view.definition = Some("SELECT 2".into());
+    regular_view.definition = Some("SELECT 2 AS two".into());
     ddl.views.push(regular_view);
 
     let options = CodegenOptions::default();

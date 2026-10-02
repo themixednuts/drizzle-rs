@@ -6312,7 +6312,7 @@ pub struct AuditLogs {
 
 use drizzle::sqlite::prelude::*;
 
-#[SQLiteTable(name = \"audit_logs\")]
+#[SQLiteTable]
 pub struct AuditLogs {
     #[column(primary)]
     pub id: i64,
@@ -6351,7 +6351,7 @@ pub struct Schema {
 
 use drizzle::sqlite::prelude::*;
 
-#[SQLiteTable(name = \"audit_logs\")]
+#[SQLiteTable]
 pub struct AuditLogs {
     #[column(primary)]
     pub id: i64,
