@@ -479,6 +479,12 @@ fn infer_from_name(name: &str) -> Option<GeneratorKind> {
     let last = words.last().copied().unwrap_or_default();
     let first = words.first().copied().unwrap_or_default();
 
+    // `created_at`, `updated_at`, `email_verified_at`, `last_login_at`:
+    // the suffix wins over the other words, and is checked before dates so
+    // `updated_at` is a timestamp.
+    if (last == "at" && words.len() > 1) || has("timestamp") {
+        return Some(K::Timestamp);
+    }
     if has("email") || pair("e", "mail") {
         return Some(K::Email);
     }
@@ -499,12 +505,18 @@ fn infer_from_name(name: &str) -> Option<GeneratorKind> {
     {
         return Some(K::LastName);
     }
+    if pair("user", "name")
+        || pair("screen", "name")
+        || has("username")
+        || has("login")
+        || has("handle")
+    {
+        return Some(K::Username);
+    }
     if words == ["name"]
         || pair("full", "name")
         || pair("display", "name")
-        || pair("user", "name")
         || has("fullname")
-        || has("username")
         || has("displayname")
     {
         return Some(K::FullName);
@@ -518,8 +530,37 @@ fn infer_from_name(name: &str) -> Option<GeneratorKind> {
     if (has("address") || has("street")) && !has("ip") && !has("mac") {
         return Some(K::Address);
     }
-    if has("job") || has("occupation") || has("title") || has("position") || has("role") {
+    if has("job") || has("occupation") || has("position") || has("role") {
         return Some(K::JobTitle);
+    }
+    // After `job` so `job_title` stays a job title.
+    if ["title", "headline", "heading", "subject", "caption"]
+        .iter()
+        .any(|word| has(word))
+    {
+        return Some(K::Title);
+    }
+    if has("slug") || has("permalink") {
+        return Some(K::Slug);
+    }
+    if [
+        "url",
+        "uri",
+        "href",
+        "link",
+        "website",
+        "homepage",
+        "avatar",
+        "image",
+        "photo",
+        "picture",
+        "thumbnail",
+        "logo",
+    ]
+    .iter()
+    .any(|word| has(word))
+    {
+        return Some(K::Url);
     }
     if [
         "company",
@@ -567,11 +608,6 @@ fn infer_from_name(name: &str) -> Option<GeneratorKind> {
     .any(|word| has(word))
     {
         return Some(K::Json);
-    }
-    // `created_at`, `updated_at`, `published_at`; checked before dates so
-    // `updated_at` is a timestamp.
-    if (last == "at" && words.len() > 1) || has("timestamp") {
-        return Some(K::Timestamp);
     }
     if has("date")
         || has("birthday")
@@ -691,6 +727,78 @@ mod tests {
             Some(GeneratorKind::Timestamp)
         );
         assert_eq!(infer_from_name("some_field"), None);
+    }
+
+    #[test]
+    fn name_heuristics_for_common_web_columns() {
+        use GeneratorKind as K;
+        let cases = [
+            ("title", Some(K::Title)),
+            ("post_title", Some(K::Title)),
+            ("headline", Some(K::Title)),
+            ("job_title", Some(K::JobTitle)),
+            ("jobTitle", Some(K::JobTitle)),
+            ("slug", Some(K::Slug)),
+            ("url", Some(K::Url)),
+            ("avatar_url", Some(K::Url)),
+            ("websiteUrl", Some(K::Url)),
+            ("username", Some(K::Username)),
+            ("user_name", Some(K::Username)),
+            ("name", Some(K::FullName)),
+            ("display_name", Some(K::FullName)),
+            ("email_verified_at", Some(K::Timestamp)),
+            ("last_login_at", Some(K::Timestamp)),
+            ("updated_at", Some(K::Timestamp)),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(infer_from_name(name), expected, "column `{name}`");
+        }
+    }
+
+    #[test]
+    fn web_column_values_look_right() {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+        let text = |kind: GeneratorKind, rng: &mut rand::rngs::StdRng, index| match kind
+            .into_generator()
+            .generate(rng, index, "TEXT")
+        {
+            SeedValue::Text(text) => text,
+            other => panic!("{kind:?} gave {other:?}"),
+        };
+
+        let title = text(GeneratorKind::Title, &mut rng, 0);
+        assert!(
+            title.chars().next().is_some_and(char::is_uppercase),
+            "{title}"
+        );
+        assert!((3..=8).contains(&title.split(' ').count()), "{title}");
+        assert!(!title.ends_with('.'), "{title}");
+
+        let url = text(GeneratorKind::Url, &mut rng, 4);
+        assert!(url.starts_with("https://") && url.ends_with("/5"), "{url}");
+        assert!(url.contains("example."), "{url}");
+
+        let username = text(GeneratorKind::Username, &mut rng, 0);
+        assert!(username.ends_with('1'), "{username}");
+        assert!(!username.contains(' ') && username == username.to_lowercase());
+
+        let slug = text(GeneratorKind::Slug, &mut rng, 9);
+        assert!(slug.ends_with("-10"), "{slug}");
+        assert!(
+            slug.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+            "{slug}"
+        );
+
+        let email = text(GeneratorKind::Email, &mut rng, 0);
+        let domain = email.rsplit('@').next().unwrap_or_default();
+        assert!(
+            domain.ends_with("example.com")
+                || domain.ends_with("example.org")
+                || domain.ends_with("example.net"),
+            "{email}"
+        );
     }
 
     #[test]

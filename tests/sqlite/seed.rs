@@ -787,6 +787,7 @@ fn seeder_email_column_produces_emails() {
 /// models.
 mod executed {
     use drizzle::sqlite::prelude::*;
+    use drizzle::sqlite::values::OwnedSQLiteValue;
     use drizzle_seed::SeedConfig;
 
     #[derive(SQLiteEnum, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -918,6 +919,180 @@ mod executed {
                 "{status:?} never seeded"
             );
         }
+    }
+    /// The same tables as `SeedTypedSchema` and `SeedMembershipSchema`,
+    /// described at runtime instead of with the macros.
+    fn runtime_schema() -> drizzle_seed::schema::Schema {
+        use drizzle_seed::schema::{Column, Schema, Table};
+        Schema::sqlite()
+            .table(
+                Table::new("seed_typed")
+                    .column(Column::new("id", "INTEGER").primary_key())
+                    .column(Column::new("username", "TEXT").not_null().unique())
+                    .column(
+                        Column::new("role", "TEXT")
+                            .not_null()
+                            .enum_values(["Guest", "Member", "Admin"]),
+                    )
+                    .column(Column::new("status", "INTEGER").not_null())
+                    .column(Column::new("position", "INTEGER").not_null())
+                    .column(Column::new("email_count", "INTEGER").not_null())
+                    .column(Column::new("hotel_id", "INTEGER").not_null())
+                    .column(Column::new("is_active", "INTEGER").not_null()),
+            )
+            .table(
+                Table::new("seed_member")
+                    .column(Column::new("id", "INTEGER").primary_key())
+                    .column(Column::new("name", "TEXT").not_null()),
+            )
+            .table(
+                Table::new("seed_group")
+                    .column(Column::new("id", "INTEGER").primary_key())
+                    .column(Column::new("title", "TEXT").not_null()),
+            )
+            .table(
+                Table::new("seed_membership")
+                    .column(
+                        Column::new("member_id", "INTEGER")
+                            .not_null()
+                            .references("seed_member", "id"),
+                    )
+                    .column(
+                        Column::new("group_id", "INTEGER")
+                            .not_null()
+                            .references("seed_group", "id"),
+                    )
+                    .primary_key(["member_id", "group_id"]),
+            )
+    }
+
+    #[derive(SQLiteSchema)]
+    pub struct SeedRuntimeMirror {
+        pub typed: SeedTyped,
+        pub member: SeedMember,
+        pub group: SeedGroup,
+        pub membership: SeedMembership,
+    }
+
+    #[test]
+    fn runtime_schema_and_names_match_the_macro_schema() {
+        use drizzle_seed::generators;
+
+        let schema = SeedRuntimeMirror::new();
+        let typed: Vec<(String, Vec<OwnedSQLiteValue>)> = SeedConfig::sqlite(&schema)
+            .seed(9)
+            .count(&schema.typed, 30)
+            .count(&schema.member, 6)
+            .count(&schema.group, 4)
+            .relation(&schema.member, &schema.membership, 2)
+            .generator(&schema.typed.status, generators::one_of([-1, 3, 4]))
+            .generate()
+            .iter()
+            .map(|statement| statement.build())
+            .collect();
+
+        let runtime = runtime_schema();
+        let named: Vec<(String, Vec<OwnedSQLiteValue>)> = SeedConfig::sqlite(&runtime)
+            .seed(9)
+            .count_by_name("seed_typed", 30)
+            .count_by_name("seed_member", 6)
+            .count_by_name("seed_group", 4)
+            .relation_by_name("seed_member", "seed_membership", 2)
+            .generator_by_name("seed_typed", "status", generators::one_of([-1, 3, 4]))
+            .generate()
+            .iter()
+            .map(|statement| statement.build())
+            .collect();
+
+        assert!(!typed.is_empty());
+        assert_eq!(typed, named);
+    }
+
+    #[drizzle::test]
+    fn runtime_schema_rows_insert_and_decode(db: &mut TestDb<SeedRuntimeMirror>) {
+        let runtime = runtime_schema();
+        for statement in SeedConfig::sqlite(&runtime)
+            .seed(4)
+            .count_by_name("seed_typed", 50)
+            .skip_by_name("seed_membership")
+            .kind_by_name("seed_group", "title", drizzle_seed::GeneratorKind::Title)
+            .generator_by_name(
+                "seed_typed",
+                "status",
+                drizzle_seed::generators::one_of([-1, 3, 4]),
+            )
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedTyped> = db.select(()).from(schema.typed).all();
+        assert_eq!(rows.len(), 50);
+        for role in [SeedRole::Guest, SeedRole::Member, SeedRole::Admin] {
+            assert!(
+                rows.iter().any(|row| row.role == role),
+                "{role:?} never seeded"
+            );
+        }
+        let groups: Vec<SelectSeedGroup> = db.select(()).from(schema.group).all();
+        assert_eq!(groups.len(), 10);
+        assert!(
+            groups
+                .iter()
+                .all(|group| group.title.chars().next().is_some_and(char::is_uppercase))
+        );
+        let memberships: Vec<SelectSeedMembership> = db.select(()).from(schema.membership).all();
+        assert!(memberships.is_empty(), "skipped table was seeded");
+    }
+
+    #[test]
+    fn unknown_names_are_reported_with_the_known_ones() {
+        use drizzle_seed::SeedError;
+
+        let runtime = runtime_schema();
+        let error = SeedConfig::sqlite(&runtime)
+            .count_by_name("seed_typo", 3)
+            .try_generate()
+            .unwrap_err();
+        assert!(
+            matches!(&error, SeedError::UnknownTable { table, known }
+                if table == "seed_typo" && known.contains(&"seed_member".to_string())),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("seed_member"), "{error}");
+
+        let error = SeedConfig::sqlite(&runtime)
+            .generator_by_name(
+                "seed_member",
+                "nmae",
+                drizzle_seed::generators::constant("x"),
+            )
+            .try_generate_rows()
+            .unwrap_err();
+        assert!(
+            matches!(&error, SeedError::UnknownColumn { column, known, .. }
+                if column == "nmae" && known == &["id", "name"]),
+            "{error:?}"
+        );
+
+        let error = SeedConfig::sqlite(&runtime)
+            .relation_by_name("seed_group", "seed_member", 2)
+            .reset_plan()
+            .unwrap_err();
+        assert!(
+            matches!(&error, SeedError::NotRelated { parent, child }
+                if parent == "seed_group" && child == "seed_member"),
+            "{error:?}"
+        );
+
+        // Names work on macro schemas too.
+        let schema = SeedRuntimeMirror::new();
+        assert!(
+            SeedConfig::sqlite(&schema)
+                .count_by_name("seed_member", 2)
+                .try_generate()
+                .is_ok()
+        );
     }
 }
 

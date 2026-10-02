@@ -539,3 +539,104 @@ fn mysql_temporal_seed_values_execute(db: &mut TestDb<MySQLTemporalSchema>) {
     let inserted: i64 = db.select(count(temporal.id)).from(temporal).get();
     assert_eq!(inserted, 2);
 }
+
+/// `MySQLSpecificSchema`, described at runtime instead of with the macros.
+/// `status` declares its values with `enum_values` instead of an `ENUM`
+/// type.
+fn runtime_specific_schema() -> drizzle_seed::schema::Schema {
+    use drizzle_seed::schema::{Column, Schema, Table};
+    Schema::mysql().table(
+        Table::new("seed_specific")
+            .column(
+                Column::new("id", "BIGINT UNSIGNED")
+                    .primary_key()
+                    .auto_increment(),
+            )
+            .column(Column::new("name", "VARCHAR(255)").not_null())
+            .column(Column::new("unsigned_count", "INT UNSIGNED").not_null())
+            .column(
+                Column::new("status", "VARCHAR(16)")
+                    .not_null()
+                    .enum_values(["Member", "Admin"]),
+            )
+            .column(Column::new("permissions", "SET('reader', 'writer', 'admin')").not_null())
+            .column(Column::new("founded_year", "YEAR").not_null())
+            .column(
+                Column::new("name_length", "INT UNSIGNED")
+                    .not_null()
+                    .generated("CHAR_LENGTH(name)"),
+            ),
+    )
+}
+
+#[test]
+fn mysql_runtime_schema_and_names_match_the_macro_schema() {
+    let schema = MySQLSpecificSchema::new();
+    let typed: Vec<(String, Vec<drizzle::mysql::values::OwnedMySQLValue>)> =
+        SeedConfig::mysql(&schema)
+            .seed(6)
+            .count(&schema.specific, 12)
+            .generator(&MySQLSpecific::founded_year, FixedYear)
+            .generate()
+            .iter()
+            .map(|statement| statement.build())
+            .collect();
+
+    let runtime = runtime_specific_schema();
+    let named: Vec<(String, Vec<drizzle::mysql::values::OwnedMySQLValue>)> =
+        SeedConfig::mysql(&runtime)
+            .seed(6)
+            .count_by_name("seed_specific", 12)
+            .generator_by_name("seed_specific", "founded_year", FixedYear)
+            .generate()
+            .iter()
+            .map(|statement| statement.build())
+            .collect();
+
+    assert!(!typed.is_empty());
+    assert_eq!(typed, named);
+}
+
+#[test]
+fn mysql_table_names_in_two_databases_must_be_qualified() {
+    let schema = QualifiedSchema::new();
+    let error = SeedConfig::mysql(&schema)
+        .count_by_name("duplicate", 1)
+        .try_generate()
+        .unwrap_err();
+    assert!(
+        matches!(&error, SeedError::AmbiguousTable { candidates, .. }
+            if candidates == &["seed_a.duplicate", "seed_b.duplicate"]),
+        "{error:?}"
+    );
+
+    let statements = SeedConfig::mysql(&schema)
+        .count_by_name("seed_a.duplicate", 1)
+        .count_by_name("seed_b.duplicate", 2)
+        .generate();
+    let mut param_counts: Vec<usize> = statements
+        .iter()
+        .map(|statement| statement.build().1.len())
+        .collect();
+    param_counts.sort_unstable();
+    assert_eq!(param_counts, vec![1, 2]);
+}
+
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+#[drizzle::test]
+fn mysql_runtime_schema_values_execute(db: &mut TestDb<MySQLSpecificSchema>) {
+    use drizzle::core::expr::count;
+
+    let MySQLSpecificSchema { specific } = schema;
+    let runtime = runtime_specific_schema();
+    for statement in SeedConfig::mysql(&runtime)
+        .count_by_name("seed_specific", 5)
+        .generator_by_name("seed_specific", "founded_year", FixedYear)
+        .generate()
+    {
+        db.execute(statement);
+    }
+
+    let inserted: i64 = db.select(count(specific.id)).from(specific).get();
+    assert_eq!(inserted, 5);
+}

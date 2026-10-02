@@ -337,4 +337,98 @@ mod executed {
         let children: Vec<SelectSeedTypedChild> = db.select(()).from(child).all();
         assert_eq!(children.len(), 81);
     }
+
+    /// `SeedTypedSchema`, described at runtime instead of with the macros.
+    fn runtime_schema() -> drizzle_seed::schema::Schema {
+        use drizzle_seed::schema::{Column, Schema, Table};
+        Schema::postgres()
+            .table(
+                Table::new("seed_typed")
+                    .column(Column::new("id", "INTEGER").primary_key().identity_always())
+                    .column(Column::new("username", "VARCHAR(12)").not_null().unique())
+                    .column(Column::new("external_id", "UUID").not_null())
+                    .column(Column::new("settings", "JSONB").not_null())
+                    .column(
+                        Column::new("mood", "SeedMood")
+                            .not_null()
+                            .enum_values(["Calm", "Busy"]),
+                    )
+                    .column(Column::new("level", "integer").not_null())
+                    .column(Column::new("updated_at", "TIMESTAMP").not_null())
+                    .column(Column::new("position", "INTEGER").not_null())
+                    .column(Column::new("email_count", "INTEGER").not_null())
+                    .column(Column::new("tags", "TEXT[]").not_null())
+                    .column(Column::new("score", "REAL").not_null()),
+            )
+            .table(
+                Table::new("seed_typed_children")
+                    .column(Column::new("id", "SERIAL").primary_key())
+                    .column(
+                        Column::new("parent_id", "INTEGER")
+                            .not_null()
+                            .references("seed_typed", "id"),
+                    )
+                    .column(Column::new("label", "TEXT").not_null()),
+            )
+    }
+
+    #[test]
+    fn runtime_schema_and_names_match_the_macro_schema() {
+        use drizzle_seed::generators;
+        type Built = Vec<(String, Vec<drizzle::postgres::values::OwnedPostgresValue>)>;
+
+        let schema = SeedTypedSchema::new();
+        let typed: Built = SeedConfig::postgres(&schema)
+            .seed(3)
+            .count(&schema.typed, 20)
+            .relation(&schema.typed, &schema.child, 2)
+            .generator(&schema.typed.level, generators::one_of([1, 5]))
+            .generate()
+            .iter()
+            .map(|statement| statement.build())
+            .collect();
+
+        let runtime = runtime_schema();
+        let named: Built = SeedConfig::postgres(&runtime)
+            .seed(3)
+            .count_by_name("seed_typed", 20)
+            .relation_by_name("public.seed_typed", "seed_typed_children", 2)
+            .generator_by_name("seed_typed", "level", generators::one_of([1, 5]))
+            .generate()
+            .iter()
+            .map(|statement| statement.build())
+            .collect();
+
+        assert!(!typed.is_empty());
+        assert_eq!(typed, named);
+    }
+
+    #[drizzle::test]
+    fn runtime_schema_rows_insert_and_decode(db: &mut TestDb<SeedTypedSchema>) {
+        let SeedTypedSchema { typed, child, .. } = schema;
+        let runtime = runtime_schema();
+        for statement in SeedConfig::postgres(&runtime)
+            .seed(8)
+            .count_by_name("seed_typed", 25)
+            .relation_by_name("seed_typed", "seed_typed_children", 3)
+            .generator_by_name(
+                "seed_typed",
+                "level",
+                drizzle_seed::generators::one_of([1, 5]),
+            )
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedTyped> = db.select(()).from(typed).all();
+        assert_eq!(rows.len(), 25);
+        let children: Vec<SelectSeedTypedChild> = db.select(()).from(child).all();
+        assert_eq!(children.len(), 75);
+
+        // The SERIAL sequence was moved past the seeded ids.
+        db.insert(child)
+            .values([InsertSeedTypedChild::new(rows[0].id, "after seed")])
+            .execute();
+    }
 }

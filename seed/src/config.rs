@@ -1,5 +1,6 @@
 //! [`SeedConfig`], the builder for generating seed data.
 
+use crate::SeedError;
 use crate::generator::{Generator, GeneratorKind};
 use crate::identity::{ColumnId, TableId};
 use drizzle_core::{Relation, SQLSchemaImpl, SQLTableInfo, SchemaHasTable, TableRef};
@@ -58,6 +59,9 @@ pub struct SeedConfig<'a, D, S> {
     pub(crate) relation_counts: HashMap<(TableId, TableId), usize>,
     /// Optional override for maximum parameters per INSERT statement batch.
     pub(crate) max_params_per_batch: Option<usize>,
+    /// Unknown names passed to the `*_by_name` methods, reported by
+    /// `try_generate` and `reset_plan`.
+    pub(crate) name_errors: Vec<SeedError>,
     _dialect: PhantomData<D>,
     _schema: PhantomData<&'a S>,
 }
@@ -74,6 +78,7 @@ impl<'a, D, S> SeedConfig<'a, D, S> {
             column_kinds: HashMap::new(),
             relation_counts: HashMap::new(),
             max_params_per_batch: None,
+            name_errors: Vec::new(),
             _dialect: PhantomData,
             _schema: PhantomData,
         }
@@ -179,6 +184,166 @@ impl<D, S> SeedConfig<'_, D, S> {
     {
         self.skipped_tables.insert(TableId::from_info(table));
         self
+    }
+}
+
+/// Name-based settings, for a [`Schema`](crate::schema::Schema) built at
+/// runtime or names that come from configuration.
+///
+/// They take the same effect as the typed methods. A table name may be
+/// qualified as `schema.table`, and must be when two namespaces have a
+/// table with that name. An unknown name is reported as a
+/// [`SeedError`](crate::SeedError) by `try_generate`, `try_generate_rows`
+/// and `reset_plan` (and makes `generate` panic).
+impl<D, S> SeedConfig<'_, D, S>
+where
+    S: SQLSchemaImpl,
+{
+    /// Sets the row count for the table named `table`, like
+    /// [`count`](Self::count).
+    #[must_use]
+    pub fn count_by_name(mut self, table: &str, count: usize) -> Self {
+        if let Some(table) = self.resolve_table(table) {
+            self.table_counts.insert(TableId::from_ref(table), count);
+        }
+        self
+    }
+
+    /// Generates `count` rows of `child` for each row of `parent`, like
+    /// [`relation`](Self::relation). `child` must have a foreign key to
+    /// `parent`.
+    #[must_use]
+    pub fn relation_by_name(mut self, parent: &str, child: &str, count: usize) -> Self {
+        let (Some(parent_ref), Some(child_ref)) =
+            (self.resolve_table(parent), self.resolve_table(child))
+        else {
+            return self;
+        };
+        let parent_id = TableId::from_ref(parent_ref);
+        let related = child_ref
+            .foreign_keys
+            .iter()
+            .any(|fk| TableId::foreign_target(child_ref, fk) == parent_id);
+        if related {
+            self.relation_counts
+                .insert((parent_id, TableId::from_ref(child_ref)), count);
+        } else {
+            self.name_errors.push(SeedError::NotRelated {
+                parent: parent_id.to_string(),
+                child: TableId::from_ref(child_ref).to_string(),
+            });
+        }
+        self
+    }
+
+    /// Leaves the table named `table` out, like [`skip`](Self::skip).
+    #[must_use]
+    pub fn skip_by_name(mut self, table: &str) -> Self {
+        if let Some(table) = self.resolve_table(table) {
+            self.skipped_tables.insert(TableId::from_ref(table));
+        }
+        self
+    }
+
+    /// Uses a built-in [`GeneratorKind`] for `column` of `table`, like
+    /// `kind`.
+    #[must_use]
+    pub fn kind_by_name(mut self, table: &str, column: &str, kind: GeneratorKind) -> Self {
+        if let Some(column) = self.resolve_column(table, column) {
+            self.column_kinds.insert(column, kind);
+        }
+        self
+    }
+
+    /// Uses `generator` for `column` of `table`, like `generator`.
+    #[must_use]
+    pub fn generator_by_name(
+        mut self,
+        table: &str,
+        column: &str,
+        generator: impl Generator + 'static,
+    ) -> Self {
+        if let Some(column) = self.resolve_column(table, column) {
+            self.column_generators.insert(column, Arc::new(generator));
+        }
+        self
+    }
+
+    /// Finds the table named `name` (or `schema.name`), recording an error
+    /// when there is no such table or the name is ambiguous.
+    fn resolve_table(&mut self, name: &str) -> Option<&'static TableRef> {
+        let tables = self.schema.table_refs();
+        let exact: Vec<&'static TableRef> = tables
+            .iter()
+            .copied()
+            .filter(|table| table.name == name)
+            .collect();
+        let candidates = if exact.is_empty() {
+            name.split_once('.')
+                .map_or_else(Vec::new, |(schema, table_name)| {
+                    tables
+                        .iter()
+                        .copied()
+                        .filter(|table| {
+                            table.name == table_name
+                                && (table.schema == Some(schema)
+                                    || (schema == "public" && table.schema.is_none()))
+                        })
+                        .collect()
+                })
+        } else {
+            exact
+        };
+        match candidates.as_slice() {
+            [table] => Some(table),
+            [] => {
+                self.name_errors.push(SeedError::UnknownTable {
+                    table: name.to_string(),
+                    known: tables
+                        .iter()
+                        .map(|table| TableId::from_ref(table).to_string())
+                        .collect(),
+                });
+                None
+            }
+            _ => {
+                self.name_errors.push(SeedError::AmbiguousTable {
+                    table: name.to_string(),
+                    candidates: candidates
+                        .iter()
+                        .map(|table| TableId::from_ref(table).to_string())
+                        .collect(),
+                });
+                None
+            }
+        }
+    }
+
+    fn resolve_column(&mut self, table: &str, column: &str) -> Option<ColumnId> {
+        let table = self.resolve_table(table)?;
+        let table_id = TableId::from_ref(table);
+        if let Some(found) = table
+            .columns
+            .iter()
+            .find(|candidate| candidate.name == column)
+        {
+            return Some(ColumnId::new(table_id, found.name));
+        }
+        self.name_errors.push(SeedError::UnknownColumn {
+            table: table_id.to_string(),
+            column: column.to_string(),
+            known: table
+                .columns
+                .iter()
+                .map(|column| column.name.to_string())
+                .collect(),
+        });
+        None
+    }
+
+    /// The first unknown or ambiguous name given to a `*_by_name` method.
+    pub(crate) fn check_names(&self) -> Result<(), SeedError> {
+        self.name_errors.first().cloned().map_or(Ok(()), Err)
     }
 }
 
