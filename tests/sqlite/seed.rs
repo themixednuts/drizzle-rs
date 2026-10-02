@@ -781,3 +781,197 @@ fn seeder_email_column_produces_emails() {
         "should have produced at least one non-NULL email"
     );
 }
+
+/// Seeds column shapes that used to produce values the column could not
+/// hold, executes the statements, and reads the rows back through the typed
+/// models.
+mod executed {
+    use drizzle::sqlite::prelude::*;
+    use drizzle_seed::SeedConfig;
+
+    #[derive(SQLiteEnum, Default, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SeedRole {
+        #[default]
+        Guest,
+        Member,
+        Admin,
+    }
+
+    #[derive(SQLiteEnum, Default, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SeedStatus {
+        Suspended = -1,
+        #[default]
+        Inactive = 3,
+        Active,
+    }
+
+    #[SQLiteTable(NAME = "seed_typed", STRICT)]
+    pub struct SeedTyped {
+        #[column(PRIMARY)]
+        pub id: i64,
+        #[column(UNIQUE)]
+        pub username: String,
+        #[column(ENUM)]
+        pub role: SeedRole,
+        #[column(integer, ENUM)]
+        pub status: SeedStatus,
+        pub position: i64,
+        pub email_count: i64,
+        pub hotel_id: i64,
+        pub is_active: bool,
+    }
+
+    #[derive(SQLiteSchema)]
+    pub struct SeedTypedSchema {
+        pub typed: SeedTyped,
+    }
+
+    #[SQLiteTable(NAME = "seed_member")]
+    pub struct SeedMember {
+        #[column(PRIMARY)]
+        pub id: i64,
+        pub name: String,
+    }
+
+    #[SQLiteTable(NAME = "seed_group")]
+    pub struct SeedGroup {
+        #[column(PRIMARY)]
+        pub id: i64,
+        pub title: String,
+    }
+
+    #[SQLiteTable(NAME = "seed_membership")]
+    pub struct SeedMembership {
+        #[column(PRIMARY, REFERENCES = SeedMember::id)]
+        pub member_id: i64,
+        #[column(PRIMARY, REFERENCES = SeedGroup::id)]
+        pub group_id: i64,
+    }
+
+    #[derive(SQLiteSchema)]
+    pub struct SeedMembershipSchema {
+        pub member: SeedMember,
+        pub group: SeedGroup,
+        pub membership: SeedMembership,
+    }
+
+    #[drizzle::test]
+    fn join_table_rows_never_repeat_the_composite_key(db: &mut TestDb<SeedMembershipSchema>) {
+        let SeedMembershipSchema {
+            member,
+            group,
+            membership,
+        } = schema;
+        // 2 per member and 5 per group map rows 0 and 1 to the same pair.
+        for statement in SeedConfig::sqlite(&schema)
+            .count(&member, 10)
+            .count(&group, 10)
+            .relation(&member, &membership, 2)
+            .relation(&group, &membership, 5)
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedMembership> = db.select(()).from(membership).all();
+        let mut pairs: Vec<(i64, i64)> = rows
+            .iter()
+            .map(|row| (row.member_id, row.group_id))
+            .collect();
+        assert!(!pairs.is_empty() && pairs.len() < 50);
+        pairs.sort_unstable();
+        pairs.dedup();
+        assert_eq!(pairs.len(), rows.len());
+    }
+
+    #[drizzle::test]
+    fn seeded_rows_insert_and_decode(db: &mut TestDb<SeedTypedSchema>) {
+        let SeedTypedSchema { typed } = schema;
+        for statement in SeedConfig::sqlite(&schema)
+            .seed(3)
+            .count(&typed, 200)
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedTyped> = db.select(()).from(typed).all();
+        assert_eq!(rows.len(), 200);
+        let mut usernames: Vec<&str> = rows.iter().map(|row| row.username.as_str()).collect();
+        usernames.sort_unstable();
+        usernames.dedup();
+        assert_eq!(usernames.len(), 200, "UNIQUE username values repeat");
+        // Every enum variant shows up across 200 rows.
+        for role in [SeedRole::Guest, SeedRole::Member, SeedRole::Admin] {
+            assert!(
+                rows.iter().any(|row| row.role == role),
+                "{role:?} never seeded"
+            );
+        }
+        for status in [
+            SeedStatus::Suspended,
+            SeedStatus::Inactive,
+            SeedStatus::Active,
+        ] {
+            assert!(
+                rows.iter().any(|row| row.status == status),
+                "{status:?} never seeded"
+            );
+        }
+    }
+}
+
+#[test]
+fn rows_output_matches_generated_statements() {
+    let schema = ContractRelatedSchema::new();
+    let config = SeedConfig::sqlite(&schema)
+        .seed(5)
+        .count(&schema.parent, 3)
+        .relation(&schema.parent, &schema.child, 2);
+
+    let tables = config.try_generate_rows().unwrap();
+    let names: Vec<&str> = tables.iter().map(|rows| rows.table).collect();
+    assert_eq!(names, ["seed_parent", "seed_child"]);
+    assert_eq!(tables[0].columns, ["id", "name"]);
+    assert_eq!(tables[1].rows.len(), 6);
+
+    // Same values, in the same order, as the bound parameters.
+    let params: Vec<OwnedSQLiteValue> = config
+        .generate()
+        .into_iter()
+        .flat_map(|statement| statement.build().1)
+        .collect();
+    let values: Vec<&SeedValue> = tables
+        .iter()
+        .flat_map(|table| table.rows.iter().flatten())
+        .collect();
+    assert_eq!(params.len(), values.len());
+    for (param, value) in params.iter().zip(values) {
+        match (param, value) {
+            (OwnedSQLiteValue::Integer(a), SeedValue::Integer(b)) => assert_eq!(a, b),
+            (OwnedSQLiteValue::Text(a), SeedValue::Text(b)) => assert_eq!(a, b),
+            other => panic!("unexpected pair {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn generators_module_plugs_into_columns() {
+    use drizzle_seed::generators::{self, GeneratorExt};
+
+    let schema = ContractSimpleSchema::new();
+    let statements = SeedConfig::sqlite(&schema)
+        .count(&schema.simple, 4)
+        .generator(
+            &schema.simple.name,
+            generators::one_of(["ada", "grace"]).nullable(0.0),
+        )
+        .generate();
+    let (_, params) = statements[0].build();
+    let names: Vec<&OwnedSQLiteValue> = params.iter().skip(1).step_by(2).collect();
+    assert_eq!(names.len(), 4);
+    assert!(names.iter().all(|name| matches!(
+        name,
+        OwnedSQLiteValue::Text(text) if text == "ada" || text == "grace"
+    )));
+}

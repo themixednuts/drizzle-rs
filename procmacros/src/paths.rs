@@ -97,6 +97,14 @@ pub mod core {
         quote!(drizzle::core::ColumnDialect)
     }
 
+    pub fn enum_variant_ref() -> TokenStream {
+        quote!(drizzle::core::EnumVariantRef)
+    }
+
+    pub fn sql_enum_variants() -> TokenStream {
+        quote!(drizzle::core::SQLEnumVariants)
+    }
+
     pub fn table_dialect() -> TokenStream {
         quote!(drizzle::core::TableDialect)
     }

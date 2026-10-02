@@ -182,8 +182,9 @@ pub use scope::{
     RightJoin, ScopeContains, ScopeEntry, Scoped, SelectSources, SetOperand, Src,
 };
 pub use sql::{
-    ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, ForeignKeyRef, OwnedSQL,
-    OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, TableDialect, TableRef, TableSqlRef, Token,
+    ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, EnumVariantRef,
+    ForeignKeyRef, OwnedSQL, OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, SQLEnumVariants,
+    TableDialect, TableRef, TableSqlRef, Token,
 };
 pub use traits::*;
 

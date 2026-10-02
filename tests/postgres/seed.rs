@@ -248,3 +248,93 @@ fn schema_qualified_tables_with_the_same_name_keep_distinct_counts() {
     param_counts.sort_unstable();
     assert_eq!(param_counts, vec![1, 2]);
 }
+
+/// Seeds the column shapes that used to fail on a real server and reads the
+/// rows back through the typed models.
+#[cfg(all(feature = "uuid", feature = "serde", feature = "chrono"))]
+mod executed {
+    use drizzle::postgres::prelude::*;
+    use drizzle_seed::SeedConfig;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PostgresEnum)]
+    pub enum SeedMood {
+        #[default]
+        Calm,
+        Busy,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PostgresEnum)]
+    #[repr(i64)]
+    pub enum SeedLevel {
+        #[default]
+        Low = 1,
+        High = 5,
+    }
+
+    #[PostgresTable(NAME = "seed_typed")]
+    pub struct SeedTyped {
+        #[column(PRIMARY, identity(always))]
+        pub id: i32,
+        #[column(UNIQUE, VARCHAR(12))]
+        pub username: String,
+        pub external_id: uuid::Uuid,
+        #[column(JSONB)]
+        pub settings: serde_json::Value,
+        #[column(ENUM)]
+        pub mood: SeedMood,
+        #[column(ENUM)]
+        pub level: SeedLevel,
+        pub updated_at: chrono::NaiveDateTime,
+        pub position: i32,
+        pub email_count: i32,
+        pub tags: Vec<String>,
+        pub score: f32,
+    }
+
+    #[PostgresTable(NAME = "seed_typed_children")]
+    pub struct SeedTypedChild {
+        #[column(PRIMARY, SERIAL)]
+        pub id: i32,
+        #[column(REFERENCES = SeedTyped::id)]
+        pub parent_id: i32,
+        pub label: String,
+    }
+
+    #[derive(PostgresSchema)]
+    pub struct SeedTypedSchema {
+        pub mood: SeedMood,
+        pub typed: SeedTyped,
+        pub child: SeedTypedChild,
+    }
+
+    #[drizzle::test]
+    fn seeded_rows_insert_and_decode(db: &mut TestDb<SeedTypedSchema>) {
+        let SeedTypedSchema { typed, child, .. } = schema;
+        for statement in SeedConfig::postgres(&schema)
+            .seed(3)
+            .count(&typed, 40)
+            .relation(&typed, &child, 2)
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedTyped> = db.select(()).from(typed).all();
+        assert_eq!(rows.len(), 40);
+        let mut usernames: Vec<&str> = rows.iter().map(|row| row.username.as_str()).collect();
+        assert!(usernames.iter().all(|name| name.chars().count() <= 12));
+        usernames.sort_unstable();
+        usernames.dedup();
+        assert_eq!(usernames.len(), 40, "UNIQUE username values repeat");
+
+        let children: Vec<SelectSeedTypedChild> = db.select(()).from(child).all();
+        assert_eq!(children.len(), 80);
+
+        // The SERIAL sequence was moved past the seeded ids.
+        db.insert(child)
+            .values([InsertSeedTypedChild::new(rows[0].id, "after seed")])
+            .execute();
+        let children: Vec<SelectSeedTypedChild> = db.select(()).from(child).all();
+        assert_eq!(children.len(), 81);
+    }
+}

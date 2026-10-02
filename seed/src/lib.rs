@@ -1,21 +1,43 @@
 //! Deterministic test data for drizzle-rs schemas.
 //!
-//! [`SeedConfig`] turns a schema into INSERT statements. The same seed always
-//! gives the same rows.
+//! [`SeedConfig`] turns a schema into INSERT statements, or into plain rows
+//! with [`try_generate_rows`](SeedConfig::try_generate_rows) for use with
+//! any driver. The same seed and crate version always give the same rows.
 //!
 //! How values are chosen, per column:
-//! 1. a [`Generator`] set with `.generator(...)`, else
-//! 2. a [`GeneratorKind`] set with `.kind(...)`, else
-//! 3. `DEFAULT` when the column has a default (and is not the primary key), else
-//! 4. an inferred generator: integer primary keys count up from 1; otherwise
-//!    the column name decides when it is recognized (`email` gets emails,
-//!    `first_name` gets first names, and so on), then the SQL type.
+//! 1. a [`Generator`] set with `.generator(...)`: one from [`generators`]
+//!    (`generators::int(18..=90)`, `generators::one_of([...])`,
+//!    `generators::from_fn(...)`, ...), a [`GeneratorKind`], or your own
+//!    type; else
+//! 2. a [`GeneratorKind`] set with `.kind(...)`; else
+//! 3. `DEFAULT` when the column has a default (and is not the primary key),
+//!    or is a non-key `PostgreSQL` identity column; else
+//! 4. an inferred generator:
+//!    - integer primary keys count up from 1;
+//!    - enum columns pick one of their variants;
+//!    - MySQL columns follow their declared domain (integer ranges, inline
+//!      `ENUM`/`SET` labels, `DECIMAL` precision, ...);
+//!    - otherwise the column name decides when a whole word is recognized
+//!      (`email`, `first_name`, `created_at`, `is_active`, ...) and the
+//!      generated values fit the column type, then the SQL type alone.
 //!
+//!    Text is cut to a declared `VARCHAR(n)`/`CHAR(n)` length.
+//!
+//! `UNIQUE` columns and single-column primary keys get distinct values, and
+//! a row that would repeat a composite primary key or multi-column `UNIQUE`
+//! key (for example two equal `(user_id, post_id)` pairs in a join table)
+//! is dropped.
 //! Parent tables are seeded before their children, and foreign key columns
 //! are overwritten to point at generated parent rows. A child table without
 //! its own count gets `parent rows × relation count` rows (the relation count
 //! defaults to 1; with several parents, the largest product wins).
 //! `reset_plan` returns `DELETE` statements in child-before-parent order.
+//!
+//! On `PostgreSQL`, text values for non-text columns (`uuid`, `jsonb`,
+//! enums, arrays, ...) are cast to the column type, `GENERATED ALWAYS`
+//! identity keys are inserted with `OVERRIDING SYSTEM VALUE`, and each
+//! table's `SERIAL`/`IDENTITY` sequences are moved past the seeded ids with
+//! a `SELECT setval(...)` statement after its rows.
 //!
 //! The crate has no default dialect: enable `sqlite`, `postgres`, and/or
 //! `mysql`.
@@ -116,9 +138,14 @@ mod mysql_seed;
 pub(crate) mod rng;
 pub(crate) mod topology;
 
+pub mod generators;
+
 pub use config::SeedConfig;
 pub use error::SeedError;
 pub use generator::{Generator, GeneratorKind, RngCore, SeedValue};
+/// Re-export of `rand::Rng`, for drawing values from the RNG a
+/// [`Generator`] receives (`rng.random_range(..)`, `rng.random_bool(..)`).
+pub use rand::Rng;
 
 use drizzle_core::{ColumnRef, TableRef};
 use rand::rngs::StdRng;
@@ -126,7 +153,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
-use drizzle_core::{ColumnDialect, OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
+use drizzle_core::{OwnedSQL, SQL, SQLChunk, Token, param::Param, traits::ToSQL};
+
+#[cfg(any(
+    feature = "postgres",
+    all(test, any(feature = "sqlite", feature = "mysql"))
+))]
+use drizzle_core::ColumnDialect;
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 use std::borrow::Cow;
@@ -332,6 +365,28 @@ mod statement {
 }
 
 // ---------------------------------------------------------------------------
+// Dialect-free output
+// ---------------------------------------------------------------------------
+
+/// The generated rows for one table, before any SQL is rendered.
+///
+/// Returned by `SeedConfig::try_generate_rows`, in insert order (parents
+/// before children), with foreign keys already pointing at parent rows. Use
+/// it to insert with any driver, write fixtures, or inspect what a seed
+/// produces. Generated (computed) columns are left out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeedRows {
+    /// The table's schema, if it has one.
+    pub schema: Option<&'static str>,
+    /// The table name.
+    pub table: &'static str,
+    /// Column names, in the order of each row's values.
+    pub columns: Vec<&'static str>,
+    /// One `Vec` of values per row, in `columns` order.
+    pub rows: Vec<Vec<SeedValue>>,
+}
+
+// ---------------------------------------------------------------------------
 // Internal: generated data awaiting SQL rendering
 // ---------------------------------------------------------------------------
 
@@ -437,14 +492,27 @@ where
                 })
                 .collect();
 
+            let mut unique_seen: Vec<Option<HashSet<String>>> = columns
+                .iter()
+                .map(|column| unique_column(table, column).then(HashSet::new))
+                .collect();
+
             for row_idx in 0..count {
                 let mut row = Vec::with_capacity(columns.len());
                 for (col_idx, generator) in generators.iter().enumerate() {
-                    let val = generator.generate(
-                        &mut col_rngs[col_idx],
-                        row_idx,
-                        columns[col_idx].sql_type,
-                    );
+                    let column = &columns[col_idx];
+                    let rng = &mut col_rngs[col_idx];
+                    let mut val = generator.generate(rng, row_idx, column.sql_type);
+                    if let Some(seen) = unique_seen[col_idx].as_mut() {
+                        val = unique_value(
+                            val,
+                            seen,
+                            row_idx,
+                            column,
+                            |rng| generator.generate(rng, row_idx, column.sql_type),
+                            rng,
+                        );
+                    }
                     row.push(val);
                 }
 
@@ -463,6 +531,12 @@ where
 
                 all_rows.push(row);
             }
+
+            // Foreign key values come from the parent rows, so two rows can
+            // repeat a composite key (`(user_id, post_id)` in a join table).
+            // Drop the repeats instead of emitting an INSERT that fails.
+            drop_composite_key_repeats(table, &col_index_map, &mut all_rows);
+            let count = all_rows.len();
 
             // Store generated values for all columns for FK/composite resolution
             for (col_idx, col) in columns.iter().enumerate() {
@@ -496,6 +570,41 @@ where
         }
 
         Ok(chunks_out)
+    }
+
+    fn generate_rows(&self) -> Result<Vec<SeedRows>, SeedError> {
+        let mut out: Vec<SeedRows> = Vec::new();
+        for chunk in self.generate_chunks(usize::MAX)? {
+            let kept: Vec<usize> = chunk
+                .table
+                .columns
+                .iter()
+                .enumerate()
+                .filter(|(_, column)| generated_expression(column).is_none())
+                .map(|(index, _)| index)
+                .collect();
+            let rows = chunk
+                .rows
+                .into_iter()
+                .map(|row| kept.iter().map(|&index| row[index].clone()).collect());
+            match out.last_mut() {
+                Some(last)
+                    if last.table == chunk.table.name && last.schema == chunk.table.schema =>
+                {
+                    last.rows.extend(rows);
+                }
+                _ => out.push(SeedRows {
+                    schema: chunk.table.schema,
+                    table: chunk.table.name,
+                    columns: kept
+                        .iter()
+                        .map(|&index| chunk.table.columns[index].name)
+                        .collect(),
+                    rows: rows.collect(),
+                }),
+            }
+        }
+        Ok(out)
     }
 
     fn reset_tables(&self) -> Result<Vec<&'static TableRef>, SeedError> {
@@ -601,7 +710,7 @@ where
                     return kind.into_generator();
                 }
 
-                if col.has_default() && !col.primary_key() {
+                if (col.has_default() || is_postgres_identity(col)) && !col.primary_key() {
                     return Box::new(DefaultGen);
                 }
 
@@ -743,11 +852,22 @@ where
     S: drizzle_core::SQLSchemaImpl,
 {
     fn generate_postgres(&self) -> Result<Vec<PostgresSeedStatement>, SeedError> {
-        Ok(self
-            .generate_chunks(batch::POSTGRES_MAX_PARAMS)?
-            .iter()
-            .map(|chunk| build_postgres_statement(chunk))
-            .collect())
+        let chunks = self.generate_chunks(batch::POSTGRES_MAX_PARAMS)?;
+        let mut statements = Vec::with_capacity(chunks.len());
+        let mut table_chunks: Vec<&GeneratedChunk<'_>> = Vec::new();
+        for chunk in &chunks {
+            if table_chunks
+                .first()
+                .is_some_and(|first| !std::ptr::eq(first.table, chunk.table))
+            {
+                statements.extend(build_postgres_sequence_sync(&table_chunks));
+                table_chunks.clear();
+            }
+            statements.push(build_postgres_statement(chunk));
+            table_chunks.push(chunk);
+        }
+        statements.extend(build_postgres_sequence_sync(&table_chunks));
+        Ok(statements)
     }
 
     fn reset_postgres(&self) -> Result<Vec<PostgresResetStatement>, SeedError> {
@@ -792,6 +912,189 @@ where
             }
         }
         Ok(statements)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Column rules
+// ---------------------------------------------------------------------------
+
+/// The table as the query builder writes it: a `PostgreSQL` table in the
+/// default `public` schema stays unqualified, so `search_path` decides,
+/// as it does for every other query.
+fn statement_table(table: &TableRef) -> TableRef {
+    let mut table = *table;
+    if table.schema == Some("public") {
+        table.schema = None;
+    }
+    table
+}
+
+/// The expression of a generated (computed) column, which INSERTs leave out.
+const fn generated_expression(column: &ColumnRef) -> Option<&'static str> {
+    match column.dialect {
+        drizzle_core::ColumnDialect::SQLite {
+            generated_expression,
+            ..
+        }
+        | drizzle_core::ColumnDialect::PostgreSQL {
+            generated_expression,
+            ..
+        }
+        | drizzle_core::ColumnDialect::MySQL {
+            generated_expression,
+            ..
+        } => generated_expression,
+    }
+}
+
+/// A `PostgreSQL` identity column (`GENERATED ... AS IDENTITY`).
+const fn is_postgres_identity(column: &ColumnRef) -> bool {
+    matches!(
+        column.dialect,
+        drizzle_core::ColumnDialect::PostgreSQL {
+            is_generated_identity: true,
+            ..
+        }
+    )
+}
+
+/// Whether generated values for `column` must be distinct: a `UNIQUE`
+/// column, a single-column `UNIQUE` constraint, or a single-column primary
+/// key. Foreign key columns are skipped, because their values are taken
+/// from the parent rows afterwards.
+fn unique_column(table: &TableRef, column: &ColumnRef) -> bool {
+    let is_foreign_key = table
+        .foreign_keys
+        .iter()
+        .any(|fk| fk.source_columns.contains(&column.name));
+    if is_foreign_key {
+        return false;
+    }
+    let single_primary_key = table.primary_key.as_ref().map_or_else(
+        || column.primary_key() && table.columns.iter().filter(|c| c.primary_key()).count() == 1,
+        |pk| pk.columns == [column.name],
+    );
+    column.unique()
+        || single_primary_key
+        || table.constraints.iter().any(|constraint| {
+            constraint.kind == drizzle_core::SQLConstraintKind::Unique
+                && constraint.columns == [column.name]
+        })
+}
+
+/// Removes rows that repeat an earlier row's composite primary key or
+/// multi-column `UNIQUE` constraint. Rows with a `NULL` (or `DEFAULT`) in
+/// the key are kept, as the database does not compare those.
+fn drop_composite_key_repeats(
+    table: &TableRef,
+    column_indexes: &HashMap<&'static str, usize>,
+    rows: &mut Vec<Vec<SeedValue>>,
+) {
+    let primary_key = table
+        .primary_key
+        .as_ref()
+        .map(|pk| pk.columns)
+        .unwrap_or_default();
+    let keys: Vec<Vec<usize>> = std::iter::once(primary_key)
+        .chain(
+            table
+                .constraints
+                .iter()
+                .filter(|constraint| constraint.kind == drizzle_core::SQLConstraintKind::Unique)
+                .map(|constraint| constraint.columns),
+        )
+        .filter(|columns| columns.len() > 1)
+        .filter_map(|columns| {
+            columns
+                .iter()
+                .map(|column| column_indexes.get(column).copied())
+                .collect()
+        })
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+    let mut seen: Vec<HashSet<String>> = vec![HashSet::new(); keys.len()];
+    rows.retain(|row| {
+        let tuples: Vec<Option<String>> = keys
+            .iter()
+            .map(|key| {
+                let values: Vec<&SeedValue> = key.iter().map(|&index| &row[index]).collect();
+                values
+                    .iter()
+                    .all(|value| !matches!(value, SeedValue::Null | SeedValue::Default))
+                    .then(|| format!("{values:?}"))
+            })
+            .collect();
+        let repeats = tuples
+            .iter()
+            .zip(&seen)
+            .any(|(tuple, seen)| tuple.as_ref().is_some_and(|tuple| seen.contains(tuple)));
+        if !repeats {
+            for (tuple, seen) in tuples.into_iter().zip(&mut seen) {
+                if let Some(tuple) = tuple {
+                    seen.insert(tuple);
+                }
+            }
+        }
+        !repeats
+    });
+}
+
+/// Returns a value not yet in `seen` for a unique column: regenerate a few
+/// times, then make the value distinct deterministically. `DEFAULT`, `NULL`
+/// and "now" are left alone; the database decides those.
+fn unique_value<R: generator::RngCore + ?Sized>(
+    value: SeedValue,
+    seen: &mut HashSet<String>,
+    row_idx: usize,
+    column: &ColumnRef,
+    mut regenerate: impl FnMut(&mut R) -> SeedValue,
+    rng: &mut R,
+) -> SeedValue {
+    const ATTEMPTS: usize = 16;
+    let key = |value: &SeedValue| format!("{value:?}");
+    if matches!(
+        value,
+        SeedValue::Default | SeedValue::Null | SeedValue::CurrentTime
+    ) {
+        return value;
+    }
+    let mut value = value;
+    for _ in 0..ATTEMPTS {
+        if seen.insert(key(&value)) {
+            return value;
+        }
+        value = regenerate(rng);
+    }
+
+    let max_chars = inference::declared_char_length(&column.sql_type.to_uppercase());
+    let mut suffix = row_idx;
+    loop {
+        let candidate = match &value {
+            SeedValue::Integer(number) => {
+                SeedValue::Integer(number.wrapping_add(i64::try_from(suffix).unwrap_or(0) + 1))
+            }
+            SeedValue::Float(number) => SeedValue::Float(number + suffix as f64 + 1.0),
+            SeedValue::Text(text) => {
+                let tag = format!("-{suffix}");
+                let keep =
+                    max_chars.map_or(usize::MAX, |max| max.saturating_sub(tag.chars().count()));
+                SeedValue::Text(text.chars().take(keep).chain(tag.chars()).collect())
+            }
+            SeedValue::Blob(bytes) => {
+                let mut bytes = bytes.clone();
+                bytes.extend_from_slice(&(suffix as u64).to_be_bytes());
+                SeedValue::Blob(bytes)
+            }
+            // A boolean column cannot hold more than two distinct values.
+            other => return other.clone(),
+        };
+        if seen.insert(key(&candidate)) {
+            return candidate;
+        }
+        suffix = suffix.wrapping_add(1);
     }
 }
 
@@ -843,7 +1146,22 @@ fn batch_ranges_by_param_limit(
 // ---------------------------------------------------------------------------
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+#[cfg_attr(not(any(feature = "sqlite", feature = "mysql")), allow(dead_code))]
 fn build_insert_sql<V>(table: &TableRef, rows: &[Vec<SQL<'static, V>>]) -> OwnedSQL<V>
+where
+    V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
+{
+    build_insert_sql_with(table, rows, false)
+}
+
+/// `overriding_system_value` adds `PostgreSQL`'s `OVERRIDING SYSTEM VALUE`,
+/// which lets explicit values into `GENERATED ALWAYS AS IDENTITY` columns.
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+fn build_insert_sql_with<V>(
+    table: &TableRef,
+    rows: &[Vec<SQL<'static, V>>],
+    overriding_system_value: bool,
+) -> OwnedSQL<V>
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
 {
@@ -851,23 +1169,7 @@ where
         .columns
         .iter()
         .enumerate()
-        .filter(|(_, column)| {
-            let generated_expression = match column.dialect {
-                ColumnDialect::SQLite {
-                    generated_expression,
-                    ..
-                }
-                | ColumnDialect::PostgreSQL {
-                    generated_expression,
-                    ..
-                }
-                | ColumnDialect::MySQL {
-                    generated_expression,
-                    ..
-                } => generated_expression,
-            };
-            generated_expression.is_none()
-        })
+        .filter(|(_, column)| generated_expression(column).is_none())
         .collect::<Vec<_>>();
 
     let column_idents = SQL::join(
@@ -877,11 +1179,14 @@ where
         Token::COMMA,
     );
 
-    let sql = SQL::<'static, V>::token(Token::INSERT)
+    let mut sql = SQL::<'static, V>::token(Token::INSERT)
         .push(Token::INTO)
-        .append(SQL::<'static, V>::table(*table))
-        .append(column_idents.parens())
-        .push(Token::VALUES);
+        .append(SQL::<'static, V>::table(statement_table(table)))
+        .append(column_idents.parens());
+    if overriding_system_value {
+        sql = sql.append(SQL::raw("OVERRIDING SYSTEM VALUE"));
+    }
+    let sql = sql.push(Token::VALUES);
 
     let mut values_sql = SQL::<'static, V>::empty();
     for (row_idx, row) in rows.iter().enumerate() {
@@ -906,7 +1211,7 @@ where
 {
     SQL::<'static, V>::token(Token::DELETE)
         .push(Token::FROM)
-        .append(SQL::table(*table))
+        .append(SQL::table(statement_table(table)))
         .into_owned()
 }
 
@@ -929,7 +1234,7 @@ where
             );
             statements.push(
                 SQL::<'static, V>::token(Token::UPDATE)
-                    .append(SQL::table(**table))
+                    .append(SQL::table(statement_table(table)))
                     .push(Token::SET)
                     .append(assignments)
                     .into_owned(),
@@ -944,7 +1249,7 @@ where
 fn build_mysql_auto_increment_reset_sql(table: &TableRef) -> OwnedSQL<OwnedMySQLValue> {
     SQL::<'static, OwnedMySQLValue>::token(Token::ALTER)
         .push(Token::TABLE)
-        .append(SQL::table(*table))
+        .append(SQL::table(statement_table(table)))
         .append(SQL::raw(" AUTO_INCREMENT = 1"))
         .into_owned()
 }
@@ -1011,12 +1316,42 @@ fn seed_value_to_postgres_sql(
                 return SQL::param(Cow::Owned(value));
             }
 
-            SQL::param(Cow::Owned(OwnedPostgresValue::Text(v.clone())))
+            let param = SQL::param(Cow::Owned(OwnedPostgresValue::Text(v.clone())));
+            // Parameters are sent with their own type, and PostgreSQL does
+            // not convert `text` to `uuid`, `jsonb`, an enum, an array, ...
+            // on its own. Cast to the column type, which parses the text.
+            match postgres_cast_type(col) {
+                Some(cast_type) => SQL::raw("CAST(")
+                    .append(param)
+                    .append(SQL::raw(format!(" AS {cast_type})"))),
+                None => param,
+            }
         }
         SeedValue::Bool(v) => SQL::param(Cow::Owned(OwnedPostgresValue::Boolean(*v))),
         SeedValue::Blob(v) => SQL::param(Cow::Owned(OwnedPostgresValue::Bytea(v.clone()))),
         SeedValue::CurrentTime => SQL::raw("now()"),
     }
+}
+
+/// The type to cast a text parameter to for `col`, or `None` when the column
+/// already takes text.
+#[cfg(feature = "postgres")]
+fn postgres_cast_type(col: &ColumnRef) -> Option<String> {
+    let dimensions = match col.dialect {
+        ColumnDialect::PostgreSQL { dimensions, .. } => dimensions.unwrap_or(0),
+        _ => 0,
+    };
+    let ty = normalize_pg_type(col.sql_type);
+    let base = ty.split('(').next().unwrap_or_default().trim();
+    let is_text = matches!(
+        base,
+        "TEXT" | "VARCHAR" | "CHARACTER VARYING" | "CHAR" | "CHARACTER" | "BPCHAR" | "NAME" | ""
+    );
+    if is_text && dimensions == 0 {
+        return None;
+    }
+    let brackets = "[]".repeat(usize::try_from(dimensions).unwrap_or(0));
+    Some(format!("{}{brackets}", col.sql_type))
 }
 
 #[cfg(feature = "postgres")]
@@ -1079,9 +1414,87 @@ fn build_postgres_statement(chunk: &GeneratedChunk<'_>) -> PostgresSeedStatement
         })
         .collect();
 
+    let explicit_identity_always = columns.iter().enumerate().any(|(idx, column)| {
+        matches!(
+            column.dialect,
+            ColumnDialect::PostgreSQL {
+                is_identity_always: true,
+                ..
+            }
+        ) && chunk
+            .rows
+            .iter()
+            .any(|row| !matches!(row[idx], SeedValue::Default))
+    });
+
     PostgresSeedStatement {
-        inner: build_insert_sql(chunk.table, &rows),
+        inner: build_insert_sql_with(chunk.table, &rows, explicit_identity_always),
     }
+}
+
+/// After explicit values were inserted into `SERIAL`/`IDENTITY` columns,
+/// moves each column's sequence past the largest value, so the next insert
+/// that relies on the sequence does not collide with a seeded row.
+#[cfg(feature = "postgres")]
+fn build_postgres_sequence_sync(chunks: &[&GeneratedChunk<'_>]) -> Vec<PostgresSeedStatement> {
+    let Some(table) = chunks.first().map(|chunk| chunk.table) else {
+        return Vec::new();
+    };
+    let qualified_table = match statement_table(table).schema {
+        Some(schema) => format!("{}.{}", quote_pg_ident(schema), quote_pg_ident(table.name)),
+        None => quote_pg_ident(table.name),
+    };
+    table
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(idx, column)| {
+            let uses_sequence = matches!(
+                column.dialect,
+                ColumnDialect::PostgreSQL {
+                    is_serial: true,
+                    ..
+                } | ColumnDialect::PostgreSQL {
+                    is_bigserial: true,
+                    ..
+                } | ColumnDialect::PostgreSQL {
+                    is_generated_identity: true,
+                    ..
+                }
+            );
+            uses_sequence
+                && chunks.iter().any(|chunk| {
+                    chunk
+                        .rows
+                        .iter()
+                        .any(|row| matches!(row[*idx], SeedValue::Integer(_)))
+                })
+        })
+        .map(|(_, column)| {
+            let sql =
+                SQL::<'static, OwnedPostgresValue>::raw("SELECT setval(pg_get_serial_sequence(")
+                    .append(SQL::param(Cow::Owned(OwnedPostgresValue::Text(
+                        qualified_table.clone(),
+                    ))))
+                    .push(Token::COMMA)
+                    .append(SQL::param(Cow::Owned(OwnedPostgresValue::Text(
+                        column.name.to_string(),
+                    ))))
+                    .append(SQL::raw("), (SELECT MAX("))
+                    .append(SQL::ident(column.name.to_string()))
+                    .append(SQL::raw(") FROM"))
+                    .append(SQL::table(statement_table(table)))
+                    .append(SQL::raw("))"));
+            PostgresSeedStatement {
+                inner: sql.into_owned(),
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "postgres")]
+fn quote_pg_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
 }
 
 // ---------------------------------------------------------------------------
@@ -1163,6 +1576,7 @@ where
                 generated_expression: None,
                 generated_stored: false,
                 collate: None,
+                enum_variants: None,
             },
         };
         inference::infer_generator(&col_ref).generate(rng, index, sql_type)
@@ -1170,21 +1584,6 @@ where
 
     fn name(&self) -> &'static str {
         "Column"
-    }
-}
-
-/// Delegates to the shared generator.
-impl Generator for Arc<dyn Generator> {
-    fn generate(
-        &self,
-        rng: &mut dyn generator::RngCore,
-        index: usize,
-        sql_type: &str,
-    ) -> SeedValue {
-        (**self).generate(rng, index, sql_type)
-    }
-    fn name(&self) -> &'static str {
-        (**self).name()
     }
 }
 
@@ -1337,6 +1736,7 @@ mod tests {
                 generated_expression: Some("LENGTH(app_default)"),
                 generated_stored: true,
                 collate: None,
+                enum_variants: None,
             },
             ColumnDialect::PostgreSQL {
                 postgres_type: "INTEGER",
@@ -1350,6 +1750,7 @@ mod tests {
                 generated_stored: true,
                 collate: None,
                 comment: None,
+                enum_variants: None,
             },
             ColumnDialect::MySQL {
                 auto_increment: false,
@@ -1416,6 +1817,7 @@ mod tests {
                 generated_stored: false,
                 collate: None,
                 comment: None,
+                enum_variants: None,
             },
         };
 
@@ -1448,6 +1850,7 @@ mod tests {
                     generated_stored: false,
                     collate: None,
                     comment: None,
+                    enum_variants: None,
                 },
             };
             let sql = seed_value_to_postgres_sql(&SeedValue::Integer(value), &col);

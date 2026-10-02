@@ -1,22 +1,45 @@
 //! Infer a deterministic generator from column metadata.
 
-use crate::generator::{Generator, GeneratorKind};
-use drizzle_core::ColumnRef;
-
-#[cfg(feature = "mysql")]
-use crate::generator::{RngCore, SeedValue, numeric::IntGen, special::BlobGen, string::TextGen};
-#[cfg(feature = "mysql")]
-use drizzle_core::ColumnDialect;
-#[cfg(feature = "mysql")]
-use drizzle_types::mysql::MySQLTypeCategory;
-#[cfg(feature = "mysql")]
+use crate::generator::{Generator, GeneratorKind, RngCore, SeedValue};
+use drizzle_core::{ColumnDialect, ColumnRef, EnumVariantRef};
 use rand::Rng;
 
+#[cfg(feature = "mysql")]
+use crate::generator::{numeric::IntGen, special::BlobGen, string::TextGen};
+#[cfg(feature = "mysql")]
+use drizzle_types::mysql::MySQLTypeCategory;
+
 /// Build the most specific generator supported by the column domain.
+///
+/// Order: integer primary keys count up; enum columns pick one of their
+/// variants; MySQL's declared domains (ranges, inline `ENUM`/`SET` labels,
+/// decimal precision) come next; then a generator suggested by the column
+/// name, but only when its values fit the column type; then one chosen by
+/// the type alone. Text values are cut to a declared `VARCHAR(n)`/`CHAR(n)`
+/// length.
 pub(crate) fn infer_generator(column: &ColumnRef) -> Box<dyn Generator> {
     let sql_type = column.sql_type.to_uppercase();
     if column.primary_key() && is_integer_type(&sql_type) {
         return GeneratorKind::IntPrimaryKey.into_generator();
+    }
+
+    // A PostgreSQL array column's `sql_type` is its element type; the array
+    // depth is in `dimensions`.
+    if matches!(
+        column.dialect,
+        ColumnDialect::PostgreSQL {
+            dimensions: Some(_),
+            ..
+        }
+    ) {
+        return GeneratorKind::PgArray.into_generator();
+    }
+
+    if let Some(variants) = enum_variants(column) {
+        return Box::new(EnumGen {
+            variants,
+            integer: is_integer_type(&sql_type),
+        });
     }
 
     #[cfg(feature = "mysql")]
@@ -26,10 +49,115 @@ pub(crate) fn infer_generator(column: &ColumnRef) -> Box<dyn Generator> {
         return generator;
     }
 
-    let name = column.name.to_lowercase();
-    infer_from_name(&name)
-        .unwrap_or_else(|| infer_from_type(&sql_type))
-        .into_generator()
+    let type_kind = infer_from_type(&sql_type);
+    let kind = infer_from_name(column.name)
+        .filter(|name_kind| name_kind_fits(*name_kind, type_kind, &column.dialect))
+        .unwrap_or(type_kind);
+    let generator = kind.into_generator();
+    match declared_char_length(&sql_type) {
+        Some(max_chars) => Box::new(MaxChars {
+            inner: generator,
+            max_chars,
+        }),
+        None => generator,
+    }
+}
+
+const fn enum_variants(column: &ColumnRef) -> Option<&'static [EnumVariantRef]> {
+    match column.dialect {
+        ColumnDialect::SQLite { enum_variants, .. }
+        | ColumnDialect::PostgreSQL { enum_variants, .. } => match enum_variants {
+            Some(variants) if !variants.is_empty() => Some(variants),
+            _ => None,
+        },
+        ColumnDialect::MySQL { .. } => None,
+    }
+}
+
+/// Picks one variant of an enum column: its label for text and native enum
+/// columns, its discriminant for integer columns.
+struct EnumGen {
+    variants: &'static [EnumVariantRef],
+    integer: bool,
+}
+
+impl Generator for EnumGen {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
+        let variant = self.variants[rng.random_range(0..self.variants.len())];
+        if self.integer {
+            SeedValue::Integer(variant.discriminant)
+        } else {
+            SeedValue::Text(variant.label.to_string())
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "Enum"
+    }
+}
+
+/// Cuts generated text to a column's declared character length.
+struct MaxChars {
+    inner: Box<dyn Generator>,
+    max_chars: usize,
+}
+
+impl Generator for MaxChars {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, sql_type: &str) -> SeedValue {
+        match self.inner.generate(rng, index, sql_type) {
+            SeedValue::Text(text) if text.chars().count() > self.max_chars => {
+                SeedValue::Text(text.chars().take(self.max_chars).collect())
+            }
+            value => value,
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+}
+
+/// The `n` in `VARCHAR(n)`, `CHARACTER VARYING(n)`, `CHAR(n)` or
+/// `CHARACTER(n)` (uppercase input), if the type declares one.
+pub(crate) fn declared_char_length(sql_type: &str) -> Option<usize> {
+    let open = sql_type.find('(')?;
+    let base = sql_type[..open].trim();
+    if !matches!(
+        base,
+        "VARCHAR" | "CHARACTER VARYING" | "CHAR" | "CHARACTER" | "NVARCHAR" | "NCHAR"
+    ) {
+        return None;
+    }
+    let close = sql_type[open..].find(')')? + open;
+    sql_type[open + 1..close]
+        .trim()
+        .parse()
+        .ok()
+        .filter(|length| *length > 0)
+}
+
+/// Whether a generator suggested by the column name produces values the
+/// column's type accepts. `type_kind` is what the type alone would pick.
+fn name_kind_fits(
+    name_kind: GeneratorKind,
+    type_kind: GeneratorKind,
+    dialect: &ColumnDialect,
+) -> bool {
+    use GeneratorKind as K;
+    match type_kind {
+        // Text columns (and types with no better match) take any text value.
+        K::Text => true,
+        // Integer columns can hold Unix-millisecond dates, and booleans
+        // where the database stores them as 0/1.
+        K::Int => {
+            matches!(name_kind, K::Date | K::Timestamp)
+                || (name_kind == K::Bool && !matches!(dialect, ColumnDialect::PostgreSQL { .. }))
+        }
+        K::Date | K::Timestamp => matches!(name_kind, K::Date | K::Timestamp),
+        K::Time | K::TimeTz => matches!(name_kind, K::Time | K::TimeTz),
+        K::Bool | K::Uuid | K::Json => name_kind == type_kind,
+        _ => false,
+    }
 }
 
 #[cfg(feature = "mysql")]
@@ -80,9 +208,9 @@ fn infer_mysql_generator(column: &ColumnRef) -> Option<Box<dyn Generator>> {
         MySQLTypeCategory::Char => Some(mysql_text_generator(
             mysql_first_numeric_arg(column.sql_type).unwrap_or(1),
         )),
-        MySQLTypeCategory::Varchar => mysql_first_numeric_arg(column.sql_type)
-            .filter(|length| *length < 50)
-            .map(mysql_text_generator),
+        // VARCHAR falls through to name inference; the declared length is
+        // enforced by `MaxChars`.
+        MySQLTypeCategory::Varchar => None,
         MySQLTypeCategory::Bit => Some(Box::new(BitGen {
             bits: mysql_first_numeric_arg(column.sql_type).unwrap_or(1),
         })),
@@ -309,89 +437,167 @@ impl Generator for BitGen {
     }
 }
 
+/// Splits a column name into lowercase words at `_`, `-`, spaces, digits
+/// and camelCase boundaries: `createdAt` and `created_at` both give
+/// `["created", "at"]`.
+fn name_words(name: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut previous_lower = false;
+    for character in name.chars() {
+        if !character.is_alphabetic() {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+            previous_lower = false;
+            continue;
+        }
+        if character.is_uppercase() && previous_lower && !current.is_empty() {
+            words.push(std::mem::take(&mut current));
+        }
+        previous_lower = character.is_lowercase();
+        current.extend(character.to_lowercase());
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
+/// Suggests a generator from the column name, matching whole words so that
+/// `hotel_id` is not a phone number and `updated_at` is not a date.
 fn infer_from_name(name: &str) -> Option<GeneratorKind> {
-    if name.contains("email") || name.contains("e_mail") {
-        return Some(GeneratorKind::Email);
+    use GeneratorKind as K;
+    let words = name_words(name);
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let has = |word: &str| words.contains(&word);
+    let pair = |first: &str, second: &str| {
+        words
+            .windows(2)
+            .any(|window| window[0] == first && window[1] == second)
+    };
+    let last = words.last().copied().unwrap_or_default();
+    let first = words.first().copied().unwrap_or_default();
+
+    if has("email") || pair("e", "mail") {
+        return Some(K::Email);
     }
-    if name.contains("phone") || name.contains("tel") || name.contains("mobile") {
-        return Some(GeneratorKind::Phone);
-    }
-    if name.contains("first_name") || name.contains("fname") || name.contains("given_name") {
-        return Some(GeneratorKind::FirstName);
-    }
-    if name.contains("last_name")
-        || name.contains("lname")
-        || name.contains("surname")
-        || name.contains("family_name")
+    if ["phone", "telephone", "tel", "mobile", "fax"]
+        .iter()
+        .any(|word| has(word))
     {
-        return Some(GeneratorKind::LastName);
+        return Some(K::Phone);
     }
-    if name == "name"
-        || name.contains("full_name")
-        || name.contains("display_name")
-        || name.contains("username")
+    if pair("first", "name") || pair("given", "name") || has("firstname") || has("fname") {
+        return Some(K::FirstName);
+    }
+    if pair("last", "name")
+        || pair("family", "name")
+        || has("lastname")
+        || has("lname")
+        || has("surname")
     {
-        return Some(GeneratorKind::FullName);
+        return Some(K::LastName);
     }
-    if name.contains("city") || name.contains("town") {
-        return Some(GeneratorKind::City);
-    }
-    if name.contains("country") || name.contains("nation") {
-        return Some(GeneratorKind::Country);
-    }
-    if name.contains("address") || name.contains("street") {
-        return Some(GeneratorKind::Address);
-    }
-    if name.contains("job")
-        || name.contains("title")
-        || name.contains("position")
-        || name.contains("role")
+    if words == ["name"]
+        || pair("full", "name")
+        || pair("display", "name")
+        || pair("user", "name")
+        || has("fullname")
+        || has("username")
+        || has("displayname")
     {
-        return Some(GeneratorKind::JobTitle);
+        return Some(K::FullName);
     }
-    if name.contains("company") || name.contains("org") || name.contains("employer") {
-        return Some(GeneratorKind::Company);
+    if has("city") || has("town") {
+        return Some(K::City);
     }
-    if name.contains("description")
-        || name.contains("bio")
-        || name.contains("about")
-        || name.contains("summary")
-        || name.contains("content")
-        || name.contains("body")
+    if has("country") {
+        return Some(K::Country);
+    }
+    if (has("address") || has("street")) && !has("ip") && !has("mac") {
+        return Some(K::Address);
+    }
+    if has("job") || has("occupation") || has("title") || has("position") || has("role") {
+        return Some(K::JobTitle);
+    }
+    if [
+        "company",
+        "organization",
+        "organisation",
+        "org",
+        "employer",
+        "business",
+    ]
+    .iter()
+    .any(|word| has(word))
     {
-        return Some(GeneratorKind::LoremIpsum);
+        return Some(K::Company);
     }
-    if name.contains("uuid") || name.contains("guid") {
-        return Some(GeneratorKind::Uuid);
-    }
-    if name.contains("json")
-        || name.contains("data")
-        || name.contains("metadata")
-        || name.contains("payload")
+    if [
+        "description",
+        "bio",
+        "about",
+        "summary",
+        "content",
+        "body",
+        "notes",
+        "note",
+        "comment",
+        "message",
+    ]
+    .iter()
+    .any(|word| has(word))
     {
-        return Some(GeneratorKind::Json);
+        return Some(K::LoremIpsum);
     }
-    if name.contains("date") || name.contains("birthday") || name.contains("dob") {
-        return Some(GeneratorKind::Date);
+    if has("uuid") || has("guid") {
+        return Some(K::Uuid);
     }
-    if name.contains("timestamp")
-        || name.contains("created_at")
-        || name.contains("updated_at")
-        || name.contains("deleted_at")
+    if [
+        "json",
+        "data",
+        "metadata",
+        "payload",
+        "settings",
+        "attributes",
+        "properties",
+    ]
+    .iter()
+    .any(|word| has(word))
     {
-        return Some(GeneratorKind::Timestamp);
+        return Some(K::Json);
     }
-    if name.contains("time") && !name.contains("timestamp") {
-        return Some(GeneratorKind::Time);
+    // `created_at`, `updated_at`, `published_at`; checked before dates so
+    // `updated_at` is a timestamp.
+    if (last == "at" && words.len() > 1) || has("timestamp") {
+        return Some(K::Timestamp);
     }
-    if name.contains("active")
-        || name.contains("enabled")
-        || name.contains("is_")
-        || name.contains("has_")
-        || name.contains("verified")
-        || name.contains("approved")
+    if has("date")
+        || has("birthday")
+        || has("birthdate")
+        || has("dob")
+        || (last == "on" && words.len() > 1)
     {
-        return Some(GeneratorKind::Bool);
+        return Some(K::Date);
+    }
+    if has("time") && !has("zone") {
+        return Some(K::Time);
+    }
+    if ["is", "has", "can", "should", "was", "allow", "allows"].contains(&first)
+        || [
+            "active",
+            "enabled",
+            "disabled",
+            "verified",
+            "approved",
+            "published",
+            "archived",
+        ]
+        .iter()
+        .any(|word| has(word))
+    {
+        return Some(K::Bool);
     }
     None
 }
@@ -399,7 +605,7 @@ fn infer_from_name(name: &str) -> Option<GeneratorKind> {
 fn infer_from_type(sql_type: &str) -> GeneratorKind {
     match sql_type {
         value if value.ends_with("[]") => GeneratorKind::PgArray,
-        value if value.contains("INT") || value.contains("SERIAL") => GeneratorKind::Int,
+        value if is_integer_type(value) => GeneratorKind::Int,
         value
             if value.contains("REAL")
                 || value.contains("FLOAT")
@@ -440,7 +646,13 @@ fn infer_from_type(sql_type: &str) -> GeneratorKind {
     }
 }
 
+/// Whether an (uppercase) SQL type stores integers. Follows SQLite's rule
+/// that a type containing `INT` has integer affinity, except for `INTERVAL`
+/// and `POINT`, which only contain the letters.
 fn is_integer_type(sql_type: &str) -> bool {
+    if sql_type.ends_with("[]") || sql_type.contains("INTERVAL") || sql_type.contains("POINT") {
+        return false;
+    }
     sql_type.contains("INT") || sql_type.contains("SERIAL")
 }
 

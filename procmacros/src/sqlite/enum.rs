@@ -503,8 +503,24 @@ pub fn generate_enum_impl(
     let to_sql = core_paths::to_sql_trait();
     let sql = core_paths::sql();
 
+    let enum_variant_ref = core_paths::enum_variant_ref();
+    let sql_enum_variants = core_paths::sql_enum_variants();
+    let enum_variant_entries: Box<[_]> = resolved
+        .iter()
+        .map(|(ident, value)| {
+            let label = ident.to_string();
+            quote! { #enum_variant_ref { label: #label, discriminant: #value } }
+        })
+        .collect();
+    let enum_variants_impl = quote! {
+        impl #sql_enum_variants for #name {
+            const VARIANTS: &'static [#enum_variant_ref] = &[#(#enum_variant_entries),*];
+        }
+    };
+
     Ok(quote! {
         #base_impls
+        #enum_variants_impl
         #rusqlite_impls
         #turso_impls
         #libsql_impls

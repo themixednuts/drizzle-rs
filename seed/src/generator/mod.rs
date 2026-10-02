@@ -59,8 +59,65 @@ pub trait Generator: Send + Sync {
     /// column's SQL type as declared, e.g. `"INTEGER"` or `"TEXT"`.
     fn generate(&self, rng: &mut dyn RngCore, index: usize, sql_type: &str) -> SeedValue;
 
-    /// Returns a short name for debugging.
-    fn name(&self) -> &'static str;
+    /// Returns a short name for debugging. Defaults to the type name.
+    fn name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
+}
+
+impl<G: Generator + ?Sized> Generator for Box<G> {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, sql_type: &str) -> SeedValue {
+        (**self).generate(rng, index, sql_type)
+    }
+
+    fn name(&self) -> &'static str {
+        (**self).name()
+    }
+}
+
+impl<G: Generator + ?Sized> Generator for std::sync::Arc<G> {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, sql_type: &str) -> SeedValue {
+        (**self).generate(rng, index, sql_type)
+    }
+
+    fn name(&self) -> &'static str {
+        (**self).name()
+    }
+}
+
+/// A built-in kind is itself a generator, so it can be passed wherever a
+/// [`Generator`] is expected.
+impl Generator for GeneratorKind {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, sql_type: &str) -> SeedValue {
+        self.into_generator().generate(rng, index, sql_type)
+    }
+
+    fn name(&self) -> &'static str {
+        self.into_generator().name()
+    }
+}
+
+macro_rules! seed_value_from {
+    ($variant:ident: $($ty:ty),*) => {$(
+        impl From<$ty> for SeedValue {
+            fn from(value: $ty) -> Self {
+                Self::$variant(value.into())
+            }
+        }
+    )*};
+}
+
+seed_value_from!(Integer: i8, i16, i32, i64, u8, u16, u32);
+seed_value_from!(Float: f32, f64);
+seed_value_from!(Text: String, &str, char);
+seed_value_from!(Bool: bool);
+seed_value_from!(Blob: Vec<u8>, &[u8]);
+
+impl<T: Into<SeedValue>> From<Option<T>> for SeedValue {
+    /// `None` becomes `NULL`.
+    fn from(value: Option<T>) -> Self {
+        value.map_or(Self::Null, Into::into)
+    }
 }
 
 /// Re-export of `rand::RngCore`, the RNG passed to [`Generator::generate`].

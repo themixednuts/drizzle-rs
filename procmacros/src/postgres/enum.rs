@@ -837,9 +837,25 @@ pub fn generate_enum_impl(
     let to_sql_trait = core_paths::to_sql_trait();
     let sql_path = core_paths::sql();
 
+    let enum_variant_ref = core_paths::enum_variant_ref();
+    let sql_enum_variants = core_paths::sql_enum_variants();
+    let enum_variant_entries: Box<[_]> = resolved
+        .iter()
+        .map(|(ident, value)| {
+            let label = ident.to_string();
+            quote! { #enum_variant_ref { label: #label, discriminant: #value } }
+        })
+        .collect();
+    let enum_variants_impl = quote! {
+        impl #sql_enum_variants for #name {
+            const VARIANTS: &'static [#enum_variant_ref] = &[#(#enum_variant_entries),*];
+        }
+    };
+
     Ok(quote! {
         #common_impls
         #native_enum_impls
+        #enum_variants_impl
 
         // ToSQL implementation (delegates to From)
         impl<'a> #to_sql_trait<'a, #postgres_value<'a>> for #name {

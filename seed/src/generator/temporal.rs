@@ -1,9 +1,19 @@
 use super::{Generator, RngCore, SeedValue};
 use rand::Rng;
 
+/// Days from 1970-01-01 to the given civil date (proleptic Gregorian).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
 /// Generates random dates from 2000-01-01 to 2030-12-28 (days 1 to 28) as
-/// `YYYY-MM-DD` text, or as approximate Unix milliseconds when the column type
-/// contains `INT`.
+/// `YYYY-MM-DD` text, or as Unix milliseconds at midnight UTC when the column
+/// type contains `INT`.
 pub struct DateGen;
 
 impl Generator for DateGen {
@@ -13,9 +23,8 @@ impl Generator for DateGen {
         let day = rng.random_range(1u8..=28); // safe for all months
         let upper = sql_type.to_uppercase();
         if upper.contains("INT") || upper.contains("BIGINT") {
-            // SQLite timestamp_ms mode: store as milliseconds since epoch
-            // Approximate: days since epoch * 86400 * 1000
-            let days = (year as i64 - 1970) * 365 + (month as i64 - 1) * 30 + day as i64;
+            // SQLite timestamp_ms mode: milliseconds since the Unix epoch.
+            let days = days_from_civil(i64::from(year), i64::from(month), i64::from(day));
             SeedValue::Integer(days * 86_400_000)
         } else {
             SeedValue::Text(format!("{year:04}-{month:02}-{day:02}"))
@@ -27,8 +36,7 @@ impl Generator for DateGen {
 }
 
 /// Generates random timestamps from 2000 to 2030 as `YYYY-MM-DD HH:MM:SS`
-/// text, or as approximate Unix milliseconds when the column type contains
-/// `INT`.
+/// text, or as Unix milliseconds (UTC) when the column type contains `INT`.
 pub struct TimestampGen;
 
 impl Generator for TimestampGen {
@@ -41,9 +49,10 @@ impl Generator for TimestampGen {
         let second = rng.random_range(0u8..=59);
         let upper = sql_type.to_uppercase();
         if upper.contains("INT") || upper.contains("BIGINT") {
-            // SQLite timestamp_ms mode: store as milliseconds since epoch
-            let days = (year as i64 - 1970) * 365 + (month as i64 - 1) * 30 + day as i64;
-            let secs = days * 86_400 + hour as i64 * 3600 + minute as i64 * 60 + second as i64;
+            // SQLite timestamp_ms mode: milliseconds since the Unix epoch.
+            let days = days_from_civil(i64::from(year), i64::from(month), i64::from(day));
+            let secs =
+                days * 86_400 + i64::from(hour) * 3600 + i64::from(minute) * 60 + i64::from(second);
             SeedValue::Integer(secs * 1000)
         } else {
             SeedValue::Text(format!(
@@ -253,5 +262,13 @@ mod tests {
             }
             _ => panic!("expected Text"),
         }
+    }
+
+    #[test]
+    fn days_from_civil_matches_known_dates() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2000, 3, 1), 11_017);
+        assert_eq!(days_from_civil(2024, 2, 29), 19_782);
+        assert_eq!(days_from_civil(2030, 12, 28), 22_276);
     }
 }
