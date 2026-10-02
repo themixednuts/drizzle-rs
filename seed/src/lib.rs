@@ -136,6 +136,33 @@
 //! # Ok::<(), drizzle_seed::SeedError>(())
 //! ```
 //!
+//! # From a live database or a migration snapshot
+//!
+//! [`Schema::from_snapshot`](schema::Schema::from_snapshot) (the
+//! `migrations` feature) builds the schema from what a drizzle driver's
+//! `introspect()` reads, or from a migration folder's `snapshot.json`, so a
+//! database described nowhere in Rust can be seeded. The `drizzle seed` CLI
+//! command does this for the configured database.
+//!
+//! ```text
+//! use drizzle_seed::{SeedConfig, schema::Schema};
+//!
+//! let schema = Schema::from_snapshot(&db.introspect()?)?;
+//! for statement in SeedConfig::postgres(&schema)
+//!     .count_by_name("users", 100)
+//!     .relation_by_name("users", "posts", 3)
+//!     .generate()
+//! {
+//!     db.execute(statement)?;
+//! }
+//! ```
+//!
+//! # As a SQL script
+//!
+//! Each statement's `inline_sql()` writes its values as literals, and
+//! `SeedConfig::try_generate_script` returns the whole seed as one script:
+//! a fixture file, or input for any client.
+//!
 //! Any other type that implements [`drizzle_core::SQLSchemaImpl`] works as
 //! a schema too.
 
@@ -153,13 +180,14 @@ mod error;
 pub(crate) mod generator;
 pub(crate) mod identity;
 pub(crate) mod inference;
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+mod literal;
 #[cfg(feature = "mysql")]
 mod mysql_seed;
 pub(crate) mod rng;
 pub(crate) mod topology;
 
 pub mod generators;
-#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
 pub mod schema;
 
 pub use config::SeedConfig;
@@ -305,8 +333,34 @@ mod statement {
         SQL { chunks }
     }
 
+    /// Renders `owned` with every bound value written inline by `literal`.
+    #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+    fn inline_sql<Owned>(
+        owned: &OwnedSQL<Owned>,
+        literal: fn(&Owned) -> Result<String, crate::literal::LiteralError>,
+    ) -> Result<String, crate::SeedError>
+    where
+        Owned: drizzle_core::SQLParam,
+    {
+        let mut sql: SQL<'_, Owned> = convert_to_sql(owned);
+        for (chunk, source) in sql.chunks.iter_mut().zip(owned.chunks.iter()) {
+            if let drizzle_core::OwnedSQLChunk::Param(param) = source {
+                let value = param
+                    .value
+                    .as_ref()
+                    .ok_or_else(|| crate::SeedError::NoLiteral {
+                        reason: "a placeholder has no bound value".to_owned(),
+                    })?;
+                let text =
+                    literal(value).map_err(|reason| crate::SeedError::NoLiteral { reason })?;
+                *chunk = SQLChunk::Raw(Cow::Owned(text));
+            }
+        }
+        Ok(sql.build().0)
+    }
+
     macro_rules! seed_statement {
-        ($name:ident, $owned:ty, $borrowed:ty, $feature:literal) => {
+        ($name:ident, $owned:ty, $borrowed:ty, $feature:literal, $literal:path) => {
             #[cfg(feature = $feature)]
             #[derive(Debug, Clone)]
             /// One SQL statement produced by [`SeedConfig`](crate::SeedConfig),
@@ -316,10 +370,26 @@ mod statement {
             /// or pass it to the matching drizzle driver to execute it.
             pub struct $name {
                 pub(crate) inner: OwnedSQL<$owned>,
+                pub(crate) table: &'static str,
+                pub(crate) rows: usize,
             }
 
             #[cfg(feature = $feature)]
             impl $name {
+                /// The table this statement writes to.
+                #[must_use]
+                pub const fn table(&self) -> &'static str {
+                    self.table
+                }
+
+                /// How many rows this statement inserts: zero for one that
+                /// inserts none, such as a reset statement or a
+                /// `PostgreSQL` sequence update.
+                #[must_use]
+                pub const fn rows(&self) -> usize {
+                    self.rows
+                }
+
                 /// Returns the SQL text, with placeholders for bound values.
                 pub fn sql(&self) -> String {
                     self.inner.to_sql().build().0
@@ -330,6 +400,23 @@ mod statement {
                     let sql = self.inner.to_sql();
                     let (text, params) = sql.build();
                     (text, params.into_iter().cloned().collect())
+                }
+
+                /// Returns the SQL text with every bound value written inline
+                /// as a literal, to run without parameters or save as a
+                /// script.
+                ///
+                /// The literals do not depend on server settings such as
+                /// `standard_conforming_strings` (PostgreSQL) or
+                /// `NO_BACKSLASH_ESCAPES` (MySQL), and read back as the same
+                /// values the bound form inserts.
+                ///
+                /// # Errors
+                ///
+                /// Returns [`SeedError::NoLiteral`](crate::SeedError::NoLiteral)
+                /// for a value with no literal form, such as a NaN for MySQL.
+                pub fn inline_sql(&self) -> Result<String, crate::SeedError> {
+                    inline_sql(&self.inner, $literal)
                 }
             }
 
@@ -357,32 +444,43 @@ mod statement {
         SQLiteSeedStatement,
         OwnedSQLiteValue,
         SQLiteValue<'a>,
-        "sqlite"
+        "sqlite",
+        crate::literal::sqlite
     );
     seed_statement!(
         SQLiteResetStatement,
         OwnedSQLiteValue,
         SQLiteValue<'a>,
-        "sqlite"
+        "sqlite",
+        crate::literal::sqlite
     );
     seed_statement!(
         PostgresSeedStatement,
         OwnedPostgresValue,
         PostgresValue<'a>,
-        "postgres"
+        "postgres",
+        crate::literal::postgres
     );
     seed_statement!(
         PostgresResetStatement,
         OwnedPostgresValue,
         PostgresValue<'a>,
-        "postgres"
+        "postgres",
+        crate::literal::postgres
     );
-    seed_statement!(MySQLSeedStatement, OwnedMySQLValue, MySQLValue<'a>, "mysql");
+    seed_statement!(
+        MySQLSeedStatement,
+        OwnedMySQLValue,
+        MySQLValue<'a>,
+        "mysql",
+        crate::literal::mysql
+    );
     seed_statement!(
         MySQLResetStatement,
         OwnedMySQLValue,
         MySQLValue<'a>,
-        "mysql"
+        "mysql",
+        crate::literal::mysql
     );
 }
 
@@ -866,7 +964,11 @@ where
     fn reset_sqlite(&self) -> Result<Vec<SQLiteResetStatement>, SeedError> {
         Ok(build_reset_sql(&self.reset_tables()?)
             .into_iter()
-            .map(|inner| SQLiteResetStatement { inner })
+            .map(|(table, inner)| SQLiteResetStatement {
+                inner,
+                table,
+                rows: 0,
+            })
             .collect())
     }
 }
@@ -898,7 +1000,11 @@ where
     fn reset_postgres(&self) -> Result<Vec<PostgresResetStatement>, SeedError> {
         Ok(build_reset_sql(&self.reset_tables()?)
             .into_iter()
-            .map(|inner| PostgresResetStatement { inner })
+            .map(|(table, inner)| PostgresResetStatement {
+                inner,
+                table,
+                rows: 0,
+            })
             .collect())
     }
 }
@@ -919,7 +1025,11 @@ where
         let tables = self.reset_tables()?;
         let mut statements = build_reset_sql(&tables)
             .into_iter()
-            .map(|inner| MySQLResetStatement { inner })
+            .map(|(table, inner)| MySQLResetStatement {
+                inner,
+                table,
+                rows: 0,
+            })
             .collect::<Vec<_>>();
         for table in tables.into_iter().rev() {
             if table.columns.iter().any(|column| {
@@ -933,6 +1043,8 @@ where
             }) {
                 statements.push(MySQLResetStatement {
                     inner: build_mysql_auto_increment_reset_sql(table),
+                    table: table.name,
+                    rows: 0,
                 });
             }
         }
@@ -1258,7 +1370,7 @@ where
 }
 
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
-fn build_reset_sql<V>(tables: &[&TableRef]) -> Vec<OwnedSQL<V>>
+fn build_reset_sql<V>(tables: &[&TableRef]) -> Vec<(&'static str, OwnedSQL<V>)>
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
 {
@@ -1274,15 +1386,16 @@ where
                 }),
                 Token::COMMA,
             );
-            statements.push(
+            statements.push((
+                table.name,
                 SQL::<'static, V>::token(Token::UPDATE)
                     .append(SQL::table(statement_table(table)))
                     .push(Token::SET)
                     .append(assignments)
                     .into_owned(),
-            );
+            ));
         }
-        statements.push(build_delete_sql(table));
+        statements.push((table.name, build_delete_sql(table)));
     }
     statements
 }
@@ -1350,6 +1463,8 @@ fn build_sqlite_statements(chunk: &GeneratedChunk<'_>, out: &mut Vec<SQLiteSeedS
                         .append(SQL::table(statement_table(chunk.table)))
                         .append(SQL::raw("DEFAULT VALUES"))
                         .into_owned(),
+                    table: chunk.table.name,
+                    rows: 1,
                 });
             }
         } else {
@@ -1359,6 +1474,8 @@ fn build_sqlite_statements(chunk: &GeneratedChunk<'_>, out: &mut Vec<SQLiteSeedS
                 .collect();
             out.push(SQLiteSeedStatement {
                 inner: build_insert_sql_columns(chunk.table, &columns, &rows, false),
+                table: chunk.table.name,
+                rows: rows.len(),
             });
         }
         start = end;
@@ -1511,6 +1628,8 @@ fn build_postgres_statement(chunk: &GeneratedChunk<'_>) -> PostgresSeedStatement
 
     PostgresSeedStatement {
         inner: build_insert_sql_with(chunk.table, &rows, explicit_identity_always),
+        table: chunk.table.name,
+        rows: rows.len(),
     }
 }
 
@@ -1569,6 +1688,8 @@ fn build_postgres_sequence_sync(chunks: &[&GeneratedChunk<'_>]) -> Vec<PostgresS
                     .append(SQL::raw("))"));
             PostgresSeedStatement {
                 inner: sql.into_owned(),
+                table: table.name,
+                rows: 0,
             }
         })
         .collect()

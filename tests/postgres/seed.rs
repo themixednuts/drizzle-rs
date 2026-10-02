@@ -431,4 +431,106 @@ mod executed {
             .values([InsertSeedTypedChild::new(rows[0].id, "after seed")])
             .execute();
     }
+
+    const LIVE_TABLES: [&str; 4] = [
+        r#"CREATE TYPE "LiveMood" AS ENUM ('calm', 'busy')"#,
+        r#"CREATE TABLE live_accounts (
+            id serial PRIMARY KEY,
+            external_id uuid NOT NULL UNIQUE,
+            handle varchar(16) NOT NULL UNIQUE,
+            plan varchar(8) NOT NULL CHECK (plan IN ('free', 'pro')),
+            mood "LiveMood" NOT NULL,
+            settings jsonb NOT NULL,
+            tags text[] NOT NULL,
+            balance numeric(10, 2) NOT NULL,
+            ratio real,
+            avatar bytea,
+            is_active boolean NOT NULL,
+            born_on date,
+            wakes_at time,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamp NOT NULL,
+            handle_length integer GENERATED ALWAYS AS (length(handle)) STORED
+        )"#,
+        r"CREATE TABLE live_events (
+            id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            account_id integer NOT NULL REFERENCES live_accounts (id),
+            kind text NOT NULL,
+            happened_at timestamp NOT NULL
+        )",
+        r"CREATE UNIQUE INDEX live_events_account_kind ON live_events (account_id, kind)",
+    ];
+
+    #[derive(Debug, PostgresFromRow)]
+    struct Text(String);
+
+    /// Every row of `table`, as one comparable string, without
+    /// `created_at`, whose `DEFAULT now()` differs between two runs.
+    fn fingerprint_sql(table: &str) -> String {
+        format!(
+            "SELECT string_agg((to_jsonb(t) - 'created_at')::text, '|' ORDER BY (to_jsonb(t) - 'created_at')::text) FROM {table} t"
+        )
+    }
+
+    /// A database not described in Rust at all: introspect it, seed it, and
+    /// check the inline script inserts exactly what the bound statements do.
+    #[drizzle::test]
+    fn introspected_database_seeds_with_bound_and_inline_values(db: &mut TestDb<SeedTypedSchema>) {
+        use drizzle_seed::schema::Schema;
+
+        for statement in LIVE_TABLES {
+            db.execute(SQL::raw(statement));
+        }
+        let Text(namespace) = result!(db.get(SQL::raw("SELECT current_schema()::text"))).unwrap();
+        let snapshot = result!(db.introspect()).expect("introspect");
+        let schema = Schema::from_snapshot(&snapshot).unwrap().retain(|table| {
+            table.namespace() == Some(namespace.as_str()) && table.name().starts_with("live_")
+        });
+        assert_eq!(schema.tables().len(), 2);
+
+        let config = SeedConfig::postgres(&schema)
+            .seed(11)
+            .count_by_name("live_accounts", 15)
+            .relation_by_name("live_accounts", "live_events", 2);
+        let tables = ["live_accounts", "live_events"];
+
+        for statement in config.generate() {
+            db.execute(statement);
+        }
+        let mut bound = Vec::new();
+        for table in tables {
+            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table)))).unwrap();
+            bound.push(rows);
+        }
+        let Text(plans) = result!(db.get(SQL::raw(
+            "SELECT string_agg(DISTINCT plan, ',') FROM live_accounts",
+        )))
+        .unwrap();
+        assert!(
+            plans.split(',').all(|plan| plan == "free" || plan == "pro"),
+            "{plans}"
+        );
+
+        for statement in config.reset_plan().unwrap() {
+            db.execute(statement);
+        }
+        for statement in config.generate() {
+            db.execute(SQL::raw(statement.inline_sql().unwrap()));
+        }
+        let mut inline = Vec::new();
+        for table in tables {
+            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table)))).unwrap();
+            inline.push(rows);
+        }
+        assert_eq!(inline, bound);
+
+        // The serial and identity sequences were moved past the seeded ids.
+        db.execute(SQL::raw(
+            "INSERT INTO live_accounts (external_id, handle, plan, mood, settings, tags, balance, is_active, updated_at) \
+             VALUES (gen_random_uuid(), 'after', 'free', 'calm', '{}', '{}', 1, true, now())",
+        ));
+        db.execute(SQL::raw(
+            "INSERT INTO live_events (account_id, kind, happened_at) VALUES (1, 'after seed', now())",
+        ));
+    }
 }

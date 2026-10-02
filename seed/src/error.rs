@@ -63,6 +63,18 @@ pub enum SeedError {
         /// The child table.
         child: String,
     },
+    /// `Schema::from_snapshot` was given a snapshot for a dialect whose
+    /// feature (`sqlite`, `postgres` or `mysql`) is off.
+    DialectNotEnabled {
+        /// The snapshot's dialect.
+        dialect: String,
+    },
+    /// A value has no SQL literal form, so the statement cannot be written
+    /// with its values inline (`inline_sql`, `try_generate_script`).
+    NoLiteral {
+        /// What is wrong with the value.
+        reason: String,
+    },
     /// A generated value cannot be stored in the column's SQL type.
     InvalidValue {
         /// The table being seeded.
@@ -124,6 +136,13 @@ impl fmt::Display for SeedError {
                 formatter,
                 "cannot set a relation count from {parent} to {child}: {child} has no foreign key to {parent}"
             ),
+            Self::DialectNotEnabled { dialect } => write!(
+                formatter,
+                "a {dialect} snapshot needs drizzle-seed's feature for that dialect"
+            ),
+            Self::NoLiteral { reason } => {
+                write!(formatter, "cannot write a value inline: {reason}")
+            }
             Self::InvalidValue {
                 table,
                 column,

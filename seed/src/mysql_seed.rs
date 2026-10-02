@@ -22,8 +22,11 @@ pub(crate) fn build_statement(chunk: &GeneratedChunk<'_>) -> Result<MySQLSeedSta
         })
         .collect();
 
+    let rows = rows?;
     Ok(MySQLSeedStatement {
-        inner: build_insert_sql(chunk.table, &rows?),
+        inner: build_insert_sql(chunk.table, &rows),
+        table: chunk.table.name,
+        rows: rows.len(),
     })
 }
 

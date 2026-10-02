@@ -1094,6 +1094,155 @@ mod executed {
                 .is_ok()
         );
     }
+    /// The snapshot of a macro schema gives the same seed as the macro
+    /// schema itself (enum columns aside: SQLite stores no enum variants,
+    /// so both sides use the same generator for them).
+    #[test]
+    fn snapshot_schema_matches_the_macro_schema() {
+        use drizzle::migrations::Schema as _;
+        use drizzle_seed::schema::Schema;
+        use drizzle_seed::{Sqlite, generators};
+
+        fn configure<S: drizzle::core::SQLSchemaImpl>(schema: &S) -> SeedConfig<'_, Sqlite, S> {
+            SeedConfig::sqlite(schema)
+                .seed(21)
+                .count_by_name("seed_typed", 25)
+                .count_by_name("seed_member", 5)
+                .relation_by_name("seed_member", "seed_membership", 3)
+                .generator_by_name("seed_typed", "role", generators::one_of(["Guest", "Admin"]))
+                .generator_by_name("seed_typed", "status", generators::one_of([-1, 3, 4]))
+        }
+
+        let macro_schema = SeedRuntimeMirror::new();
+        let from_snapshot = Schema::from_snapshot(&macro_schema.to_snapshot()).unwrap();
+        let build = |statements: Vec<drizzle_seed::SQLiteSeedStatement>| {
+            statements
+                .iter()
+                .map(|statement| statement.build())
+                .collect::<Vec<_>>()
+        };
+        let expected = build(configure(&macro_schema).generate());
+        assert!(!expected.is_empty());
+        assert_eq!(build(configure(&from_snapshot).generate()), expected);
+    }
+
+    const LIVE_TABLES: &str = r"
+        CREATE TABLE live_authors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            handle TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            bio TEXT,
+            score REAL NOT NULL DEFAULT 0,
+            avatar BLOB,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE live_posts (
+            id INTEGER PRIMARY KEY,
+            author_id INTEGER NOT NULL REFERENCES live_authors(id),
+            slug TEXT NOT NULL,
+            title TEXT NOT NULL,
+            rating REAL,
+            body TEXT
+        );
+        CREATE UNIQUE INDEX live_posts_author_slug ON live_posts (author_id, slug);
+        CREATE TABLE live_tags (
+            post_id INTEGER NOT NULL REFERENCES live_posts(id),
+            tag TEXT NOT NULL,
+            PRIMARY KEY (post_id, tag)
+        );
+    ";
+
+    #[derive(SQLiteFromRow)]
+    struct Text(String);
+
+    /// Every row of `table`, as one comparable string.
+    fn fingerprint_sql(table: &str, columns: &[&str]) -> String {
+        let row = columns
+            .iter()
+            .map(|column| format!("quote({column})"))
+            .collect::<Vec<_>>()
+            .join(" || ',' || ");
+        format!("SELECT group_concat(r, '|') FROM (SELECT {row} AS r FROM {table} ORDER BY 1)")
+    }
+
+    /// A database that is not described in Rust at all: introspect it,
+    /// seed it, and check the inline script inserts exactly what the bound
+    /// statements do.
+    #[drizzle::test]
+    fn introspected_database_seeds_with_bound_and_inline_values(db: &mut TestDb<SeedTypedSchema>) {
+        use drizzle_seed::schema::Schema;
+
+        for statement in LIVE_TABLES.split(';').filter(|s| !s.trim().is_empty()) {
+            db.execute(SQL::raw(statement));
+        }
+        // Turso only parses generated columns behind an experimental flag.
+        let generated = !cfg!(feature = "turso");
+        if generated {
+            db.execute(SQL::raw(
+                "ALTER TABLE live_authors ADD COLUMN handle_length INTEGER \
+                 GENERATED ALWAYS AS (length(handle)) VIRTUAL",
+            ));
+        }
+        let snapshot = result!(db.introspect()).expect("introspect");
+        let schema = Schema::from_snapshot(&snapshot)
+            .unwrap()
+            .retain(|table| table.name().starts_with("live_"));
+        assert_eq!(schema.tables().len(), 3);
+
+        let config = SeedConfig::sqlite(&schema)
+            .seed(5)
+            .count_by_name("live_authors", 12)
+            .relation_by_name("live_authors", "live_posts", 3)
+            .relation_by_name("live_posts", "live_tags", 2);
+        let tables: [(&str, &[&str]); 3] = [
+            (
+                "live_authors",
+                if generated {
+                    &[
+                        "id",
+                        "handle",
+                        "status",
+                        "bio",
+                        "score",
+                        "avatar",
+                        "handle_length",
+                    ]
+                } else {
+                    &["id", "handle", "status", "bio", "score", "avatar"]
+                },
+            ),
+            (
+                "live_posts",
+                &["id", "author_id", "slug", "title", "rating", "body"],
+            ),
+            ("live_tags", &["post_id", "tag"]),
+        ];
+
+        for statement in config.generate() {
+            db.execute(statement);
+        }
+        let mut bound = Vec::new();
+        for (table, columns) in tables {
+            let Text(rows) = db.get(SQL::raw(fingerprint_sql(table, columns)));
+            bound.push(rows);
+        }
+
+        for statement in config.reset_plan().unwrap() {
+            db.execute(statement);
+        }
+        let script = config.try_generate_script().unwrap();
+        for statement in config.generate() {
+            let inline = statement.inline_sql().unwrap();
+            assert!(script.contains(&inline));
+            db.execute(SQL::raw(inline));
+        }
+        let mut inline = Vec::new();
+        for (table, columns) in tables {
+            let Text(rows) = db.get(SQL::raw(fingerprint_sql(table, columns)));
+            inline.push(rows);
+        }
+        assert_eq!(inline, bound);
+    }
     #[SQLiteTable(NAME = "seed_defaults")]
     pub struct SeedDefaults {
         #[column(PRIMARY)]

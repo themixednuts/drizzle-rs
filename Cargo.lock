@@ -2651,6 +2651,7 @@ version = "0.2.1"
 dependencies = [
  "chrono",
  "drizzle-core",
+ "drizzle-migrations",
  "drizzle-mysql",
  "drizzle-postgres",
  "drizzle-sqlite",
