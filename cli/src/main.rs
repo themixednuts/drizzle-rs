@@ -6,15 +6,15 @@
 //! config so `{ env = "VAR" }` values resolve.
 
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use drizzle_cli::commands::{
-    check::CheckOptions, export::ExportOptions, generate::GenerateOptions,
+    check::CheckOptions, export::ExportOptions, generate::GenerateOptions, import::ImportOptions,
     introspect::IntrospectOptions, migrate::MigrateOptions, new::NewOptions, push::PushOptions,
     seed::SeedOptions, upgrade::UpgradeOptions,
 };
-use drizzle_cli::config::Config;
+use drizzle_cli::config::{CONFIG_FILE, Config};
 use drizzle_cli::error::CliError;
 use drizzle_cli::output;
 
@@ -79,6 +79,10 @@ enum Command {
     /// Interactively build a new schema file
     New(NewOptions),
 
+    /// Write the Rust schema of a TypeScript drizzle-orm project from its
+    /// drizzle-kit migration snapshots
+    Import(ImportOptions),
+
     /// Initialize a new drizzle.config.toml configuration file
     Init {
         /// Database dialect (sqlite, postgresql, mysql, turso)
@@ -129,6 +133,16 @@ fn run(cli: Cli) -> Result<(), CliError> {
         // scratch); `init` doesn't read a config at all.
         Command::New(opts) => commands::new::run(load_config(config_path).ok().as_ref(), &opts),
         Command::Init { dialect, driver } => commands::init::run(&dialect, driver.as_deref()),
+        // `import` uses a config only for defaults: an explicit `--config`
+        // or an existing default file must load, a missing default is fine.
+        Command::Import(opts) => {
+            let config = if config_path.is_some() || Path::new(CONFIG_FILE).exists() {
+                Some(load_config(config_path)?)
+            } else {
+                None
+            };
+            commands::import::run(config.as_ref(), db_name, &opts)
+        }
 
         // Everything else requires a loaded config.
         Command::Generate(opts) => {

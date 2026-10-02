@@ -4,6 +4,7 @@ pub mod check;
 pub mod export;
 pub mod generate;
 pub mod harness;
+pub mod import;
 pub mod init;
 pub mod introspect;
 pub mod migrate;

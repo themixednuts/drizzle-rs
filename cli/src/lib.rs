@@ -52,6 +52,7 @@
 //! | `drizzle check` | Validate the config file | no |
 //! | `drizzle export` | Print the schema as SQL | no |
 //! | `drizzle up` | Upgrade old snapshots to the current format | no |
+//! | `drizzle import <folder>` | Write the Rust schema of a TypeScript drizzle-orm project from its drizzle-kit snapshots | no |
 //! | `drizzle new` | Build a schema file interactively | no |
 
 pub mod codegen;
