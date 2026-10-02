@@ -1,9 +1,8 @@
-//! `PostgreSQL` DDL collection — typed access to schema entities.
+//! [`PostgresDDL`], the PostgreSQL schema model, and its entity diff.
 //!
-//! The generic [`EntityCollection<T>`] storage backbone lives in
-//! [`crate::collection`]; this file supplies the per-entity-type lookup
-//! helpers (`one`, `for_table`, etc.) whose shape depends on each
-//! Postgres entity's identity (`(schema, name)`, `(schema, table, name)`).
+//! Also adds PostgreSQL lookups (`one`, `for_table`) to
+//! [`EntityCollection`]. Entities are keyed by `name` (schemas, roles),
+//! `(schema, name)`, or `(schema, table, name)` (columns, policies).
 
 use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, Policy, PostgresEntity, PrimaryKey, Role,
@@ -20,6 +19,7 @@ use std::collections::HashMap;
 
 // Schema-specific operations
 impl EntityCollection<Schema> {
+    /// Finds the entity named `name`.
     #[must_use]
     pub fn one(&self, name: &str) -> Option<&Schema> {
         self.entities.iter().find(|s| s.name == name)
@@ -28,6 +28,7 @@ impl EntityCollection<Schema> {
 
 // Enum-specific operations
 impl EntityCollection<Enum> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Enum> {
         self.entities
@@ -38,6 +39,7 @@ impl EntityCollection<Enum> {
 
 // Sequence-specific operations
 impl EntityCollection<Sequence> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Sequence> {
         self.entities
@@ -48,6 +50,7 @@ impl EntityCollection<Sequence> {
 
 // Role-specific operations
 impl EntityCollection<Role> {
+    /// Finds the entity named `name`.
     #[must_use]
     pub fn one(&self, name: &str) -> Option<&Role> {
         self.entities.iter().find(|r| r.name == name)
@@ -56,12 +59,14 @@ impl EntityCollection<Role> {
 
 // Policy-specific operations
 impl EntityCollection<Policy> {
+    /// Finds the entity `name` on `schema.table`.
     #[must_use]
     pub fn one(&self, schema: &str, table: &str, name: &str) -> Option<&Policy> {
         self.entities
             .iter()
             .find(|p| p.schema == schema && p.table == table && p.name == name)
     }
+    /// Returns every entity on `schema.table`, in insertion order.
     #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&Policy> {
         self.entities
@@ -73,6 +78,7 @@ impl EntityCollection<Policy> {
 
 // Table-specific operations
 impl EntityCollection<Table> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Table> {
         self.entities
@@ -83,12 +89,14 @@ impl EntityCollection<Table> {
 
 // Column-specific operations
 impl EntityCollection<Column> {
+    /// Finds the entity `name` on `schema.table`.
     #[must_use]
     pub fn one(&self, schema: &str, table: &str, name: &str) -> Option<&Column> {
         self.entities
             .iter()
             .find(|c| c.schema == schema && c.table == table && c.name == name)
     }
+    /// Returns every entity on `schema.table`, in insertion order.
     #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&Column> {
         self.entities
@@ -100,12 +108,14 @@ impl EntityCollection<Column> {
 
 // Index-specific operations
 impl EntityCollection<Index> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&Index> {
         self.entities
             .iter()
             .find(|i| i.schema == schema && i.name == name)
     }
+    /// Returns every entity on `schema.table`, in insertion order.
     #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&Index> {
         self.entities
@@ -117,12 +127,14 @@ impl EntityCollection<Index> {
 
 // ForeignKey-specific operations
 impl EntityCollection<ForeignKey> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&ForeignKey> {
         self.entities
             .iter()
             .find(|f| f.schema == schema && f.name == name)
     }
+    /// Returns every entity on `schema.table`, in insertion order.
     #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&ForeignKey> {
         self.entities
@@ -134,12 +146,14 @@ impl EntityCollection<ForeignKey> {
 
 // PrimaryKey-specific operations
 impl EntityCollection<PrimaryKey> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&PrimaryKey> {
         self.entities
             .iter()
             .find(|p| p.schema == schema && p.name == name)
     }
+    /// Returns the primary key of `schema.table`, if any.
     #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Option<&PrimaryKey> {
         self.entities
@@ -150,12 +164,14 @@ impl EntityCollection<PrimaryKey> {
 
 // UniqueConstraint-specific operations
 impl EntityCollection<UniqueConstraint> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&UniqueConstraint> {
         self.entities
             .iter()
             .find(|u| u.schema == schema && u.name == name)
     }
+    /// Returns every entity on `schema.table`, in insertion order.
     #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&UniqueConstraint> {
         self.entities
@@ -167,12 +183,14 @@ impl EntityCollection<UniqueConstraint> {
 
 // CheckConstraint-specific operations
 impl EntityCollection<CheckConstraint> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&CheckConstraint> {
         self.entities
             .iter()
             .find(|c| c.schema == schema && c.name == name)
     }
+    /// Returns every entity on `schema.table`, in insertion order.
     #[must_use]
     pub fn for_table(&self, schema: &str, table: &str) -> Vec<&CheckConstraint> {
         self.entities
@@ -184,6 +202,7 @@ impl EntityCollection<CheckConstraint> {
 
 // View-specific operations
 impl EntityCollection<View> {
+    /// Finds the entity `name` in `schema`.
     #[must_use]
     pub fn one(&self, schema: &str, name: &str) -> Option<&View> {
         self.entities
@@ -196,32 +215,45 @@ impl EntityCollection<View> {
 // PostgreSQL DDL - Main Collection Type
 // =============================================================================
 
-/// `PostgreSQL` DDL collection - stores all schema entities
+/// A PostgreSQL schema as one entity collection per kind.
 #[derive(Debug, Clone, Default)]
 pub struct PostgresDDL {
+    /// Schemas other than `public`.
     pub schemas: EntityCollection<Schema>,
+    /// Enum types.
     pub enums: EntityCollection<Enum>,
+    /// Standalone sequences.
     pub sequences: EntityCollection<Sequence>,
+    /// Roles.
     pub roles: EntityCollection<Role>,
+    /// Row-level security policies.
     pub policies: EntityCollection<Policy>,
+    /// Tables.
     pub tables: EntityCollection<Table>,
+    /// Columns.
     pub columns: EntityCollection<Column>,
+    /// Indexes.
     pub indexes: EntityCollection<Index>,
+    /// Foreign keys.
     pub fks: EntityCollection<ForeignKey>,
+    /// Primary keys (at most one per table).
     pub pks: EntityCollection<PrimaryKey>,
+    /// Unique constraints.
     pub uniques: EntityCollection<UniqueConstraint>,
+    /// Check constraints.
     pub checks: EntityCollection<CheckConstraint>,
+    /// Views and materialized views.
     pub views: EntityCollection<View>,
 }
 
 impl PostgresDDL {
-    /// Create a new empty DDL collection
+    /// Creates an empty model.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create DDL from a list of entities
+    /// Sorts `entities` into their collections (privileges are dropped).
     #[must_use]
     pub fn from_entities(entities: Vec<PostgresEntity>) -> Self {
         let mut ddl = Self::new();
@@ -231,7 +263,8 @@ impl PostgresDDL {
         ddl
     }
 
-    /// Push any entity type
+    /// Adds `entity` to the matching collection. Privileges are not tracked
+    /// and are ignored.
     pub fn push_entity(&mut self, entity: PostgresEntity) {
         match entity {
             PostgresEntity::Schema(s) => self.schemas.push(s),
@@ -252,7 +285,9 @@ impl PostgresDDL {
         }
     }
 
-    /// Convert to entity array for snapshot serialization
+    /// Returns every entity in the order snapshots store them: schemas,
+    /// enums, sequences, roles, tables, columns, indexes, foreign keys,
+    /// primary keys, uniques, checks, policies, views.
     #[must_use]
     pub fn to_entities(&self) -> Vec<PostgresEntity> {
         let mut entities = Vec::new();
@@ -304,7 +339,8 @@ impl PostgresDDL {
         entities
     }
 
-    /// Check if DDL is empty
+    /// Returns `true` if there are no tables, enums, or views. Schemas,
+    /// sequences, and roles are not counted.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.tables.is_empty() && self.enums.is_empty() && self.views.is_empty()
@@ -318,13 +354,18 @@ impl PostgresDDL {
 // Re-export shared DiffType from traits module
 pub use crate::traits::DiffType;
 
-/// A diff statement for any entity
+/// One created, dropped, or altered entity.
 #[derive(Debug, Clone)]
 pub struct EntityDiff {
+    /// Create, drop, or alter.
     pub diff_type: DiffType,
+    /// Entity kind.
     pub kind: EntityKind,
+    /// Entity key: the name, qualified as `schema.name` (or deeper) where
+    /// the entity kind needs it.
     pub name: String,
-    /// For alter: changed fields with (from, to) values
+    /// Always empty today; compare [`left`](Self::left) and
+    /// [`right`](Self::right) to see what changed.
     pub changes: HashMap<String, (String, String)>,
     /// Original entity (for drop/alter)
     pub left: Option<PostgresEntity>,

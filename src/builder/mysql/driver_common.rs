@@ -10,12 +10,20 @@ use drizzle_core::{
 use drizzle_mysql::{MySQLRow, values::MySQLValue};
 use mysql_common::{params::Params, row::Row, value::Value};
 
+/// Marks a prepared statement for the blocking `mysql` adapter.
 #[derive(Debug, Clone, Copy)]
 pub struct BlockingPreparedAdapter;
 
+/// Marks a prepared statement for the Tokio `mysql_async` adapter.
 #[derive(Debug, Clone, Copy)]
 pub struct TokioPreparedAdapter;
 
+/// A query rendered once, ready to run many times with new placeholder values.
+///
+/// Made by `.prepare()` on a query builder; each adapter's `prepared` module
+/// names it for that adapter and adds `execute`, `all`, and `get`. It borrows
+/// the values embedded in the query; call [`into_owned`](Self::into_owned) to
+/// store it.
 #[derive(Debug, Clone)]
 pub struct PreparedStatement<'q, Adapter, Marker = (), DecodedRow = (), Grouped = ()> {
     pub(crate) inner: drizzle_core::prepared::PreparedStatement<'q, MySQLValue<'q>>,
@@ -34,16 +42,19 @@ impl<'q, Adapter, Marker, DecodedRow, Grouped>
         }
     }
 
+    /// Returns the rendered SQL, with `?` placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
+    /// Returns how many placeholder bindings each run expects.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.inner.external_param_count()
     }
 
+    /// Copies the embedded values so the statement no longer borrows them.
     #[must_use]
     pub fn into_owned(self) -> OwnedPreparedStatement<Adapter, Marker, DecodedRow, Grouped> {
         let params =
@@ -68,6 +79,8 @@ impl<'q, Adapter, Marker, DecodedRow, Grouped>
     }
 }
 
+/// A [`PreparedStatement`] that owns its embedded values, so it can be stored
+/// or moved freely.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement<Adapter, Marker = (), DecodedRow = (), Grouped = ()> {
     inner: drizzle_core::prepared::OwnedPreparedStatement<drizzle_mysql::values::OwnedMySQLValue>,
@@ -93,11 +106,13 @@ impl<Adapter, Marker, DecodedRow, Grouped>
         })
     }
 
+    /// Returns the rendered SQL, with `?` placeholders.
     #[must_use]
     pub fn sql(&self) -> &str {
         self.inner.sql()
     }
 
+    /// Returns how many placeholder bindings each run expects.
     #[must_use]
     pub fn param_count(&self) -> usize {
         self.inner.external_param_count()

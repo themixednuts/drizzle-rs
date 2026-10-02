@@ -1,7 +1,6 @@
-//! `SQLite` database introspection
+//! Reads an existing SQLite database's schema into DDL entities.
 //!
-//! This module provides functionality to introspect an existing `SQLite` database
-//! and extract its schema as DDL entities, matching drizzle-kit introspect.ts
+//! Mirrors drizzle-kit's `introspect.ts`.
 
 use super::ddl::{
     Column, ForeignKey, Index, IndexColumn, IndexOrigin, PrimaryKey, SqliteEntity, Table,
@@ -14,7 +13,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 /// Error type for introspection operations
 #[derive(Debug, Clone)]
 pub struct IntrospectError {
+    /// What went wrong.
     pub message: String,
+    /// The table being read, if any.
     pub table: Option<String>,
 }
 
@@ -183,7 +184,9 @@ pub fn default_filter() -> EntityFilter {
     Box::new(|_entity_type, _name| true)
 }
 
-/// System table filter - excludes `SQLite` system tables and drizzle migrations
+/// Returns `false` for internal tables: `sqlite_*`, Cloudflare (`_cf_*`,
+/// `d1_*`), Litestream (`_litestream_*`), libSQL (`libsql_*`), and the
+/// default `__drizzle_migrations` tracking table.
 #[must_use]
 pub fn system_table_filter(name: &str) -> bool {
     !name.starts_with("sqlite_")

@@ -1,55 +1,49 @@
-//! Generic `Snapshot<E>` — shared CRUD + serde IO across dialects.
+//! The generic snapshot document stored as `snapshot.json`.
 //!
-//! Per-dialect snapshot types (`SQLiteSnapshot`, `PostgresSnapshot`, and
-//! `MySQLSnapshot`) are
-//! type aliases of this generic struct. The dialect-neutral pieces — the
-//! field set (`version`, `dialect`, `id`, `prev_ids`, `ddl`, `renames`),
-//! the JSON round-trip, the file load/save — live here once. Dialect-
-//! specific methods (e.g. Postgres's `scoped_to_tables`,
-//! `filter_serial_sequences`) attach via `impl Snapshot<PostgresEntity>`
-//! blocks in the per-dialect modules, which orphan rules permit because
-//! the entity type is local to this crate.
+//! [`SQLiteSnapshot`](crate::sqlite::SQLiteSnapshot),
+//! [`PostgresSnapshot`](crate::postgres::PostgresSnapshot), and
+//! [`MySQLSnapshot`](crate::mysql::MySQLSnapshot) are aliases of
+//! [`Snapshot<E>`] with each dialect's entity enum as `E`. The shared fields
+//! and the JSON load/save live here; dialect-specific methods are added in
+//! the per-dialect modules.
 //!
-//! The cross-dialect `migrations::Snapshot` enum (at
-//! [`crate::schema::Snapshot`]) is unrelated — it wraps either of the
-//! concrete aliases for callers that don't know the dialect at compile
-//! time. The two share a name but live at different module paths.
+//! Not to be confused with [`crate::Snapshot`], the enum that wraps one of
+//! these when the dialect is only known at run time.
 
 use crate::version::ORIGIN_UUID;
 use serde::{Deserialize, Serialize};
 
-/// Per-dialect metadata for [`Snapshot<E>`].
-///
-/// Lets the generic `new()` constructor stamp the right `version` and
-/// `dialect` strings without knowing which dialect it's working with.
+/// The dialect name and format version that [`Snapshot::new`] stamps into a
+/// snapshot of entity type `E`.
 pub trait SnapshotEntity {
     /// Dialect identifier serialized into the `dialect` field
-    /// (e.g. `"sqlite"`, `"postgres"`, or `"mysql"`).
+    /// (`"sqlite"`, `"postgresql"`, or `"mysql"`).
     const DIALECT: &'static str;
     /// Snapshot format version serialized into the `version` field
     /// (e.g. `"7"` for SQLite, `"8"` for Postgres, or `"6"` for MySQL).
     const SNAPSHOT_VERSION: &'static str;
 }
 
-/// Generic schema snapshot keyed on an entity type.
+/// A schema snapshot: format version, dialect, chain IDs, and a flat list of
+/// DDL entities.
 ///
-/// The `entity_type`-tagged DDL array is the current drizzle-kit format
-/// (its version is dialect-specific); `Vec<E>` lets each dialect supply its
-/// own entity enum.
+/// Serialized with camelCase keys (`prevIds`) and an `entityType`-tagged
+/// `ddl` array, matching drizzle-kit's current snapshot format.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot<E> {
     /// Snapshot format version (e.g. `"7"`).
     pub version: String,
-    /// Dialect identifier (e.g. `"sqlite"`, `"postgres"`).
+    /// Dialect identifier (`"sqlite"`, `"postgresql"`, or `"mysql"`).
     pub dialect: String,
     /// Unique ID for this snapshot.
     pub id: String,
-    /// IDs of previous snapshots in the chain.
+    /// IDs of the snapshots this one follows; [`ORIGIN_UUID`] for the first.
     pub prev_ids: Vec<String>,
     /// DDL entities (tables, columns, indexes, ...).
     pub ddl: Vec<E>,
-    /// Tracked renames for migration generation.
+    /// drizzle-kit's rename log. Kept for format compatibility; the differ
+    /// takes renames from [`DiffOptions`](crate::DiffOptions) instead.
     #[serde(default)]
     pub renames: Vec<String>,
 }
@@ -61,8 +55,8 @@ impl<E: SnapshotEntity> Default for Snapshot<E> {
 }
 
 impl<E: SnapshotEntity> Snapshot<E> {
-    /// Create a new empty snapshot stamped with this entity's dialect /
-    /// snapshot-version constants.
+    /// Creates an empty snapshot with a fresh random ID that follows
+    /// [`ORIGIN_UUID`].
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -75,7 +69,7 @@ impl<E: SnapshotEntity> Snapshot<E> {
         }
     }
 
-    /// Create a new snapshot with specific previous IDs.
+    /// Creates an empty snapshot that follows `prev_ids`.
     #[must_use]
     pub fn with_prev_ids(prev_ids: Vec<String>) -> Self {
         let mut snapshot = Self::new();
@@ -85,12 +79,12 @@ impl<E: SnapshotEntity> Snapshot<E> {
 }
 
 impl<E> Snapshot<E> {
-    /// Add an entity to the DDL array.
+    /// Appends an entity to `ddl`.
     pub fn add_entity(&mut self, entity: E) {
         self.ddl.push(entity);
     }
 
-    /// True if the snapshot has no DDL entities.
+    /// Returns `true` if `ddl` is empty.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.ddl.is_empty()
@@ -101,7 +95,7 @@ impl<E> Snapshot<E>
 where
     E: Serialize + for<'de> Deserialize<'de>,
 {
-    /// Load a snapshot from a JSON string.
+    /// Parses a snapshot from JSON.
     ///
     /// # Errors
     ///
@@ -111,7 +105,7 @@ where
         serde_json::from_str(json)
     }
 
-    /// Serialize the snapshot to a pretty-printed JSON string.
+    /// Serializes the snapshot to pretty-printed JSON.
     ///
     /// # Errors
     ///
@@ -120,7 +114,7 @@ where
         serde_json::to_string_pretty(self)
     }
 
-    /// Load a snapshot from a file.
+    /// Reads a snapshot from the JSON file at `path`.
     ///
     /// # Errors
     ///
@@ -133,7 +127,8 @@ where
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
-    /// Save the snapshot to a file (creating parent directories as needed).
+    /// Writes the snapshot as pretty-printed JSON to `path`, creating parent
+    /// folders.
     ///
     /// # Errors
     ///

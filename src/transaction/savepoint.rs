@@ -1,15 +1,15 @@
 //! Shared savepoint orchestration for transaction drivers.
 //!
 //! Every driver implements its own `Transaction` type, but the savepoint
-//! protocol (`SAVEPOINT N` → run callback → `RELEASE` / `ROLLBACK TO`) is
-//! identical across SQLite and Postgres. The helpers in this module own
-//! that protocol so individual drivers only supply the `execute_raw`
-//! closure and the callback to invoke between bookends.
+//! protocol (`SAVEPOINT drizzle_sp_N`, run the callback, then `RELEASE` on
+//! `Ok` or `ROLLBACK TO` and `RELEASE` on `Err`) is the same for every
+//! dialect. The helpers in this module own that protocol, so drivers only
+//! supply an `execute_raw` closure and the callback to run in between.
 //!
 //! Sync drivers use [`std::panic::catch_unwind`] so that a panic inside
 //! the callback issues `ROLLBACK TO SAVEPOINT` before re-raising the
-//! panic. Async drivers cannot reasonably catch panics across `.await`
-//! points and simply propagate the `Err`.
+//! panic. Async savepoints do not catch panics: a panic drops the savepoint
+//! future, which counts as cancellation (below).
 //!
 //! Synchronous drivers track nesting depth in an [`AtomicU32`]. Async drivers
 //! use [`AsyncSavepointState`], which assigns monotonic names, orders cleanup
@@ -292,9 +292,10 @@ pub fn sync_transaction<Tx, R>(
 
 /// Run a savepoint block synchronously around `body`.
 ///
-/// `execute_raw` issues a raw, parameterless statement against the active
-/// transaction; the helper invokes it three times: `SAVEPOINT`,
-/// `RELEASE SAVEPOINT`, and `ROLLBACK TO SAVEPOINT`.
+/// `execute_raw` runs a raw, parameterless statement on the active
+/// transaction. The helper issues `SAVEPOINT`, then `RELEASE SAVEPOINT` when
+/// `body` returns `Ok`, or `ROLLBACK TO SAVEPOINT` and `RELEASE SAVEPOINT`
+/// when it returns `Err`.
 ///
 /// If `body` panics, the helper attempts `ROLLBACK TO SAVEPOINT` and
 /// `RELEASE SAVEPOINT` (errors ignored) and re-raises the panic via

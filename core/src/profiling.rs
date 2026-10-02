@@ -1,13 +1,14 @@
-//! Profiling utilities for drizzle SQL rendering and operations
+//! Profiling hooks for the puffin profiler.
 //!
-//! This module provides integration with the puffin profiler to track
-//! SQL rendering and database operation performance when the "profiling" feature is enabled.
+//! The macros below expand to puffin scopes when the *calling* crate has a
+//! `profiling` feature enabled, and to nothing otherwise.
 
-/// Re-export puffin macros for convenience
+/// puffin's own scope macros, re-exported.
 #[cfg(feature = "profiling")]
 pub use puffin::{profile_function, profile_scope};
 
-/// Generic profiling scope macro for high-level operation instrumentation.
+/// Opens a puffin scope named `$operation` in `$category` until the end of
+/// the enclosing block.
 #[macro_export]
 macro_rules! drizzle_profile_scope {
     ($category:literal, $operation:literal) => {
@@ -16,7 +17,7 @@ macro_rules! drizzle_profile_scope {
     };
 }
 
-/// Generic profiling function marker.
+/// Opens a puffin scope for the enclosing function.
 #[macro_export]
 macro_rules! drizzle_profile_function {
     () => {
@@ -25,7 +26,8 @@ macro_rules! drizzle_profile_function {
     };
 }
 
-/// Profile SQL rendering operations (append, `append_raw`, etc.)
+/// Opens a puffin scope for a SQL rendering step (`append`, `join`, ...),
+/// in the `sql_render` category.
 #[macro_export]
 macro_rules! profile_sql {
     ($operation:literal) => {

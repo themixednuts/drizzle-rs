@@ -1,30 +1,32 @@
 use crate::dialect::Dialect;
 
-/// A marker trait for types that can be used as SQL parameters.
+/// A driver's value type: what bound parameters hold (`SQLiteValue`,
+/// `PostgresValue`, `MySQLValue`, ...).
 ///
-/// This trait is used as a bound on the parameter type in SQL fragments.
-/// It ensures type safety when building SQL queries with parameters.
+/// Every [`SQL`](crate::SQL) fragment is generic over one, and it fixes the
+/// dialect: placeholder syntax, identifier quoting, and type mappings.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a SQL parameter type",
     label = "use a dialect-specific value type (e.g., SQLiteValue, PostgresValue)"
 )]
 pub trait SQLParam: Clone + core::fmt::Debug {
-    /// The SQL dialect for this parameter type
+    /// The dialect, at runtime.
     const DIALECT: Dialect;
 
-    /// Type-level dialect marker for compile-time dispatch.
+    /// The dialect, as a type ([`SQLiteDialect`](crate::SQLiteDialect),
+    /// [`PostgresDialect`](crate::PostgresDialect) or
+    /// [`MySQLDialect`](crate::MySQLDialect)).
     ///
-    /// Used by [`crate::row::SQLTypeToRust`] to select dialect-specific type mappings
-    /// and by [`crate::dialect::DialectTypes`] to resolve conceptual SQL types to
-    /// dialect-native markers.
+    /// Selects type mappings ([`SQLTypeToRust`](crate::row::SQLTypeToRust),
+    /// [`DialectTypes`](crate::dialect::DialectTypes)) and dialect-only
+    /// features ([`DialectSupports`](crate::DialectSupports)).
     type DialectMarker: crate::dialect::DialectTypes;
 
-    /// Converts a numeric `LIMIT`/`OFFSET` value into a bindable parameter.
+    /// Converts a `LIMIT`/`OFFSET` value into a parameter, or returns `None`
+    /// to write it as a literal (the default).
     ///
-    /// Dialects that return `Some` render `.limit(n)` / `.offset(n)` as a
-    /// bound parameter instead of a numeric literal, keeping the generated
-    /// SQL text stable across pagination values so statement caches can hit.
-    /// The default (`None`) keeps the numeric-literal rendering.
+    /// Binding keeps the SQL text the same across pages, so a cached
+    /// prepared statement can be reused.
     #[inline]
     #[must_use]
     fn pagination_param(value: usize) -> Option<Self> {

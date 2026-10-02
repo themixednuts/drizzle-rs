@@ -1,11 +1,10 @@
-//! `SQLite` column type definitions
-//!
-//! Defines the core `SQLite` storage classes and type affinities.
+//! `SQLite` column types ([`SQLiteType`]) and affinities ([`SQLiteAffinity`]).
 
-/// Enum representing supported `SQLite` column types.
+/// A `SQLite` column type as written in DDL.
 ///
-/// These correspond to the [SQLite storage classes](https://sqlite.org/datatype3.html#storage_classes_and_datatypes).
-/// Each type maps to specific Rust types and has different capabilities for constraints and features.
+/// These are the types a STRICT table accepts, plus `NUMERIC`; see
+/// [SQLite datatypes](https://sqlite.org/datatype3.html). The type decides
+/// which column attributes are allowed ([`is_valid_flag`](Self::is_valid_flag)).
 ///
 /// # Examples
 ///
@@ -35,14 +34,14 @@ pub enum SQLiteType {
     ///
     /// See: <https://sqlite.org/datatype3.html#text_datatype>
     ///
-    /// Supports: enums (variant name storage), JSON serialization
+    /// Supports: enums (variant name storage), JSON (`#[column(json)]`)
     Text,
 
     /// `SQLite` BLOB type - stores binary data exactly as input.
     ///
     /// See: <https://sqlite.org/datatype3.html#blob_datatype>
     ///
-    /// Supports: JSON serialization, UUID storage
+    /// Used for byte arrays and UUIDs.
     Blob,
 
     /// `SQLite` REAL type - stores floating point values as 8-byte IEEE floating point numbers.
@@ -56,29 +55,40 @@ pub enum SQLiteType {
     Numeric,
 
     /// `SQLite` ANY type - no type affinity, can store any type of data.
+    /// This holds in STRICT tables; elsewhere `SQLite` gives a column declared
+    /// `ANY` `NUMERIC` affinity. The default.
     ///
-    /// See: <https://sqlite.org/datatype3.html#type_affinity>
+    /// See: <https://sqlite.org/stricttables.html>
     #[default]
     Any,
 }
 
-/// `SQLite` type affinity classification.
+/// `SQLite` type affinity: how a column converts values it stores.
+///
+/// See <https://sqlite.org/datatype3.html#type_affinity>.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
 pub enum SQLiteAffinity {
+    /// `INTEGER` affinity.
     Integer,
+    /// `TEXT` affinity.
     Text,
+    /// `BLOB` affinity: values are stored as given.
     Blob,
+    /// `REAL` affinity.
     Real,
+    /// `NUMERIC` affinity.
     Numeric,
+    /// No affinity (`ANY` in STRICT tables).
     Any,
 }
 
 impl SQLiteType {
-    /// Convert from attribute name to enum variant
+    /// Parses a type name from a column attribute, ignoring case. Returns
+    /// `None` for unknown names.
     ///
-    /// Handles common attribute names used in the macro system.
+    /// Also accepts `"number"` (as `NUMERIC`) and `"boolean"` (as `INTEGER`).
     #[must_use]
     pub const fn from_attribute_name(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("integer") {
@@ -100,7 +110,7 @@ impl SQLiteType {
         }
     }
 
-    /// Get the SQL type string for this type
+    /// Returns the type as written in DDL, such as `"INTEGER"`.
     #[must_use]
     pub const fn to_sql_type(&self) -> &'static str {
         match self {
@@ -126,9 +136,7 @@ impl SQLiteType {
         }
     }
 
-    /// Whether this type is allowed for STRICT tables.
-    ///
-    /// `SQLite` STRICT supports: INTEGER, REAL, TEXT, BLOB, ANY.
+    /// Returns `true` if a STRICT table accepts this type: every type except `NUMERIC`.
     #[must_use]
     pub const fn is_strict_allowed(&self) -> bool {
         matches!(
@@ -137,9 +145,9 @@ impl SQLiteType {
         )
     }
 
-    /// Check if a flag is valid for this column type
+    /// Returns `true` if the column attribute flag can be used with this type.
     ///
-    /// # Valid Flags per Type
+    /// Valid flags per type:
     ///
     /// - `INTEGER`: `primary`, `primary_key`, `unique`, `autoincrement`, `enum`
     /// - `TEXT`: `primary`, `primary_key`, `unique`, `json`, `enum`

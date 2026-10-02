@@ -1,8 +1,4 @@
-//! `PostgreSQL` Enum DDL types
-//!
-//! This module provides two complementary types:
-//! - [`EnumDef`] - A const-friendly definition type for compile-time schema definitions
-//! - [`Enum`] - A runtime type for serde serialization/deserialization
+//! `PostgreSQL` enums: [`EnumDef`] (const) and [`Enum`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -10,7 +6,7 @@ use crate::alloc_prelude::*;
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly enum definition for compile-time schema definitions.
+/// An enum definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EnumDef {
     /// Schema name
@@ -22,7 +18,7 @@ pub struct EnumDef {
 }
 
 impl EnumDef {
-    /// Create a new enum definition
+    /// Creates an enum definition.
     #[must_use]
     pub const fn new(
         schema: &'static str,
@@ -36,7 +32,7 @@ impl EnumDef {
         }
     }
 
-    /// Convert to runtime [`Enum`] type
+    /// Converts to the runtime [`Enum`].
     #[must_use]
     pub const fn into_enum(self) -> Enum {
         Enum {
@@ -51,11 +47,7 @@ impl EnumDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime enum entity for serde serialization.
-///
-/// Uses `Cow<'static, str>` for all string fields, which works with both:
-/// - Borrowed data from const definitions (`Cow::Borrowed`)
-/// - Owned data from deserialization/introspection (`Cow::Owned`)
+/// An enum, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Enum {
     /// Schema name
@@ -69,7 +61,7 @@ pub struct Enum {
 }
 
 impl Enum {
-    /// Create a new enum (runtime)
+    /// Creates an enum.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -83,7 +75,7 @@ impl Enum {
         }
     }
 
-    /// Create a new enum from owned strings (convenience for runtime construction)
+    /// Creates an enum from owned strings.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_strings(schema: String, name: String, values: Vec<String>) -> Self {
@@ -94,14 +86,14 @@ impl Enum {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the enum name
+    /// Returns the enum name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

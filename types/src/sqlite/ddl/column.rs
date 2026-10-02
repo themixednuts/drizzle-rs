@@ -1,8 +1,4 @@
-//! `SQLite` Column DDL types
-//!
-//! This module provides two complementary types:
-//! - [`ColumnDef`] - A const-friendly definition type for compile-time schema definitions
-//! - [`Column`] - A runtime type for serde serialization/deserialization
+//! `SQLite` columns: [`ColumnDef`] (const) and [`Column`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -13,7 +9,7 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // Generated Column Types
 // =============================================================================
 
-/// Generated column type
+/// Whether a generated column is `STORED` or `VIRTUAL`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
@@ -25,7 +21,7 @@ pub enum GeneratedType {
     Virtual,
 }
 
-/// Generated column configuration (const-friendly)
+/// The `GENERATED ALWAYS AS (...)` part of a [`ColumnDef`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GeneratedDef {
     /// SQL expression for generation
@@ -35,7 +31,7 @@ pub struct GeneratedDef {
 }
 
 impl GeneratedDef {
-    /// Create a new stored generated column
+    /// Creates a `STORED` generated column from a SQL expression.
     #[must_use]
     pub const fn stored(expression: &'static str) -> Self {
         Self {
@@ -44,7 +40,7 @@ impl GeneratedDef {
         }
     }
 
-    /// Create a new virtual generated column
+    /// Creates a `VIRTUAL` generated column from a SQL expression.
     #[must_use]
     pub const fn virtual_col(expression: &'static str) -> Self {
         Self {
@@ -53,7 +49,7 @@ impl GeneratedDef {
         }
     }
 
-    /// Convert to runtime type
+    /// Converts to the runtime [`Generated`].
     #[must_use]
     pub const fn into_generated(self) -> Generated {
         Generated {
@@ -63,7 +59,8 @@ impl GeneratedDef {
     }
 }
 
-/// Generated column configuration (runtime)
+/// The `GENERATED ALWAYS AS (...)` part of a [`Column`]. With `serde`, the
+/// fields are named `as` and `type`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -83,11 +80,9 @@ pub struct Generated {
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Primary-key variant for a [`ColumnDef`].
-///
-/// Represents the two `SQLite` primary-key forms: a plain `PRIMARY KEY` or
-/// `PRIMARY KEY AUTOINCREMENT`. Stored as `Option<PrimaryKeyKind>` so that
-/// `None` indicates the column is not a primary key.
+/// How a [`ColumnDef`] is a primary key: plain `PRIMARY KEY` or
+/// `PRIMARY KEY AUTOINCREMENT`. A `None` in the `primary_key` field means it
+/// is not one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PrimaryKeyKind {
     /// Plain `PRIMARY KEY`
@@ -96,7 +91,10 @@ pub enum PrimaryKeyKind {
     Autoincrement,
 }
 
-/// Const-friendly column definition for compile-time schema definitions.
+/// A column definition that can be built in a `const`.
+///
+/// Builder methods set one property each; [`into_column`](Self::into_column)
+/// converts to the runtime [`Column`].
 ///
 /// # Examples
 ///
@@ -119,15 +117,15 @@ pub struct ColumnDef {
     pub table: &'static str,
     /// Column name
     pub name: &'static str,
-    /// SQL type (e.g., "INTEGER", "TEXT", "REAL", "BLOB")
+    /// SQL type, such as `"INTEGER"` or `"TEXT"`
     pub sql_type: &'static str,
-    /// Is this column NOT NULL?
+    /// `NOT NULL`
     pub not_null: bool,
-    /// Primary-key variant (None if not a primary key)
+    /// Primary key form; `None` if not a primary key
     pub primary_key: Option<PrimaryKeyKind>,
-    /// Is this column UNIQUE?
+    /// `UNIQUE`
     pub unique: bool,
-    /// Default value as string (if any)
+    /// `DEFAULT` value as SQL, such as `"0"` or `"'active'"`
     pub default: Option<&'static str>,
     /// Generated column configuration
     pub generated: Option<GeneratedDef>,
@@ -137,7 +135,7 @@ pub struct ColumnDef {
 }
 
 impl ColumnDef {
-    /// Create a new column definition
+    /// Creates a nullable column with no constraints.
     #[must_use]
     pub const fn new(table: &'static str, name: &'static str, sql_type: &'static str) -> Self {
         Self {
@@ -153,7 +151,7 @@ impl ColumnDef {
         }
     }
 
-    /// Set NOT NULL constraint
+    /// Adds `NOT NULL`.
     #[must_use]
     pub const fn not_null(self) -> Self {
         Self {
@@ -162,7 +160,7 @@ impl ColumnDef {
         }
     }
 
-    /// Set AUTOINCREMENT (implies PRIMARY KEY and NOT NULL)
+    /// Makes the column `PRIMARY KEY AUTOINCREMENT` (and `NOT NULL`).
     #[must_use]
     pub const fn autoincrement(self) -> Self {
         Self {
@@ -172,7 +170,8 @@ impl ColumnDef {
         }
     }
 
-    /// Set PRIMARY KEY (also sets NOT NULL). Preserves AUTOINCREMENT if already set.
+    /// Makes the column `PRIMARY KEY` (and `NOT NULL`), keeping
+    /// `AUTOINCREMENT` if already set.
     #[must_use]
     pub const fn primary_key(self) -> Self {
         let primary_key = match self.primary_key {
@@ -186,13 +185,13 @@ impl ColumnDef {
         }
     }
 
-    /// Alias for `primary_key()`
+    /// Same as [`primary_key`](Self::primary_key()).
     #[must_use]
     pub const fn primary(self) -> Self {
         self.primary_key()
     }
 
-    /// Set UNIQUE constraint
+    /// Adds `UNIQUE`.
     #[must_use]
     pub const fn unique(self) -> Self {
         Self {
@@ -201,7 +200,7 @@ impl ColumnDef {
         }
     }
 
-    /// Set default value
+    /// Sets the `DEFAULT` value, written as SQL.
     #[must_use]
     pub const fn default_value(self, value: &'static str) -> Self {
         Self {
@@ -210,7 +209,7 @@ impl ColumnDef {
         }
     }
 
-    /// Set as generated stored column
+    /// Makes the column `GENERATED ALWAYS AS (expression) STORED`.
     #[must_use]
     pub const fn generated_stored(self, expression: &'static str) -> Self {
         Self {
@@ -219,7 +218,7 @@ impl ColumnDef {
         }
     }
 
-    /// Set as generated virtual column
+    /// Makes the column `GENERATED ALWAYS AS (expression) VIRTUAL`.
     #[must_use]
     pub const fn generated_virtual(self, expression: &'static str) -> Self {
         Self {
@@ -228,11 +227,10 @@ impl ColumnDef {
         }
     }
 
-    /// Set the collation sequence for this column.
+    /// Sets the column's `COLLATE` sequence.
     ///
-    /// `name` should be one of SQLite's built-in collations (`BINARY`,
-    /// `NOCASE`, `RTRIM`) or a custom collation that's registered on the
-    /// connection at runtime via `sqlite3_create_collation`.
+    /// `name` should be a built-in collation (`BINARY`, `NOCASE`, `RTRIM`) or
+    /// one registered on the connection with `sqlite3_create_collation`.
     #[must_use]
     pub const fn collate(self, name: &'static str) -> Self {
         Self {
@@ -241,7 +239,7 @@ impl ColumnDef {
         }
     }
 
-    /// Convert to runtime [`Column`] type
+    /// Converts to the runtime [`Column`].
     #[must_use]
     pub const fn into_column(self) -> Column {
         Column {
@@ -286,7 +284,10 @@ impl Default for ColumnDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime column entity for serde serialization.
+/// A table column, as stored in migration snapshots.
+///
+/// The boolean constraints are `Option<bool>` to match the snapshot format;
+/// `None` and `Some(false)` both mean unset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -299,7 +300,7 @@ pub struct Column {
     #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
     pub name: Cow<'static, str>,
 
-    /// SQL type (e.g., "INTEGER", "TEXT", "REAL", "BLOB")
+    /// SQL type, such as `"INTEGER"` (serialized as `type`)
     #[cfg_attr(
         feature = "serde",
         serde(rename = "type", deserialize_with = "cow_from_string")
@@ -328,7 +329,7 @@ pub struct Column {
     )]
     pub unique: Option<bool>,
 
-    /// Default value as string
+    /// `DEFAULT` value as SQL
     #[cfg_attr(
         feature = "serde",
         serde(default, deserialize_with = "cow_option_from_string")
@@ -358,7 +359,7 @@ pub struct Column {
 }
 
 impl Column {
-    /// Create a new column (runtime)
+    /// Creates a nullable column with no constraints.
     #[must_use]
     pub fn new(
         table: impl Into<Cow<'static, str>>,
@@ -380,63 +381,64 @@ impl Column {
         }
     }
 
-    /// Set NOT NULL
+    /// Adds `NOT NULL`.
     #[must_use]
     pub const fn not_null(mut self) -> Self {
         self.not_null = true;
         self
     }
 
-    /// Set AUTOINCREMENT
+    /// Marks the column `AUTOINCREMENT`. Unlike [`ColumnDef::autoincrement`],
+    /// this does not set `primary_key` or `not_null`.
     #[must_use]
     pub const fn autoincrement(mut self) -> Self {
         self.autoincrement = Some(true);
         self
     }
 
-    /// Set default value
+    /// Sets the `DEFAULT` value, written as SQL.
     #[must_use]
     pub fn default_value(mut self, value: impl Into<Cow<'static, str>>) -> Self {
         self.default = Some(value.into());
         self
     }
 
-    /// Get the column name
+    /// Returns the column name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {
         &self.table
     }
 
-    /// Get the SQL type
+    /// Returns the SQL type.
     #[inline]
     #[must_use]
     pub fn sql_type(&self) -> &str {
         &self.sql_type
     }
 
-    /// Check if this is a primary key column
+    /// Returns `true` if `primary_key` is `Some(true)`.
     #[inline]
     #[must_use]
     pub const fn is_primary_key(&self) -> bool {
         matches!(self.primary_key, Some(true))
     }
 
-    /// Check if this is an autoincrement column
+    /// Returns `true` if `autoincrement` is `Some(true)`.
     #[inline]
     #[must_use]
     pub const fn is_autoincrement(&self) -> bool {
         matches!(self.autoincrement, Some(true))
     }
 
-    /// Check if this column has a unique constraint
+    /// Returns `true` if `unique` is `Some(true)`.
     #[inline]
     #[must_use]
     pub const fn is_unique(&self) -> bool {

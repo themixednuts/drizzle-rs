@@ -1,4 +1,5 @@
-//! `PostgreSQL` schema types matching drizzle-kit format
+//! PostgreSQL snapshots, diffing, SQL generation, introspection, and codegen
+//! (drizzle-kit format).
 
 pub mod codegen;
 pub mod collection;

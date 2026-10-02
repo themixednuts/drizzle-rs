@@ -1,4 +1,4 @@
-//! Seeder configuration with type-safe builder API.
+//! [`SeedConfig`], the builder for generating seed data.
 
 use crate::generator::{Generator, GeneratorKind};
 use crate::identity::{ColumnId, TableId};
@@ -30,7 +30,15 @@ use drizzle_mysql::traits::MySQLColumn;
 #[cfg(feature = "mysql")]
 use drizzle_mysql::values::MySQLValue;
 
-/// Configuration for seeding a schema.
+/// Builder that generates seed INSERT statements for a schema.
+///
+/// Create one with `SeedConfig::sqlite`, `SeedConfig::postgres`, or
+/// `SeedConfig::mysql` (each behind its feature), chain the settings, then
+/// call `generate` / `try_generate`. Tables and columns passed to the
+/// builder must belong to the schema; anything else is a compile error.
+///
+/// Defaults: seed `0`, 10 rows per table, no skipped tables. See the
+/// [crate docs](crate) for how values and row counts are chosen.
 pub struct SeedConfig<'a, D, S> {
     /// Source schema.
     pub(crate) schema: &'a S,
@@ -71,26 +79,29 @@ impl<'a, D, S> SeedConfig<'a, D, S> {
         }
     }
 
-    /// Set the random seed for deterministic generation.
+    /// Sets the RNG seed (default `0`). The same seed gives the same rows.
     #[must_use]
     pub const fn seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
     }
 
-    /// Set the default row count for all tables.
+    /// Sets the row count for tables with no explicit count and no seeded
+    /// parent (default 10).
     #[must_use]
     pub const fn default_count(mut self, count: usize) -> Self {
         self.default_count = count;
         self
     }
 
-    /// Override the maximum number of bind parameters per INSERT statement batch.
+    /// Caps the bind parameters per INSERT; rows are split across more
+    /// statements to stay under it.
+    ///
+    /// Without this, a dialect-specific default is used.
     ///
     /// # Panics
     ///
-    /// Panics if `limit` is zero — every batch must be able to bind at least one
-    /// row, and a zero limit would produce infinite batching.
+    /// Panics if `limit` is zero.
     #[must_use]
     pub fn max_params(mut self, limit: usize) -> Self {
         assert!(limit > 0, "max_params must be > 0");
@@ -119,7 +130,10 @@ where
             .collect()
     }
 
-    /// Set the row count for a specific table.
+    /// Sets the row count for `table`.
+    ///
+    /// This wins over [`relation`](Self::relation) and
+    /// [`default_count`](Self::default_count()).
     #[must_use]
     pub fn count<T>(mut self, table: &T, count: usize) -> Self
     where
@@ -130,7 +144,12 @@ where
         self
     }
 
-    /// Set how many child rows to generate per parent row for a relation.
+    /// Generates `count` rows of `child` for each row of `parent`; each
+    /// parent row gets `count` consecutive child rows.
+    ///
+    /// Without this, a child table with no explicit [`count`](Self::count)
+    /// gets one row per parent row. `child` must have a foreign key to
+    /// `parent` (checked at compile time).
     #[must_use]
     pub fn relation<P, C>(mut self, parent: &P, child: &C, count: usize) -> Self
     where
@@ -147,7 +166,11 @@ where
 }
 
 impl<D, S> SeedConfig<'_, D, S> {
-    /// Skip a table from seeding.
+    /// Leaves `table` out: no INSERTs and no reset statements for it.
+    ///
+    /// Foreign keys that point at a skipped table keep their generated (or
+    /// custom) values, for example to reference rows already in the
+    /// database.
     #[must_use]
     pub fn skip<T>(mut self, table: &T) -> Self
     where
@@ -175,7 +198,7 @@ macro_rules! dialect_seed_config {
     ) => {
         #[cfg(feature = $feature)]
         impl<'a> SeedConfig<'a, $marker, ()> {
-            #[doc = concat!("Create a ", $dialect, " seeder config from a derived schema.")]
+            #[doc = concat!("Creates a ", $dialect, " seed config for `schema` (usually a `#[derive(...Schema)]` struct).")]
             pub fn $constructor<Schema>(schema: &'a Schema) -> SeedConfig<'a, $marker, Schema>
             where
                 Schema: SQLSchemaImpl,
@@ -189,7 +212,8 @@ macro_rules! dialect_seed_config {
         where
             S: SQLSchemaImpl,
         {
-            /// Override the generator kind for a specific column.
+            /// Uses a built-in [`GeneratorKind`] for `column` instead of the
+            /// inferred one.
             #[must_use]
             pub fn kind<C>(mut self, column: &C, kind: GeneratorKind) -> Self
             where
@@ -200,7 +224,11 @@ macro_rules! dialect_seed_config {
                 self
             }
 
-            /// Override the generator for a specific column.
+            /// Uses a custom [`Generator`] for `column`. Wins over
+            /// [`kind`](Self::kind).
+            ///
+            /// A foreign key column that references a seeded table is still
+            /// overwritten with the parent row's value.
             #[must_use]
             pub fn generator<C>(mut self, column: &C, generator: impl Generator + 'static) -> Self
             where
@@ -212,41 +240,45 @@ macro_rules! dialect_seed_config {
                 self
             }
 
-            /// Generate INSERT statements for the active table set.
+            /// Generates the INSERT statements for every table not skipped,
+            /// parents first. Large tables are split over several statements
+            /// to stay under the bind-parameter limit.
             ///
             /// # Panics
             ///
-            /// Panics when the selected schema cannot form a valid portable
-            /// seed plan. Use [`Self::try_generate`] to handle that case.
+            /// Panics when [`try_generate`](Self::try_generate) would return
+            /// an error.
             #[must_use]
             pub fn generate(&self) -> Vec<$seed_statement> {
                 self.try_generate()
                     .unwrap_or_else(|error| panic!("invalid seed plan: {error}"))
             }
 
-            /// Try to generate INSERT statements for the active table set.
+            /// Like [`generate`](Self::generate), but returns an error instead
+            /// of panicking.
             ///
             /// # Errors
             ///
-            /// Returns [`crate::SeedError`] when the selected tables cannot be
-            /// ordered safely, a relation has no generated parent values, a
-            /// value cannot be represented, or one row exceeds the parameter
-            /// limit.
+            /// Returns a [`SeedError`](crate::SeedError) when the tables have a
+            /// foreign-key cycle, a `NOT NULL` foreign key has no parent row
+            /// to point at, a value does not fit its column, or one row
+            /// exceeds the parameter limit.
             pub fn try_generate(&self) -> Result<Vec<$seed_statement>, crate::SeedError> {
                 crate::Seeder::new(self).$generate()
             }
 
-            /// Build child-before-parent cleanup statements for the selected
-            /// tables.
+            /// Returns statements that empty the non-skipped tables, children
+            /// first: `DELETE FROM` each table, preceded by an `UPDATE` that
+            /// clears nullable self-references.
             ///
             /// Execute the returned statements in order on one connection.
             #[doc = $reset_note]
             ///
             /// # Errors
             ///
-            /// Returns [`crate::SeedError`] when the selected tables cannot be
-            /// reset safely, including cyclic dependencies and a selected
-            /// parent referenced by a skipped child.
+            /// Returns a [`SeedError`](crate::SeedError) when the tables have a
+            /// foreign-key cycle, or a table to be emptied is referenced by a
+            /// skipped table.
             pub fn reset_plan(&self) -> Result<Vec<$reset_statement>, crate::SeedError> {
                 crate::Seeder::new(self).$reset()
             }

@@ -1,7 +1,11 @@
-//! `FromRow` derive macro implementations for database row conversion.
+//! The `SQLiteFromRow`, `PostgresFromRow` and `MySQLFromRow` derives.
 //!
-//! This module generates `TryFrom` implementations for converting database rows
-//! to Rust structs for various database drivers.
+//! Each derive gives a result struct `TryFrom<&Row>`, `FromDrizzleRow` and
+//! `RowColumnList` for the dialect's row types (per enabled driver for
+//! `SQLite` and `PostgreSQL`, driver-neutral for `MySQL`). Structs with named
+//! fields also get a `Struct::Select` selector plus the `SelectTableFields`
+//! impl the query builder uses to check, when a query runs, that every table
+//! the struct reads is in scope and that outer-joined fields are `Option`.
 
 use crate::common::{extract_struct_fields, parse_column_reference};
 use crate::paths::core as core_paths;

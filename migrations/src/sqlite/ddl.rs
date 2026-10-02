@@ -1,4 +1,6 @@
-//! `SQLite` DDL types - re-exports from `drizzle_types` plus parsing types
+//! SQLite DDL entity types (re-exported from `drizzle_types::sqlite::ddl`)
+//! plus small result types used when parsing `CREATE TABLE` SQL during
+//! introspection.
 
 // Re-export everything from drizzle_types::sqlite::ddl
 pub use drizzle_types::sqlite::ddl::*;
@@ -7,7 +9,7 @@ pub use drizzle_types::sqlite::ddl::*;
 // Parsing Types - Used during introspection to parse CREATE TABLE statements
 // =============================================================================
 
-/// Parsed table options from CREATE TABLE SQL
+/// Table options parsed from `CREATE TABLE` SQL.
 #[derive(Debug, Clone, Default)]
 pub struct ParsedTable {
     /// Whether the table has STRICT mode enabled
@@ -18,10 +20,20 @@ pub struct ParsedTable {
     pub uniques: Vec<ParsedUnique>,
 }
 
-/// Parse table options from CREATE TABLE SQL
+/// Reads the `STRICT` and `WITHOUT ROWID` options from `CREATE TABLE` SQL.
 ///
-/// This is a simple parser that extracts basic table options.
-/// For full constraint parsing, use the more complete introspection methods.
+/// [`ParsedTable::uniques`] is always empty; introspection reads unique
+/// constraints from the index PRAGMAs instead.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::sqlite::ddl::parse_table_ddl;
+///
+/// let parsed = parse_table_ddl("CREATE TABLE t (id INTEGER PRIMARY KEY) STRICT, WITHOUT ROWID");
+/// assert!(parsed.strict && parsed.without_rowid);
+/// assert!(!parse_table_ddl("CREATE TABLE strict (id INTEGER)").strict);
+/// ```
 #[must_use]
 pub fn parse_table_ddl(sql: &str) -> ParsedTable {
     let (strict, without_rowid) = crate::sqlite::introspect::parse_table_options(sql);

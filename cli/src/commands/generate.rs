@@ -1,6 +1,4 @@
-//! Generate command implementation
-//!
-//! Generates migration files from schema changes.
+//! `drizzle generate`: writes a migration folder from schema changes.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -46,13 +44,23 @@ pub struct GenerateOptions {
     pub breakpoints: Option<bool>,
 }
 
-/// Run the generate command.
+/// Runs `drizzle generate`: diffs the schema files against the newest
+/// `snapshot.json` in the migrations folder and writes
+/// `<out>/<tag>/migration.sql` plus `snapshot.json`.
+///
+/// Prints a note and writes nothing when the schema has no tables or indexes
+/// or nothing changed. With `--custom`, writes a `migration.sql` holding only
+/// a comment and no snapshot, so the next diff ignores it. Also rewrites
+/// `migrations.js` when bundling is enabled. Does not connect to the
+/// database.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the requested database cannot be resolved, the
-/// schema files fail to parse, snapshot/diff generation fails, or writing the
-/// new migration and journal files to disk fails.
+/// Returns [`CliError`] if `db_name` does not match the config, the folder
+/// still uses the legacy `meta/_journal.json` layout (run `drizzle up`), no
+/// schema files are found or they have parse errors, the diff fails, or the
+/// migration folder cannot be written (including when its tag already
+/// exists).
 pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Result<(), CliError> {
     use drizzle_migrations::naming::{PrefixMode, generate_migration_tag_with_mode};
 

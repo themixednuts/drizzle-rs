@@ -1,4 +1,6 @@
-//! Client-neutral MySQL parameter values.
+//! `MySQL` values: [`MySQLValue`] (bound parameters and decoded cells), its
+//! owned form, and the insert and update field types used by generated
+//! models.
 
 mod conversions;
 mod insert;
@@ -14,11 +16,11 @@ pub use update::MySQLUpdateValue;
 use crate::prelude::*;
 use drizzle_core::{Dialect, MySQLDialect, SQL, SQLParam, ToSQL};
 
-/// A MySQL protocol value that may borrow byte data.
+/// A value in one of `MySQL`'s wire categories, possibly borrowing its bytes.
 ///
-/// The variants match the value categories shared by the blocking and async
-/// Rust clients. The dialect crate therefore does not depend on either wire
-/// driver.
+/// Used for bound parameters and for cells read from a row. The variants
+/// mirror the values of the `mysql` and `mysql_async` clients, so this crate
+/// does not depend on either. See [`OwnedMySQLValue`] for an owned form.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum MySQLValue<'a> {
     /// SQL `NULL`.
@@ -69,13 +71,14 @@ pub enum MySQLValue<'a> {
 }
 
 impl MySQLValue<'_> {
-    /// Returns whether this value represents SQL `NULL`.
+    /// Returns `true` if this value is SQL `NULL`.
     #[must_use]
     pub const fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
 
-    /// Returns the byte payload used for textual and binary MySQL values.
+    /// Returns the bytes of a [`Bytes`](Self::Bytes) value (text, binary,
+    /// decimal, JSON, enum or set), or `None` for other variants.
     #[must_use]
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {

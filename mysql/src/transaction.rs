@@ -1,4 +1,6 @@
-//! Driver-neutral MySQL transaction options.
+//! `MySQL` transaction options: isolation level, access mode and consistent
+//! snapshot. The `drizzle` crate's `MySQL` drivers take a
+//! [`TransactionConfig`] when starting a transaction.
 
 use core::marker::PhantomData;
 
@@ -52,6 +54,8 @@ impl core::fmt::Display for AccessMode {
 /// consistent snapshot. The direct setters remain useful when values come
 /// from runtime configuration.
 ///
+/// # Examples
+///
 /// ```
 /// use drizzle_mysql::{AccessMode, IsolationLevel, TransactionConfig};
 ///
@@ -103,6 +107,9 @@ impl TransactionConfig {
     }
 
     /// Selects an isolation level supplied at runtime.
+    ///
+    /// Any level other than `REPEATABLE READ` clears a requested consistent
+    /// snapshot.
     #[must_use]
     pub const fn isolation_level(mut self, level: IsolationLevel) -> Self {
         self.isolation_level = Some(level);
@@ -182,6 +189,10 @@ impl<Isolation> ConfigBuilder<Isolation> {
     }
 
     /// Selects an isolation level supplied at runtime.
+    ///
+    /// Because the level is not known at compile time,
+    /// [`snapshot`](ConfigBuilder::snapshot) is not available afterwards; use
+    /// [`TransactionConfig::with_consistent_snapshot`] instead.
     pub const fn isolation_level(self, level: IsolationLevel) -> ConfigBuilder<state::Dynamic> {
         self.isolation(level)
     }
@@ -226,7 +237,10 @@ impl<Isolation> ConfigBuilder<Isolation> {
 }
 
 impl ConfigBuilder<state::RepeatableRead> {
-    /// Requests a consistent snapshot.
+    /// Requests `START TRANSACTION WITH CONSISTENT SNAPSHOT`.
+    ///
+    /// Only available after [`repeatable_read`](ConfigBuilder::repeatable_read).
+    /// Selecting another isolation level afterwards clears it.
     pub const fn snapshot(mut self) -> Self {
         self.config.consistent_snapshot = true;
         self

@@ -1,7 +1,6 @@
-//! `PostgreSQL` database introspection
+//! Reads an existing PostgreSQL database's schema into DDL entities.
 //!
-//! This module provides functionality to introspect an existing `PostgreSQL` database
-//! and extract its schema as DDL entities, matching drizzle-kit introspect.ts
+//! Mirrors drizzle-kit's `introspect.ts`.
 
 use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, IndexColumn, Policy, PostgresEntity,

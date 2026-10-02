@@ -1,6 +1,7 @@
-//! `PostgreSQL` Privilege DDL types
+//! `PostgreSQL` privileges (`GRANT`s): [`PrivilegeDef`] (const) and
+//! [`Privilege`] (runtime).
 //!
-//! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
+//! Mirrors drizzle-kit's [`ddl.ts`](https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts).
 
 use crate::alloc_prelude::*;
 
@@ -36,7 +37,7 @@ pub enum PrivilegeType {
 }
 
 impl PrivilegeType {
-    /// Get the SQL representation
+    /// Returns the SQL representation.
     #[must_use]
     pub const fn as_sql(&self) -> &'static str {
         match self {
@@ -51,7 +52,8 @@ impl PrivilegeType {
         }
     }
 
-    /// Parse from SQL string
+    /// Parses the SQL keywords, ignoring case. Returns `None` for anything
+    /// else.
     #[must_use]
     pub fn from_sql(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
@@ -72,7 +74,7 @@ impl PrivilegeType {
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly privilege definition for compile-time schema definitions.
+/// A privilege definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PrivilegeDef {
     /// Role granting the privilege
@@ -90,7 +92,7 @@ pub struct PrivilegeDef {
 }
 
 impl PrivilegeDef {
-    /// Create a new privilege definition
+    /// Creates a privilege definition.
     #[must_use]
     pub const fn new(
         schema: &'static str,
@@ -123,7 +125,7 @@ impl PrivilegeDef {
         }
     }
 
-    /// Convert to runtime [`Privilege`] type
+    /// Converts to the runtime [`Privilege`].
     #[must_use]
     pub const fn into_privilege(self) -> Privilege {
         Privilege {
@@ -147,7 +149,7 @@ impl Default for PrivilegeDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime privilege entity for serde serialization.
+/// A privilege, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -178,7 +180,7 @@ pub struct Privilege {
 }
 
 impl Privilege {
-    /// Create a new privilege (runtime)
+    /// Creates a privilege.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -196,28 +198,28 @@ impl Privilege {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {
         &self.table
     }
 
-    /// Get the grantee
+    /// Returns the grantee.
     #[inline]
     #[must_use]
     pub fn grantee(&self) -> &str {
         &self.grantee
     }
 
-    /// Get the grantor
+    /// Returns the grantor.
     #[inline]
     #[must_use]
     pub fn grantor(&self) -> &str {

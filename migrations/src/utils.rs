@@ -1,6 +1,4 @@
-//! Common utilities for schema diffing and migration generation
-//!
-//! This module provides shared utilities used across `SQLite` and `PostgreSQL` dialects.
+//! Small helpers shared by the dialect diffing and code generation modules.
 
 use std::collections::HashMap;
 
@@ -10,7 +8,8 @@ use std::collections::HashMap;
 
 const DICTIONARY: &[u8; 62] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-/// Generate a hash string from input, used for naming constraints
+/// Returns a deterministic `len`-character alphanumeric hash of `input`
+/// (drizzle-kit's algorithm), used in generated constraint names.
 #[must_use]
 pub fn hash(input: &str, len: usize) -> String {
     let dict_len = DICTIONARY.len() as u128;
@@ -42,13 +41,14 @@ pub fn hash(input: &str, len: usize) -> String {
 // String Utilities
 // =============================================================================
 
-/// Trim a specific character from both ends of a string
+/// Removes every leading and trailing `c`.
 #[must_use]
 pub fn trim_char(s: &str, c: char) -> String {
     s.trim_start_matches(c).trim_end_matches(c).to_string()
 }
 
-/// Trim multiple characters from both ends of a string
+/// Removes leading and trailing occurrences of each char in `chars`, one
+/// char at a time in order.
 #[must_use]
 pub fn trim_chars(s: &str, chars: &[char]) -> String {
     let mut result = s.to_string();
@@ -61,7 +61,8 @@ pub fn trim_chars(s: &str, chars: &[char]) -> String {
     result
 }
 
-/// Escape a string for SQL default value
+/// Escapes backslashes and single quotes (and, for
+/// [`EscapeMode::PgArray`], double quotes) for use in a SQL default.
 #[must_use]
 pub fn escape_for_sql_default(input: &str, mode: EscapeMode) -> String {
     let mut value = input.replace('\\', "\\\\").replace('\'', "''");
@@ -71,10 +72,8 @@ pub fn escape_for_sql_default(input: &str, mode: EscapeMode) -> String {
     value
 }
 
-/// Escape a string for use in a Rust string literal (within double quotes)
-///
-/// This escapes backslashes first, then double quotes, to produce valid Rust.
-/// Used when generating Rust code that contains string literals.
+/// Escapes backslashes and double quotes for a Rust `"..."` literal in
+/// generated code.
 #[must_use]
 pub fn escape_for_rust_literal(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
@@ -239,7 +238,8 @@ fn skip_type_suffixes(input: &str) -> &str {
     rest
 }
 
-/// Unescape a string from SQL default value
+/// Reverses [`escape_for_sql_default`]. `''` is kept as-is in
+/// [`EscapeMode::Array`].
 #[must_use]
 pub fn unescape_from_sql_default(input: &str, mode: EscapeMode) -> String {
     let mut res = input.replace("\\\"", "\"").replace("\\\\", "\\");
@@ -249,22 +249,27 @@ pub fn unescape_from_sql_default(input: &str, mode: EscapeMode) -> String {
     res
 }
 
-/// Escape mode for SQL values
+/// Context a SQL default value is escaped for.
 #[derive(Debug, Clone, Copy)]
 pub enum EscapeMode {
+    /// A plain scalar default.
     Default,
+    /// An element of an array literal.
     Array,
+    /// An element of a PostgreSQL array literal (also escapes `"`).
     PgArray,
 }
 
-/// Escape a string for TypeScript literal
+/// Returns `input` as a JSON/TypeScript string literal.
 #[must_use]
 pub fn escape_for_ts_literal(input: &str) -> String {
     // JSON.stringify equivalent
     serde_json::to_string(input).unwrap_or_else(|_| format!("\"{input}\""))
 }
 
-/// Parse number for TypeScript representation
+/// Renders a numeric default for TypeScript: a plain number when it fits in
+/// `i64`, a `123n` bigint when larger, or a `` sql`...` `` template when it
+/// is not a number.
 #[must_use]
 pub fn number_for_ts(value: &str) -> (NumberMode, String) {
     // `i64::MAX` is not exactly representable in f64 (it rounds up to 2^63),
@@ -286,14 +291,17 @@ pub fn number_for_ts(value: &str) -> (NumberMode, String) {
     )
 }
 
-/// Number mode for TypeScript
+/// TypeScript number kind chosen by [`number_for_ts`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumberMode {
+    /// A plain `number`.
     Number,
+    /// A `bigint` literal.
     BigInt,
 }
 
-/// Parse type parameters from SQL type like "varchar(255)" or "numeric(10,2)"
+/// Returns the parameters of a SQL type, e.g. `["10", "2"]` for
+/// `numeric(10,2)`; empty when there are none.
 #[must_use]
 pub fn parse_params(type_str: &str) -> Vec<String> {
     if let Some(start) = type_str.find('(')
@@ -309,22 +317,27 @@ pub fn parse_params(type_str: &str) -> Vec<String> {
 // Resolver Types
 // =============================================================================
 
-/// Result from a rename resolver
+/// Created, deleted, and renamed items from a rename resolver.
 #[derive(Debug, Clone)]
 pub struct ResolverResult<T> {
+    /// Items only in the new schema.
     pub created: Vec<T>,
+    /// Items only in the old schema.
     pub deleted: Vec<T>,
+    /// Items matched as renames or moves.
     pub renamed_or_moved: Vec<Rename<T>>,
 }
 
-/// A rename operation
+/// One rename: `from` in the old schema became `to` in the new one.
 #[derive(Debug, Clone)]
 pub struct Rename<T> {
+    /// Old item.
     pub from: T,
+    /// New item.
     pub to: T,
 }
 
-/// Simple resolver that doesn't detect renames (everything is create/delete)
+/// A resolver that never detects renames: everything is a create or delete.
 #[must_use]
 pub const fn simple_resolver<T: Clone>(created: Vec<T>, deleted: Vec<T>) -> ResolverResult<T> {
     ResolverResult {
@@ -338,7 +351,8 @@ pub const fn simple_resolver<T: Clone>(created: Vec<T>, deleted: Vec<T>) -> Reso
 // Inspect Utility
 // =============================================================================
 
-/// Inspect an object for debugging (simplified version)
+/// Formats a map as `{ k: 'v', ... }` for debug output (empty string when
+/// empty).
 #[must_use]
 pub fn inspect<K, V, S>(map: &HashMap<K, V, S>) -> String
 where
@@ -359,7 +373,8 @@ where
 // Migration Rename Tracking
 // =============================================================================
 
-/// Prepare migration rename strings for storage
+/// Encodes renames as `table:from:to` and `column:table:from:to` strings
+/// for a snapshot's `renames` list.
 #[must_use]
 pub fn prepare_migration_renames<T>(
     table_renames: &[(String, String)],

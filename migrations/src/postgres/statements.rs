@@ -1,4 +1,4 @@
-//! `PostgreSQL` SQL generation from schema metadata
+//! PostgreSQL migration statements and their SQL rendering.
 
 use super::collection::{DiffType, EntityDiff, PostgresDDL};
 use super::ddl::{
@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
+/// The line that separates statements in `migration.sql`.
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
 
 #[derive(Debug, Clone)]
@@ -22,6 +23,8 @@ struct CreateTableOrder {
 // JSON Statements
 // =============================================================================
 
+/// One PostgreSQL migration operation, serialized with a snake_case `type`
+/// tag (drizzle-kit's statement format). [`Generator`] renders these to SQL.
 #[derive(Serialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum JsonStatement {
@@ -202,11 +205,16 @@ pub enum JsonStatement {
     },
 }
 
+/// One enum label change.
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EnumDiff {
-    pub r#type: String, // "added"
+    /// Change kind, e.g. `"added"`.
+    pub r#type: String,
+    /// The label.
     pub value: String,
+    /// The existing label to insert before (`ADD VALUE ... BEFORE`); `None`
+    /// appends.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub before_value: Option<String>,
 }
@@ -317,7 +325,10 @@ fn rich_table_to_table(table: &RichTable) -> Table {
 // Generator
 // =============================================================================
 
+/// Renders PostgreSQL entity diffs as SQL statements in dependency order.
 pub struct Generator {
+    /// Stored for API symmetry; this generator returns separate statements
+    /// and never joins them, so the flag has no effect.
     pub breakpoints: bool,
 }
 
@@ -328,18 +339,21 @@ impl Default for Generator {
 }
 
 impl Generator {
+    /// Creates a generator.
     #[must_use]
     pub const fn new() -> Self {
         Self { breakpoints: true }
     }
 
+    /// Sets [`breakpoints`](Self::breakpoints).
     #[must_use]
     pub const fn with_breakpoints(mut self, breakpoints: bool) -> Self {
         self.breakpoints = breakpoints;
         self
     }
 
-    /// Generate SQL statements from a set of entity diffs.
+    /// Generates SQL statements from entity diffs; same as
+    /// [`generate_with_ddl`](Self::generate_with_ddl) without the current DDL.
     ///
     /// # Panics
     ///

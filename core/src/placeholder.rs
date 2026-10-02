@@ -7,17 +7,108 @@ use crate::{Param, SQL};
 use core::fmt;
 use core::marker::PhantomData;
 
-/// A SQL parameter placeholder.
+/// A parameter placeholder whose value is supplied later, by name.
 ///
-/// Placeholders store a semantic name for parameter binding. The actual SQL syntax
-/// (`$1`, `?`, `:name`) is determined by the `Dialect` at render time.
+/// Use placeholders in prepared statements: build the query once, then bind
+/// values each time it runs. The SQL text depends on the dialect: `:name`
+/// for a named placeholder on SQLite, `$1, $2, ...` on PostgreSQL, `?` on
+/// MySQL. Prefer [`Placeholder::typed`], which also checks the bound value's
+/// type.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{ParamBind, Placeholder, SQL, ToSQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let sql: SQL<'_, Value> = SQL::raw("SELECT * FROM users WHERE id =")
+///     .append(Placeholder::named("id").to_sql());
+/// assert_eq!(sql.sql(), "SELECT * FROM users WHERE id = :id");
+///
+/// let bound = sql.bind([ParamBind::new("id", Value(1))]);
+/// assert_eq!(bound.params().count(), 1);
+/// ```
 #[derive(Default, Debug, Clone, Hash, Copy, PartialEq, Eq)]
 pub struct Placeholder {
-    /// The semantic name of the parameter (used for binding by name).
+    /// The name values are bound by; `None` for an anonymous placeholder.
     pub name: Option<&'static str>,
 }
 
-/// A placeholder that carries the expected SQL type at compile time.
+/// A named placeholder that knows its SQL type `T` and nullability `N`.
+///
+/// Create one with [`Placeholder::typed`] or [`Placeholder::typed_nullable`].
+/// It works as a typed expression, and [`bind`](Self::bind) only accepts
+/// values that can be stored in `T`.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{ParamBind, Placeholder, SQL, ToSQL};
+/// use drizzle_types::sqlite::types::Integer;
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+/// # impl From<i64> for Value {
+/// #     fn from(value: i64) -> Self { Value(value) }
+/// # }
+/// # impl From<&str> for Value {
+/// #     fn from(_: &str) -> Self { Value(0) }
+/// # }
+///
+/// let id = Placeholder::typed::<Integer>("id");
+/// let sql: SQL<'_, Value> = SQL::raw("SELECT * FROM users WHERE id =").append(id.to_sql());
+///
+/// let binding: ParamBind<'_, Value> = id.bind(7_i64);
+/// let bound = sql.bind([binding]);
+/// assert_eq!(bound.params().collect::<Vec<_>>(), [&Value(7)]);
+/// ```
+///
+/// # Compile-time checks
+///
+/// Binding a value of the wrong SQL type does not compile:
+///
+/// ```compile_fail
+/// use drizzle_core::{ParamBind, Placeholder};
+/// use drizzle_types::sqlite::types::Integer;
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+/// # impl From<i64> for Value {
+/// #     fn from(value: i64) -> Self { Value(value) }
+/// # }
+/// # impl From<&str> for Value {
+/// #     fn from(_: &str) -> Self { Value(0) }
+/// # }
+///
+/// let id = Placeholder::typed::<Integer>("id");
+/// let _: ParamBind<'_, Value> = id.bind("seven"); // TEXT into INTEGER
+/// ```
 #[derive(Default, Debug, Clone, Hash, Copy, PartialEq, Eq)]
 pub struct TypedPlaceholder<T: DataType, N: Nullability = NonNull> {
     inner: Placeholder,
@@ -27,22 +118,22 @@ pub struct TypedPlaceholder<T: DataType, N: Nullability = NonNull> {
 impl Placeholder {
     /// Creates a named placeholder.
     ///
-    /// The name is used for binding; rendering is dialect-specific:
-    /// - `PostgreSQL`: `$1`, `$2`, ... (positional, name ignored in SQL)
-    /// - `SQLite`: `:name` for named placeholders
-    /// - `MySQL`: `?` (positional, name ignored in SQL)
+    /// Values are bound by `name`. The SQL text depends on the dialect:
+    /// - PostgreSQL: `$1`, `$2`, ... (the name does not appear);
+    /// - SQLite: `:name`;
+    /// - MySQL: `?` (the name does not appear).
     #[must_use]
     pub const fn named(name: &'static str) -> Self {
         Self { name: Some(name) }
     }
 
-    /// Creates an anonymous placeholder (no name).
+    /// Creates an anonymous placeholder. It cannot be bound by name.
     #[must_use]
     pub const fn anonymous() -> Self {
         Self { name: None }
     }
 
-    /// Creates a typed named placeholder.
+    /// Creates a named placeholder for a non-null value of SQL type `T`.
     #[must_use]
     pub const fn typed<T: DataType>(name: &'static str) -> TypedPlaceholder<T, NonNull> {
         TypedPlaceholder {
@@ -51,7 +142,8 @@ impl Placeholder {
         }
     }
 
-    /// Creates a typed nullable named placeholder.
+    /// Creates a named placeholder for a nullable value of SQL type `T`.
+    /// Bind it with [`TypedPlaceholder::bind_opt`].
     #[must_use]
     pub const fn typed_nullable<T: DataType>(name: &'static str) -> TypedPlaceholder<T, Null> {
         TypedPlaceholder {
@@ -62,7 +154,7 @@ impl Placeholder {
 }
 
 impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
-    /// Creates a typed named placeholder.
+    /// Creates a named placeholder of this type.
     #[must_use]
     pub const fn named(name: &'static str) -> Self {
         Self {
@@ -71,7 +163,10 @@ impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
         }
     }
 
-    /// Binds a value to this placeholder with compile-time SQL type checking.
+    /// Pairs this placeholder's name with `value`, for
+    /// [`SQL::bind`](crate::SQL::bind) or a prepared statement.
+    ///
+    /// Only values whose SQL type can be stored in `T` are accepted.
     pub fn bind<'a, V, R>(self, value: R) -> ParamBind<'a, V>
     where
         V: SQLParam,
@@ -83,13 +178,13 @@ impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
         }
     }
 
-    /// Returns the placeholder name if present.
+    /// Returns the placeholder name.
     #[must_use]
     pub const fn name(self) -> Option<&'static str> {
         self.inner.name
     }
 
-    /// Returns this typed placeholder as an untyped placeholder.
+    /// Drops the type, returning a plain [`Placeholder`].
     #[must_use]
     pub const fn into_placeholder(self) -> Placeholder {
         self.inner
@@ -97,7 +192,8 @@ impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
 }
 
 impl<T: DataType> TypedPlaceholder<T, Null> {
-    /// Binds an optional value to a nullable placeholder.
+    /// Pairs this placeholder's name with an optional value; `None` binds
+    /// NULL.
     pub fn bind_opt<'a, V, R>(self, value: Option<R>) -> ParamBind<'a, V>
     where
         V: SQLParam,
@@ -154,8 +250,8 @@ impl<'a, V: SQLParam + 'a, T: DataType, N: Nullability> Expr<'a, V> for TypedPla
 }
 
 impl fmt::Display for Placeholder {
-    /// Debug display: `?` for anonymous or `:name` for named.
-    /// Note: actual SQL rendering uses dialect-specific placeholders via `SQL::write_to`.
+    /// Shows `:name`, or `?` when anonymous. SQL rendering uses the
+    /// dialect's syntax instead (see [`SQL::write_to`](crate::SQL::write_to)).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.name {
             Some(name) => write!(f, ":{name}"),

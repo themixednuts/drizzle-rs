@@ -1,4 +1,5 @@
-//! `SQLite` Primary Key DDL types
+//! `SQLite` primary keys: [`PrimaryKeyDef`] (const) and [`PrimaryKey`]
+//! (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -6,9 +7,11 @@ use crate::alloc_prelude::*;
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly primary key definition
+/// A table's primary key, buildable in a `const`.
 ///
-/// Used for composite primary keys (single-column PKs are defined on the column itself).
+/// [`TableSql`](super::TableSql) writes a single-column key without an
+/// explicit name inline on the column, and any other key as a table
+/// constraint.
 ///
 /// # Examples
 ///
@@ -28,12 +31,13 @@ pub struct PrimaryKeyDef {
     pub name: &'static str,
     /// Columns in the primary key
     pub columns: &'static [Cow<'static, str>],
-    /// Whether the constraint name was explicitly specified
+    /// Whether the user gave the constraint name (rather than it being generated)
     pub name_explicit: bool,
 }
 
 impl PrimaryKeyDef {
-    /// Create a new primary key definition
+    /// Creates a primary key with no columns; set them with
+    /// [`columns`](Self::columns()).
     #[must_use]
     pub const fn new(table: &'static str, name: &'static str) -> Self {
         Self {
@@ -44,7 +48,7 @@ impl PrimaryKeyDef {
         }
     }
 
-    /// Set the columns in the primary key
+    /// Sets the key's columns.
     #[must_use]
     pub const fn columns(self, cols: &'static [Cow<'static, str>]) -> Self {
         Self {
@@ -53,7 +57,7 @@ impl PrimaryKeyDef {
         }
     }
 
-    /// Mark the name as explicitly specified
+    /// Marks the name as given by the user.
     #[must_use]
     pub const fn explicit_name(self) -> Self {
         Self {
@@ -62,7 +66,7 @@ impl PrimaryKeyDef {
         }
     }
 
-    /// Convert to runtime [`PrimaryKey`] type
+    /// Converts to the runtime [`PrimaryKey`].
     #[must_use]
     pub const fn into_primary_key(self) -> PrimaryKey {
         PrimaryKey {
@@ -84,11 +88,7 @@ impl Default for PrimaryKeyDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime primary key constraint entity
-///
-/// Uses `Cow<'static, str>` for all string fields, which works with both:
-/// - Borrowed data from const definitions (`Cow::Borrowed`)
-/// - Owned data from deserialization/introspection (`Cow::Owned`)
+/// A table's primary key, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimaryKey {
     /// Parent table name
@@ -100,12 +100,12 @@ pub struct PrimaryKey {
     /// Columns in the primary key
     pub columns: Cow<'static, [Cow<'static, str>]>,
 
-    /// Whether the constraint name was explicitly specified
+    /// Whether the user gave the constraint name (rather than it being generated)
     pub name_explicit: bool,
 }
 
 impl PrimaryKey {
-    /// Create a new primary key with owned data
+    /// Creates a primary key.
     #[must_use]
     pub fn new(
         table: impl Into<Cow<'static, str>>,
@@ -120,7 +120,7 @@ impl PrimaryKey {
         }
     }
 
-    /// Create a new primary key from owned strings (convenience for runtime construction)
+    /// Creates a primary key from owned strings.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_strings(table: String, name: String, columns: Vec<String>) -> Self {
@@ -132,14 +132,14 @@ impl PrimaryKey {
         }
     }
 
-    /// Get the constraint name
+    /// Returns the constraint name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

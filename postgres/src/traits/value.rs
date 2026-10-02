@@ -1,89 +1,82 @@
-//! Value conversion traits for `PostgreSQL` types
-//!
-//! This module provides the `FromPostgresValue` trait for converting `PostgreSQL` values
-//! to Rust types, and row capability traits for unified access across drivers.
-//!
-//! This pattern mirrors the `SQLite` implementation to provide driver-agnostic
-//! row conversions for postgres, tokio-postgres, and potentially other drivers.
+//! Conversion of `PostgreSQL` values into Rust types ([`FromPostgresValue`]),
+//! and driver-neutral row access ([`DrizzleRowByIndex`], [`DrizzleRowByName`]).
 
 use crate::prelude::*;
 use crate::values::{OwnedPostgresValue, PostgresValue};
 use drizzle_core::conv::checked_float_to_int;
 use drizzle_core::error::DrizzleError;
 
-/// Trait for types that can be converted from `PostgreSQL` values.
+/// A Rust type that can be built from a [`PostgresValue`].
 ///
-/// `PostgreSQL` has many types, but this trait focuses on the core conversions:
-/// - Integers (i16, i32, i64)
-/// - Floats (f32, f64)
-/// - Text (String, &str)
-/// - Binary (`Vec<u8>`, `&[u8]`)
-/// - Boolean
-/// - NULL handling
+/// There is one method per kind of stored value. The required ones cover
+/// booleans, integers, floats, text and bytes; the others (NULL, UUID, JSON,
+/// arrays, dates and times, network, geometric and bit types) default to an
+/// error, and some exist only with the matching feature. Implement the ones
+/// that make sense for your type and return an error from the rest.
 ///
-/// # Implementation Notes
-///
-/// - Implement the methods that make sense for your type
-/// - Return `Err` for unsupported conversions
-/// - `PostgresEnum` derive automatically implements this trait
+/// This crate implements it for `bool`, all primitive integer types, `f32`,
+/// `f64`, strings, byte vectors, `Option<T>` (NULL becomes `None`), the
+/// optional crates' types, and every [`PostgresEnum`](super::PostgresEnum), so
+/// native enums from `#[derive(PostgresEnum)]` get it automatically.
+/// [`PostgresValue::convert`] dispatches to the right method.
 pub trait FromPostgresValue: Sized {
-    /// Convert from a boolean value
+    /// Converts from a boolean value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_bool(value: bool) -> Result<Self, DrizzleError>;
 
-    /// Convert from a 16-bit integer value
+    /// Converts from a 16-bit integer value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_i16(value: i16) -> Result<Self, DrizzleError>;
 
-    /// Convert from a 32-bit integer value
+    /// Converts from a 32-bit integer value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_i32(value: i32) -> Result<Self, DrizzleError>;
 
-    /// Convert from a 64-bit integer value
+    /// Converts from a 64-bit integer value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_i64(value: i64) -> Result<Self, DrizzleError>;
 
-    /// Convert from a 32-bit float value
+    /// Converts from a 32-bit float value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_f32(value: f32) -> Result<Self, DrizzleError>;
 
-    /// Convert from a 64-bit float value
+    /// Converts from a 64-bit float value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_f64(value: f64) -> Result<Self, DrizzleError>;
 
-    /// Convert from a text/string value
+    /// Converts from a text/string value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_text(value: &str) -> Result<Self, DrizzleError>;
 
-    /// Convert from a binary/bytea value
+    /// Converts from a binary/bytea value.
     ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ConversionError`] if the value cannot be represented as the target type.
     fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError>;
 
-    /// Convert from a NULL value (default returns error)
+    /// Converts from NULL. The default returns an error.
     ///
     /// # Errors
     ///
@@ -94,7 +87,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a UUID value
+    /// Converts from a UUID value.
     ///
     /// # Errors
     ///
@@ -106,7 +99,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a JSON value
+    /// Converts from a JSON value.
     ///
     /// # Errors
     ///
@@ -118,7 +111,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a JSONB value
+    /// Converts from a JSONB value.
     ///
     /// # Errors
     ///
@@ -130,7 +123,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from an ARRAY value
+    /// Converts from an ARRAY value.
     ///
     /// # Errors
     ///
@@ -141,7 +134,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a DATE value
+    /// Converts from a DATE value.
     ///
     /// # Errors
     ///
@@ -153,7 +146,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIME value
+    /// Converts from a TIME value.
     ///
     /// # Errors
     ///
@@ -165,7 +158,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIMESTAMP value
+    /// Converts from a TIMESTAMP value.
     ///
     /// # Errors
     ///
@@ -177,7 +170,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIMESTAMPTZ value
+    /// Converts from a TIMESTAMPTZ value.
     ///
     /// # Errors
     ///
@@ -191,7 +184,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from an INTERVAL value
+    /// Converts from an INTERVAL value.
     ///
     /// # Errors
     ///
@@ -203,7 +196,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a DATE value (time crate)
+    /// Converts from a DATE value (time crate).
     ///
     /// # Errors
     ///
@@ -215,7 +208,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIME value (time crate)
+    /// Converts from a TIME value (time crate).
     ///
     /// # Errors
     ///
@@ -227,7 +220,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIMESTAMP value (time crate)
+    /// Converts from a TIMESTAMP value (time crate).
     ///
     /// # Errors
     ///
@@ -239,7 +232,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIMESTAMPTZ value (time crate)
+    /// Converts from a TIMESTAMPTZ value (time crate).
     ///
     /// # Errors
     ///
@@ -251,7 +244,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from an INTERVAL value (time crate)
+    /// Converts from an INTERVAL value (time crate).
     ///
     /// # Errors
     ///
@@ -263,7 +256,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a DATE value (jiff)
+    /// Converts from a DATE value (jiff).
     ///
     /// # Errors
     ///
@@ -275,7 +268,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIME value (jiff)
+    /// Converts from a TIME value (jiff).
     ///
     /// # Errors
     ///
@@ -287,7 +280,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIMESTAMP value (jiff)
+    /// Converts from a TIMESTAMP value (jiff).
     ///
     /// # Errors
     ///
@@ -299,7 +292,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a TIMESTAMPTZ value (jiff)
+    /// Converts from a TIMESTAMPTZ value (jiff).
     ///
     /// # Errors
     ///
@@ -311,7 +304,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from an INET value
+    /// Converts from an INET value.
     ///
     /// # Errors
     ///
@@ -323,7 +316,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a CIDR value
+    /// Converts from a CIDR value.
     ///
     /// # Errors
     ///
@@ -335,7 +328,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a MACADDR value
+    /// Converts from a MACADDR value.
     ///
     /// # Errors
     ///
@@ -347,7 +340,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a MACADDR8 value
+    /// Converts from a MACADDR8 value.
     ///
     /// # Errors
     ///
@@ -359,7 +352,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a POINT value
+    /// Converts from a POINT value.
     ///
     /// # Errors
     ///
@@ -371,7 +364,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a PATH value
+    /// Converts from a PATH value.
     ///
     /// # Errors
     ///
@@ -383,7 +376,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a BOX value
+    /// Converts from a BOX value.
     ///
     /// # Errors
     ///
@@ -395,7 +388,7 @@ pub trait FromPostgresValue: Sized {
         ))
     }
 
-    /// Convert from a BIT/VARBIT value
+    /// Converts from a BIT/VARBIT value.
     ///
     /// # Errors
     ///
@@ -408,9 +401,9 @@ pub trait FromPostgresValue: Sized {
     }
 }
 
-/// Row capability for index-based extraction.
+/// A driver row whose columns can be read by position.
 pub trait DrizzleRowByIndex {
-    /// Get a column value by index
+    /// Reads column `idx` (zero-based) as `T`.
     ///
     /// # Errors
     ///
@@ -419,9 +412,9 @@ pub trait DrizzleRowByIndex {
     fn get_column<T: FromPostgresValue>(&self, idx: usize) -> Result<T, DrizzleError>;
 }
 
-/// Row capability for name-based extraction.
+/// A driver row whose columns can be read by name.
 pub trait DrizzleRowByName: DrizzleRowByIndex {
-    /// Get a column value by name
+    /// Reads the column named `name` as `T`.
     ///
     /// # Errors
     ///
@@ -480,7 +473,7 @@ impl FromPostgresValue for bool {
     }
 }
 
-/// Macro to implement `FromPostgresValue` for integer types
+// Implements `FromPostgresValue` for integer types.
 macro_rules! impl_from_postgres_value_int {
     ($($ty:ty),+ $(,)?) => {
         $(

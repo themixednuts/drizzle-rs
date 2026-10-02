@@ -1,3 +1,17 @@
+/// A SQL keyword, operator, or punctuation mark.
+///
+/// Each variant renders as fixed text (see [`Token::as_str`]). Most render
+/// as their own name; operators and punctuation render as symbols, for
+/// example `EQ` as `=`, `LPAREN` as `(`, and `CONCAT` as `||`.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::Token;
+///
+/// assert_eq!(Token::SELECT.as_str(), "SELECT");
+/// assert_eq!(Token::NE.as_str(), "<>");
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub enum Token {
     ABORT,
@@ -180,7 +194,8 @@ pub enum Token {
 }
 
 impl Token {
-    /// Returns true if this token is an operator that needs spaces around it
+    /// Returns `true` for operators, which are rendered with a space on each
+    /// side (`=`, `+`, `||`, ...).
     #[inline]
     #[must_use]
     pub const fn is_operator(&self) -> bool {
@@ -205,7 +220,8 @@ impl Token {
         )
     }
 
-    /// Returns true if this token is punctuation (no word-like spacing).
+    /// Returns `true` for punctuation (`(`, `)`, `,`, `;`, `.`), which is not
+    /// spaced like a word.
     #[inline]
     #[must_use]
     pub const fn is_punctuation(&self) -> bool {
@@ -215,6 +231,7 @@ impl Token {
         )
     }
 
+    /// Returns the SQL text of this token.
     #[inline]
     #[must_use]
     pub const fn as_str(&self) -> &'static str {

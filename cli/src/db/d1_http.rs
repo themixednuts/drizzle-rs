@@ -20,6 +20,7 @@
 //! - `ensure_tracking_table` – create the drizzle migrations table
 //! - `query_applied_names` / `query_applied_records` – read migration history
 //! - `execute_statements` – run arbitrary SQL (used by `drizzle push`)
+//! - `inspect_migrations` – compare local migrations with the tracking table
 //! - `run_migrations` – apply pending migrations via the batch endpoint
 //! - `init_metadata` – seed the first migration row without running its SQL
 //!

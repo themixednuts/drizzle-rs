@@ -8,7 +8,7 @@
 use crate::error::DrizzleError;
 use crate::row::sqlite_value::{SqliteCell, SqliteValueRow};
 
-/// Convert a 0-based column offset into the `i32` index expected by
+/// Converts a 0-based column offset into the `i32` index expected by
 /// [`libsql::Row::get_value`], erroring if the offset would truncate or wrap.
 #[inline]
 fn column_index(offset: usize) -> Result<i32, DrizzleError> {

@@ -1,19 +1,32 @@
-//! Type-safe row inference for query builders.
+//! Row type inference and row decoding for SELECT queries.
 //!
-//! Provides type-level machinery to infer the Rust return type from a query's
-//! selected columns, table, and joins — so `.all()` and `.get()` return the
-//! correct type without turbofish annotations.
+//! These traits work out the Rust type a query returns from what it selects,
+//! its table, and its joins, so `.all()` and `.get()` need no turbofish. They
+//! also decode database rows into that type.
 //!
-//! # Architecture
+//! Most of this is internal machinery driven by the builders and the table
+//! macros. Users meet it through compile errors at `.all()` / `.get()` /
+//! `.rows()`, for example when a column from a `LEFT JOIN` is decoded as `T`
+//! instead of `Option<T>`.
 //!
-//! ```rust
-//! # let _ = r####"
-//! .select(cols)    → Marker  (SelectStar | SelectCols<C> | SelectExpr)
-//! .from(table)     → R       (Marker + Table → row type via ResolveRow)
-//! .join(t2)        → R'      (Marker + R + JoinedTable → new R via JoinStep)
-//! .all()           → Vec<R>  (R: FromDrizzleRow)
-//! # "####;
+//! # How a row type is built
+//!
+//! ```text
+//! .select(cols)  -> marker  (SelectStar | SelectCols<C> | SelectExpr | SelectAs<R>)   via IntoSelectTarget
+//! .from(table)   -> R       (marker + table -> row type)                              via ResolveRow
+//! .join(t2)      -> R'      (marker + R + joined table -> new row type)               via JoinStep
+//! .all()         -> Vec<R>  (scope, GROUP BY and decode checks, then FromDrizzleRow)
 //! ```
+//!
+//! # Checks at the terminal method
+//!
+//! - [`MarkerScopeValidFor`]: every table the query reads was added with
+//!   `.from(...)` or a join (see [`crate::scope`]).
+//! - [`MarkerAggValidFor`]: with GROUP BY, every non-aggregate selected
+//!   column is grouped.
+//! - [`MarkerColumnCountValid`]: the decode target matches the selected
+//!   columns, with `Option` wherever an outer join can produce NULL.
+//! - [`StrictDecodeMarker`]: a raw `sql!` projection has an explicit type.
 
 // Driver-specific leaf FromDrizzleRow implementations
 #[cfg(feature = "libsql")]
@@ -39,19 +52,23 @@ use crate::{Cons, Nil};
 // Select Target Markers
 // =============================================================================
 
-/// Marker: `SELECT *` — R inferred from the table, grows with joins.
+/// Select marker for `SELECT *`: the row type is the table's select model and
+/// grows with each join.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectStar;
 
-/// Marker: explicit columns — R inferred from column value types, stable across joins.
+/// Select marker for explicit columns: the row type is a tuple of the
+/// columns' value types and does not change with joins.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectCols<Cols>(PhantomData<Cols>);
 
-/// Marker: raw SQL or untyped expression — R must be user-specified.
+/// Select marker for raw SQL or an untyped expression: the caller must name
+/// the row type.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectExpr;
 
-/// Marker: explicit row model target chosen by user.
+/// Select marker for a user-chosen row model `R`, such as a `FromRow` struct
+/// passed as `.select(MyRow::Select)`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectAs<R>(PhantomData<R>);
 
@@ -59,12 +76,23 @@ pub use crate::scope::{
     HasScope, OuterJoined, ScopeContains, ScopeEntry, ScopeHere, ScopeThere, Scoped,
 };
 
-/// Scope validation of a SELECT marker, checked by strict terminal methods.
+/// The query only reads tables it has added with `.from(...)` or a join.
 ///
-/// - every clause source recorded on the marker resolves in the query scope;
-/// - explicit columns come from a source in scope;
-/// - a `FromRow` selector's tables are in scope, and every field read from the
-///   nullable side of an outer join is an `Option`.
+/// `.all()`, `.get()` and `.rows()` require this bound. It holds when:
+///
+/// - every source read by a clause (JOIN ON, WHERE, GROUP BY, HAVING,
+///   ORDER BY) is in the query's scope;
+/// - every explicitly selected column comes from a source in scope;
+/// - a `FromRow` selector's tables are in scope, and every field it reads
+///   from the nullable side of an outer join is an `Option`.
+///
+/// A failure is reported through the trait that failed underneath, most
+/// often "`X` is not in this query's FROM/JOIN scope" (see
+/// [`crate::scope`]). `Proof` is a witness type the compiler infers.
+///
+/// # Compile-time checks
+///
+/// A `FromRow` model reading `Users` passes when `Users` is in scope:
 ///
 /// ```
 /// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectTableFields, TableFields};
@@ -89,6 +117,8 @@ pub use crate::scope::{
 ///     needs_valid::<Scoped<SelectAs<Model>, Cons<Users, Nil>>, _>();
 /// }
 /// ```
+///
+/// It fails when the query only selects from `Posts`:
 ///
 /// ```compile_fail
 /// use drizzle_core::{Cons, Nil, Scoped, SelectAs, SelectTableFields, TableFields};
@@ -163,11 +193,11 @@ pub struct MaybeNull<T>(PhantomData<T>);
 
 /// Checks an explicit SELECT list against the query scope.
 ///
-/// Each expression's sources must be in `Scope`. The decode-check column
-/// list widens a column to [`MaybeNull`] when its sources can make it NULL.
+/// Each expression's sources must be in `Scope`. The resulting column list
+/// widens a column to [`MaybeNull`] when an outer join can make it NULL.
 #[doc(hidden)]
 pub trait ProjectionIn<Scope, Proof> {
-    /// Decode-check column list.
+    /// Column types the decode target is checked against.
     type Columns: crate::TypeSet;
 }
 
@@ -193,19 +223,21 @@ where
 /// Field types of a `FromRow` selector, grouped by the source each reads.
 ///
 /// Generated by `#[derive(SQLiteFromRow)]`, `#[derive(PostgresFromRow)]` and
-/// `#[derive(MySQLFromRow)]`. Strict decode requires every listed source to
-/// be in scope, and `Option` on every field read from the nullable side of an
-/// outer join.
+/// `#[derive(MySQLFromRow)]`. [`MarkerScopeValidFor`] requires every listed
+/// source to be in scope, and `Option` on every field read from the nullable
+/// side of an outer join.
 pub trait SelectTableFields {
     /// `Cons<TableFields<Source, Cons<Field, ...>>, ...>`.
     type TableFields;
 }
 
-/// Field types a `FromRow` selector reads from `Source`.
+/// Field types (a `Cons` list) that a `FromRow` selector reads from `Source`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TableFields<Source, Fields>(PhantomData<(Source, Fields)>);
 
-/// Accepts a field list for a source with the given nullability.
+/// The field list `Self` can hold values from a source with nullability
+/// `Nullable`: any fields for [`NonNull`](crate::expr::NonNull), only
+/// `Option` fields for [`Null`](crate::expr::Null).
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
     message = "a field read from the nullable side of an outer join must be an `Option`",
@@ -243,11 +275,12 @@ where
 // Aggregate status validation for SELECT lists
 // =============================================================================
 
-/// Fold the aggregate statuses of a tuple of expressions.
+/// Combined aggregate status of a tuple of expressions.
 ///
-/// For a 1-tuple, returns the single element's status.
-/// For N-tuples, folds pairwise using `CombineAggStatus`.
+/// A 1-tuple has its element's status. Longer tuples fold the statuses with
+/// [`CombineAggStatus`](crate::expr::CombineAggStatus).
 pub trait AggStatus {
+    /// The combined status.
     type Status;
 }
 
@@ -323,34 +356,34 @@ with_col_sizes_200!(impl_tuple_agg_status);
 // GROUP BY column tracking
 // =============================================================================
 
-/// Trait for types that can be passed to `.group_by()`.
+/// Something that can be passed to `.group_by()`: a column or a tuple of
+/// columns.
 ///
-/// Single columns and tuples of columns implement this.
-/// The `Columns` associated type is a `Cons<...>` list of column types
-/// for compile-time validation.
+/// The table macros implement this for each column; tuples are implemented
+/// here. `Columns` lists the grouped columns so the SELECT list can be
+/// checked against them ([`MarkerAggValidFor`]).
 pub trait IntoGroupBy<'a, V: crate::SQLParam + 'a>:
     crate::ToSQL<'a, V> + crate::expr::ExprSources
 {
-    /// Type-level list of grouped columns (e.g., `Cons<Col1, Cons<Col2, Nil>>`).
+    /// Grouped columns as a type-level list (`Cons<Col1, Cons<Col2, Nil>>`),
+    /// or [`PkGroup<T>`] when grouping by a table's single primary key.
     type Columns;
 }
 
 // Single column → Cons<Self, Nil>
 // (Implemented by proc macros for each column ZST)
 
-/// Type-level GROUP BY marker: the group key is table `Table`'s single-column
-/// primary key.
+/// GROUP BY marker: the group key is `Table`'s single-column primary key.
 ///
-/// Produced by the proc-macro `IntoGroupBy` impl when `.group_by(col)` is
-/// called with a table's sole primary-key column. Every other column of that
-/// table is functionally dependent on its primary key (SQL:1999), so any
-/// scalar column of `Table` may appear in SELECT without being listed in
-/// GROUP BY. Columns of *other* tables (e.g. joined tables) still must be
-/// aggregated.
+/// The table macros produce this when `.group_by(col)` is called with a
+/// table's only primary-key column. Every other column of that table depends
+/// on its primary key (SQL:1999 functional dependency), so any column of
+/// `Table` may be selected without being listed in GROUP BY. Columns of
+/// other tables (for example joined ones) must still be aggregated.
 ///
-/// Beyond correctness, grouping by the bare primary key lets the database
-/// stream groups off the PK order instead of sorting the full result through
-/// a temp structure, which matters for `GROUP BY ... ORDER BY pk LIMIT n`.
+/// Grouping by the bare primary key also lets the database read groups in
+/// key order instead of sorting the whole result, which helps
+/// `GROUP BY ... ORDER BY pk LIMIT n`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PkGroup<Table>(PhantomData<Table>);
 
@@ -399,10 +432,11 @@ with_col_sizes_16!(impl_into_group_by_tuple);
 // Scalar column validation against grouped columns
 // =============================================================================
 
-/// Checks that every scalar column in a `SelectCols` tuple is present in
-/// the Grouped column list. Aggregate columns are skipped.
+/// Every non-aggregate column in a selected tuple is in the `Grouped` list.
+/// Aggregate columns are skipped.
 ///
-/// `Proof` is a witness type inferred by the compiler (like `ListContains`).
+/// `Proof` is a witness type the compiler infers (like
+/// [`ListContains`](crate::scope::ListContains)).
 #[diagnostic::on_unimplemented(
     message = "non-aggregate column in SELECT is not in GROUP BY",
     label = "this column must appear in .group_by(...) or be wrapped in an aggregate function",
@@ -411,14 +445,15 @@ with_col_sizes_16!(impl_into_group_by_tuple);
 )]
 pub trait ScalarColumnsIn<Grouped, Proof> {}
 
-/// Aggregate expressions always pass (they don't need to be in GROUP BY).
+/// GROUP BY proof: the column is an aggregate, so it need not be grouped.
 pub struct AggSkip;
 
-/// Scalar expressions need a `ScopeContains` witness.
+/// GROUP BY proof: the scalar column is in the grouped list at the position
+/// `W` proves.
 pub struct ScalarCheck<W>(core::marker::PhantomData<W>);
 
-/// Witness: scalar column allowed because the group key is its table's
-/// primary key (functional dependency).
+/// GROUP BY proof: the scalar column is allowed because the group key is its
+/// table's primary key (functional dependency).
 pub struct PkDependent;
 
 // 1-tuple
@@ -427,13 +462,16 @@ impl<E, Grouped, Proof> ScalarColumnsIn<Grouped, (Proof,)> for (E,) where
 {
 }
 
-/// Per-element check: either skip (Agg) or verify (Scalar).
+/// GROUP BY check for one selected column: aggregates pass, scalars must be
+/// grouped.
 pub trait SingleColGroupCheck<Grouped, Proof> {}
 
-/// Extracts the "base column" identity from an expression for GROUP BY matching.
+/// The column an expression is matched as when checking GROUP BY.
 ///
-/// `AliasedExpr<Col>` → `Col`, bare column → `Self`.
+/// An aliased column (`AliasedExpr<Col>`) matches as `Col`; a bare column or
+/// any other expression matches as itself.
 pub trait GroupByIdentity {
+    /// The type looked up in the grouped column list.
     type Identity;
 }
 
@@ -536,10 +574,16 @@ with_col_sizes_16!(impl_scalar_columns_in);
 // MarkerAggValidFor — top-level bound on terminal methods
 // =============================================================================
 
-/// Validates that the SELECT list is legal given the grouped column set.
+/// The SELECT list is valid for the query's GROUP BY.
 ///
-/// - `Grouped = ()` (no GROUP BY): everything is valid
-/// - `Grouped = Cons<...>` (has GROUP BY): scalar columns must be in the list
+/// `.all()`, `.get()` and `.rows()` require this bound.
+///
+/// - `Grouped = ()` (no GROUP BY): any mix of columns is accepted.
+/// - `Grouped = Cons<...>`: each non-aggregate column of an explicit SELECT
+///   list must be in the list.
+/// - `Grouped = PkGroup<T>`: each non-aggregate column must belong to `T`.
+///
+/// `SELECT *`, raw SQL and `FromRow` selections are not checked.
 #[diagnostic::on_unimplemented(
     message = "non-aggregate column in SELECT is not in GROUP BY",
     label = "add this column to .group_by(...) or wrap it in an aggregate function"
@@ -595,16 +639,18 @@ where
 // Marker column-count validation for strict decode paths
 // =============================================================================
 
-/// Type-level column-list representation for a row decode target.
+/// The columns a decode target reads, as a type-level list.
 ///
-/// Each consumed column is represented by a `Cons<T, ...>` node where `T`
-/// is the decoded Rust type for that column.
+/// Each column is one `Cons<T, ...>` node, where `T` is the Rust type it
+/// decodes into. Tuples concatenate their elements' lists.
 pub trait RowColumnList<Row: ?Sized> {
+    /// `Cons<T0, Cons<T1, ... Nil>>`.
     type Columns: crate::TypeSet;
 }
 
-/// Type-level column-list representation for selected column tuples.
+/// The value types of a selected column tuple, as a type-level list.
 pub trait SelectedColumnList {
+    /// `Cons<T0, Cons<T1, ... Nil>>`.
     type Columns: crate::TypeSet;
 }
 
@@ -975,25 +1021,35 @@ with_type_sizes_16!(impl_rcl_tuple);
 ))]
 with_type_sizes_32!(impl_rcl_tuple);
 
-/// Marker-level column-count compatibility check used by strict `.all()` / `.get()`.
+/// The decode target `Actual` matches what the query selects.
 ///
-/// Currently enforced for `SelectCols<_>` where selected shape is explicit.
+/// `.all()`, `.get()` and `.rows()` require this bound. `Inferred` is the
+/// query's inferred row type and `Actual` the type the caller decodes into.
+///
+/// - Explicit columns: each column of `Actual` must have the selected
+///   column's type, and must be `Option` when an outer join or a nullable
+///   operand can make it NULL.
+/// - Joined `SELECT *`: `Actual` must keep the inferred shape (see
+///   [`JoinedStarRow`]).
+/// - Raw SQL: `Actual` must equal `Inferred`.
+/// - Single-table `SELECT *` and `FromRow` selections are not checked here.
+///
+/// `Proof` is the same witness the terminal method infers for
+/// [`MarkerScopeValidFor`], so outer-join nullability found while checking
+/// scope also decides which decoded columns must be `Option`.
 #[diagnostic::on_unimplemented(
     message = "selected shape does not match decode target `{Actual}`",
     label = "this decode target is not type-compatible with .select(...) output",
     note = "use typed expressions or derive FromRow for explicit remapping when selecting custom expressions"
 )]
-///
-/// `Proof` is the same witness the terminal method infers for
-/// [`MarkerScopeValidFor`], so outer-join nullability found while checking
-/// scope also decides which decoded columns must be `Option`.
 pub trait MarkerColumnCountValid<Row: ?Sized, Inferred, Actual, Proof = ()> {}
 
-/// Marker-level guard for strict decode entry points.
+/// The select marker can be decoded by `.all()` / `.get()` without an
+/// explicit row type.
 ///
-/// Raw `SelectExpr` (`select(sql!(...))`) is intentionally excluded so strict
-/// decode requires either typed expressions (`raw_non_null`, `sql!(.., Type)`) or
-/// explicit remapping via typed expressions or `FromRow` derive.
+/// A raw `select(sql!(...))` is excluded on purpose: give it a type with a
+/// typed expression (`raw_non_null`, `raw_nullable`) or select into a
+/// `FromRow` struct instead.
 #[diagnostic::on_unimplemented(
     message = "raw select expressions require explicit typing in strict decode",
     label = "`select(sql!(...)).all()/get()` is not allowed in strict mode",
@@ -1108,9 +1164,12 @@ impl<T> JoinedStarPart<T> for T {}
 
 impl<T> JoinedStarPart<Option<T>> for T {}
 
-/// Marker-directed row decoding for `.all()`/`.get()`.
+/// Decodes one result row into `R` the way the select marker `Self` asks.
+///
+/// `SelectAs<R>` uses `R: TryFrom<RowRef>` (the `FromRow` derive). Every
+/// other marker uses [`FromDrizzleRow`].
 pub trait DecodeSelectedRef<RowRef, R> {
-    /// Decode the row into `R` according to the marker.
+    /// Decodes `row` into `R`.
     ///
     /// # Errors
     ///
@@ -1172,13 +1231,14 @@ where
 // FromDrizzleRow — offset-based row extraction
 // =============================================================================
 
-/// Extracts a Rust value from a database row at a given column offset.
+/// Reads a Rust value from a database row, starting at a column offset.
 ///
-/// Unlike `TryFrom<Row>`, supports offset-based reading so joined results
-/// can split a single row across multiple model types.
+/// Unlike `TryFrom<Row>`, reading from an offset lets one joined row be split
+/// across several model types. Tuples compose: `(A, B)` reads `A` at
+/// `offset`, then `B` at `offset + A::COLUMN_COUNT`.
 ///
-/// Tuple impls compose: `(A, B)` reads A at `offset`, then B at
-/// `offset + A::COLUMN_COUNT`.
+/// Implemented for scalar types per driver, for `Option<T>`, for tuples, and
+/// by the `FromRow` derives and table macros for models.
 #[diagnostic::on_unimplemented(
     message = "cannot deserialize `{Self}` from a database row",
     label = "this type does not implement FromDrizzleRow",
@@ -1188,7 +1248,7 @@ pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     /// Number of columns this type reads from the row.
     const COLUMN_COUNT: usize;
 
-    /// Read this type from `row` starting at column `offset`.
+    /// Reads this type from `row`, starting at column `offset`.
     ///
     /// # Errors
     ///
@@ -1196,7 +1256,7 @@ pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     /// `offset + COLUMN_COUNT - 1` cannot be read or converted.
     fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError>;
 
-    /// Read from offset 0.
+    /// Reads this type from `row`, starting at column 0.
     ///
     /// # Errors
     ///
@@ -1206,16 +1266,15 @@ pub trait FromDrizzleRow<Row: ?Sized>: Sized {
     }
 }
 
-/// Trait for composite (multi-column) row types that support NULL probing.
+/// A multi-column row type that can check whether it is absent (NULL).
 ///
-/// Implementing this trait enables `Option<T>` to work as a `FromDrizzleRow`
-/// target, used for LEFT JOIN results where the joined table may be absent
-/// (all columns NULL).
+/// This makes `Option<T>` work as a [`FromDrizzleRow`] target for a model,
+/// as in a LEFT JOIN where the joined table may have no matching row.
 ///
-/// Proc macros generate this for each `SelectModel`. Leaf types (i32, String,
-/// etc.) use concrete `Option<T>` impls instead.
+/// The table macros implement this for each select model. Single-column
+/// types (`i32`, `String`, ...) have their own `Option<T>` impls instead.
 pub trait NullProbeRow<Row: ?Sized>: FromDrizzleRow<Row> {
-    /// Returns `true` if the first column at `offset` is NULL.
+    /// Returns `true` if the column at `offset` is NULL.
     ///
     /// # Errors
     ///
@@ -1279,18 +1338,18 @@ with_col_sizes_200!(impl_from_drizzle_row_tuple);
 // SQLTypeToRust — SQL type marker × dialect → canonical Rust type
 // =============================================================================
 
-/// Maps a dialect-native SQL type marker to its canonical Rust type.
+/// The default Rust type for a SQL type marker in dialect `D`.
 ///
-/// Parameterized by `D` (a dialect marker such as
-/// [`SQLiteDialect`] or [`PostgresDialect`]) so that
-/// type mappings can differ per database.
+/// `D` is a dialect marker ([`SQLiteDialect`], [`PostgresDialect`] or
+/// [`MySQLDialect`]), so the mapping can differ per database. For example,
+/// `postgres::types::Int4` maps to `i32` and `sqlite::types::Integer` to
+/// `i64`. The selected column types of `.select(...)` come from here.
 ///
-/// Each dialect's native type markers (e.g., `sqlite::types::Integer`,
-/// `postgres::types::Int4`) implement this trait for their respective dialect.
-///
-/// Feature-gated types (`chrono`, `uuid`, `serde`) provide mappings when
-/// the feature is enabled. Without the feature there is **no impl**,
-/// producing a compile error that guides the user.
+/// Some types map to a feature-gated Rust type (`chrono`, `time`, `jiff`,
+/// `uuid`, `serde`, `cidr`, ...). Without any matching feature, some fall
+/// back to `String`, while PostgreSQL date/time, `Uuid` and `Json`/`Jsonb`
+/// have no mapping at all, which is a compile error naming the feature to
+/// enable.
 #[diagnostic::on_unimplemented(
     message = "SQL type `{Self}` has no default Rust mapping for dialect `{D}`",
     label = "this SQL type has no default Rust mapping for this dialect",
@@ -1668,8 +1727,10 @@ impl SQLTypeToRust<PostgresDialect> for drizzle_types::postgres::types::Enum {
 // WrapNullable — Option<T> wrapping based on nullability
 // =============================================================================
 
-/// Wraps a Rust type in `Option<T>` when nullable.
+/// `T` for [`NonNull`](crate::expr::NonNull), `Option<T>` for
+/// [`Null`](crate::expr::Null).
 pub trait WrapNullable<T> {
+    /// The wrapped type.
     type Output;
 }
 
@@ -1685,20 +1746,21 @@ impl<T> WrapNullable<T> for crate::expr::Null {
 // ExprValueType — "what Rust type does this expression produce?"
 // =============================================================================
 
-/// Resolves the Rust value type for a column or typed expression.
+/// The Rust type a selected column or typed expression decodes into.
 ///
 /// Implemented for:
-/// - Column ZSTs (proc macro generates alongside `ColumnValueType`)
-/// - `SQLExpr<T, N, A>` where `T: SQLTypeToRust<D>` and `N: WrapNullable`
-///
-/// For `SQL<'a, V>` (raw SQL), `ValueType = ()` — the user must specify
-/// the concrete row type via turbofish (`.all::<T>()`).
+/// - columns (generated by the table macros);
+/// - `SQLExpr<V, T, N, A, S>`: [`SQLTypeToRust`] of `T`, wrapped in `Option`
+///   when `N` is [`Null`](crate::expr::Null);
+/// - raw `SQL<'a, V>`: `()`, so the caller must name the row type
+///   (`.all::<T>()`).
 #[diagnostic::on_unimplemented(
     message = "cannot infer Rust type for expression `{Self}`",
     label = "use typed expressions or derive FromRow to specify the Rust type",
     note = "raw SQL and JSON expressions require explicit type annotation"
 )]
 pub trait ExprValueType {
+    /// The decoded Rust type.
     type ValueType;
 }
 
@@ -1715,7 +1777,7 @@ where
     type ValueType = <N as WrapNullable<<T as SQLTypeToRust<V::DialectMarker>>::RustType>>::Output;
 }
 
-/// Raw SQL fallback — value type is `()`, user must specify the concrete type.
+/// Raw SQL has no known type (`()`); the caller must name the row type.
 impl<V: crate::SQLParam> ExprValueType for crate::sql::SQL<'_, V> {
     type ValueType = ();
 }
@@ -1724,16 +1786,18 @@ impl<V: crate::SQLParam> ExprValueType for crate::sql::SQL<'_, V> {
 // HasSelectModel — table → Select model (lifetime-free)
 // =============================================================================
 
-/// Associates a table with its Select model type and column count.
+/// The select model and column count of a table.
 ///
-/// Generated by `#[SQLiteTable]`, `#[PostgresTable]`, and `#[MySQLTable]`
-/// alongside `SQLTable`.
+/// Generated by `#[SQLiteTable]`, `#[PostgresTable]` and `#[MySQLTable]`.
+/// `SELECT *` from the table decodes into `SelectModel`.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a drizzle table",
     label = "ensure this type was derived with #[SQLiteTable], #[PostgresTable], or #[MySQLTable]"
 )]
 pub trait HasSelectModel {
+    /// The struct a `SELECT *` row decodes into.
     type SelectModel;
+    /// Number of columns in the table.
     const COLUMN_COUNT: usize;
 }
 
@@ -1747,13 +1811,17 @@ impl<T: HasSelectModel + ?Sized> HasSelectModel for &T {
 // ResolveRow — Marker + Table → default row type R
 // =============================================================================
 
-/// Given a select marker and a table, determines the default row type R.
-/// Evaluated at `.from(table)` time.
+/// The row type a select marker produces when selecting from `Table`.
+///
+/// Computed at `.from(table)`: the table's select model for `SELECT *`, a
+/// tuple of value types for explicit columns, `R` for `SelectAs<R>`, and
+/// `()` for raw SQL.
 #[diagnostic::on_unimplemented(
     message = "cannot resolve return type for this query",
     label = "the selected columns and table do not produce a known row type"
 )]
 pub trait ResolveRow<Table> {
+    /// The inferred row type.
     type Row;
 }
 
@@ -1779,10 +1847,11 @@ where
     type Row = M::Row;
 }
 
-/// Compile-time constraint for `.select(MyRow::Select).from(table)` base table matching.
+/// The `FromRow` struct `Self` may select from `Table`.
 ///
-/// `#[from(Table)]` on `*FromRow` structs emits `impl SelectAsFrom<Table> for MyRow`.
-/// Structs without `#[from(...)]` may opt into any table.
+/// Checked by `.select(MyRow::Select).from(table)`. `#[from(Table)]` on a
+/// `FromRow` struct implements this for that table only. A struct without
+/// `#[from(...)]` accepts any table.
 #[diagnostic::on_unimplemented(
     message = "row selector `{Self}` cannot be used with table `{Table}`",
     label = "the #[from(...)] table does not match .from(...)",
@@ -1926,12 +1995,12 @@ where
     type Row = <SelectStar as JoinRow<R, T, Kind>>::Row;
 }
 
-/// Select projections whose row type can represent an unmatched lateral row.
+/// Selections that stay valid after a `LEFT JOIN LATERAL`.
 ///
 /// `SELECT *` decodes the joined source as `Option<JoinedTable::SelectModel>`.
-/// Explicit columns are accepted only when they all belong to the current
-/// left-hand scope. A projection that reads the lateral source is rejected
-/// because its output would need to become nullable on unmatched rows.
+/// Explicit columns and `FromRow` selections are accepted only when they read
+/// sources already in scope before the lateral join: a column of the lateral
+/// source would have to become nullable on unmatched rows.
 #[doc(hidden)]
 pub trait LeftLateralSelection<Proof = ()>: left_lateral_private::Sealed {}
 
@@ -2001,26 +2070,28 @@ impl<Row, R, T, Kind> JoinRow<R, T, Kind> for SelectAs<Row> {
 // IntoSelectTarget — select arguments → Marker type
 // =============================================================================
 
-/// Determines the select marker from what was passed to `.select()`.
+/// Something that can be passed to `.select(...)`; picks the select marker.
 ///
-/// The marker controls how row types are inferred:
-/// - `SelectStar` — infer R from the table's Select model
-/// - `SelectCols<C>` — infer R from the column value types
-/// - `SelectExpr` — R must be specified by the user
+/// The marker decides how the row type is inferred:
+/// - [`SelectStar`]: the table's select model;
+/// - [`SelectCols<C>`]: a tuple of the columns' value types;
+/// - [`SelectExpr`]: the caller names the row type;
+/// - [`SelectAs<R>`]: the `FromRow` struct `R`.
 ///
-/// Implemented automatically for:
-/// - `()` → `SelectStar`
-/// - `SQL<'a, V>` → `SelectExpr`
-/// - `SQLExpr<'a, V, T, N, A>` → `SelectCols<(Self,)>`
-/// - Tuples `(A, B, ...)` → `SelectCols<(A, B, ...)>`
-/// - Column ZSTs (proc macro generated)
-/// - Table structs (proc macro generated) → `SelectStar`
+/// Implemented for:
+/// - `()` -> `SelectStar`
+/// - `SQL<'a, V>` -> `SelectExpr`
+/// - `SQLExpr<'a, V, T, N, A, S>` -> `SelectCols<(Self,)>`
+/// - tuples `(A, B, ...)` -> `SelectCols<(A, B, ...)>`
+/// - columns and tables (generated by the table macros)
+/// - `FromRow` selectors (generated by the `FromRow` derives) -> `SelectAs<R>`
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be used as a select target",
     label = "this type does not implement IntoSelectTarget",
     note = "implement IntoSelectTarget or use a column, table, or typed expression"
 )]
 pub trait IntoSelectTarget {
+    /// The select marker.
     type Marker;
 }
 

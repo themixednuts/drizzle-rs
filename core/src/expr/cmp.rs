@@ -1,25 +1,23 @@
-//! Type-safe comparison functions.
+//! Comparison operators: `=`, `<>`, `<`, `>`, `LIKE`, `BETWEEN`, `IS NULL`, ...
 //!
-//! This module provides both function-based and method-based comparisons:
+//! Each operator is available as a function ([`eq`], [`gt`], ...) and as a
+//! method through [`ExprExt`] (`users.age.gt(18)`).
 //!
-//! ```rust
-//! # let _ = r####"
-//! // Function style
-//! eq(users.id, 42)
-//! gt(users.age, 18)
+//! # Type safety
 //!
-//! // Method style (on SQLExpr)
-//! users.id.eq(42)
-//! users.age.gt(18)
-//! # "####;
-//! ```
+//! - [`eq`], [`ne`], [`gt`], [`gte`], [`lt`], [`lte`], [`between`] and the
+//!   `IS [NOT] DISTINCT FROM` functions need operands with compatible SQL
+//!   types (integers with integers, text with text, ...).
+//! - [`like`] and [`not_like`] need text on both sides.
+//! - [`is_null`], [`is_not_null`], [`is_true`] and [`is_false`] accept any
+//!   expression.
 //!
-//! # Type Safety
-//!
-//! - `eq`, `ne`, `gt`, `gte`, `lt`, `lte`: Require compatible types
-//! - `like`, `not_like`: Require textual types on both sides
-//! - `between`: Requires expr compatible with both bounds
-//! - `is_null`, `is_not_null`: No type constraint (any type can be null-checked)
+//! Every comparison returns the dialect's boolean type. Its `Nullable` is
+//! always [`NonNull`], but its [sources](ExprSources) record each operand's
+//! nullability, so a comparison with a nullable or outer-joined operand
+//! decodes as nullable when selected (`NULL = 1` is NULL in SQL). The
+//! `IS ...` tests ([`is_null`], [`is_distinct_from`], [`is_true`], ...) are
+//! never NULL.
 
 use crate::dialect::{Dialect, DialectTypes};
 use crate::sql::{SQL, Token};
@@ -82,28 +80,28 @@ where
     value.into_expr_sql()
 }
 
-/// Type-safe operand for comparison functions.
+/// A value that can be the right-hand side of a comparison with `L`.
 ///
-/// This trait exists as an indirection layer between comparison functions
-/// (`eq`, `gt`, `like`, etc.) and the `Expr` trait. Rather than accepting
-/// any `Expr` directly, comparisons require `ComparisonOperand<'a, V, L>`
-/// where `L` is the left-hand expression type.
-///
-/// The blanket impl below only fires when `L::SQLType: Compatible<R::SQLType>`.
-/// Table macros can also implement this trait for custom column value types and
-/// a specific generated column ZST, which enables `eq(table.custom, value)`
-/// without making the value type a global SQL expression.
+/// Every [`Expr`] whose SQL type is compatible with `L`'s is an operand. The
+/// table macros also implement this trait for a column's custom Rust type
+/// (such as an enum or JSON struct) against that one column, so
+/// `eq(table.custom, value)` works without making the custom type an
+/// expression everywhere.
 pub trait ComparisonOperand<'a, V, L>: Sized
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
 {
+    /// SQL type of the operand.
     type SQLType: DataType;
+    /// Whether the operand can be NULL.
     type Nullable: Nullability;
+    /// Whether the operand is an aggregate.
     type Aggregate: AggregateKind;
-    /// See [`ExprSources::Sources`].
+    /// Tables the operand reads; see [`ExprSources::Sources`].
     type Sources;
 
+    /// Renders the operand.
     fn into_comparison_sql(self) -> SQL<'a, V>;
 }
 
@@ -130,21 +128,45 @@ where
 
 /// Equality comparison (`=`).
 ///
-/// Requires both operands to have compatible SQL types.
+/// Renders `left = right`. Both sides must have compatible SQL types. The
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Int compared with i32
-/// eq(users.id, 10);
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let by_id = eq(users.id, 42);
+/// assert_eq!(by_id.sql(), r#""users"."id" = ?"#);
+/// ```
 ///
-/// // ✅ OK: Int compared with BigInt (integer family)
-/// eq(users.id, users.big_id);
+/// # Type safety
 ///
-/// // ❌ Compile error: Int cannot be compared with Text
-/// eq(users.id, "hello");
-/// # "####;
+/// Comparing an integer column with text does not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = eq(users.id, "hello");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn eq<'a, V, L, R>(
@@ -169,7 +191,26 @@ where
 
 /// Inequality comparison (`<>`).
 ///
-/// Requires both operands to have compatible SQL types.
+/// Renders `left <> right`. Both sides must have compatible SQL types. The
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(ne(users.name, "admin").sql(), r#""users"."name" <> ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn ne<'a, V, L, R>(
     left: L,
@@ -191,9 +232,7 @@ where
     SQLExpr::new(binary_op(left, Token::NE, right))
 }
 
-/// Inequality comparison (`<>`).
-///
-/// Alias for [`ne`].
+/// Inequality comparison (`<>`); same as [`ne`].
 #[allow(clippy::type_complexity)]
 pub fn neq<'a, V, L, R>(
     left: L,
@@ -221,7 +260,26 @@ where
 
 /// Greater-than comparison (`>`).
 ///
-/// Requires both operands to have compatible SQL types.
+/// Renders `left > right`. Both sides must have compatible SQL types. The
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(gt(users.age, 18).sql(), r#""users"."age" > ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn gt<'a, V, L, R>(
     left: L,
@@ -245,7 +303,26 @@ where
 
 /// Greater-than-or-equal comparison (`>=`).
 ///
-/// Requires both operands to have compatible SQL types.
+/// Renders `left >= right`. Both sides must have compatible SQL types. The
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(gte(users.age, 18).sql(), r#""users"."age" >= ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn gte<'a, V, L, R>(
     left: L,
@@ -269,7 +346,26 @@ where
 
 /// Less-than comparison (`<`).
 ///
-/// Requires both operands to have compatible SQL types.
+/// Renders `left < right`. Both sides must have compatible SQL types. The
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(lt(users.age, 65).sql(), r#""users"."age" < ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn lt<'a, V, L, R>(
     left: L,
@@ -293,7 +389,26 @@ where
 
 /// Less-than-or-equal comparison (`<=`).
 ///
-/// Requires both operands to have compatible SQL types.
+/// Renders `left <= right`. Both sides must have compatible SQL types. The
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(lte(users.age, 65).sql(), r#""users"."age" <= ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn lte<'a, V, L, R>(
     left: L,
@@ -319,20 +434,49 @@ where
 // Pattern Matching
 // =============================================================================
 
-/// LIKE pattern matching.
+/// Pattern match (`LIKE`).
 ///
-/// Requires both operands to be textual types (TEXT, VARCHAR).
+/// Renders `left LIKE pattern`. Both sides must be text. In the pattern, `%`
+/// matches any run of characters and `_` matches one character. The result is
+/// the dialect's boolean, NULL when either side is. Case sensitivity follows
+/// the database: SQLite and MySQL (with its default collations) ignore case,
+/// PostgreSQL does not.
 ///
-/// # Type Safety
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // ✅ OK: Text column with text pattern
-/// like(users.name, "%Alice%");
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let starts_with_a = like(users.name, "A%");
+/// assert_eq!(starts_with_a.sql(), r#""users"."name" LIKE ?"#);
+/// ```
 ///
-/// // ❌ Compile error: Int is not Textual
-/// like(users.id, "%123%");
-/// # "####;
+/// # Type safety
+///
+/// `LIKE` on an integer column does not compile:
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let wrong = like(users.id, "1%");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn like<'a, V, L, R>(
@@ -361,9 +505,26 @@ where
     )
 }
 
-/// NOT LIKE pattern matching.
+/// Negated pattern match (`NOT LIKE`).
 ///
-/// Requires both operands to be textual types (TEXT, VARCHAR).
+/// Renders `left NOT LIKE pattern`. Both sides must be text. See [`like`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(not_like(users.name, "%bot%").sql(), r#""users"."name" NOT LIKE ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn not_like<'a, V, L, R>(
     left: L,
@@ -396,10 +557,29 @@ where
 // Range Comparisons
 // =============================================================================
 
-/// BETWEEN comparison.
+/// Range check (`BETWEEN`), inclusive on both ends.
 ///
-/// Checks if expr is between low and high (inclusive).
-/// Requires expr type to be compatible with both bounds.
+/// Renders `(expr BETWEEN low AND high)`. Both bounds must have a SQL type
+/// compatible with `expr`. The result is the dialect's boolean, NULL when
+/// any operand is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let working_age = between(users.age, 18, 65);
+/// assert_eq!(working_age.sql(), r#"("users"."age" BETWEEN ? AND ?)"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn between<'a, V, E, L, H>(
     expr: E,
@@ -432,9 +612,27 @@ where
     )
 }
 
-/// NOT BETWEEN comparison.
+/// Negated range check (`NOT BETWEEN`).
 ///
-/// Requires expr type to be compatible with both bounds.
+/// Renders `(expr NOT BETWEEN low AND high)`. See [`between`].
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let minors = not_between(users.age, 18, 120);
+/// assert_eq!(minors.sql(), r#"("users"."age" NOT BETWEEN ? AND ?)"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn not_between<'a, V, E, L, H>(
     expr: E,
@@ -472,10 +670,27 @@ where
 // NULL Checks
 // =============================================================================
 
-/// IS NULL check.
+/// NULL check (`IS NULL`).
 ///
-/// Returns a boolean expression checking if the value is NULL.
-/// Any expression type can be null-checked.
+/// Renders `expr IS NULL`. Accepts any expression. The result is the
+/// dialect's boolean and is never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(is_null(users.email).sql(), r#""users"."email" IS NULL"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn is_null<'a, V, E>(
     expr: E,
@@ -494,10 +709,27 @@ where
     SQLExpr::new(operand_sql(expr).push(Token::IS).push(Token::NULL))
 }
 
-/// IS NOT NULL check.
+/// Non-NULL check (`IS NOT NULL`).
 ///
-/// Returns a boolean expression checking if the value is not NULL.
-/// Any expression type can be null-checked.
+/// Renders `expr IS NOT NULL`. Accepts any expression. The result is the
+/// dialect's boolean and is never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(is_not_null(users.email).sql(), r#""users"."email" IS NOT NULL"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn is_not_null<'a, V, E>(
     expr: E,
@@ -525,15 +757,34 @@ where
 // IS DISTINCT FROM
 // =============================================================================
 
-/// IS DISTINCT FROM - NULL-safe inequality comparison.
+/// NULL-safe inequality (`IS DISTINCT FROM`).
 ///
-/// Unlike `<>`, this treats NULL as a comparable value:
-/// - `NULL IS DISTINCT FROM NULL` → false
-/// - `NULL IS DISTINCT FROM 5` → true
-/// - `5 IS DISTINCT FROM NULL` → true
+/// Like `<>`, but NULL is compared as an ordinary value, so the result is
+/// never NULL:
 ///
-/// SQLite and PostgreSQL render `IS DISTINCT FROM`; MySQL renders the inverse
-/// of its null-safe equality operator, `NOT (left <=> right)`.
+/// - `NULL IS DISTINCT FROM NULL` is false;
+/// - `NULL IS DISTINCT FROM 5` is true.
+///
+/// SQLite and PostgreSQL render `left IS DISTINCT FROM right`; MySQL renders
+/// `NOT (left <=> right)`. Both sides must have compatible SQL types.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let changed = is_distinct_from(users.email, "old@example.com");
+/// assert_eq!(changed.sql(), r#""users"."email" IS DISTINCT FROM ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn is_distinct_from<'a, V, L, R>(
     left: L,
@@ -570,14 +821,34 @@ where
     SQLExpr::new(sql)
 }
 
-/// IS NOT DISTINCT FROM - NULL-safe equality comparison.
+/// NULL-safe equality (`IS NOT DISTINCT FROM`).
 ///
-/// Unlike `=`, this treats NULL as a comparable value:
-/// - `NULL IS NOT DISTINCT FROM NULL` → true
-/// - `NULL IS NOT DISTINCT FROM 5` → false
+/// Like `=`, but NULL is compared as an ordinary value, so the result is
+/// never NULL:
 ///
-/// SQLite and PostgreSQL render `IS NOT DISTINCT FROM`; MySQL renders its
-/// null-safe equality operator, `<=>`.
+/// - `NULL IS NOT DISTINCT FROM NULL` is true;
+/// - `NULL IS NOT DISTINCT FROM 5` is false.
+///
+/// SQLite and PostgreSQL render `left IS NOT DISTINCT FROM right`; MySQL
+/// renders `left <=> right`. Both sides must have compatible SQL types.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let same = is_not_distinct_from(users.email, "a@example.com");
+/// assert_eq!(same.sql(), r#""users"."email" IS NOT DISTINCT FROM ?"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn is_not_distinct_from<'a, V, L, R>(
     left: L,
@@ -614,12 +885,27 @@ where
 // Boolean Testing
 // =============================================================================
 
-/// IS TRUE - tests if a boolean expression is true.
+/// Truth test (`IS TRUE`) that never returns NULL.
 ///
-/// Unlike `= TRUE`, this handles NULL correctly:
-/// - `TRUE IS TRUE` → true
-/// - `FALSE IS TRUE` → false
-/// - `NULL IS TRUE` → false (not NULL!)
+/// Renders `expr IS TRUE`. Unlike `= TRUE`, a NULL input gives false instead
+/// of NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(is_true(users.active).sql(), r#""users"."active" IS TRUE"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn is_true<'a, V, E>(
     expr: E,
@@ -638,12 +924,27 @@ where
     SQLExpr::new(operand_sql(expr).push(Token::IS).append(SQL::raw("TRUE")))
 }
 
-/// IS FALSE - tests if a boolean expression is false.
+/// Falsity test (`IS FALSE`) that never returns NULL.
 ///
-/// Unlike `= FALSE`, this handles NULL correctly:
-/// - `FALSE IS FALSE` → true
-/// - `TRUE IS FALSE` → false
-/// - `NULL IS FALSE` → false (not NULL!)
+/// Renders `expr IS FALSE`. Unlike `= FALSE`, a NULL input gives false
+/// instead of NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(is_false(users.active).sql(), r#""users"."active" IS FALSE"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn is_false<'a, V, E>(
     expr: E,
@@ -666,29 +967,34 @@ where
 // Method-based Comparison API (Extension Trait)
 // =============================================================================
 
-/// Extension trait providing method-based comparisons for any `Expr` type.
+/// Method syntax for comparisons: `users.age.gt(18)` instead of `gt(users.age, 18)`.
 ///
-/// This trait is blanket-implemented for all types implementing `Expr`,
-/// allowing method syntax on columns, literals, and expressions:
+/// Implemented for every [`Expr`]. Each method calls the function of the same
+/// name in this module (`ge` and `le` call [`gte`] and [`lte`]) and has the
+/// same type checks.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// // Works on columns directly
-/// users.id.eq(42)
-/// users.age.gt(18)
-///
-/// // Chain with operators
-/// users.id.eq(42) & users.age.gt(18)
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let filter = users.age.ge(18) & users.email.is_not_null();
+/// assert_eq!(
+///     filter.sql(),
+///     r#"("users"."age" >= ? AND "users"."email" IS NOT NULL)"#
+/// );
 /// ```
 pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
-    /// Equality comparison (`=`).
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.id.eq(42)  // "users"."id" = 42
-    /// # "####;
-    /// ```
+    /// Equality comparison (`=`); see [`eq`].
     #[allow(clippy::type_complexity)]
     fn eq<R>(
         self,
@@ -708,13 +1014,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         eq(self, other)
     }
 
-    /// Inequality comparison (`<>`).
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.id.ne(42)  // "users"."id" <> 42
-    /// # "####;
-    /// ```
+    /// Inequality comparison (`<>`); see [`ne`].
     #[allow(clippy::type_complexity)]
     fn ne<R>(
         self,
@@ -734,13 +1034,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         ne(self, other)
     }
 
-    /// Greater-than comparison (`>`).
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.age.gt(18)  // "users"."age" > 18
-    /// # "####;
-    /// ```
+    /// Greater-than comparison (`>`); see [`gt`].
     #[allow(clippy::type_complexity)]
     fn gt<R>(
         self,
@@ -760,13 +1054,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         gt(self, other)
     }
 
-    /// Greater-than-or-equal comparison (`>=`).
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.age.ge(18)  // "users"."age" >= 18
-    /// # "####;
-    /// ```
+    /// Greater-than-or-equal comparison (`>=`); see [`gte`].
     #[allow(clippy::type_complexity)]
     fn ge<R>(
         self,
@@ -786,13 +1074,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         gte(self, other)
     }
 
-    /// Less-than comparison (`<`).
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.age.lt(65)  // "users"."age" < 65
-    /// # "####;
-    /// ```
+    /// Less-than comparison (`<`); see [`lt`].
     #[allow(clippy::type_complexity)]
     fn lt<R>(
         self,
@@ -812,13 +1094,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         lt(self, other)
     }
 
-    /// Less-than-or-equal comparison (`<=`).
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.age.le(65)  // "users"."age" <= 65
-    /// # "####;
-    /// ```
+    /// Less-than-or-equal comparison (`<=`); see [`lte`].
     #[allow(clippy::type_complexity)]
     fn le<R>(
         self,
@@ -838,13 +1114,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         lte(self, other)
     }
 
-    /// LIKE pattern matching.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.name.like("%Alice%")  // "users"."name" LIKE '%Alice%'
-    /// # "####;
-    /// ```
+    /// Pattern match (`LIKE`); see [`like`].
     #[allow(clippy::type_complexity)]
     fn like<R>(
         self,
@@ -866,13 +1136,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         like(self, pattern)
     }
 
-    /// NOT LIKE pattern matching.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.name.not_like("%Bot%")  // "users"."name" NOT LIKE '%Bot%'
-    /// # "####;
-    /// ```
+    /// Negated pattern match (`NOT LIKE`); see [`not_like`].
     #[allow(clippy::type_complexity)]
     fn not_like<R>(
         self,
@@ -894,13 +1158,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         not_like(self, pattern)
     }
 
-    /// IS NULL check.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.deleted_at.is_null()  // "users"."deleted_at" IS NULL
-    /// # "####;
-    /// ```
+    /// NULL check (`IS NULL`); see [`is_null`].
     #[allow(clippy::wrong_self_convention)]
     #[allow(clippy::type_complexity)]
     fn is_null(
@@ -916,13 +1174,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         is_null(self)
     }
 
-    /// IS NOT NULL check.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.email.is_not_null()  // "users"."email" IS NOT NULL
-    /// # "####;
-    /// ```
+    /// Non-NULL check (`IS NOT NULL`); see [`is_not_null`].
     #[allow(clippy::wrong_self_convention)]
     #[allow(clippy::type_complexity)]
     fn is_not_null(
@@ -938,15 +1190,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         is_not_null(self)
     }
 
-    /// BETWEEN comparison.
-    ///
-    /// Checks if the value is between low and high (inclusive).
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.age.between(18, 65)  // ("users"."age" BETWEEN 18 AND 65)
-    /// # "####;
-    /// ```
+    /// Inclusive range check (`BETWEEN`); see [`between`].
     #[allow(clippy::type_complexity)]
     fn between<L, H>(
         self,
@@ -969,15 +1213,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         between(self, low, high)
     }
 
-    /// NOT BETWEEN comparison.
-    ///
-    /// Checks if the value is NOT between low and high.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.age.not_between(0, 17)  // ("users"."age" NOT BETWEEN 0 AND 17)
-    /// # "####;
-    /// ```
+    /// Negated range check (`NOT BETWEEN`); see [`not_between`].
     #[allow(clippy::type_complexity)]
     fn not_between<L, H>(
         self,
@@ -1000,16 +1236,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         not_between(self, low, high)
     }
 
-    /// IN array check.
-    ///
-    /// Checks if the value is in the provided array.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.role.in_array([Role::Admin, Role::Moderator])
-    /// // "users"."role" IN ('admin', 'moderator')
-    /// # "####;
-    /// ```
+    /// Membership in a list of values (`IN (...)`); see [`in_array`](super::in_array).
     #[allow(clippy::type_complexity)]
     fn in_array<I, R>(
         self,
@@ -1033,16 +1260,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::in_array(self, values)
     }
 
-    /// NOT IN array check.
-    ///
-    /// Checks if the value is NOT in the provided array.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.role.not_in_array([Role::Banned, Role::Suspended])
-    /// // "users"."role" NOT IN ('banned', 'suspended')
-    /// # "####;
-    /// ```
+    /// Non-membership in a list of values (`NOT IN (...)`); see
+    /// [`not_in_array`](super::not_in_array).
     #[allow(clippy::type_complexity)]
     fn not_in_array<I, R>(
         self,
@@ -1066,7 +1285,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::not_in_array(self, values)
     }
 
-    /// IN subquery check.
+    /// Membership in a subquery's rows (`IN (SELECT ...)`); see
+    /// [`in_subquery`](super::in_subquery).
     #[allow(clippy::type_complexity)]
     fn in_subquery<S>(
         self,
@@ -1089,7 +1309,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::in_subquery(self, subquery)
     }
 
-    /// NOT IN subquery check.
+    /// Non-membership in a subquery's rows (`NOT IN (SELECT ...)`); see
+    /// [`not_in_subquery`](super::not_in_subquery).
     #[allow(clippy::type_complexity)]
     fn not_in_subquery<S>(
         self,
@@ -1112,14 +1333,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::not_in_subquery(self, subquery)
     }
 
-    /// IS DISTINCT FROM - NULL-safe inequality comparison.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.status.is_distinct_from("active")
-    /// // "users"."status" IS DISTINCT FROM 'active'
-    /// # "####;
-    /// ```
+    /// NULL-safe inequality (`IS DISTINCT FROM`); see [`is_distinct_from`].
     #[allow(clippy::type_complexity, clippy::wrong_self_convention)]
     fn is_distinct_from<R>(
         self,
@@ -1139,14 +1353,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         is_distinct_from(self, other)
     }
 
-    /// IS NOT DISTINCT FROM - NULL-safe equality comparison.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.status.is_not_distinct_from("active")
-    /// // "users"."status" IS NOT DISTINCT FROM 'active'
-    /// # "####;
-    /// ```
+    /// NULL-safe equality (`IS NOT DISTINCT FROM`); see [`is_not_distinct_from`].
     #[allow(clippy::type_complexity, clippy::wrong_self_convention)]
     fn is_not_distinct_from<R>(
         self,
@@ -1166,14 +1373,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         is_not_distinct_from(self, other)
     }
 
-    /// IS TRUE - boolean test that handles NULL.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.is_active.is_true()
-    /// // "users"."is_active" IS TRUE
-    /// # "####;
-    /// ```
+    /// Truth test (`IS TRUE`); see [`is_true`].
     #[allow(clippy::wrong_self_convention)]
     #[allow(clippy::type_complexity)]
     fn is_true(
@@ -1189,14 +1389,7 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         is_true(self)
     }
 
-    /// IS FALSE - boolean test that handles NULL.
-    ///
-    /// ```rust
-    /// # let _ = r####"
-    /// users.is_active.is_false()
-    /// // "users"."is_active" IS FALSE
-    /// # "####;
-    /// ```
+    /// Falsity test (`IS FALSE`); see [`is_false`].
     #[allow(clippy::wrong_self_convention)]
     #[allow(clippy::type_complexity)]
     fn is_false(
@@ -1213,5 +1406,4 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
     }
 }
 
-/// Blanket implementation for all `Expr` types.
 impl<'a, V: SQLParam, E: Expr<'a, V>> ExprExt<'a, V> for E {}

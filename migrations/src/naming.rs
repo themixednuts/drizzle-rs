@@ -18,7 +18,16 @@ pub struct InvalidMigrationName {
     reason: &'static str,
 }
 
-/// Validate that a migration name is exactly one safe filesystem component.
+/// Checks that a migration name is exactly one safe folder name.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::naming::validate_migration_name;
+///
+/// assert!(validate_migration_name("20240101120000_add_users").is_ok());
+/// assert!(validate_migration_name("../escape").is_err());
+/// ```
 ///
 /// # Errors
 ///
@@ -48,7 +57,7 @@ pub fn validate_migration_name(name: &str) -> Result<(), InvalidMigrationName> {
     Ok(())
 }
 
-/// Adjectives for migration names (matches drizzle-kit)
+/// Adjectives used in random migration names (same list as drizzle-kit).
 pub const ADJECTIVES: &[&str] = &[
     "abandoned",
     "aberrant",
@@ -435,7 +444,7 @@ pub const ADJECTIVES: &[&str] = &[
     "zippy",
 ];
 
-/// Heroes for migration names (matches drizzle-kit's Marvel/comic heroes)
+/// Hero names used in random migration names (same list as drizzle-kit).
 pub const HEROES: &[&str] = &[
     "aaron_stack",
     "abomination",
@@ -1363,24 +1372,25 @@ pub const HEROES: &[&str] = &[
 // Prefix Mode - abstraction for different naming strategies
 // =============================================================================
 
-/// Prefix mode for migration folder names
+/// How a migration folder name is prefixed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PrefixMode {
-    /// Timestamp prefix: YYYYMMDDHHMMSS (default, matches drizzle-kit V3)
+    /// `YYYYMMDDHHMMSS` in UTC (default, matches drizzle-kit V3).
     #[default]
     Timestamp,
-    /// Index prefix: 0000, 0001, etc. (legacy format)
+    /// Zero-padded index: `0000`, `0001`, ... (legacy format).
     Index,
-    /// Supabase prefix format
+    /// Supabase style; same `YYYYMMDDHHMMSS` format as `Timestamp`.
     Supabase,
-    /// Unix timestamp in seconds
+    /// Unix timestamp in seconds.
     Unix,
-    /// No prefix
+    /// No prefix; the tag is just the name.
     None,
 }
 
 impl PrefixMode {
-    /// Generate a prefix for this mode
+    /// Returns the prefix for this mode. `idx` is used only by
+    /// [`PrefixMode::Index`].
     #[must_use]
     pub fn generate_prefix(&self, idx: u32) -> String {
         match self {
@@ -1396,7 +1406,8 @@ impl PrefixMode {
 impl FromStr for PrefixMode {
     type Err = ();
 
-    /// Parse prefix mode from string (matches drizzle-kit config)
+    /// Parses a drizzle-kit `prefix` config value (case-insensitive).
+    /// Unknown values fall back to [`PrefixMode::Timestamp`]; it never fails.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let result = match s.to_lowercase().as_str() {
             "index" => Self::Index,
@@ -1415,7 +1426,7 @@ impl FromStr for PrefixMode {
 // V3 Migration Tag Generation (matches drizzle-kit)
 // =============================================================================
 
-/// Generate a timestamp prefix in YYYYMMDDHHMMSS format (matches drizzle-kit V3)
+/// Returns the current UTC time as `YYYYMMDDHHMMSS` (drizzle-kit V3 prefix).
 #[must_use]
 pub fn generate_timestamp_prefix() -> String {
     let now = SystemTime::now()
@@ -1438,7 +1449,7 @@ pub fn generate_timestamp_prefix() -> String {
     format!("{year:04}{month:02}{day:02}{hours:02}{minutes:02}{seconds:02}")
 }
 
-/// Generate a Supabase-style prefix.
+/// Returns a Supabase-style prefix.
 ///
 /// Supabase migrations use the same `YYYYMMDDHHMMSS` timestamp format as the
 /// `timestamp` prefix (drizzle-kit parity); sharing the format keeps folder
@@ -1447,7 +1458,7 @@ fn generate_supabase_prefix() -> String {
     generate_timestamp_prefix()
 }
 
-/// Generate a Unix timestamp prefix
+/// Returns the current Unix time in seconds, as a string.
 fn generate_unix_prefix() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1477,13 +1488,10 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     (i32::try_from(y).unwrap_or(i32::MAX), m, d)
 }
 
-/// Generate a random migration suffix like "`adjective_hero`".
+/// Returns a random `adjective_hero` suffix from [`ADJECTIVES`] and
+/// [`HEROES`], for example `brave_thor`.
 ///
-/// The nanosecond `seed` is narrowed from `u128` to `u64` via
-/// `u64::try_from(..).unwrap_or(u64::MAX)`; a truncated seed just costs a tiny
-/// sliver of entropy but never panics. The modulus-to-`usize` conversions are
-/// guaranteed to fit because `ADJECTIVES.len()` and `HEROES.len()` are
-/// compile-time-known to be small.
+/// Seeded from the current time; not cryptographically random.
 #[must_use]
 pub fn generate_random_suffix() -> String {
     let seed: u64 = SystemTime::now()
@@ -1502,9 +1510,19 @@ pub fn generate_random_suffix() -> String {
     format!("{}_{}", ADJECTIVES[adj_idx], HEROES[hero_idx])
 }
 
-/// Generate a migration tag in V3 format: "`YYYYMMDDHHMMSS_adjective_hero`"
+/// Returns a new tag `YYYYMMDDHHMMSS_<suffix>`.
 ///
-/// If `custom_name` is provided, it will be used instead of the random suffix.
+/// The suffix is `custom_name`, or a random `adjective_hero` when `None`.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::generate_migration_tag;
+///
+/// let tag = generate_migration_tag(Some("add_users"));
+/// assert_eq!(tag.len(), "YYYYMMDDHHMMSS_add_users".len());
+/// assert!(tag.ends_with("_add_users"));
+/// ```
 pub fn generate_migration_tag(custom_name: Option<&str>) -> String {
     let prefix = generate_timestamp_prefix();
     let suffix = custom_name.map_or_else(generate_random_suffix, std::string::ToString::to_string);
@@ -1512,7 +1530,20 @@ pub fn generate_migration_tag(custom_name: Option<&str>) -> String {
     format!("{prefix}_{suffix}")
 }
 
-/// Generate a migration tag with specific prefix mode
+/// Returns a new tag using `mode` for the prefix.
+///
+/// The suffix is `custom_name` or a random `adjective_hero`. With
+/// [`PrefixMode::None`] the tag is only the suffix.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::naming::generate_migration_tag_with_mode;
+/// use drizzle_migrations::PrefixMode;
+///
+/// assert_eq!(generate_migration_tag_with_mode(PrefixMode::Index, 3, Some("init")), "0003_init");
+/// assert_eq!(generate_migration_tag_with_mode(PrefixMode::None, 0, Some("init")), "init");
+/// ```
 pub fn generate_migration_tag_with_mode(
     mode: PrefixMode,
     idx: u32,

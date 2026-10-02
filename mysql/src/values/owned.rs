@@ -1,15 +1,15 @@
-//! Owned MySQL parameter values.
+//! [`OwnedMySQLValue`], the owned form of [`MySQLValue`](super::MySQLValue).
 
 use super::MySQLValue;
 use crate::prelude::*;
 use drizzle_core::{Dialect, MySQLDialect, SQL, SQLParam};
 
-/// An owned MySQL protocol value suitable for prepared-query storage.
+/// A [`MySQLValue`] that owns its bytes, for storing parameters beyond the
+/// borrow (for example in a cached prepared statement).
 ///
-/// Convert a [`MySQLValue`] explicitly with [`MySQLValue::into_owned`] when
-/// borrowed bytes must be detached. The generic `SQL::into_owned()` operation
-/// owns its chunk list but deliberately does not change one parameter value
-/// type into another.
+/// Convert with [`MySQLValue::into_owned`] or `From`. `SQL::into_owned()`
+/// does not do this for you: it owns the chunk list but keeps the parameter
+/// type.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum OwnedMySQLValue {
     /// SQL `NULL`.

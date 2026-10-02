@@ -1,4 +1,4 @@
-//! `ToSQL` trait for converting types to SQL fragments.
+//! [`ToSQL`]: rendering values and schema items as SQL fragments.
 
 use crate::prelude::*;
 use crate::{
@@ -9,22 +9,55 @@ use crate::{
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
-/// Trait for types that can be converted to SQL fragments.
+/// Something that renders as a [`SQL`] fragment for the value type `V`.
 ///
-/// The `'a` lifetime ties any borrowed parameter values to the resulting SQL
-/// fragment, allowing zero-copy SQL construction when inputs are already
-/// borrowed.
+/// Columns, tables, expressions, query builders and plain Rust values all
+/// implement it. Rust values (`i64`, `&str`, `Option<T>`, ...) render as
+/// bound parameters, `None` renders as `NULL`, and lists (`Vec<T>`, arrays,
+/// slices) render as comma-separated items. `'a` lets the fragment borrow
+/// its inputs instead of copying them.
+///
+/// # Examples
+///
+/// Rendering a custom type:
+///
+/// ```
+/// use drizzle_core::{SQL, ToSQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// struct Now;
+///
+/// impl<'a> ToSQL<'a, Value> for Now {
+///     fn to_sql(&self) -> SQL<'a, Value> {
+///         SQL::raw("CURRENT_TIMESTAMP")
+///     }
+/// }
+///
+/// assert_eq!(Now.to_sql().sql(), "CURRENT_TIMESTAMP");
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be converted to SQL",
     label = "this type does not implement ToSQL for the current dialect",
     note = "tuples larger than the enabled arity need a larger `colN` feature (col16, col32, col64, col128, col200) on drizzle-core"
 )]
 pub trait ToSQL<'a, V: SQLParam> {
+    /// Renders `self` as a SQL fragment.
     fn to_sql(&self) -> SQL<'a, V>;
 
-    /// Consume self and return SQL without cloning.
-    /// Default delegates to `to_sql()` (which clones). Types that own their SQL
-    /// (like `SQL` and `SQLExpr`) override this to avoid the clone.
+    /// Renders `self` as a SQL fragment, consuming it.
+    ///
+    /// The default calls [`to_sql`](Self::to_sql). Types that already hold a
+    /// fragment (such as `SQL` and `SQLExpr`) override it to avoid a clone.
     fn into_sql(self) -> SQL<'a, V>
     where
         Self: Sized,
@@ -33,25 +66,48 @@ pub trait ToSQL<'a, V: SQLParam> {
     }
 }
 
-/// Wrapper for byte slices to avoid list semantics (`Vec<u8>` normally becomes a list).
+/// Bytes bound as one binary parameter (BLOB / `bytea`).
 ///
-/// Use this when you want a single BLOB/bytea parameter:
-/// ```rust
-/// # let _ = r####"
-/// use drizzle_core::{SQLBytes, SQL};
+/// A `Vec<u8>` passed to [`ToSQL`] renders as a list, one parameter per
+/// byte. Wrap it in `SQLBytes` (or use [`SQL::bytes`]) to bind it as a
+/// single value.
 ///
-/// let data = vec![1u8, 2, 3];
-/// let sql = SQL::bytes(&data); // or SQL::param(SQLBytes::new(&data))
-/// # "####;
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{SQL, SQLBytes, ToSQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(Vec<u8>);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+/// # impl From<&[u8]> for Value {
+/// #     fn from(bytes: &[u8]) -> Self { Value(bytes.to_vec()) }
+/// # }
+/// # impl From<Vec<u8>> for Value {
+/// #     fn from(bytes: Vec<u8>) -> Self { Value(bytes) }
+/// # }
+///
+/// let data = vec![1_u8, 2, 3];
+/// let sql: SQL<'_, Value> = SQLBytes::new(&data[..]).to_sql();
+/// assert_eq!(sql.sql(), "?");
+/// assert_eq!(sql.params().collect::<Vec<_>>(), [&Value(vec![1, 2, 3])]);
 /// ```
 #[derive(Debug, Clone)]
 pub struct SQLBytes<'a>(pub Cow<'a, [u8]>);
 
-/// Explicit SQL NULL marker.
+/// Renders as the SQL literal `NULL`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SQLNull;
 
 impl<'a> SQLBytes<'a> {
+    /// Wraps borrowed or owned bytes.
     #[inline]
     pub fn new(bytes: impl Into<Cow<'a, [u8]>>) -> Self {
         Self(bytes.into())

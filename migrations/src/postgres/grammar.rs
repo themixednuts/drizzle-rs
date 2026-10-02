@@ -1,19 +1,30 @@
-//! `PostgreSQL` SQL type grammar and naming conventions
+//! PostgreSQL type checks, default naming rules, and default-value handling.
 //!
-//! This module provides type checking, naming conventions, and default value
-//! handling for `PostgreSQL` columns matching drizzle-kit grammar.ts
+//! Mirrors drizzle-kit's `grammar.ts`.
 
 // =============================================================================
 // Naming Conventions
 // =============================================================================
 
-/// Generate default name for a primary key constraint
+/// Returns PostgreSQL's default primary-key name, `{table}_pkey`.
 #[must_use]
 pub fn default_name_for_pk(table: &str) -> String {
     format!("{table}_pkey")
 }
 
-/// Generate default name for a foreign key constraint
+/// Returns the default foreign-key name, `{table}_{first_column}_fkey`.
+///
+/// Only the first column is used. A name over 63 bytes becomes
+/// `{table}_{hash}_fkey`, or `{hash}_fkey` for a long table name.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::postgres::default_name_for_fk;
+///
+/// let name = default_name_for_fk("posts", &["author_id".into()], "users", &["id".into()]);
+/// assert_eq!(name, "posts_author_id_fkey");
+/// ```
 #[must_use]
 pub fn default_name_for_fk(
     table: &str,
@@ -37,19 +48,21 @@ pub fn default_name_for_fk(
     }
 }
 
-/// Generate default name for a unique constraint
+/// Returns the default unique-constraint name, `{table}_{columns}_key`
+/// (columns joined with `_`), shortened with a hash past 63 bytes.
 #[must_use]
 pub fn default_name_for_unique(table: &str, columns: &[String]) -> String {
     truncate_identifier(&format!("{}_{}_key", table, columns.join("_")), "_key")
 }
 
-/// Generate default name for an index
+/// Returns the default index name, `{table}_{columns}_idx` (columns joined
+/// with `_`), shortened with a hash past 63 bytes.
 #[must_use]
 pub fn default_name_for_index(table: &str, columns: &[String]) -> String {
     truncate_identifier(&format!("{}_{}_idx", table, columns.join("_")), "_idx")
 }
 
-/// Generate default name for an identity sequence
+/// Returns the default identity/serial sequence name, `{table}_{column}_seq`.
 #[must_use]
 pub fn default_name_for_identity_sequence(table: &str, column: &str) -> String {
     format!("{table}_{column}_seq")
@@ -305,7 +318,8 @@ impl PgTypeCategory {
         None
     }
 
-    /// Determine the type category for a SQL type string
+    /// Classifies a SQL type string (case-insensitive); unknown types are
+    /// [`Custom`](Self::Custom).
     #[must_use]
     pub fn from_sql_type(sql_type: &str) -> Self {
         let s = sql_type.trim().to_lowercase();
@@ -317,7 +331,8 @@ impl PgTypeCategory {
             .unwrap_or(Self::Custom)
     }
 
-    /// Get the drizzle import name for this type
+    /// Returns drizzle-kit's TypeScript builder name for this type, e.g.
+    /// `doublePrecision` or `pgEnum`.
     #[must_use]
     pub const fn drizzle_import(&self) -> &'static str {
         match self {
@@ -357,7 +372,7 @@ impl PgTypeCategory {
         }
     }
 
-    /// Check if this is a serial type
+    /// Returns `true` for `serial`, `smallserial`, and `bigserial`.
     #[must_use]
     pub const fn is_serial(&self) -> bool {
         matches!(self, Self::Serial | Self::SmallSerial | Self::BigSerial)
@@ -368,7 +383,8 @@ impl PgTypeCategory {
 // Type Parsing Utilities
 // =============================================================================
 
-/// Extract parameters from a type like "varchar(255)" or "numeric(10,2)"
+/// Returns the one or two parameters of a type like `varchar(255)` or
+/// `numeric(10,2)`; `None` when there are none or more than two.
 #[must_use]
 pub fn parse_type_params(sql_type: &str) -> Option<(String, Option<String>)> {
     let start = sql_type.find('(')?;
@@ -383,7 +399,9 @@ pub fn parse_type_params(sql_type: &str) -> Option<(String, Option<String>)> {
     }
 }
 
-/// Check if a string is a serial expression
+/// Returns `true` if `expr` is a `nextval('..._seq'::regclass)` default in
+/// `schema` (unqualified for `public`), as PostgreSQL stores a serial
+/// column's default.
 #[must_use]
 pub fn is_serial_expression(expr: &str, schema: &str) -> bool {
     let schema_prefix = if schema == "public" {
@@ -397,12 +415,20 @@ pub fn is_serial_expression(expr: &str, schema: &str) -> bool {
         && (expr.ends_with("_seq'::regclass)") || expr.ends_with("_seq\"'::regclass)"))
 }
 
-/// Extract the sequence name from a `nextval('...'::regclass)` expression.
+/// Returns the sequence name from a `nextval('...'::regclass)` expression,
+/// without schema prefix or quotes.
 ///
-/// Returns just the sequence name (without schema prefix or quotes):
-/// - `nextval('users_id_seq'::regclass)` → `users_id_seq`
-/// - `nextval('public.users_id_seq'::regclass)` → `users_id_seq`
-/// - `nextval('"myschema"."users_id_seq"'::regclass)` → `users_id_seq`
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::postgres::extract_nextval_sequence;
+///
+/// let seq = |expr| extract_nextval_sequence(expr).unwrap();
+/// assert_eq!(seq("nextval('users_id_seq'::regclass)"), "users_id_seq");
+/// assert_eq!(seq("nextval('public.users_id_seq'::regclass)"), "users_id_seq");
+/// assert_eq!(seq(r#"nextval('"myschema"."users_id_seq"'::regclass)"#), "users_id_seq");
+/// assert_eq!(extract_nextval_sequence("now()"), None);
+/// ```
 #[must_use]
 pub fn extract_nextval_sequence(expr: &str) -> Option<String> {
     let inner = expr
@@ -420,14 +446,19 @@ pub fn extract_nextval_sequence(expr: &str) -> Option<String> {
 // Identity Defaults
 // =============================================================================
 
-/// Default values for identity columns
+/// PostgreSQL's default identity-column sequence options.
 pub struct IdentityDefaults;
 
 impl IdentityDefaults {
+    /// `START WITH` default.
     pub const START_WITH: &'static str = "1";
+    /// `INCREMENT BY` default.
     pub const INCREMENT: &'static str = "1";
+    /// `MINVALUE` default.
     pub const MIN: &'static str = "1";
+    /// `CACHE` default.
     pub const CACHE: i32 = 1;
+    /// `CYCLE` default.
     pub const CYCLE: bool = false;
 
     /// Get the maximum value for an identity column based on type.
@@ -461,10 +492,11 @@ impl IdentityDefaults {
 // System Checks
 // =============================================================================
 
-/// System namespace names that should be skipped
+/// PostgreSQL system schema names that introspection skips.
 pub const SYSTEM_NAMESPACE_NAMES: &[&str] = &["pg_toast", "pg_catalog", "information_schema"];
 
-/// Check if a namespace is a system namespace
+/// Returns `true` for system schemas: [`SYSTEM_NAMESPACE_NAMES`], `pg_toast*`,
+/// `pg_temp_*`, `pg_default`, and `pg_global`.
 #[must_use]
 pub fn is_system_namespace(name: &str) -> bool {
     name.starts_with("pg_toast")
@@ -474,7 +506,7 @@ pub fn is_system_namespace(name: &str) -> bool {
         || SYSTEM_NAMESPACE_NAMES.contains(&name)
 }
 
-/// Check if a role is a system role
+/// Returns `true` for `postgres` and `pg_*` roles.
 #[must_use]
 pub fn is_system_role(name: &str) -> bool {
     name == "postgres" || name.starts_with("pg_")

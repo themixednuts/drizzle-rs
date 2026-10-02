@@ -1,10 +1,8 @@
-//! Configuration for Drizzle CLI
+//! Loading and validating `drizzle.config.toml`.
 //!
-//! Handles loading `drizzle.config.toml` with type-safe credentials.
-//! Supports both single-database (legacy) and multi-database configurations.
-//!
-//! This configuration format is designed to be compatible with drizzle-kit
-//! so TypeScript users can use the same config expectations.
+//! A config holds either one database (top-level `dialect`, `schema`, ...)
+//! or several under `[databases.<name>]`. Field names follow drizzle-kit, so
+//! a drizzle-kit config translates directly.
 
 pub use drizzle_types::{Casing, ConfigValue, ConfigValueError};
 use schemars::JsonSchema;
@@ -12,9 +10,10 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Default config file name, looked up in the current directory.
 pub const CONFIG_FILE: &str = "drizzle.config.toml";
 
-/// Casing mode for introspection (pull command)
+/// Casing for Rust identifiers written by `introspect` / `pull`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize, JsonSchema)]
 pub enum IntrospectCasing {
     /// Convert database names to camelCase
@@ -27,6 +26,7 @@ pub enum IntrospectCasing {
 }
 
 impl IntrospectCasing {
+    /// Returns the config spelling (`"camel"` or `"preserve"`).
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -56,7 +56,7 @@ impl std::str::FromStr for IntrospectCasing {
     }
 }
 
-/// Introspection configuration
+/// The `[introspect]` config section.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct IntrospectConfig {
     /// Casing mode for introspected identifiers
@@ -68,10 +68,10 @@ pub struct IntrospectConfig {
 // Entities Filter (matching drizzle-kit)
 // ============================================================================
 
-/// Roles filter configuration
+/// The `entities.roles` filter (PostgreSQL).
 ///
-/// Can be either a boolean (true = include all, false = exclude all)
-/// or a detailed configuration with provider/include/exclude lists.
+/// Either a boolean (`true` = all user roles, `false` = none) or a table
+/// with `provider`, `include`, and `exclude` lists.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum RolesFilter {
@@ -98,7 +98,7 @@ impl Default for RolesFilter {
 }
 
 impl RolesFilter {
-    /// Check if roles should be included at all
+    /// Returns `false` for `roles = false`, `true` otherwise.
     #[must_use]
     pub const fn is_enabled(&self) -> bool {
         match self {
@@ -107,7 +107,7 @@ impl RolesFilter {
         }
     }
 
-    /// Check if a specific role should be included
+    /// Returns `true` if `role_name` passes this filter.
     #[must_use]
     pub fn should_include(&self, role_name: &str) -> bool {
         match self {
@@ -169,9 +169,7 @@ fn is_provider_role(provider: &str, role_name: &str) -> bool {
     }
 }
 
-/// Entities filter configuration
-///
-/// Controls which database entities are included in push/pull operations.
+/// The `entities` filter: which database entities `push` and `pull` touch.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct EntitiesFilter {
     /// Roles filter (`PostgreSQL` only)
@@ -183,7 +181,7 @@ pub struct EntitiesFilter {
 // Extensions Filter (PostgreSQL only)
 // ============================================================================
 
-/// Known `PostgreSQL` extensions that can be filtered
+/// A PostgreSQL extension for `extensionsFilters`; its objects are skipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Extension {
@@ -192,6 +190,7 @@ pub enum Extension {
 }
 
 impl Extension {
+    /// Returns the config spelling, e.g. `"postgis"`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -210,23 +209,32 @@ impl std::fmt::Display for Extension {
 // Dialect
 // ============================================================================
 
-/// Database dialect
+/// The `dialect` config value.
+///
+/// `turso` is SQLite with libSQL/Turso drivers; `postgres` is accepted as an
+/// alias for `postgresql`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Dialect {
+    /// `sqlite` (the default).
     #[default]
     Sqlite,
+    /// `postgresql` (or `postgres`).
     #[serde(alias = "postgres")]
     Postgresql,
+    /// `mysql`.
     Mysql,
+    /// `turso`: SQLite via libSQL or Turso.
     Turso,
 }
 
 impl Dialect {
+    /// All accepted spellings, excluding aliases.
     pub const ALL: &'static [&'static str] = &["sqlite", "postgresql", "mysql", "turso"];
 
+    /// Returns the config spelling, e.g. `"postgresql"`.
     #[inline]
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -238,6 +246,7 @@ impl Dialect {
         }
     }
 
+    /// Returns the SQL dialect used for generation (`Turso` maps to SQLite).
     #[inline]
     #[must_use]
     pub const fn to_base(self) -> drizzle_types::Dialect {
@@ -284,7 +293,7 @@ impl From<Dialect> for drizzle_types::Dialect {
 // Driver
 // ============================================================================
 
-/// Database driver for Rust database connections
+/// The `driver` config value: which Rust driver the CLI connects with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Driver {
@@ -335,6 +344,7 @@ pub enum Driver {
 }
 
 impl Driver {
+    /// All accepted spellings.
     pub const ALL: &'static [&'static str] = &[
         "rusqlite",
         "libsql",
@@ -348,6 +358,7 @@ impl Driver {
         "aws-data-api",
     ];
 
+    /// Returns the config spelling, e.g. `"tokio-postgres"`.
     #[inline]
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -365,6 +376,7 @@ impl Driver {
         }
     }
 
+    /// Returns the drivers allowed for `dialect`.
     #[must_use]
     pub const fn valid_for(dialect: Dialect) -> &'static [Self] {
         match dialect {
@@ -378,6 +390,7 @@ impl Driver {
         }
     }
 
+    /// Returns `true` if this driver is allowed for `dialect`.
     #[inline]
     #[must_use]
     pub const fn is_valid_for(self, dialect: Dialect) -> bool {
@@ -395,9 +408,9 @@ impl Driver {
         )
     }
 
-    /// True for drivers that only make sense as schema/codegen targets — i.e.
-    /// drivers where the CLI has no way to connect to a live DB from the dev
-    /// machine (e.g. Durable Objects `SQLite` runs inside the Workers runtime).
+    /// Returns `true` for drivers the CLI cannot connect through, so only
+    /// `generate`-style commands work (currently `durable-sqlite`, which runs
+    /// inside the Workers runtime).
     #[inline]
     #[must_use]
     pub const fn is_codegen_only(self) -> bool {
@@ -452,7 +465,9 @@ impl std::str::FromStr for Extension {
 // Credentials
 // ============================================================================
 
-/// Database credentials - validated and typed
+/// Resolved `dbCredentials`, with env vars read and values validated.
+///
+/// `Debug` output redacts secrets.
 #[derive(Clone)]
 pub enum Credentials {
     /// Local `SQLite` file
@@ -493,10 +508,12 @@ pub enum Credentials {
     },
 }
 
-/// `PostgreSQL` credentials
+/// PostgreSQL credentials: a URL or host fields.
 #[derive(Clone)]
 pub enum PostgresCreds {
+    /// `url = "postgres://..."`.
     Url(Box<str>),
+    /// `host`, `port`, `user`, `password`, `database`, `ssl`.
     Host {
         host: Box<str>,
         port: u16,
@@ -511,7 +528,9 @@ pub enum PostgresCreds {
 /// [`Driver`] selects the concrete connection effect later.
 #[derive(Clone)]
 pub enum MySQLCreds {
+    /// `url = "mysql://..."`.
     Url(Box<str>),
+    /// `host`, `port`, `user`, `password`, `database`, `ssl`.
     Host {
         host: Box<str>,
         port: u16,
@@ -605,24 +624,43 @@ impl std::fmt::Debug for MySQLCreds {
     }
 }
 
+/// PostgreSQL TLS policy: the `ssl` value of host-style `dbCredentials`
+/// (default `Disable`), or the `sslmode` of a URL.
+///
+/// `ssl = true` means `Require`, `false` means `Disable`. Whenever TLS is
+/// used, the CLI's connector verifies the server certificate; only
+/// `VerifyCa` skips the host-name check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresSslMode {
+    /// No TLS (`disable`).
     #[default]
     Disable,
+    /// `allow`; connects like `Prefer`.
     Allow,
+    /// Use TLS if the server offers it (`prefer`).
     Prefer,
+    /// Require TLS (`require`).
     Require,
+    /// Require TLS; skip the host-name check (`verify-ca`).
     VerifyCa,
+    /// Require TLS (`verify-full`).
     VerifyFull,
 }
 
-/// MySQL TLS policy accepted by URL/host CLI configuration.
+/// MySQL TLS policy: the `ssl` value of host-style `dbCredentials` (default
+/// `Disable`).
+///
+/// `ssl = true` means `Required`, `false` means `Disable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MySQLSslMode {
+    /// No TLS.
     #[default]
     Disable,
+    /// Require TLS without verifying the certificate (`required`).
     Required,
+    /// Require TLS and verify the server certificate (`verify-ca`).
     VerifyCa,
+    /// Also verify the host name (`verify-identity`).
     VerifyIdentity,
 }
 
@@ -652,14 +690,24 @@ impl PostgresSslMode {
     }
 }
 
+/// Connection settings for the PostgreSQL drivers, built by
+/// [`PostgresCreds::connection_config`].
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 pub struct PostgresConnectionConfig {
+    /// Connection settings for `tokio-postgres` / `postgres`.
     pub config: tokio_postgres::Config,
+    /// TLS policy to apply when connecting.
     pub ssl: PostgresSslMode,
 }
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 impl PostgresCreds {
+    /// Builds driver connection settings from these credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns the parser's message when a URL is not a valid PostgreSQL
+    /// connection string.
     pub fn connection_config(&self) -> Result<PostgresConnectionConfig, String> {
         match self {
             Self::Url(url) => {
@@ -712,11 +760,14 @@ impl PostgresCreds {
 // Schema path(s)
 // ============================================================================
 
-/// Schema path(s)
+/// The `schema` config value: one path/glob or a list (default
+/// `src/schema.rs`).
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Schema {
+    /// A single path or glob.
     One(String),
+    /// Several paths or globs.
     Many(Vec<String>),
 }
 
@@ -727,6 +778,7 @@ impl Default for Schema {
 }
 
 impl Schema {
+    /// Iterates over the listed paths/globs.
     pub fn iter(&self) -> impl Iterator<Item = &str> {
         match self {
             Self::One(s) => std::slice::from_ref(s).iter().map(String::as_str),
@@ -735,15 +787,18 @@ impl Schema {
     }
 }
 
-/// Filter (single or multiple values)
+/// A `tablesFilter` / `schemaFilter` value: one pattern or a list.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Filter {
+    /// A single pattern.
     One(String),
+    /// Several patterns.
     Many(Vec<String>),
 }
 
 impl Filter {
+    /// Iterates over the patterns.
     pub fn iter(&self) -> impl Iterator<Item = &str> {
         match self {
             Self::One(s) => std::slice::from_ref(s).iter().map(String::as_str),
@@ -752,11 +807,14 @@ impl Filter {
     }
 }
 
-/// Migration options
+/// The `[migrations]` config section.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct MigrationsOpts {
+    /// Tracking table name (default `__drizzle_migrations`).
     pub table: Option<String>,
+    /// Tracking schema, PostgreSQL only (default `drizzle`).
     pub schema: Option<String>,
+    /// Migration folder name prefix (default `timestamp`).
     pub prefix: Option<MigrationPrefix>,
     /// Emit a `migrations.js` index at the root of the migrations output folder.
     ///
@@ -768,13 +826,19 @@ pub struct MigrationsOpts {
     pub bundle: Option<bool>,
 }
 
+/// The `[migrations] prefix` value: how migration folder names start.
 #[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum MigrationPrefix {
+    /// `0000`, `0001`, ...
     Index,
+    /// `YYYYMMDDHHMMSS`.
     Timestamp,
+    /// Supabase style (`YYYYMMDDHHMMSS`).
     Supabase,
+    /// Unix seconds.
     Unix,
+    /// No prefix.
     None,
 }
 
@@ -859,20 +923,21 @@ impl SslVal {
 // DatabaseConfig - Per-database configuration
 // ============================================================================
 
-/// Configuration for a single database
+/// Settings for one database: the top level of a single-database config,
+/// or one `[databases.<name>]` table.
 ///
-/// This structure matches drizzle-kit's config format for compatibility.
+/// Field names match drizzle-kit (`dbCredentials`, `tablesFilter`, ...).
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseConfig {
     /// Database dialect (required)
     pub dialect: Dialect,
 
-    /// Path(s) to schema file(s) - supports glob patterns
+    /// Schema file paths or glob patterns, relative to the config file.
     #[serde(default)]
     pub schema: Schema,
 
-    /// Output directory for migrations (default: "./drizzle")
+    /// Migrations folder (default `./drizzle`), relative to the config file.
     #[serde(default = "default_out")]
     pub out: PathBuf,
 
@@ -904,7 +969,8 @@ pub struct DatabaseConfig {
     #[serde(default)]
     pub entities: Option<EntitiesFilter>,
 
-    /// Casing mode for generated code
+    /// Casing preference for generated names. Currently ignored when
+    /// building snapshots: table macros always snake_case inferred names.
     #[serde(default)]
     pub casing: Option<Casing>,
 
@@ -1143,13 +1209,16 @@ impl DatabaseConfig {
         }
     }
 
-    /// Get typed credentials, resolving any environment variable references.
+    /// Returns typed credentials, reading any `{ env = "VAR" }` values.
+    ///
+    /// Returns `None` when `dbCredentials` is absent or its shape does not
+    /// fit the dialect (loading a config already rejects most such
+    /// mismatches).
     ///
     /// # Errors
     ///
-    /// Returns [`Error`] if a referenced environment variable is missing or
-    /// invalid, or if the credentials block does not match the configured
-    /// dialect.
+    /// Returns [`Error`] if a referenced environment variable is unset or not
+    /// valid UTF-8, or an `ssl` value is not a recognized mode.
     pub fn credentials(&self) -> Result<Option<Credentials>, Error> {
         let Some(raw) = self.db_credentials.as_ref() else {
             return Ok(None);
@@ -1264,28 +1333,28 @@ impl DatabaseConfig {
         Ok(Some(creds))
     }
 
-    /// Migrations output directory
+    /// Returns the migrations folder (`out`).
     #[inline]
     #[must_use]
     pub fn migrations_dir(&self) -> &Path {
         &self.out
     }
 
-    /// Meta directory (for journal)
+    /// Returns `out/meta`, where legacy drizzle-kit layouts keep the journal.
     #[inline]
     #[must_use]
     pub fn meta_dir(&self) -> PathBuf {
         self.out.join("meta")
     }
 
-    /// Journal file path
+    /// Returns the legacy `out/meta/_journal.json` path.
     #[inline]
     #[must_use]
     pub fn journal_path(&self) -> PathBuf {
         self.meta_dir().join("_journal.json")
     }
 
-    /// Schema paths display string
+    /// Returns the `schema` paths joined for display.
     #[must_use]
     pub fn schema_display(&self) -> String {
         match &self.schema {
@@ -1294,7 +1363,7 @@ impl DatabaseConfig {
         }
     }
 
-    /// Resolve schema files (with glob support).
+    /// Resolves `schema` paths and globs to files.
     ///
     /// # Errors
     ///
@@ -1309,14 +1378,14 @@ impl DatabaseConfig {
         Ok(files)
     }
 
-    /// Get effective casing mode (default: camelCase)
+    /// Returns `casing`, or `camelCase` when unset.
     #[inline]
     #[must_use]
     pub fn effective_casing(&self) -> Casing {
         self.casing.unwrap_or_default()
     }
 
-    /// Get effective introspect casing mode (default: camel)
+    /// Returns `introspect.casing`, or `camel` when unset.
     #[inline]
     #[must_use]
     pub fn effective_introspect_casing(&self) -> IntrospectCasing {
@@ -1326,14 +1395,15 @@ impl DatabaseConfig {
             .unwrap_or_default()
     }
 
-    /// Get entities filter (default: empty)
+    /// Returns the `entities` filter, or the default when unset.
     #[inline]
     #[must_use]
     pub fn effective_entities(&self) -> EntitiesFilter {
         self.entities.clone().unwrap_or_default()
     }
 
-    /// Check if a role should be included based on entities filter
+    /// Returns `true` if `role_name` passes the `entities.roles` filter
+    /// (`false` when no `entities` filter is set).
     #[must_use]
     pub fn should_include_role(&self, role_name: &str) -> bool {
         self.entities
@@ -1341,19 +1411,20 @@ impl DatabaseConfig {
             .is_some_and(|e| e.roles.should_include(role_name))
     }
 
-    /// Check if roles are enabled in entities filter
+    /// Returns `true` if the `entities.roles` filter is enabled.
     #[must_use]
     pub fn roles_enabled(&self) -> bool {
         self.entities.as_ref().is_some_and(|e| e.roles.is_enabled())
     }
 
-    /// Get extensions filters (`PostgreSQL` only)
+    /// Returns the `extensionsFilters` list (PostgreSQL only; empty when
+    /// unset).
     #[must_use]
     pub fn extensions(&self) -> &[Extension] {
         self.extensions_filters.as_deref().unwrap_or(&[])
     }
 
-    /// Check if an extension is in the filter list
+    /// Returns `true` if `ext` is in `extensionsFilters`.
     #[must_use]
     pub fn has_extension(&self, ext: Extension) -> bool {
         self.extensions_filters
@@ -1361,7 +1432,7 @@ impl DatabaseConfig {
             .is_some_and(|v| v.contains(&ext))
     }
 
-    /// Get migration table name (default: __`drizzle_migrations`)
+    /// Returns the migrations tracking table (default `__drizzle_migrations`).
     #[must_use]
     pub fn migrations_table(&self) -> &str {
         self.migrations
@@ -1370,7 +1441,8 @@ impl DatabaseConfig {
             .unwrap_or("__drizzle_migrations")
     }
 
-    /// Get migration schema (`PostgreSQL` only, default: drizzle)
+    /// Returns the migrations tracking schema (PostgreSQL only, default
+    /// `drizzle`).
     #[must_use]
     pub fn migrations_schema(&self) -> &str {
         self.migrations
@@ -1406,9 +1478,9 @@ struct MultiDbConfig {
     databases: HashMap<String, DatabaseConfig>,
 }
 
-/// Main configuration structure
+/// A loaded `drizzle.config.toml`.
 ///
-/// Supports both single-database (legacy) and multi-database configurations:
+/// Holds one database or several named ones:
 ///
 /// Single database:
 /// ```toml
@@ -1437,27 +1509,54 @@ pub struct Config {
     is_single: bool,
 }
 
-/// Default database name for single-database configs
+/// Name given to the database of a single-database config.
 pub const DEFAULT_DB: &str = "default";
 
 impl Config {
-    /// Load from default config file.
+    /// Loads [`CONFIG_FILE`] from the current directory.
     ///
     /// # Errors
     ///
-    /// Returns [`Error`] if the default config file cannot be read, if it
-    /// fails to parse as JSON, or if validation of the parsed config fails.
+    /// Returns [`Error`] if the file cannot be read, is not valid TOML for
+    /// the config, or fails validation.
     pub fn load() -> Result<Self, Error> {
         Self::load_from(Path::new(CONFIG_FILE))
     }
 
-    /// Load from specific path.
+    /// Loads a config file from `path`.
+    ///
+    /// Relative paths inside the file (`schema`, `out`, ...) are resolved
+    /// against the file's folder.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use drizzle_cli::{Config, Dialect};
+    ///
+    /// let dir = std::env::temp_dir().join("drizzle-cli-doc-load-from");
+    /// std::fs::create_dir_all(&dir)?;
+    /// let path = dir.join("drizzle.config.toml");
+    /// std::fs::write(&path, r#"
+    /// dialect = "sqlite"
+    /// schema = "src/schema.rs"
+    /// out = "./drizzle"
+    ///
+    /// [dbCredentials]
+    /// url = "./dev.db"
+    /// "#)?;
+    ///
+    /// let config = Config::load_from(&path)?;
+    /// assert!(config.is_single_database());
+    /// assert_eq!(config.dialect(), Dialect::Sqlite);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     ///
     /// # Errors
     ///
     /// Returns [`Error::NotFound`] if `path` does not exist, [`Error::Io`] for
-    /// other read errors, and [`Error`] variants for JSON-parse or validation
-    /// failures.
+    /// other read errors, [`Error::Parse`] for invalid TOML, and other
+    /// [`Error`] variants when validation fails (for example a driver that
+    /// does not match the dialect).
     pub fn load_from(path: &Path) -> Result<Self, Error> {
         let content = std::fs::read_to_string(path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -1470,7 +1569,7 @@ impl Config {
         Self::load_from_str(&content, path)
     }
 
-    /// Load from string content
+    /// Parses config text; `path` is used for errors and relative paths.
     fn load_from_str(content: &str, path: &Path) -> Result<Self, Error> {
         let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
 
@@ -1514,21 +1613,23 @@ impl Config {
         Ok(())
     }
 
-    /// Check if this is a single-database config
+    /// Returns `true` for a single-database config (no `[databases.*]`).
     #[must_use]
     pub const fn is_single_database(&self) -> bool {
         self.is_single
     }
 
-    /// Get all database names
+    /// Returns the configured database names (`"default"` for a
+    /// single-database config).
     pub fn database_names(&self) -> impl Iterator<Item = &str> {
         self.databases.keys().map(String::as_str)
     }
 
-    /// Get a specific database config by name.
+    /// Returns the database named `name`, or the only one when `name` is
+    /// `None`.
     ///
-    /// If name is `None`, returns the default/only database.
-    /// For single-db configs, any name or `None` returns the single database.
+    /// A single-database config ignores `name` and always returns its
+    /// database.
     ///
     /// # Errors
     ///
@@ -1563,7 +1664,7 @@ impl Config {
         )
     }
 
-    /// Get the default database (for single-db mode or when only one db exists).
+    /// Returns the only database, or an error when there are several.
     ///
     /// # Errors
     ///
@@ -1576,7 +1677,7 @@ impl Config {
     // Backwards compatibility - delegate to default database
     // ========================================================================
 
-    /// Get dialect (for single-db mode backwards compat)
+    /// Returns the default database's dialect (single-database shortcut).
     #[must_use]
     pub fn dialect(&self) -> Dialect {
         self.default_database()
@@ -1584,7 +1685,7 @@ impl Config {
             .unwrap_or_default()
     }
 
-    /// Get credentials (for single-db mode backwards compat).
+    /// Returns the default database's credentials (single-database shortcut).
     ///
     /// # Errors
     ///
@@ -1594,14 +1695,16 @@ impl Config {
         self.default_database()?.credentials()
     }
 
-    /// Get migrations directory (for single-db mode backwards compat)
+    /// Returns the default database's migrations folder (single-database
+    /// shortcut).
     #[must_use]
     pub fn migrations_dir(&self) -> &Path {
         self.default_database()
             .map_or_else(|_| Path::new("./drizzle"), |d| d.migrations_dir())
     }
 
-    /// Get journal path (for single-db mode backwards compat)
+    /// Returns the default database's legacy `meta/_journal.json` path
+    /// (single-database shortcut).
     #[must_use]
     pub fn journal_path(&self) -> PathBuf {
         self.default_database().map_or_else(
@@ -1610,14 +1713,16 @@ impl Config {
         )
     }
 
-    /// Get schema display (for single-db mode backwards compat)
+    /// Returns the default database's schema paths for display
+    /// (single-database shortcut).
     #[must_use]
     pub fn schema_display(&self) -> String {
         self.default_database()
             .map_or_else(|_| "src/schema.rs".into(), DatabaseConfig::schema_display)
     }
 
-    /// Get schema files (for single-db mode backwards compat).
+    /// Returns the default database's resolved schema files
+    /// (single-database shortcut).
     ///
     /// # Errors
     ///
@@ -1627,7 +1732,8 @@ impl Config {
         self.default_database()?.schema_files()
     }
 
-    /// Base dialect for SQL generation (for single-db mode backwards compat)
+    /// Returns the default database's base SQL dialect (Turso maps to
+    /// SQLite).
     #[must_use]
     pub fn base_dialect(&self) -> drizzle_types::Dialect {
         self.dialect().to_base()
@@ -1696,53 +1802,75 @@ pub fn resolve_schema_patterns<'a>(
 // Errors
 // ============================================================================
 
+/// Errors from loading or using a config file.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// The config file does not exist.
     #[error("config not found: {}", .0.display())]
     NotFound(PathBuf),
 
+    /// The config file could not be read.
     #[error("failed to read {}: {}", .0.display(), .1)]
     Io(PathBuf, #[source] std::io::Error),
 
+    /// The config file is not valid TOML for the config shape.
     #[error("failed to parse {}: {}", .0.display(), .1)]
     Parse(PathBuf, #[source] toml::de::Error),
 
+    /// `driver` does not belong to `dialect`.
     #[error("driver '{driver}' invalid for {dialect} dialect")]
-    InvalidDriver { driver: Driver, dialect: Dialect },
+    InvalidDriver {
+        /// The configured driver.
+        driver: Driver,
+        /// The configured dialect.
+        dialect: Dialect,
+    },
 
+    /// `dbCredentials` is malformed or does not fit the dialect/driver.
     #[error("invalid credentials: {0}")]
     InvalidCredentials(String),
 
+    /// A setting is not allowed, e.g. a PostgreSQL-only filter on SQLite.
     #[error("invalid config: {0}")]
     InvalidConfig(String),
 
+    /// A `schema` glob pattern is invalid.
     #[error("invalid glob '{0}': {1}")]
     Glob(String, #[source] glob::PatternError),
 
+    /// Expanding a `schema` glob failed.
     #[error("failed to read a path matched by glob '{0}': {1}")]
     GlobRead(String, #[source] glob::GlobError),
 
+    /// A listed `schema` path does not exist.
     #[error("schema path '{0}' does not exist")]
     SchemaPathNotFound(String),
 
+    /// A `schema` glob matched no files.
     #[error("schema pattern '{0}' matches no file")]
     SchemaPatternMatchedNothing(String),
 
+    /// No schema files are configured.
     #[error("no schema files found: {0}")]
     NoSchemaFiles(String),
 
+    /// An `{ env = "VAR" }` value names an unset variable.
     #[error("environment variable '{0}' not found")]
     EnvNotFound(String),
 
+    /// An `{ env = "VAR" }` value is not valid UTF-8.
     #[error("environment variable '{0}' invalid: {1}")]
     EnvInvalid(String, String),
 
+    /// The config has no databases.
     #[error("no databases configured")]
     NoDatabases,
 
+    /// No database has the requested name.
     #[error("database '{0}' not found")]
     DatabaseNotFound(String),
 
+    /// Several databases are configured and none was chosen with `--db`.
     #[error("multiple databases configured, use --db to specify: {}", .0.join(", "))]
     DatabaseRequired(Vec<String>),
 }

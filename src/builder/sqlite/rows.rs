@@ -1,4 +1,7 @@
-/// Shared decoded row cursor used by sqlite backends.
+/// Rows returned by `.rows()` on the rusqlite driver.
+///
+/// Every row was fetched and decoded before the query returned, so iterating
+/// never touches the database and every `Result<R>` item is `Ok`.
 pub struct Rows<R> {
     #[cfg(feature = "std")]
     rows: std::vec::IntoIter<R>,
@@ -36,6 +39,11 @@ impl<R> Iterator for Rows<R> {
 
 impl<R> ExactSizeIterator for Rows<R> {}
 
+/// Rows returned by `.rows()` on the libsql driver, fetched and decoded one
+/// at a time.
+///
+/// Read them with [`next`](Self::next) or gather them with
+/// [`collect`](Self::collect).
 #[cfg(feature = "libsql")]
 pub struct LibsqlRows<R> {
     rows: libsql::Rows,
@@ -55,6 +63,12 @@ where
         }
     }
 
+    /// Fetches and decodes the next row, or returns `None` after the last one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when fetching the row fails or it cannot be decoded
+    /// into `R`.
     pub async fn next(&mut self) -> drizzle_core::error::Result<Option<R>> {
         match self
             .rows
@@ -67,6 +81,11 @@ where
         }
     }
 
+    /// Fetches and decodes every remaining row into `C`, such as a `Vec<R>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error from [`next`](Self::next).
     pub async fn collect<C>(mut self) -> drizzle_core::error::Result<C>
     where
         C: Default + Extend<R>,
@@ -79,6 +98,11 @@ where
     }
 }
 
+/// Rows returned by `.rows()` on the turso driver, fetched and decoded one
+/// at a time.
+///
+/// Read them with [`next`](Self::next) or gather them with
+/// [`collect`](Self::collect).
 #[cfg(feature = "turso")]
 pub struct TursoRows<R> {
     rows: turso::Rows,
@@ -108,6 +132,12 @@ where
         }
     }
 
+    /// Fetches and decodes the next row, or returns `None` after the last one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when fetching the row fails or it cannot be decoded
+    /// into `R`.
     pub async fn next(&mut self) -> drizzle_core::error::Result<Option<R>> {
         let row = self.rows.next().await.map_err(|e| {
             let source = drizzle_core::error::DrizzleError::from(e);
@@ -130,6 +160,11 @@ where
         }
     }
 
+    /// Fetches and decodes every remaining row into `C`, such as a `Vec<R>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error from [`next`](Self::next).
     pub async fn collect<C>(mut self) -> drizzle_core::error::Result<C>
     where
         C: Default + Extend<R>,

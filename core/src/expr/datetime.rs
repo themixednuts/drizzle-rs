@@ -1,15 +1,17 @@
-//! Type-safe date/time functions.
+//! Date and time functions.
 //!
-//! These functions work with `Temporal` types (Date, Time, Timestamp, `TimestampTz`)
-//! and provide compile-time enforcement of temporal operations.
+//! Arguments that hold a date or time must have a temporal SQL type (on
+//! SQLite, text columns count as temporal, since SQLite stores dates as
+//! text). Many functions exist on only one database and do not compile for
+//! the others:
 //!
-//! # Database Compatibility
-//!
-//! Some functions are database-specific:
-//! - `SQLite`: `date()`, `time()`, `datetime()`, `strftime()`, `julianday()`
-//! - `PostgreSQL`: `now()`, `date_trunc()`, `extract()`, `age()`
-//!
-//! Cross-database functions try to use compatible SQL where possible.
+//! - all dialects: [`current_date`], [`current_time`], [`current_timestamp`];
+//! - SQLite: [`date`], [`time`], [`datetime`], [`strftime`], [`julianday`],
+//!   [`unixepoch`], [`timediff`];
+//! - PostgreSQL: [`now`], [`date_trunc`], [`extract`], [`age`], [`to_char`],
+//!   [`to_timestamp`], [`to_date`], [`to_number`], [`date_bin`],
+//!   [`make_date`], [`make_timestamp`], [`localtime`], [`localtimestamp`],
+//!   [`clock_timestamp`].
 
 use crate::dialect::DialectTypes;
 use crate::dialect::{DialectSupports, feature};
@@ -25,7 +27,11 @@ use super::{AggregateKind, Expr, Nullability, SQLExpr, Scalar};
     message = "DATE_TRUNC output type is not defined for `{Self}` on this dialect",
     label = "DATE_TRUNC accepts timestamp/timestamptz and preserves the timestamp flavor"
 )]
+/// Temporal types that [`date_trunc`] accepts on dialect `D`, and its result
+/// type. On PostgreSQL, `timestamp` and `timestamptz` are accepted and keep
+/// their type.
 pub trait DateTruncPolicy<D>: Temporal {
+    /// Result type of `DATE_TRUNC`.
     type Output: DataType;
 }
 
@@ -43,19 +49,25 @@ impl DateTruncPolicy<PostgresDialect> for PgTimestamp {
 // CURRENT DATE/TIME (Cross-database)
 // =============================================================================
 
-/// `CURRENT_DATE` - returns the current date.
+/// The current date (`CURRENT_DATE`), on every dialect.
 ///
-/// Works on both `SQLite` and `PostgreSQL`.
+/// The result is the dialect's date type and never NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::current_date;
-///
-/// // SELECT CURRENT_DATE
-/// let today = current_date::<SQLiteValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(current_date::<Value>().sql(), "CURRENT_DATE");
 /// ```
 #[must_use]
 pub fn current_date<'a, V>()
@@ -66,19 +78,25 @@ where
     SQLExpr::new(SQL::raw("CURRENT_DATE"))
 }
 
-/// `CURRENT_TIME` - returns the current time.
+/// The current time (`CURRENT_TIME`), on every dialect.
 ///
-/// Works on both `SQLite` and `PostgreSQL`.
+/// The result is the dialect's time type and never NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::current_time;
-///
-/// // SELECT CURRENT_TIME
-/// let now_time = current_time::<SQLiteValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(current_time::<Value>().sql(), "CURRENT_TIME");
 /// ```
 #[must_use]
 pub fn current_time<'a, V>()
@@ -89,22 +107,26 @@ where
     SQLExpr::new(SQL::raw("CURRENT_TIME"))
 }
 
-/// `CURRENT_TIMESTAMP` - returns the current timestamp with time zone.
+/// The current date and time (`CURRENT_TIMESTAMP`), on every dialect.
 ///
-/// Works on both `SQLite` and `PostgreSQL`. Returns `TimestampTz` because
-/// the SQL standard defines `CURRENT_TIMESTAMP` as `timestamp with time zone`.
-/// On `SQLite` (without chrono) this maps to `String`; on `PostgreSQL` it maps
-/// to `DateTime<Utc>` (requires the `chrono` feature).
+/// The result is the dialect's timestamp-with-time-zone type (text on
+/// SQLite, `timestamptz` on PostgreSQL, `TIMESTAMP` on MySQL) and never NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::current_timestamp;
-///
-/// // SELECT CURRENT_TIMESTAMP
-/// let now = current_timestamp::<SQLiteValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(current_timestamp::<Value>().sql(), "CURRENT_TIMESTAMP");
 /// ```
 #[must_use]
 pub fn current_timestamp<'a, V>()
@@ -119,19 +141,26 @@ where
 // SQLite-specific DATE/TIME FUNCTIONS
 // =============================================================================
 
-/// DATE - extracts the date part from a temporal expression (`SQLite`).
+/// The date part of a time value (`DATE`), on SQLite.
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be temporal. The result is the dialect's date type and keeps the
+/// argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::date;
-///
-/// // SELECT DATE(users.created_at)
-/// let created_date = date(users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(date(users.created_at).sql(), r#"DATE ("users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn date<'a, V, E>(
@@ -146,19 +175,26 @@ where
     SQLExpr::new(SQL::func("DATE", expr.into_sql()))
 }
 
-/// TIME - extracts the time part from a temporal expression (`SQLite`).
+/// The time part of a time value (`TIME`), on SQLite.
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be temporal. The result is the dialect's time type and keeps the
+/// argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::time;
-///
-/// // SELECT TIME(users.created_at)
-/// let created_time = time(users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(time(users.created_at).sql(), r#"TIME ("users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn time<'a, V, E>(
@@ -173,19 +209,26 @@ where
     SQLExpr::new(SQL::func("TIME", expr.into_sql()))
 }
 
-/// DATETIME - creates a datetime from a temporal expression (`SQLite`).
+/// A time value as `YYYY-MM-DD HH:MM:SS` (`DATETIME`), on SQLite.
 ///
-/// Preserves the nullability of the input expression.
+/// The argument must be temporal. The result is the dialect's timestamp type and keeps the
+/// argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::datetime;
-///
-/// // SELECT DATETIME(users.created_at)
-/// let dt = datetime(users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(datetime(users.created_at).sql(), r#"DATETIME ("users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn datetime<'a, V, E>(
@@ -207,31 +250,31 @@ where
     SQLExpr::new(SQL::func("DATETIME", expr.into_sql()))
 }
 
-/// STRFTIME - formats a temporal expression as text (`SQLite`).
+/// Formats a time value as text (`STRFTIME(format, expr)`), on SQLite.
 ///
-/// Returns Text type, preserves nullability of the time value.
+/// `format` must be text and `expr` temporal. The result is text and keeps
+/// `expr`'s nullability. Common format codes:
 ///
-/// # Format Specifiers (common)
+/// - `%Y` year, `%m` month (01-12), `%d` day (01-31)
+/// - `%H` hour (00-23), `%M` minute, `%S` second
+/// - `%s` Unix time, `%w` weekday (0-6, Sunday is 0), `%j` day of year
 ///
-/// - `%Y` - 4-digit year
-/// - `%m` - month (01-12)
-/// - `%d` - day of month (01-31)
-/// - `%H` - hour (00-23)
-/// - `%M` - minute (00-59)
-/// - `%S` - second (00-59)
-/// - `%s` - Unix timestamp
-/// - `%w` - day of week (0-6, Sunday=0)
-/// - `%j` - day of year (001-366)
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::strftime;
-///
-/// // SELECT STRFTIME('%Y-%m-%d', users.created_at)
-/// let formatted = strftime("%Y-%m-%d", users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let day = strftime("%Y-%m-%d", users.created_at);
+/// assert_eq!(day.sql(), r#"STRFTIME (?, "users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn strftime<'a, V, F, E>(
@@ -259,19 +302,26 @@ where
     ))
 }
 
-/// JULIANDAY - converts a temporal expression to Julian day number (`SQLite`).
+/// A time value as a Julian day number (`JULIANDAY`), on SQLite.
 ///
-/// Returns a dialect-aware double type, preserves nullability.
+/// The argument must be temporal. The result is the dialect's double type and
+/// keeps the argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::julianday;
-///
-/// // SELECT JULIANDAY(users.created_at)
-/// let julian = julianday(users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(julianday(users.created_at).sql(), r#"JULIANDAY ("users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn julianday<'a, V, E>(
@@ -286,19 +336,26 @@ where
     SQLExpr::new(SQL::func("JULIANDAY", expr.into_sql()))
 }
 
-/// UNIXEPOCH - converts a temporal expression to Unix timestamp (`SQLite` 3.38+).
+/// A time value as seconds since 1970-01-01 (`UNIXEPOCH`), on SQLite 3.38+.
 ///
-/// Returns a dialect-aware `BigInt` type (seconds since 1970-01-01), preserves nullability.
+/// The argument must be temporal. The result is the dialect's big-integer
+/// type and keeps the argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::unixepoch;
-///
-/// // SELECT UNIXEPOCH(users.created_at)
-/// let unix_ts = unixepoch(users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(unixepoch(users.created_at).sql(), r#"UNIXEPOCH ("users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn unixepoch<'a, V, E>(
@@ -317,17 +374,26 @@ where
 // PostgreSQL-specific DATE/TIME FUNCTIONS
 // =============================================================================
 
-/// NOW - returns the current timestamp with time zone (`PostgreSQL`).
+/// The current date and time (`NOW()`), on PostgreSQL.
 ///
-/// # Example
+/// The result is `timestamptz` and never NULL. It is fixed for the whole
+/// transaction; see [`clock_timestamp`] for the wall-clock time.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::now;
-///
-/// // SELECT NOW()
-/// let current = now::<PostgresValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(now::<Value>().sql(), "NOW()");
 /// ```
 #[must_use]
 pub fn now<'a, V>()
@@ -339,23 +405,28 @@ where
     SQLExpr::new(SQL::raw("NOW()"))
 }
 
-/// `DATE_TRUNC` - truncates a timestamp to specified precision (`PostgreSQL`).
+/// Truncates a timestamp to a unit (`DATE_TRUNC(unit, expr)`), on PostgreSQL.
 ///
-/// Truncates the timestamp to the specified precision. Common values:
-/// 'microseconds', 'milliseconds', 'second', 'minute', 'hour',
-/// 'day', 'week', 'month', 'quarter', 'year', 'decade', 'century', 'millennium'
+/// `unit` is text such as `'hour'`, `'day'`, `'week'`, `'month'` or `'year'`.
+/// `expr` must be `timestamp` or `timestamptz` (see [`DateTruncPolicy`]); the
+/// result has the same type and keeps `expr`'s nullability.
 ///
-/// Preserves the nullability of the input expression.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::date_trunc;
-///
-/// // SELECT DATE_TRUNC('month', users.created_at)
-/// let month_start = date_trunc("month", users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let month = date_trunc("month", users.created_at);
+/// assert_eq!(month.sql(), r#"DATE_TRUNC ($1, "users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn date_trunc<'a, V, P, E>(
@@ -386,23 +457,33 @@ where
     ))
 }
 
-/// EXTRACT - extracts a component from a temporal expression (PostgreSQL/Standard SQL).
+/// One field of a time value (`EXTRACT(field FROM expr)`), on PostgreSQL.
 ///
-/// Returns a dialect-aware double type. Common fields:
-/// 'year', 'month', 'day', 'hour', 'minute', 'second',
-/// 'dow' (day of week), 'doy' (day of year), 'epoch' (Unix timestamp)
+/// `field` is written into the SQL as is, so pass a fixed field name such as
+/// `"YEAR"`, `"MONTH"`, `"DAY"`, `"HOUR"`, `"DOW"` or `"EPOCH"`, never user
+/// input. `expr` must be temporal. PostgreSQL 14+ returns `numeric`, so the
+/// call is cast to `DOUBLE PRECISION`; the result is `float8` and keeps
+/// `expr`'s nullability.
 ///
-/// Preserves the nullability of the input expression.
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::extract;
-///
-/// // SELECT EXTRACT(YEAR FROM users.created_at)
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// let year = extract("YEAR", users.created_at);
-/// # "####;
+/// assert_eq!(
+///     year.sql(),
+///     r#"CAST (EXTRACT( YEAR FROM "users"."created_at") AS DOUBLE PRECISION)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn extract<'a, 'f, V, E>(
@@ -431,19 +512,27 @@ where
     ))
 }
 
-/// AGE - calculates the interval between two timestamps (`PostgreSQL`).
+/// The interval between two timestamps (`AGE(a, b)`, that is `a - b`), on PostgreSQL.
 ///
-/// Returns `PostgreSQL` INTERVAL. The result is nullable if either input is nullable.
+/// Both arguments must be temporal. The result is `interval`, nullable if
+/// either argument is.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::age;
-///
-/// // SELECT AGE(NOW(), users.created_at)
-/// let user_age = age(now(), users.created_at);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let account_age = age(now(), users.created_at);
+/// assert_eq!(account_age.sql(), r#"AGE (NOW(), "users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn age<'a, V, E1, E2>(
@@ -475,30 +564,28 @@ where
     ))
 }
 
-/// `TO_CHAR` - formats a temporal expression as text (`PostgreSQL`).
+/// Formats a time value as text (`TO_CHAR(expr, format)`), on PostgreSQL.
 ///
-/// Returns Text type, preserves nullability of the input expression.
+/// `expr` must be temporal and `format` text. The result is text and keeps
+/// `expr`'s nullability. Common patterns: `YYYY`, `MM`, `DD`, `HH24`, `MI`,
+/// `SS`, `Day`, `Month`.
 ///
-/// # Common Format Patterns
-///
-/// - `YYYY` - 4-digit year
-/// - `MM` - month (01-12)
-/// - `DD` - day of month (01-31)
-/// - `HH24` - hour (00-23)
-/// - `MI` - minute (00-59)
-/// - `SS` - second (00-59)
-/// - `Day` - full day name
-/// - `Month` - full month name
-///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::to_char;
-///
-/// // SELECT TO_CHAR(users.created_at, 'YYYY-MM-DD')
-/// let formatted = to_char(users.created_at, "YYYY-MM-DD");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let day = to_char(users.created_at, "YYYY-MM-DD");
+/// assert_eq!(day.sql(), r#"TO_CHAR ("users"."created_at", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn to_char<'a, V, E, F>(
@@ -526,19 +613,26 @@ where
     ))
 }
 
-/// `TO_TIMESTAMP` - converts a Unix timestamp to a timestamp (`PostgreSQL`).
+/// Converts Unix time in seconds to a timestamp (`TO_TIMESTAMP`), on PostgreSQL.
 ///
-/// Returns `TimestampTz` type. The input should be a numeric Unix timestamp.
+/// The argument must be numeric. The result is `timestamptz` and keeps the
+/// argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::to_timestamp;
-///
-/// // SELECT TO_TIMESTAMP(users.created_unix)
-/// let ts = to_timestamp(users.created_unix);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(to_timestamp(users.age).sql(), r#"TO_TIMESTAMP ("users"."age")"#);
 /// ```
 pub fn to_timestamp<'a, V, E>(
     expr: E,
@@ -556,19 +650,27 @@ where
 // Additional PostgreSQL Formatting Functions
 // =============================================================================
 
-/// `TO_DATE` - parses a date from text using a format pattern (`PostgreSQL`).
+/// Parses text into a date using a format (`TO_DATE(text, format)`), on PostgreSQL.
 ///
-/// Returns Date type, preserves nullability of the input expression.
+/// Both arguments must be text. The result is `date` and keeps the first
+/// argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::to_date;
-///
-/// // SELECT TO_DATE('2024-01-15', 'YYYY-MM-DD')
-/// let d = to_date("2024-01-15", "YYYY-MM-DD");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let d = to_date::<Value, _, _>("2024-01-15", "YYYY-MM-DD");
+/// assert_eq!(d.sql(), "TO_DATE ($1, $2)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn to_date<'a, V, E, F>(
@@ -596,19 +698,27 @@ where
     ))
 }
 
-/// `TO_NUMBER` - parses a number from text using a format pattern (`PostgreSQL`).
+/// Parses text into a number using a format (`TO_NUMBER(text, format)`), on PostgreSQL.
 ///
-/// Returns Numeric type, preserves nullability of the input expression.
+/// Both arguments must be text. The result is `numeric` and keeps the first
+/// argument's nullability.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::to_number;
-///
-/// // SELECT TO_NUMBER('1,234.56', '9G999D99')
-/// let n = to_number("1,234.56", "9G999D99");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = to_number(users.name, "9G999D99");
+/// assert_eq!(n.sql(), r#"TO_NUMBER ("users"."name", $1)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn to_number<'a, V, E, F>(
@@ -640,20 +750,32 @@ where
 // DATE_BIN (PostgreSQL 14+)
 // =============================================================================
 
-/// `DATE_BIN` - bins timestamps into intervals (`PostgreSQL` 14+).
+/// Rounds a timestamp down into fixed-size buckets (`DATE_BIN`), on PostgreSQL 14+.
 ///
-/// Rounds a timestamp down to the nearest multiple of `stride` from `origin`.
-/// Useful for time-series bucketing.
+/// Buckets are `stride` wide (an interval as text, such as `'15 minutes'`) and
+/// start at `origin`. `source` and `origin` must be temporal. The stride is
+/// cast to `INTERVAL`. The result has `source`'s type and is nullable if any
+/// argument is.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::date_bin;
-///
-/// // SELECT DATE_BIN('15 minutes', events.created_at, TIMESTAMP '2001-01-01')
-/// let bucketed = date_bin("15 minutes", events.created_at, "2001-01-01");
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let bucket = date_bin("15 minutes", users.created_at, localtimestamp());
+/// assert_eq!(
+///     bucket.sql(),
+///     r#"DATE_BIN (CAST ($1 AS INTERVAL), "users"."created_at", LOCALTIMESTAMP)"#
+/// );
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn date_bin<'a, V, S, E, O>(
@@ -696,17 +818,27 @@ where
 // MAKE_DATE / MAKE_TIMESTAMP (PostgreSQL)
 // =============================================================================
 
-/// `MAKE_DATE` - constructs a date from year, month, day (`PostgreSQL`).
+/// Builds a date from year, month and day (`MAKE_DATE`), on PostgreSQL.
 ///
-/// # Example
+/// All arguments must be numeric. The result is `date`, nullable if any
+/// argument is.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::make_date;
-///
-/// // SELECT MAKE_DATE(2024, 1, 15)
-/// let d = make_date(2024, 1, 15);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let d = make_date::<Value, _, _, _>(2024, 1, 15);
+/// assert_eq!(d.sql(), "MAKE_DATE ($1, $2, $3)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn make_date<'a, V, Y, M, D>(
@@ -744,17 +876,28 @@ where
     ))
 }
 
-/// `MAKE_TIMESTAMP` - constructs a timestamp from components (`PostgreSQL`).
+/// Builds a timestamp from its parts (`MAKE_TIMESTAMP`), on PostgreSQL.
 ///
-/// # Example
+/// Takes year, month, day, hour, minute and seconds; all must be numeric
+/// (seconds may have a fraction). The result is `timestamp`, nullable if any
+/// argument is.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::make_timestamp;
-///
-/// // SELECT MAKE_TIMESTAMP(2024, 1, 15, 10, 30, 0.0)
-/// let ts = make_timestamp(2024, 1, 15, 10, 30, 0.0);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let ts = make_timestamp::<Value, _, _, _, _, _, _>(2024, 1, 15, 10, 30, 0.0);
+/// assert_eq!(ts.sql(), "MAKE_TIMESTAMP ($1, $2, $3, $4, $5, $6)");
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn make_timestamp<'a, V, Y, Mo, D, H, Mi, S>(
@@ -821,17 +964,25 @@ where
 // Current Time (PostgreSQL-specific)
 // =============================================================================
 
-/// LOCALTIME - returns the current time without time zone (`PostgreSQL`).
+/// The current time without time zone (`LOCALTIME`), on PostgreSQL.
 ///
-/// # Example
+/// The result is `time` and never NULL.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::localtime;
-///
-/// // SELECT LOCALTIME
-/// let now_time = localtime::<PostgresValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(localtime::<Value>().sql(), "LOCALTIME");
 /// ```
 #[must_use]
 pub fn localtime<'a, V>()
@@ -843,17 +994,25 @@ where
     SQLExpr::new(SQL::raw("LOCALTIME"))
 }
 
-/// LOCALTIMESTAMP - returns the current timestamp without time zone (`PostgreSQL`).
+/// The current date and time without time zone (`LOCALTIMESTAMP`), on PostgreSQL.
 ///
-/// # Example
+/// The result is `timestamp` and never NULL.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::localtimestamp;
-///
-/// // SELECT LOCALTIMESTAMP
-/// let now_ts = localtimestamp::<PostgresValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(localtimestamp::<Value>().sql(), "LOCALTIMESTAMP");
 /// ```
 #[must_use]
 pub fn localtimestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamp, super::NonNull, Scalar, ()>
@@ -864,19 +1023,26 @@ where
     SQLExpr::new(SQL::raw("LOCALTIMESTAMP"))
 }
 
-/// `CLOCK_TIMESTAMP` - returns the actual wall-clock time (`PostgreSQL`).
+/// The actual wall-clock time (`CLOCK_TIMESTAMP()`), on PostgreSQL.
 ///
-/// Unlike `NOW()` or `CURRENT_TIMESTAMP`, this changes during a transaction.
+/// Unlike [`now`] and `CURRENT_TIMESTAMP`, the value changes during a
+/// transaction. The result is `timestamptz` and never NULL.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::clock_timestamp;
-///
-/// // SELECT CLOCK_TIMESTAMP()
-/// let wall_clock = clock_timestamp::<PostgresValue>();
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, PostgresDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::PostgreSQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(clock_timestamp::<Value>().sql(), "CLOCK_TIMESTAMP()");
 /// ```
 #[must_use]
 pub fn clock_timestamp<'a, V>() -> SQLExpr<'a, V, PgTimestamptz, super::NonNull, Scalar, ()>
@@ -891,19 +1057,27 @@ where
 // TIMEDIFF (SQLite 3.43+)
 // =============================================================================
 
-/// TIMEDIFF - computes the difference between two temporal values (`SQLite` 3.43+).
+/// The difference between two time values as text (`TIMEDIFF`), on SQLite 3.43+.
 ///
-/// Returns a text representation of the time difference.
+/// Both arguments must be temporal. The result is text in the form
+/// `+YYYY-MM-DD HH:MM:SS.SSS`, nullable if either argument is.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_core::expr::timediff;
-///
-/// // SELECT TIMEDIFF(events.end_time, events.start_time)
-/// let duration = timediff(events.end_time, events.start_time);
-/// # "####;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let since = timediff(current_timestamp(), users.created_at);
+/// assert_eq!(since.sql(), r#"TIMEDIFF (CURRENT_TIMESTAMP, "users"."created_at")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn timediff<'a, V, E1, E2>(

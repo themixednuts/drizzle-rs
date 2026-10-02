@@ -15,6 +15,7 @@ pub enum Casing {
 }
 
 impl Casing {
+    /// Returns the config spelling: `"camelCase"` or `"snake_case"`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -45,38 +46,48 @@ impl core::str::FromStr for Casing {
     }
 }
 
-/// Shared migration metadata configuration.
+/// Where applied migrations are recorded: the tracking table and its schema.
 ///
-/// This contains only tracking metadata and can be reused by higher-level crates
-/// (CLI, runtime migrator, etc.) without pulling in migration runtime logic.
+/// Shared by the CLI and the runtime migrator. Each dialect has a default
+/// constant; adjust it with the builder methods.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::MigrationTracking;
+///
+/// let tracking = MigrationTracking::POSTGRES.table("schema_history");
+/// assert_eq!(tracking.table, "schema_history");
+/// assert_eq!(tracking.schema.as_deref(), Some("drizzle"));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MigrationTracking {
     /// Migrations tracking table name.
     pub table: Cow<'static, str>,
-    /// Optional schema name for the tracking table (`PostgreSQL`).
+    /// Schema of the tracking table (used by `PostgreSQL`; `None` elsewhere).
     pub schema: Option<Cow<'static, str>>,
 }
 
 impl MigrationTracking {
-    /// Default `SQLite` migration tracking metadata.
+    /// `SQLite` default: table `__drizzle_migrations`, no schema.
     pub const SQLITE: Self = Self {
         table: Cow::Borrowed("__drizzle_migrations"),
         schema: None,
     };
 
-    /// Default `PostgreSQL` migration tracking metadata.
+    /// `PostgreSQL` default: table `__drizzle_migrations` in schema `drizzle`.
     pub const POSTGRES: Self = Self {
         table: Cow::Borrowed("__drizzle_migrations"),
         schema: Some(Cow::Borrowed("drizzle")),
     };
 
-    /// Default `MySQL` migration tracking metadata in the selected database.
+    /// `MySQL` default: table `__drizzle_migrations` in the connection's database.
     pub const MYSQL: Self = Self {
         table: Cow::Borrowed("__drizzle_migrations"),
         schema: None,
     };
 
-    /// Create tracking metadata from table/schema values.
+    /// Creates tracking metadata from a table name and an optional schema.
     pub fn new(
         table: impl Into<Cow<'static, str>>,
         schema: Option<impl Into<Cow<'static, str>>>,
@@ -87,21 +98,21 @@ impl MigrationTracking {
         }
     }
 
-    /// Override table name while preserving schema.
+    /// Replaces the table name, keeping the schema.
     #[must_use]
     pub fn table(mut self, table: impl Into<Cow<'static, str>>) -> Self {
         self.table = table.into();
         self
     }
 
-    /// Override schema while preserving table name.
+    /// Sets the schema, keeping the table name.
     #[must_use]
     pub fn schema(mut self, schema: impl Into<Cow<'static, str>>) -> Self {
         self.schema = Some(schema.into());
         self
     }
 
-    /// Clear the schema while preserving table name.
+    /// Removes the schema, keeping the table name.
     #[must_use]
     pub fn without_schema(mut self) -> Self {
         self.schema = None;
@@ -114,12 +125,20 @@ impl Default for MigrationTracking {
     }
 }
 
-/// A config value that is either inline or an env-var reference.
+/// A config value written inline or read from an environment variable.
 ///
-/// In TOML this deserializes from `"literal"` or `{ env = "VAR_NAME" }` — the
-/// same shape `drizzle-kit` and the CLI accept for `dbCredentials.url`. Used
-/// anywhere a config value can be either inline or pulled from the
-/// environment at runtime.
+/// With the `serde` feature it deserializes from `"literal"` or
+/// `{ env = "VAR_NAME" }`, the same shape `drizzle-kit` and the CLI accept
+/// for `dbCredentials.url`.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::ConfigValue;
+///
+/// let url = ConfigValue::Inline("postgres://localhost/app".into());
+/// assert_eq!(url.resolve().unwrap(), "postgres://localhost/app");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigValue {
     /// Value written inline in the config file.
@@ -130,7 +149,7 @@ pub enum ConfigValue {
 
 #[cfg(feature = "std")]
 impl ConfigValue {
-    /// Resolve to a concrete string, reading the environment if needed.
+    /// Returns the value, reading the environment variable for [`ConfigValue::Env`].
     ///
     /// # Errors
     ///
@@ -152,7 +171,7 @@ impl ConfigValue {
         }
     }
 
-    /// Resolve to an optional value (returns `None` when an `Env` var is unset).
+    /// Returns the value, or `None` when a [`ConfigValue::Env`] variable is unset.
     ///
     /// # Errors
     ///

@@ -1,10 +1,8 @@
-//! `SQLite` DDL collection — typed access to schema entities.
+//! [`SQLiteDDL`], the SQLite schema model, and its entity diff.
 //!
-//! The generic [`EntityCollection<T>`] storage backbone lives in
-//! [`crate::collection`]; this file supplies the per-entity-type lookup
-//! helpers (`one`, `for_table`, `delete`) whose shape depends on each
-//! SQLite entity's identity (single-name for `Table`/`Index`; `(table,
-//! name)` for `Column`).
+//! Also adds SQLite lookups (`one`, `for_table`, `delete`) to
+//! [`EntityCollection`]. Tables, indexes, views, and named constraints are
+//! keyed by name; columns by `(table, name)`.
 
 use super::ddl::{
     CheckConstraint, Column, ForeignKey, Index, PrimaryKey, SqliteEntity, Table, UniqueConstraint,
@@ -150,19 +148,24 @@ impl EntityCollection<View> {
 // SQLite DDL - Main Collection Type
 // =============================================================================
 
-/// `SQLite` DDL collection - stores all schema entities
-///
-/// This is the main type for working with DDL entities.
-/// It provides typed access to each entity type with collection operations.
+/// A SQLite schema as one entity collection per kind.
 #[derive(Debug, Clone, Default)]
 pub struct SQLiteDDL {
+    /// Tables.
     pub tables: EntityCollection<Table>,
+    /// Columns.
     pub columns: EntityCollection<Column>,
+    /// Indexes.
     pub indexes: EntityCollection<Index>,
+    /// Foreign keys.
     pub fks: EntityCollection<ForeignKey>,
+    /// Primary keys (at most one per table).
     pub pks: EntityCollection<PrimaryKey>,
+    /// Unique constraints.
     pub uniques: EntityCollection<UniqueConstraint>,
+    /// Check constraints.
     pub checks: EntityCollection<CheckConstraint>,
+    /// Views.
     pub views: EntityCollection<View>,
 }
 
@@ -197,7 +200,8 @@ impl SQLiteDDL {
         };
     }
 
-    /// Convert to entity array for snapshot serialization
+    /// Returns every entity in the order snapshots store them: tables,
+    /// columns, indexes, foreign keys, primary keys, uniques, checks, views.
     #[must_use]
     pub fn to_entities(&self) -> Vec<SqliteEntity> {
         let mut entities = Vec::new();
@@ -233,7 +237,7 @@ impl SQLiteDDL {
         entities
     }
 
-    /// Check if DDL is empty
+    /// Returns `true` if every collection is empty.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.tables.is_empty()
@@ -277,14 +281,19 @@ pub struct TableEntities<'a> {
 // Re-export shared DiffType from traits module
 pub use crate::traits::DiffType;
 
-/// A diff statement for any entity
+/// One created, dropped, or altered entity.
 #[derive(Debug, Clone)]
 pub struct EntityDiff {
+    /// Create, drop, or alter.
     pub diff_type: DiffType,
+    /// Entity kind.
     pub kind: EntityKind,
+    /// Owning table, for table-level entities.
     pub table: Option<String>,
+    /// Entity name.
     pub name: String,
-    /// For alter: changed fields with (from, to) values
+    /// Always empty today; compare [`left`](Self::left) and
+    /// [`right`](Self::right) to see what changed.
     pub changes: HashMap<String, (String, String)>,
     /// Original entity (for drop/alter)
     pub left: Option<SqliteEntity>,

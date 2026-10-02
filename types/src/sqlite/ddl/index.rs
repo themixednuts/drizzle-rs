@@ -1,8 +1,5 @@
-//! `SQLite` Index DDL types
-//!
-//! This module provides two complementary types:
-//! - [`IndexDef`] - A const-friendly definition type for compile-time schema definitions
-//! - [`Index`] - A runtime type for serde serialization/deserialization
+//! `SQLite` indexes: [`IndexDef`] (const) and [`Index`] (runtime), with
+//! their key parts [`IndexColumnDef`] and [`IndexColumn`].
 
 use crate::alloc_prelude::*;
 
@@ -13,15 +10,15 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // Index Origin
 // =============================================================================
 
-/// Index origin - how the index was created
+/// How an index was created.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum IndexOrigin {
-    /// Manually created via CREATE INDEX
+    /// By `CREATE INDEX` (the default).
     #[default]
     Manual,
-    /// Auto-created for UNIQUE constraint
+    /// By `SQLite` itself, for a `UNIQUE` constraint.
     Auto,
 }
 
@@ -29,7 +26,7 @@ pub enum IndexOrigin {
 // Const-friendly Definition Types
 // =============================================================================
 
-/// Const-friendly index column specification
+/// One key part of an [`IndexDef`]: a column name or a SQL expression.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -42,7 +39,7 @@ pub struct IndexColumnDef {
 }
 
 impl IndexColumnDef {
-    /// Create a new index column
+    /// Creates a key part for a column.
     #[must_use]
     pub const fn new(value: &'static str) -> Self {
         Self {
@@ -51,7 +48,7 @@ impl IndexColumnDef {
         }
     }
 
-    /// Create a new index column from an expression
+    /// Creates a key part for a SQL expression.
     #[must_use]
     pub const fn expression(value: &'static str) -> Self {
         Self {
@@ -60,7 +57,7 @@ impl IndexColumnDef {
         }
     }
 
-    /// Convert to runtime [`IndexColumn`] type
+    /// Converts to the runtime [`IndexColumn`].
     #[must_use]
     pub const fn into_column(self) -> IndexColumn {
         IndexColumn {
@@ -70,7 +67,7 @@ impl IndexColumnDef {
     }
 }
 
-/// Runtime index column entity for serde serialization
+/// One key part of an [`Index`]: a column name or a SQL expression.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -84,7 +81,7 @@ pub struct IndexColumn {
 }
 
 impl IndexColumn {
-    /// Create a new index column
+    /// Creates a key part for a column.
     #[must_use]
     pub fn new(value: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -93,7 +90,7 @@ impl IndexColumn {
         }
     }
 
-    /// Create a new index column from an expression
+    /// Creates a key part for a SQL expression.
     #[must_use]
     pub fn expression(value: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -104,7 +101,8 @@ impl IndexColumn {
 }
 
 impl IndexColumn {
-    /// Generate SQL for this index column
+    /// Renders the key part: the column name in backticks, or the
+    /// expression in parentheses.
     #[must_use]
     pub fn to_sql(&self) -> String {
         if self.is_expression {
@@ -121,7 +119,7 @@ impl From<IndexColumnDef> for IndexColumn {
     }
 }
 
-/// Const-friendly index definition
+/// An index that can be built in a `const`.
 ///
 /// # Examples
 ///
@@ -147,14 +145,15 @@ pub struct IndexDef {
     pub columns: &'static [IndexColumnDef],
     /// Is this a UNIQUE index?
     pub is_unique: bool,
-    /// Optional WHERE clause for partial indexes
+    /// `WHERE` condition of a partial index, as SQL
     pub where_clause: Option<&'static str>,
     /// How the index was created
     pub origin: IndexOrigin,
 }
 
 impl IndexDef {
-    /// Create a new index definition
+    /// Creates a non-unique index with no columns; set them with
+    /// [`columns`](Self::columns()).
     #[must_use]
     pub const fn new(table: &'static str, name: &'static str) -> Self {
         Self {
@@ -167,7 +166,7 @@ impl IndexDef {
         }
     }
 
-    /// Set unique constraint
+    /// Makes the index `UNIQUE`.
     #[must_use]
     pub const fn unique(self) -> Self {
         Self {
@@ -176,13 +175,13 @@ impl IndexDef {
         }
     }
 
-    /// Set columns
+    /// Sets the key parts.
     #[must_use]
     pub const fn columns(self, columns: &'static [IndexColumnDef]) -> Self {
         Self { columns, ..self }
     }
 
-    /// Set WHERE clause for partial index
+    /// Sets the `WHERE` condition, making it a partial index.
     #[must_use]
     pub const fn where_clause(self, clause: &'static str) -> Self {
         Self {
@@ -191,7 +190,7 @@ impl IndexDef {
         }
     }
 
-    /// Set origin to auto (for UNIQUE constraint indexes)
+    /// Marks the index as created by `SQLite` for a `UNIQUE` constraint.
     #[must_use]
     pub const fn auto_origin(self) -> Self {
         Self {
@@ -200,7 +199,7 @@ impl IndexDef {
         }
     }
 
-    /// Convert to runtime [`Index`] type
+    /// Converts to the runtime [`Index`].
     #[must_use]
     pub fn into_index(self) -> Index {
         Index {
@@ -224,7 +223,7 @@ impl Default for IndexDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime index entity for serde serialization
+/// An index, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -244,7 +243,7 @@ pub struct Index {
     #[cfg_attr(feature = "serde", serde(default))]
     pub is_unique: bool,
 
-    /// WHERE clause for partial indexes
+    /// `WHERE` condition of a partial index, as SQL (serialized as `where`)
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -262,7 +261,7 @@ pub struct Index {
 }
 
 impl Index {
-    /// Create a new index
+    /// Creates a non-unique index.
     #[must_use]
     pub fn new(
         table: impl Into<Cow<'static, str>>,
@@ -279,21 +278,21 @@ impl Index {
         }
     }
 
-    /// Make this a unique index
+    /// Makes the index `UNIQUE`.
     #[must_use]
     pub const fn unique(mut self) -> Self {
         self.is_unique = true;
         self
     }
 
-    /// Get the index name
+    /// Returns the index name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

@@ -1,7 +1,13 @@
+//! `SQLite` schema marker, the [`Number`] type, and the [`Join`] re-export.
+
 use drizzle_core::traits::SQLViewInfo;
 use drizzle_core::{SQLIndexInfo, SQLSchemaType, TableRef};
 
-/// The type of database object
+/// The `SQLite` dialect marker for schema items.
+///
+/// Used as a type parameter (`SQLTable<'a, SQLiteSchemaType, SQLiteValue<'a>>`)
+/// to tie tables, views and indexes to `SQLite`. The variants name the kinds
+/// of schema object.
 #[derive(Debug, Clone)]
 pub enum SQLiteSchemaType {
     /// A regular table
@@ -20,7 +26,9 @@ impl SQLSchemaType for SQLiteSchemaType {}
 // Number Type
 //------------------------------------------------------------------------------
 
-/// Numeric type that can be either an integer or a floating point value
+/// A number that is either an integer or a floating-point value.
+///
+/// Defaults to `Integer(0)`.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum Number {
     /// Integer value
@@ -47,10 +55,7 @@ impl From<f64> for Number {
     }
 }
 
-// Note: Generic From implementation is removed to avoid conflicts.
-// The table macro will generate specific implementations using SQLiteEnumVisitor.
-
-// Re-export Join from core
+// Join types live in drizzle-core; re-exported here for `SQLite` users.
 pub use drizzle_core::{Join, JoinType};
 
 //------------------------------------------------------------------------------

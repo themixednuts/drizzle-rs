@@ -1,4 +1,9 @@
-//! MySQL SQL fragments used by the typed query builder.
+//! `MySQL` helpers used with the query builder: ORDER BY terms
+//! ([`asc`], [`desc`], [`output_alias`]) and index hints for joined tables
+//! ([`MySQLIndexHintExt`]).
+//!
+//! Examples use the `drizzle` crate and are not compiled here; see the
+//! [`builder`](crate::builder) module.
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
@@ -13,7 +18,7 @@ pub(crate) use helpers::{
     r#where,
 };
 
-/// A typed boolean expression accepted after a MySQL JOIN ... ON clause.
+/// A boolean expression accepted as a `JOIN ... ON` condition.
 #[doc(hidden)]
 pub trait JoinCondition<'a>:
     join_condition_private::Sealed<'a> + ToSQL<'a, MySQLValue<'a>>
@@ -38,7 +43,8 @@ where
 {
 }
 
-/// A table-like source accepted by an explicit JOIN tuple.
+/// A source that can follow `JOIN`: a `MySQL` table, a derived table
+/// (subquery with an alias), or a table with an index hint.
 #[doc(hidden)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
@@ -246,9 +252,9 @@ index_hint_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
 index_hint_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
 index_hint_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
 
-/// A table source carrying one typed MySQL index-hint clause.
+/// A table with one index hint, ready to be joined.
 ///
-/// Values of this type are created through [`MySQLIndexHintExt`].
+/// Created by the methods of [`MySQLIndexHintExt`].
 #[derive(Debug, Clone, Copy)]
 pub struct IndexHintedTable<Table, Indexes, Kind> {
     table: Table,
@@ -285,13 +291,48 @@ where
     }
 }
 
-/// Adds a typed MySQL index hint to a joined table source.
+/// Adds an index hint to a table you are about to join.
 ///
-/// Use the matching methods on a select builder for its base table. The
-/// index's generated metadata must name the same table, so hints cannot be
-/// accidentally applied across tables.
+/// Implemented for every `MySQL` table. For the FROM table, use the
+/// `use_index` / `force_index` / `ignore_index` methods on the select
+/// builder instead. Each index must belong to the hinted table; an index of
+/// another table does not compile. Pass one index or a tuple of up to eight.
+///
+/// # Examples
+///
+/// ```rust
+/// # let _ = r####"
+/// # use drizzle::core::expr::{alias, count, eq, gt};
+/// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+/// # #[MySQLTable(NAME = "users")]
+/// # struct Users {
+/// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+/// #     #[column(VARCHAR(255))] name: String,
+/// #     #[column(DEFAULT = true)] active: bool,
+/// # }
+/// # #[MySQLTable(NAME = "posts")]
+/// # struct Posts {
+/// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+/// #     #[column(REFERENCES = Users::id)] user_id: u64,
+/// #     title: String,
+/// # }
+/// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+/// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+/// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { users, posts } = Schema::new();
+/// let query = builder
+///     .select((users.id, posts.id))
+///     .from(users)
+///     .inner_join((posts.use_index(PostsUserIdIdx::new()), eq(posts.user_id, users.id)));
+/// assert_eq!(
+///     query.to_sql().sql(),
+///     "SELECT `users`.`id`, `posts`.`id` FROM `users` INNER JOIN `posts` USE INDEX (`posts_user_id_idx`) ON `posts`.`user_id` = `users`.`id`"
+/// );
+/// # "####;
+/// ```
 pub trait MySQLIndexHintExt: Sized {
-    /// Advises MySQL to consider the supplied indexes for this table source.
+    /// Adds `USE INDEX (..)`: `MySQL` only considers these indexes.
     fn use_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, UseIndex>
     where
         Indexes: for<'a> IndexHintList<'a, Self>,
@@ -303,7 +344,8 @@ pub trait MySQLIndexHintExt: Sized {
         }
     }
 
-    /// Advises MySQL to strongly prefer the supplied indexes.
+    /// Adds `FORCE INDEX (..)`: `MySQL` uses a table scan only if none of
+    /// these indexes can be used.
     fn force_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, ForceIndex>
     where
         Indexes: for<'a> IndexHintList<'a, Self>,
@@ -315,7 +357,7 @@ pub trait MySQLIndexHintExt: Sized {
         }
     }
 
-    /// Advises MySQL not to use the supplied indexes.
+    /// Adds `IGNORE INDEX (..)`: `MySQL` does not use these indexes.
     fn ignore_index<Indexes>(self, indexes: Indexes) -> IndexHintedTable<Self, Indexes, IgnoreIndex>
     where
         Indexes: for<'a> IndexHintList<'a, Self>,
@@ -482,8 +524,10 @@ pub(crate) fn unqualified_columns<'a>(
     columns
 }
 
-/// A typed MySQL ordering expression that preserves its operand until the
-/// builder knows whether table qualification is legal.
+/// An ORDER BY term with a direction, made by [`asc`] or [`desc`].
+///
+/// It keeps its operand unrendered so that, after a set operation, the
+/// builder can write a column without its table name.
 #[derive(Debug, Clone, Copy)]
 pub struct OrderExpr<T> {
     value: T,
@@ -510,7 +554,7 @@ where
     }
 }
 
-/// Creates an ascending MySQL ORDER BY expression.
+/// Sorts by `value` in ascending order (`value ASC`).
 pub const fn asc<T>(value: T) -> OrderExpr<T> {
     OrderExpr {
         value,
@@ -518,7 +562,7 @@ pub const fn asc<T>(value: T) -> OrderExpr<T> {
     }
 }
 
-/// Creates a descending MySQL ORDER BY expression.
+/// Sorts by `value` in descending order (`value DESC`).
 pub const fn desc<T>(value: T) -> OrderExpr<T> {
     OrderExpr {
         value,
@@ -526,7 +570,9 @@ pub const fn desc<T>(value: T) -> OrderExpr<T> {
     }
 }
 
-/// A compound-query output alias usable in the global ORDER BY clause.
+/// The name of a SELECT output, for the ORDER BY of a set operation.
+///
+/// Made by [`output_alias`].
 #[derive(Debug, Clone, Copy)]
 pub struct OutputAlias(&'static str);
 
@@ -536,7 +582,26 @@ impl<'a> ToSQL<'a, MySQLValue<'a>> for OutputAlias {
     }
 }
 
-/// Names an aliased SELECT output for compound-query ordering.
+/// Refers to a named SELECT output in the ORDER BY of a set operation.
+///
+/// Give the output its name with `alias(expr, "name")` in the first
+/// query. The name is not checked against the query, so a typo is only
+/// caught by `MySQL`. See the set-operation `order_by` on
+/// [`SelectBuilder`](crate::builder::SelectBuilder) for a full query.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::ToSQL;
+/// use drizzle_mysql::helpers::{asc, desc, output_alias};
+/// use drizzle_mysql::values::MySQLValue;
+///
+/// let term: drizzle_core::SQL<'_, MySQLValue<'_>> = desc(output_alias("label")).to_sql();
+/// assert_eq!(term.sql(), "`label` DESC");
+///
+/// let term: drizzle_core::SQL<'_, MySQLValue<'_>> = asc(output_alias("total")).to_sql();
+/// assert_eq!(term.sql(), "`total` ASC");
+/// ```
 #[must_use]
 pub const fn output_alias(name: &'static str) -> OutputAlias {
     OutputAlias(name)

@@ -1,10 +1,9 @@
-//! Core traits for type-safe migration infrastructure
+//! Type-level building blocks for snapshots, versions, and dialects.
 //!
-//! This module provides idiomatic Rust traits replacing TypeScript patterns:
-//! - `Version` - Type-safe version markers with const NUMBER
-//! - `Upgradable` - Trait for upgrading snapshots between versions
-//! - `Entity` - Trait for DDL entities with const KIND
-//! - `EntityKind` - Enum replacing string `entity_type` discrimination
+//! - [`Version`] and `V5`..`V8`: snapshot format versions as types.
+//! - [`Upgradable`] and [`CanUpgrade`]: which version upgrades exist.
+//! - [`Dialect`] with markers [`Sqlite`], [`Postgres`], [`Mysql`].
+//! - [`Entity`], [`EntityKind`], [`EntityKey`]: DDL entity identity.
 
 use std::fmt;
 use std::hash::Hash;
@@ -23,84 +22,88 @@ use crate::sqlite::{
 // Version System
 // =============================================================================
 
-/// Type-safe version marker trait.
+/// A snapshot format version, as a zero-sized type.
 ///
-/// Each schema version is represented as a zero-sized type implementing this trait.
-/// The version number is available at compile time via the associated constant.
+/// The number is available at compile time as [`NUMBER`](Self::NUMBER).
 pub trait Version: Copy + Clone + Default + 'static {
-    /// The version number (5, 6, 7, 8, etc.)
+    /// The version number (5, 6, 7, 8, ...).
     const NUMBER: u32;
 }
 
-/// Helper to get version as string at runtime
+/// Returns `V::NUMBER` as a string.
 #[must_use]
 pub fn version_str<V: Version>() -> String {
     V::NUMBER.to_string()
 }
 
-/// Version 5 marker
+/// Snapshot format version 5.
 #[derive(Copy, Clone, Default, Debug)]
 pub struct V5;
 impl Version for V5 {
     const NUMBER: u32 = 5;
 }
 
-/// Version 6 marker
+/// Snapshot format version 6.
 #[derive(Copy, Clone, Default, Debug)]
 pub struct V6;
 impl Version for V6 {
     const NUMBER: u32 = 6;
 }
 
-/// Version 7 marker
+/// Snapshot format version 7.
 #[derive(Copy, Clone, Default, Debug)]
 pub struct V7;
 impl Version for V7 {
     const NUMBER: u32 = 7;
 }
 
-/// Version 8 marker
+/// Snapshot format version 8.
 #[derive(Copy, Clone, Default, Debug)]
 pub struct V8;
 impl Version for V8 {
     const NUMBER: u32 = 8;
 }
 
-/// Latest version aliases per dialect
+/// Latest SQLite snapshot version.
 pub type SqliteLatest = V7;
+/// Latest PostgreSQL snapshot version.
 pub type PostgresLatest = V8;
+/// Latest MySQL snapshot version.
 pub type MysqlLatest = V6;
 
 // =============================================================================
 // Upgradable Trait
 // =============================================================================
 
-/// Trait for upgrading a snapshot from one version to another.
+/// Upgrades a value from snapshot version `From` to version `To`.
 ///
-/// Implementations are provided for each dialect's version transitions.
-/// The trait is generic over the snapshot type `S`, source version `From`,
-/// and target version `To`.
+/// # Examples
 ///
-/// # Example
 /// ```rust
-/// # let _ = r####"
-/// impl Upgradable<V5, V6> for SqliteSnapshot<V5> {
-///     type Output = SqliteSnapshot<V6>;
-///     type Error = UpgradeError;
+/// use drizzle_migrations::{Upgradable, V5, V6};
 ///
-///     fn upgrade(self) -> Result<Self::Output, Self::Error> {
-///         // Transform v5 -> v6
+/// struct DocV5 { tables: Vec<String> }
+/// struct DocV6 { tables: Vec<String>, views: Vec<String> }
+///
+/// impl Upgradable<V5, V6> for DocV5 {
+///     type Output = DocV6;
+///     type Error = std::convert::Infallible;
+///
+///     fn upgrade(self) -> Result<DocV6, Self::Error> {
+///         Ok(DocV6 { tables: self.tables, views: Vec::new() })
 ///     }
 /// }
-/// # "####;
+///
+/// let v6 = DocV5 { tables: vec!["users".into()] }.upgrade().unwrap();
+/// assert!(v6.views.is_empty());
 /// ```
 pub trait Upgradable<From: Version, To: Version> {
-    /// The output snapshot type (same shape, different version)
+    /// The upgraded value.
     type Output;
-    /// Error type for upgrade failures
+    /// Error returned when the upgrade fails.
     type Error;
 
-    /// Perform the upgrade transformation
+    /// Performs the upgrade.
     ///
     /// # Errors
     ///
@@ -110,25 +113,26 @@ pub trait Upgradable<From: Version, To: Version> {
     fn upgrade(self) -> Result<Self::Output, Self::Error>;
 }
 
-/// Type-safe upgrade function that only compiles for valid upgrade paths.
+/// Compiles only if dialect `D` can upgrade from `From` to `To`.
 ///
-/// This function leverages the `CanUpgrade` trait to enforce at compile time
-/// that the specified dialect supports the given version transition.
+/// Does nothing at runtime.
 ///
-/// # Example
+/// # Examples
+///
 /// ```rust
-/// # let _ = r####"
-/// use drizzle_migrations::{Sqlite, V5, V7, CanUpgrade, Versioned};
+/// use drizzle_migrations::{Sqlite, V5, V7, assert_can_upgrade};
 ///
-/// // This compiles because Sqlite: CanUpgrade<V5, V7>
-/// fn upgrade_sqlite_snapshot<D>(data: Versioned<MyData, V5>) -> Versioned<MyData, V7>
-/// where
-///     D: CanUpgrade<V5, V7>,
-/// {
-///     // Perform the upgrade
-///     Versioned::new(data.into_inner())
-/// }
-/// # "####;
+/// assert_can_upgrade::<Sqlite, V5, V7>();
+/// ```
+///
+/// # Compile-time checks
+///
+/// SQLite snapshots stop at version 7, so this does not compile:
+///
+/// ```compile_fail
+/// use drizzle_migrations::{Sqlite, V7, V8, assert_can_upgrade};
+///
+/// assert_can_upgrade::<Sqlite, V7, V8>();
 /// ```
 #[inline]
 pub const fn assert_can_upgrade<D, From, To>()
@@ -145,35 +149,48 @@ where
 // Entity System
 // =============================================================================
 
-/// Entity kind discriminator enum.
+/// The kind of a DDL entity (table, column, index, ...).
 ///
-/// Replaces string-based `entity_type` fields with a proper enum.
-/// Uses `#[repr(u8)]` for efficient storage and comparison.
+/// [`as_str`](Self::as_str) gives the snapshot JSON name (`"tables"`,
+/// `"fks"`, ...).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum EntityKind {
     // Schema-level entities
+    /// A PostgreSQL schema (`"schemas"`).
     Schema = 0,
+    /// An enum type (`"enums"`).
     Enum = 1,
+    /// A sequence (`"sequences"`).
     Sequence = 2,
+    /// A role (`"roles"`).
     Role = 3,
 
     // Table-level entities
+    /// A table (`"tables"`).
     Table = 10,
+    /// A column (`"columns"`).
     Column = 11,
+    /// An index (`"indexes"`).
     Index = 12,
+    /// A foreign key (`"fks"`).
     ForeignKey = 13,
+    /// A primary key (`"pks"`).
     PrimaryKey = 14,
+    /// A unique constraint (`"uniques"`).
     UniqueConstraint = 15,
+    /// A check constraint (`"checks"`).
     CheckConstraint = 16,
 
     // Other entities
+    /// A row-level security policy (`"policies"`).
     Policy = 20,
+    /// A view (`"views"`).
     View = 21,
 }
 
 impl EntityKind {
-    /// Get the string representation for JSON serialization compatibility
+    /// Returns the snapshot JSON name, e.g. `"tables"`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -193,7 +210,7 @@ impl EntityKind {
         }
     }
 
-    /// Parse from string (for deserialization)
+    /// Parses a snapshot JSON name; `None` if unknown.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
@@ -229,7 +246,7 @@ impl fmt::Display for EntityKind {
     }
 }
 
-/// Entity key types for unique identification
+/// The key that identifies an entity within a snapshot.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum EntityKey {
     /// Simple name (e.g., table name, schema name)
@@ -241,31 +258,32 @@ pub enum EntityKey {
 }
 
 impl EntityKey {
+    /// Creates a [`EntityKey::Simple`] key.
     pub fn simple(name: impl Into<String>) -> Self {
         Self::Simple(name.into())
     }
 
+    /// Creates a [`EntityKey::Composite2`] key.
     pub fn composite2(a: impl Into<String>, b: impl Into<String>) -> Self {
         Self::Composite2(a.into(), b.into())
     }
 
+    /// Creates a [`EntityKey::Composite3`] key.
     pub fn composite3(a: impl Into<String>, b: impl Into<String>, c: impl Into<String>) -> Self {
         Self::Composite3(a.into(), b.into(), c.into())
     }
 }
 
-/// Trait for DDL entities.
-///
-/// All DDL entity types (Table, Column, Index, etc.) implement this trait.
-/// The `KIND` constant enables compile-time entity type discrimination.
+/// A DDL entity type (table, column, index, ...) with a fixed [`EntityKind`].
 pub trait Entity: Clone + PartialEq {
-    /// The entity kind (discriminator)
+    /// The kind of this entity type.
     const KIND: EntityKind;
 
-    /// Get the unique key for this entity
+    /// Returns the key that identifies this entity.
     fn key(&self) -> EntityKey;
 
-    /// Get the parent entity key (if this entity belongs to a parent)
+    /// Returns the owning entity's key (for example the table of a column),
+    /// or `None` (the default).
     fn parent_key(&self) -> Option<EntityKey> {
         None
     }
@@ -275,10 +293,9 @@ pub trait Entity: Clone + PartialEq {
 // Versioned Snapshot
 // =============================================================================
 
-/// A snapshot with compile-time version tracking.
+/// A value tagged with a snapshot version `V` at the type level.
 ///
-/// Wraps snapshot data with a phantom type parameter for the version.
-/// This enables type-safe upgrade chains and prevents accidental version mixing.
+/// Keeps data of different versions from being mixed up.
 #[derive(Clone, Debug)]
 pub struct Versioned<Data, V: Version> {
     /// The actual snapshot data
@@ -288,7 +305,7 @@ pub struct Versioned<Data, V: Version> {
 }
 
 impl<Data, V: Version> Versioned<Data, V> {
-    /// Create a new versioned wrapper
+    /// Wraps `data` as version `V`.
     pub const fn new(data: Data) -> Self {
         Self {
             data,
@@ -296,19 +313,19 @@ impl<Data, V: Version> Versioned<Data, V> {
         }
     }
 
-    /// Get the version number
+    /// Returns `V::NUMBER`.
     #[must_use]
     pub const fn version() -> u32 {
         V::NUMBER
     }
 
-    /// Get the version as a string
+    /// Returns `V::NUMBER` as a string.
     #[must_use]
     pub fn version_str() -> String {
         version_str::<V>()
     }
 
-    /// Unwrap to get the inner data
+    /// Returns the wrapped data.
     pub fn into_inner(self) -> Data {
         self.data
     }
@@ -318,31 +335,33 @@ impl<Data, V: Version> Versioned<Data, V> {
 // Dialect Trait
 // =============================================================================
 
-/// Trait representing a database dialect.
+/// A database dialect at the type level, with its snapshot, DDL, and
+/// generator types.
 ///
-/// This trait uses associated types to provide compile-time type safety across
-/// dialect-specific operations. Both `MinVersion` and `LatestVersion` are
-/// associated types implementing `Version`, enabling const operations.
+/// Implemented by [`Sqlite`], [`Postgres`], and [`Mysql`]. Re-exported at the
+/// crate root as `DialectTrait`.
 ///
-/// # Example
+/// # Examples
+///
 /// ```rust
-/// # let _ = r####"
-/// fn process<D: Dialect>() {
-///     // All const at compile time
-///     const MIN: u32 = D::MinVersion::NUMBER;
-///     const LATEST: u32 = D::LatestVersion::NUMBER;
-///     println!("Processing {} (v{} to v{})", D::NAME, MIN, LATEST);
+/// use drizzle_migrations::{DialectTrait, Postgres, Version};
+///
+/// fn version_range<D: DialectTrait>() -> (u32, u32) {
+///     (D::MinVersion::NUMBER, D::LatestVersion::NUMBER)
 /// }
-/// # "####;
+///
+/// assert_eq!(Postgres::NAME, "postgresql");
+/// assert_eq!(version_range::<Postgres>(), (5, 8));
 /// ```
 pub trait Dialect: Sized + 'static {
-    /// Display name of the dialect
+    /// Dialect name as written in snapshots (`"sqlite"`, `"postgresql"`,
+    /// `"mysql"`).
     const NAME: &'static str;
 
-    /// Minimum supported snapshot version (as a type)
+    /// Oldest supported snapshot version.
     type MinVersion: Version;
 
-    /// Latest/current snapshot version (as a type)
+    /// Current snapshot version.
     type LatestVersion: Version;
 
     /// Dialect-specific snapshot type
@@ -357,28 +376,35 @@ pub trait Dialect: Sized + 'static {
     /// Dialect-specific SQL generator
     type Generator: Default;
 
-    /// Check if a version number is supported
+    /// Returns `true` if `version` is between the min and latest versions.
     #[inline]
     #[must_use]
     fn is_supported_version(version: u32) -> bool {
         version >= Self::MinVersion::NUMBER && version <= Self::LatestVersion::NUMBER
     }
 
-    /// Check if a version is the latest
+    /// Returns `true` if `version` is the latest version.
     #[inline]
     #[must_use]
     fn is_latest_version(version: u32) -> bool {
         version == Self::LatestVersion::NUMBER
     }
 
-    /// Check if a version needs upgrade
+    /// Returns `true` if `version` is supported but older than the latest.
     #[inline]
     #[must_use]
     fn needs_upgrade_from(version: u32) -> bool {
         version < Self::LatestVersion::NUMBER && version >= Self::MinVersion::NUMBER
     }
 
-    /// Diff two snapshots and generate SQL migration statements
+    /// Diffs two snapshots and returns the SQL statements.
+    ///
+    /// `breakpoints` is currently ignored by all built-in dialects.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`MigrationError`](crate::MigrationError) if the diff
+    /// cannot be computed or rendered.
     fn diff_and_generate(
         prev: &Self::Snapshot,
         cur: &Self::Snapshot,
@@ -386,29 +412,28 @@ pub trait Dialect: Sized + 'static {
     ) -> Result<DiffResult, crate::MigrationError>;
 }
 
-/// Marker trait for compile-time upgrade path validation.
+/// Marks that dialect `Self` can upgrade snapshots from `From` to `To`.
 ///
-/// Implement this trait to declare that a dialect supports upgrading from
-/// version `From` to version `To`. The compiler will enforce that only
-/// valid upgrade paths are used.
+/// Use it as a bound so only valid upgrade paths compile. Built-in paths:
+/// SQLite 5→6→7, PostgreSQL 5→6→7→8, MySQL 5→6 (plus the transitive pairs).
 ///
-/// # Example
+/// # Examples
+///
 /// ```rust
-/// # let _ = r####"
-/// // Declare SQLite can upgrade V5 -> V6
-/// impl CanUpgrade<V5, V6> for Sqlite {}
-/// impl CanUpgrade<V6, V7> for Sqlite {}
+/// use drizzle_migrations::{CanUpgrade, Sqlite, V5, V7, Version, Versioned};
 ///
-/// // This function only compiles if the upgrade is valid
-/// fn upgrade<D, From, To>(data: Versioned<Data, From>) -> Versioned<Data, To>
+/// fn upgrade<D, From, To, T>(data: Versioned<T, From>) -> Versioned<T, To>
 /// where
-///     D: Dialect + CanUpgrade<From, To>,
+///     D: CanUpgrade<From, To>,
 ///     From: Version,
 ///     To: Version,
 /// {
-///     // ...
+///     Versioned::new(data.into_inner())
 /// }
-/// # "####;
+///
+/// let v7: Versioned<&str, V7> = upgrade::<Sqlite, _, _, _>(Versioned::<_, V5>::new("ddl"));
+/// assert_eq!(Versioned::<&str, V7>::version(), 7);
+/// # let _ = v7;
 /// ```
 pub trait CanUpgrade<From: Version, To: Version>: Dialect {}
 
@@ -416,19 +441,19 @@ pub trait CanUpgrade<From: Version, To: Version>: Dialect {}
 // Dialect Operations Trait
 // =============================================================================
 
-/// Migration result from diffing two snapshots
+/// Statements and warnings from [`Dialect::diff_and_generate`].
 #[derive(Debug, Clone)]
 pub struct DiffResult {
     /// Generated SQL statements
     pub sql_statements: Vec<String>,
-    /// Whether there are any changes
+    /// `true` when `sql_statements` is not empty.
     pub has_changes: bool,
     /// Structural warnings produced while planning the migration.
     pub warnings: Vec<String>,
 }
 
 impl DiffResult {
-    /// Create an empty result (no changes)
+    /// Creates a result with no statements.
     #[must_use]
     pub const fn empty() -> Self {
         Self {
@@ -438,7 +463,7 @@ impl DiffResult {
         }
     }
 
-    /// Create a result with changes
+    /// Creates a result from `sql_statements` with no warnings.
     #[must_use]
     pub const fn with_changes(sql_statements: Vec<String>) -> Self {
         let has_changes = !sql_statements.is_empty();
@@ -461,14 +486,14 @@ impl From<crate::Plan> for DiffResult {
     }
 }
 
-/// `SQLite` dialect marker type
+/// SQLite dialect marker (snapshot versions 5 to 7).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Sqlite;
 
 impl Sqlite {
-    /// Minimum supported snapshot version (inherent alias)
+    /// Oldest supported snapshot version.
     pub const MIN_VERSION: u32 = V5::NUMBER;
-    /// Latest snapshot version (inherent alias)
+    /// Current snapshot version.
     pub const LATEST_VERSION: u32 = V7::NUMBER;
 }
 
@@ -500,14 +525,14 @@ impl CanUpgrade<V6, V7> for Sqlite {}
 // Transitive: V5 -> V7 requires going through V6
 impl CanUpgrade<V5, V7> for Sqlite {}
 
-/// `PostgreSQL` dialect marker type
+/// PostgreSQL dialect marker (snapshot versions 5 to 8).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Postgres;
 
 impl Postgres {
-    /// Minimum supported snapshot version (inherent alias)
+    /// Oldest supported snapshot version.
     pub const MIN_VERSION: u32 = V5::NUMBER;
-    /// Latest snapshot version (inherent alias)
+    /// Current snapshot version.
     pub const LATEST_VERSION: u32 = V8::NUMBER;
 }
 
@@ -542,14 +567,14 @@ impl CanUpgrade<V5, V7> for Postgres {}
 impl CanUpgrade<V5, V8> for Postgres {}
 impl CanUpgrade<V6, V8> for Postgres {}
 
-/// `MySQL` dialect marker type
+/// MySQL dialect marker (snapshot versions 5 to 6).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Mysql;
 
 impl Mysql {
-    /// Minimum supported snapshot version (inherent alias)
+    /// Oldest supported snapshot version.
     pub const MIN_VERSION: u32 = V5::NUMBER;
-    /// Latest snapshot version (inherent alias)
+    /// Current snapshot version.
     pub const LATEST_VERSION: u32 = V6::NUMBER;
 }
 
@@ -580,11 +605,14 @@ impl CanUpgrade<V5, V6> for Mysql {}
 // Diff Types
 // =============================================================================
 
-/// Diff operation type
+/// The kind of change a diff entry describes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DiffType {
+    /// The entity is new.
     Create,
+    /// The entity was removed.
     Drop,
+    /// The entity changed.
     Alter,
 }
 

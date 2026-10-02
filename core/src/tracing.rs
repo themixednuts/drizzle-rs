@@ -1,15 +1,17 @@
-//! Tracing utilities for drizzle query and transaction observability.
+//! Macros that emit `tracing` events for queries and transactions.
 //!
-//! Enable the `tracing` feature to emit spans and events via the `tracing` crate.
-//! These macros no-op when the feature is disabled, avoiding `#[cfg]` boilerplate
-//! at every call site.
+//! The macros expand to `tracing` calls when the *calling* crate has a
+//! `tracing` feature enabled, and to nothing otherwise, so call sites need
+//! no `#[cfg]`.
 
-/// Emit a debug-level tracing event with the SQL text and parameter count.
+/// Emits a debug-level `drizzle.query` event with the SQL text and parameter
+/// count.
 ///
-/// ```rust
-/// # let _ = r####"
-/// drizzle_trace_query!(&sql_str, params.len());
-/// # "####;
+/// # Examples
+///
+/// ```
+/// let sql = "SELECT * FROM users WHERE id = ?";
+/// drizzle_core::drizzle_trace_query!(sql, 1);
 /// ```
 #[macro_export]
 macro_rules! drizzle_trace_query {
@@ -19,13 +21,14 @@ macro_rules! drizzle_trace_query {
     };
 }
 
-/// Emit an info-level tracing event for transaction lifecycle (begin, commit, rollback).
+/// Emits an info-level `drizzle.transaction` event for a transaction step
+/// (`begin`, `commit`, `rollback`).
 ///
-/// ```rust
-/// # let _ = r####"
-/// drizzle_trace_tx!("begin", "sqlite.rusqlite");
-/// drizzle_trace_tx!("commit", "postgres.sync");
-/// # "####;
+/// # Examples
+///
+/// ```
+/// drizzle_core::drizzle_trace_tx!("begin", "sqlite.rusqlite");
+/// drizzle_core::drizzle_trace_tx!("commit", "sqlite.rusqlite");
 /// ```
 #[macro_export]
 macro_rules! drizzle_trace_tx {

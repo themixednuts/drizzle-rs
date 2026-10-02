@@ -1,4 +1,60 @@
-//! Drizzle Core - SQL generation library
+//! SQL building blocks shared by every Drizzle dialect.
+//!
+//! Most users depend on the `drizzle` crate, which re-exports this one as
+//! `drizzle::core`. This crate holds the parts that do not depend on a
+//! database:
+//!
+//! - [`SQL`] and [`ToSQL`]: SQL fragments with bound parameters.
+//! - [`expr`]: typed expressions and functions (`eq`, `count`, `coalesce`, ...).
+//! - [`row`] and [`scope`]: compile-time row-type inference and query checks.
+//! - [`traits`]: the table, column, and schema traits the macros implement.
+//! - [`dialect`]: dialect markers and dialect-only feature gates.
+//! - [`error::DrizzleError`]: the error type every driver returns.
+//!
+//! # Examples
+//!
+//! Building a fragment by hand. `Value` stands in for a driver's value type
+//! (`SQLiteValue`, `PostgresValue`, ...):
+//!
+//! ```
+//! use drizzle_core::{SQL, Token};
+//! # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+//! # use std::borrow::Cow;
+//! # #[derive(Debug, Clone)]
+//! # struct Value(i64);
+//! # impl SQLParam for Value {
+//! #     const DIALECT: Dialect = Dialect::SQLite;
+//! #     type DialectMarker = SQLiteDialect;
+//! # }
+//! # impl From<Value> for Cow<'_, Value> {
+//! #     fn from(value: Value) -> Self { Cow::Owned(value) }
+//! # }
+//!
+//! let query: SQL<'_, Value> = SQL::raw("SELECT * FROM")
+//!     .append(SQL::ident("users"))
+//!     .push(Token::WHERE)
+//!     .append(SQL::ident("id"))
+//!     .push(Token::EQ)
+//!     .append(SQL::param(Value(42)));
+//!
+//! assert_eq!(query.sql(), r#"SELECT * FROM "users" WHERE "id" = ?"#);
+//! assert_eq!(query.params().count(), 1);
+//! ```
+//!
+//! # Compile-time checks
+//!
+//! Queries are checked when they are built and run, not when they reach the
+//! database. The compiler rejects a query that:
+//!
+//! - reads a table it never added with `.from(...)` or a join
+//!   ([`scope`], [`MarkerScopeValidFor`]);
+//! - decodes a column from the nullable side of an outer join as `T`
+//!   instead of `Option<T>` ([`MarkerColumnCountValid`]);
+//! - selects a non-aggregate column that is not in GROUP BY
+//!   ([`MarkerAggValidFor`]);
+//! - calls a clause out of order, such as `.r#where(...)` after
+//!   `.limit(...)` ([`ClauseAllowed`]);
+//! - uses a function the dialect lacks ([`DialectSupports`]).
 //!
 //! # `no_std` Support
 //!
@@ -135,15 +191,40 @@ pub use traits::*;
 // Helper Macros - Used by proc macros for code generation
 // =============================================================================
 
-/// Generates `TryFrom` implementations for multiple integer types that delegate to i64.
+/// Implements `TryFrom<int>` for several integer types by converting to
+/// `i64` and calling the type's `TryFrom<i64>`.
 ///
-/// Used by the `SQLiteEnum` derive macro to avoid repetitive code.
+/// The type must already implement `TryFrom<i64, Error = DrizzleError>`.
+/// The `SQLiteEnum` derive uses this; you rarely need it directly.
 ///
-/// # Example
-/// ```rust
-/// # let _ = r####"
-/// impl_try_from_int!(MyEnum => isize, usize, i32, u32, i16, u16, i8, u8);
-/// # "####;
+/// # Examples
+///
+/// ```
+/// use drizzle_core::error::DrizzleError;
+/// use drizzle_core::impl_try_from_int;
+///
+/// #[derive(Debug, PartialEq)]
+/// enum Role {
+///     User,
+///     Admin,
+/// }
+///
+/// impl TryFrom<i64> for Role {
+///     type Error = DrizzleError;
+///
+///     fn try_from(value: i64) -> Result<Self, Self::Error> {
+///         match value {
+///             0 => Ok(Role::User),
+///             1 => Ok(Role::Admin),
+///             _ => Err(DrizzleError::ConversionError("unknown role".into())),
+///         }
+///     }
+/// }
+///
+/// impl_try_from_int!(Role => i32, u8);
+///
+/// assert_eq!(Role::try_from(1_i32).unwrap(), Role::Admin);
+/// assert!(Role::try_from(7_u8).is_err());
 /// ```
 #[macro_export]
 macro_rules! impl_try_from_int {

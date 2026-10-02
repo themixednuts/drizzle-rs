@@ -1,15 +1,22 @@
-//! Runtime value-conversion helpers shared across dialects.
-//!
-//! Helpers here are intentionally small, dialect-agnostic primitives used by
-//! per-dialect `FromXValue` implementations.
+//! Value-conversion helpers shared by the dialect crates' value decoding.
 
 use crate::error::DrizzleError;
 use crate::prelude::format;
 
-/// Convert an `f64` database value to an integer type `T`, rejecting
-/// non-finite, non-integral, and out-of-range inputs with a descriptive error.
+/// Converts an `f64` database value to the integer type `T`, rejecting
+/// values that would lose information.
 ///
-/// The `type_name` is embedded in the error for context (e.g. `"i64"`, `"i32"`).
+/// `type_name` (for example `"i32"`) is used in the error message.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::conv::checked_float_to_int;
+///
+/// assert_eq!(checked_float_to_int::<i32>(42.0, "i32").unwrap(), 42);
+/// assert!(checked_float_to_int::<i32>(1.5, "i32").is_err());
+/// assert!(checked_float_to_int::<u8>(300.0, "u8").is_err());
+/// ```
 ///
 /// # Errors
 ///

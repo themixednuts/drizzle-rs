@@ -1,28 +1,19 @@
-//! Shared `FromDrizzleRow` machinery for Postgres-flavored driver rows.
+//! Leaf `FromDrizzleRow` impls for PostgreSQL driver rows
+//! (`tokio_postgres::Row`, `postgres::Row`).
 //!
-//! `tokio_postgres::Row` and `postgres::Row` both expose `try_get::<T>(offset)`
-//! that delegates to `postgres_types::FromSql<'a>`. Previously the leaf
-//! `FromDrizzleRow` impls for every Rust target type were duplicated across
-//! the two row types — every feature-gated list (uuid, chrono, serde,
-//! rust-decimal, cidr, geo-types, bit-vec) was invoked twice with two
-//! macros (`impl_leaf_postgres!` + `impl_option_leaf_postgres!`).
+//! Both rows decode cells through `postgres_types::FromSql`. A blanket impl
+//! keyed on [`PostgresValueRow`] (as SQLite does with
+//! [`SqliteValueRow`](super::sqlite_value::SqliteValueRow)) would overlap
+//! under coherence rules, so instead:
 //!
-//! The leaf impls cannot be a single blanket keyed on a `PostgresValueRow`
-//! bound the way [`SqliteValueRow`](super::sqlite_value::SqliteValueRow) is —
-//! a downstream crate could impl both row traits for a single row type, and
-//! coherence rejects the resulting `impl FromDrizzleRow<R> for i64` overlap.
-//! So instead this module:
+//! * [`PostgresValueRow`] adapts each row type's `try_get` and maps its
+//!   error;
+//! * `impl_postgres_value_row!(Row)` emits every leaf impl and the
+//!   `Option<T: NullProbeRow<R>>` impl for one concrete row type;
+//! * the macro is invoked once per enabled driver.
 //!
-//! * declares the [`PostgresValueRow`] trait as a *method-dispatch shim*
-//!   (one adapter per row type that centralizes error mapping);
-//! * exposes one mega-macro `impl_postgres_value_row!` that, given a
-//!   concrete row type, emits every leaf `FromDrizzleRow` impl and the
-//!   composite `Option<T: NullProbeRow<R>>` impl;
-//! * invokes the mega-macro once per enabled driver.
-//!
-//! Adding a third postgres-flavored driver becomes: impl `PostgresValueRow`
-//! for its row type + `impl_postgres_value_row!(NewRow);`. The full type
-//! list lives in one place.
+//! A new PostgreSQL driver needs a `PostgresValueRow` impl and one macro
+//! call.
 
 use crate::error::DrizzleError;
 use crate::row::{FromDrizzleRow, NullProbeRow};
@@ -50,8 +41,8 @@ use ::tokio_postgres::types::Json as DriverJson;
 /// forwards to their native `try_get`; `impl_postgres_value_row!` then emits
 /// every leaf [`FromDrizzleRow`] impl for that row type.
 pub trait PostgresValueRow {
-    /// Fetch the column at `offset` and decode it through `FromSql`,
-    /// normalising the driver-specific error type to [`DrizzleError`].
+    /// Reads the column at `offset` through `FromSql`, mapping the driver's
+    /// error to [`DrizzleError`].
     fn try_get_from_sql<'a, T>(&'a self, offset: usize) -> Result<T, DrizzleError>
     where
         T: FromSql<'a>;
@@ -80,7 +71,7 @@ macro_rules! postgres_leaf_impls {
     )* };
 }
 
-/// Emit every `FromDrizzleRow` leaf impl and the composite
+/// Emits every `FromDrizzleRow` leaf impl and the composite
 /// `Option<T: NullProbeRow<R>>` impl for `$row_ty`. Invoked once per enabled
 /// postgres-flavored driver.
 macro_rules! impl_postgres_value_row {

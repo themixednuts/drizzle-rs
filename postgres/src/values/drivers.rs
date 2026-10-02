@@ -1,4 +1,4 @@
-//! Database driver implementations for `PostgresValue`
+//! Driver `ToSql`/`FromSql` implementations for [`PostgresValue`](super::PostgresValue).
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use super::PostgresValue;

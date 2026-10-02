@@ -1,12 +1,37 @@
-//! Attribute markers for `SQLiteTable` derive macro.
+//! Names accepted inside `#[SQLiteTable(...)]`, `#[column(...)]`,
+//! `#[SQLiteView(...)]` and `#[SQLiteIndex(...)]`.
 //!
-//! These const markers are used within `#[column(...)]` and `#[SQLiteTable(...)]`
-//! attributes. Import them from the prelude to get IDE hover documentation.
+//! The macros read these attributes by name, case-insensitively
+//! (`primary` and `PRIMARY` are the same). The constants here exist so your
+//! editor can show their documentation on hover; the macros point each
+//! attribute at its constant, so import them through the prelude.
 //!
-//! # Example
+//! # Examples
+//!
 //! ```rust
-//! # let _ = r####"
-//! # use drizzle::sqlite::prelude::*;
+//! # mod drizzle {
+//! #     pub mod core { pub use drizzle_core::*; }
+//! #     pub mod error { pub use drizzle_core::error::*; }
+//! #     pub mod types { pub use drizzle_types::*; }
+//! #     pub mod migrations { pub use drizzle_migrations::*; }
+//! #     pub use drizzle_types::Dialect;
+//! #     pub use drizzle_types as ddl;
+//! #     pub mod sqlite {
+//! #         pub use drizzle_sqlite::{*, attrs::*};
+//! #         #[cfg(feature = "rusqlite")]
+//! #         pub mod rusqlite { pub use ::rusqlite::{Error, Result, Row, types}; }
+//! #         #[cfg(feature = "libsql")]
+//! #         pub mod libsql { pub use ::libsql::{Row, Value}; }
+//! #         #[cfg(feature = "turso")]
+//! #         pub mod turso { pub use ::turso::{Error, IntoValue, Result, Row, Value}; }
+//! #         pub mod prelude {
+//! #             pub use drizzle_macros::{SQLiteTable, SQLiteSchema};
+//! #             pub use drizzle_sqlite::{*, attrs::*};
+//! #             pub use drizzle_core::*;
+//! #         }
+//! #     }
+//! # }
+//! use drizzle::sqlite::prelude::*;
 //!
 //! #[SQLiteTable(
 //!     name = "users",
@@ -17,16 +42,26 @@
 //! struct User {
 //!     #[column(primary, autoincrement)]
 //!     id: i32,
-//!     #[column(unique)]
+//!     #[column(unique, collate = NOCASE)]
 //!     email: String,
 //!     tenant_id: i32,
+//!     #[column(default = 0)]
 //!     score: i32,
-//!     metadata: String,
 //! }
-//! # "####;
+//!
+//! #[SQLiteTable(name = "posts")]
+//! struct Post {
+//!     #[column(primary)]
+//!     id: i32,
+//!     #[column(references = User::id, on_delete = CASCADE)]
+//!     author_id: i32,
+//!     title: String,
+//! }
 //! ```
+//!
+//! The per-attribute examples below are fragments of such a definition.
 
-/// Marker struct for column constraint attributes.
+/// The type of the column constraint and option constants.
 #[derive(Debug, Clone, Copy)]
 pub struct ColumnMarker;
 
@@ -36,7 +71,7 @@ pub struct ColumnMarker;
 
 /// Marks this column as the PRIMARY KEY.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(primary)]
@@ -50,9 +85,10 @@ pub const PRIMARY: ColumnMarker = ColumnMarker;
 /// Alias for [`PRIMARY`].
 pub const PRIMARY_KEY: ColumnMarker = ColumnMarker;
 
-/// Enables AUTOINCREMENT for INTEGER PRIMARY KEY columns.
+/// Adds `AUTOINCREMENT` to an `INTEGER PRIMARY KEY` column, so rowids of
+/// deleted rows are never reused.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(primary, autoincrement)]
@@ -67,16 +103,16 @@ pub const AUTOINCREMENT: ColumnMarker = ColumnMarker;
 // Index Attributes
 //------------------------------------------------------------------------------
 
-/// Marker struct for index attributes.
+/// The type of the index option constants.
 #[derive(Debug, Clone, Copy)]
 pub struct IndexMarker;
 
-/// Specifies a partial-index predicate as raw SQLite SQL.
+/// Makes an index partial: only rows matching the SQL predicate are indexed.
 ///
-/// Use database column names in the predicate. Rust field or column renames do
-/// not rewrite this string.
+/// The predicate is raw SQL. Write database column names; renaming a Rust
+/// field does not rewrite it.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteIndex(where = "deleted_at IS NULL")]
@@ -93,7 +129,7 @@ pub const WHERE: IndexMarker = IndexMarker;
 
 /// Adds a UNIQUE constraint to a column, table, or index.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(unique)]
@@ -117,9 +153,9 @@ pub const UNIQUE: ColumnMarker = ColumnMarker;
 // Serialization Modes
 //------------------------------------------------------------------------------
 
-/// Enables JSON serialization with TEXT storage.
+/// Stores the field as JSON text, serialized with serde.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(json)]
@@ -127,12 +163,13 @@ pub const UNIQUE: ColumnMarker = ColumnMarker;
 /// # "####;
 /// ```
 ///
-/// Requires the `serde` feature. The field type must implement `Serialize` and `Deserialize`.
+/// Requires the `serde` feature. The field type must implement `Serialize`
+/// and `Deserialize`. Values are bound through `json(?)`.
 pub const JSON: ColumnMarker = ColumnMarker;
 
-/// Marks this column as storing an enum type.
+/// Stores a `#[derive(SQLiteEnum)]` enum.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(enum)]
@@ -153,11 +190,11 @@ pub const ENUM: ColumnMarker = ColumnMarker;
 // Default Value Parameters
 //------------------------------------------------------------------------------
 
-/// Specifies an application-side function that generates omitted insert values.
+/// Generates a value in Rust for each insert that leaves the column unset.
 ///
-/// The function is called for each insert when no value is provided.
+/// The function takes no arguments and returns the field type.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(default_fn = Uuid::new_v4)]
@@ -168,9 +205,13 @@ pub const ENUM: ColumnMarker = ColumnMarker;
 /// Unlike [`DEFAULT`], this does not add a database `DEFAULT` clause.
 pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 
-/// Specifies a database `DEFAULT` clause for new rows.
+/// Adds a `DEFAULT` clause to the column.
 ///
-/// ## Example
+/// Takes a literal, `CURRENT_TIME`, `CURRENT_DATE`, `CURRENT_TIMESTAMP`, or
+/// an SQL function call. Expressions other than literals and the `CURRENT_*`
+/// keywords are wrapped in parentheses, as SQLite requires.
+///
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(default = 0)]
@@ -192,9 +233,10 @@ pub const DEFAULT_FN: ColumnMarker = ColumnMarker;
 /// See: <https://sqlite.org/lang_createtable.html#the_default_clause>
 pub const DEFAULT: ColumnMarker = ColumnMarker;
 
-/// Marks this column as a generated column.
+/// Makes the column a generated column: `stored` (computed on write) or
+/// `virtual` (computed on read), from a raw SQL expression.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(generated(stored, "length(name)"))]
@@ -208,9 +250,10 @@ pub const DEFAULT: ColumnMarker = ColumnMarker;
 /// See: <https://sqlite.org/gencol.html>
 pub const GENERATED: ColumnMarker = ColumnMarker;
 
-/// Adds a CHECK constraint for a column or table.
+/// Adds a CHECK constraint to a column (`check = "..."`) or a table
+/// (`check(name = "...", expr = "...")`). The expression is raw SQL.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(check = "score >= 0")]
@@ -226,9 +269,9 @@ pub const GENERATED: ColumnMarker = ColumnMarker;
 /// See: <https://sqlite.org/lang_createtable.html#check_constraints>
 pub const CHECK: ColumnMarker = ColumnMarker;
 
-/// Establishes a foreign key reference to another table's column.
+/// Adds a foreign key that references a column of another table.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id)]
@@ -255,7 +298,7 @@ pub const REFERENCES: ColumnMarker = ColumnMarker;
 /// The forward relation (on this table) is unchanged; only the reverse
 /// accessor on the referenced table is renamed.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// // Users get `.authored()` instead of `.author_posts()`
@@ -271,9 +314,9 @@ pub const REFERENCES: ColumnMarker = ColumnMarker;
 /// Requires a `references` attribute on the same column.
 pub const RELATION: ColumnMarker = ColumnMarker;
 
-/// Specifies the ON DELETE action for foreign key references.
+/// Sets the `ON DELETE` action of a foreign key.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = CASCADE)]
@@ -286,14 +329,15 @@ pub const RELATION: ColumnMarker = ColumnMarker;
 /// - `SET_NULL`: Set the column to NULL when referenced row is deleted
 /// - `SET_DEFAULT`: Set the column to its default value
 /// - `RESTRICT`: Prevent deletion if referenced
-/// - `NO_ACTION`: Similar to RESTRICT (default)
+/// - `NO_ACTION`: Like `RESTRICT`, but checked at the end of the statement
+///   (the default)
 ///
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
 pub const ON_DELETE: ColumnMarker = ColumnMarker;
 
-/// Specifies the ON UPDATE action for foreign key references.
+/// Sets the `ON UPDATE` action of a foreign key.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_update = CASCADE)]
@@ -306,7 +350,8 @@ pub const ON_DELETE: ColumnMarker = ColumnMarker;
 /// - `SET_NULL`: Set the column to NULL when referenced row is updated
 /// - `SET_DEFAULT`: Set the column to its default value
 /// - `RESTRICT`: Prevent update if referenced
-/// - `NO_ACTION`: Similar to RESTRICT (default)
+/// - `NO_ACTION`: Like `RESTRICT`, but checked at the end of the statement
+///   (the default)
 ///
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
 pub const ON_UPDATE: ColumnMarker = ColumnMarker;
@@ -315,12 +360,12 @@ pub const ON_UPDATE: ColumnMarker = ColumnMarker;
 // Referential Action Values
 //------------------------------------------------------------------------------
 
-/// Type alias for referential action markers (uses `ColumnMarker` for macro compatibility).
+/// The type of the referential action constants ([`CASCADE`], [`SET_NULL`], ...).
 pub type ReferentialAction = ColumnMarker;
 
-/// CASCADE action: Propagate the delete/update to referencing rows.
+/// `CASCADE`: delete or update the referencing rows too.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = CASCADE)]
@@ -331,9 +376,9 @@ pub type ReferentialAction = ColumnMarker;
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
 pub const CASCADE: ColumnMarker = ColumnMarker;
 
-/// SET NULL action: Set referencing columns to NULL.
+/// `SET NULL`: set the referencing columns to NULL.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = SET_NULL)]
@@ -344,9 +389,9 @@ pub const CASCADE: ColumnMarker = ColumnMarker;
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
 pub const SET_NULL: ColumnMarker = ColumnMarker;
 
-/// SET DEFAULT action: Set referencing columns to their default values.
+/// `SET DEFAULT`: set the referencing columns to their defaults.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = SET_DEFAULT, default = 0)]
@@ -357,9 +402,9 @@ pub const SET_NULL: ColumnMarker = ColumnMarker;
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
 pub const SET_DEFAULT: ColumnMarker = ColumnMarker;
 
-/// RESTRICT action: Prevent delete/update if referenced.
+/// `RESTRICT`: reject the delete or update while rows reference it.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = RESTRICT)]
@@ -370,9 +415,10 @@ pub const SET_DEFAULT: ColumnMarker = ColumnMarker;
 /// See: <https://sqlite.org/foreignkeys.html#fk_actions>
 pub const RESTRICT: ColumnMarker = ColumnMarker;
 
-/// NO ACTION action: Similar to RESTRICT (default behavior).
+/// `NO ACTION`: like `RESTRICT`, but checked at the end of the statement.
+/// The default.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(references = User::id, on_delete = NO_ACTION)]
@@ -387,9 +433,12 @@ pub const NO_ACTION: ColumnMarker = ColumnMarker;
 // Collation Markers
 //------------------------------------------------------------------------------
 
-/// Specifies a collation sequence for a text column.
+/// Sets the collation of a text column.
 ///
-/// ## Example
+/// Takes `BINARY`, `NOCASE`, `RTRIM`, or the name of a collation the
+/// application registers, as a string.
+///
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(COLLATE = NOCASE)]
@@ -408,8 +457,7 @@ pub const COLLATE: ColumnMarker = ColumnMarker;
 /// columns and any column without an explicit collation.
 pub const BINARY: ColumnMarker = ColumnMarker;
 
-/// NOCASE collation: ASCII case-insensitive comparison. Useful for text
-/// columns that need case-insensitive equality / sorting.
+/// NOCASE collation: compares ASCII letters case-insensitively.
 pub const NOCASE: ColumnMarker = ColumnMarker;
 
 /// RTRIM collation: like `BINARY` but trailing spaces are ignored when
@@ -420,22 +468,19 @@ pub const RTRIM: ColumnMarker = ColumnMarker;
 // Name Marker (shared by column and table attributes)
 //------------------------------------------------------------------------------
 
-/// Marker struct for the NAME attribute.
+/// The type of the [`NAME`] constant.
 #[derive(Debug, Clone, Copy)]
 pub struct NameMarker;
 
-/// Specifies a custom name in the database.
+/// Sets the name used in the database.
 ///
-/// By default, table, view, and column names are automatically converted to `snake_case`
-/// from the Rust struct/field name. Use NAME to override this behavior.
+/// By default, table, view and column names are the `snake_case` form of the
+/// Rust struct or field name. `name` overrides that.
 ///
 /// ## Column Example
 /// ```rust
 /// # let _ = r####"
-/// // Field `createdAt` becomes `created_at` by default
-/// created_at: DateTime<Utc>,
-///
-/// // Override with custom name:
+/// // Column `created_at` by default; stored as `creation_timestamp` here.
 /// #[column(name = "creation_timestamp")]
 /// created_at: DateTime<Utc>,
 /// # "####;
@@ -466,13 +511,14 @@ pub const NAME: NameMarker = NameMarker;
 // View Attribute Markers
 //------------------------------------------------------------------------------
 
-/// Marker struct for view attributes.
+/// The type of the view option constants.
 #[derive(Debug, Clone, Copy)]
 pub struct ViewMarker;
 
-/// Specifies a view definition SQL string or expression.
+/// The view's query: an SQL string, or a block that returns a query
+/// builder.
 ///
-/// ## Examples
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteView(DEFINITION = "SELECT id, email FROM users")]
@@ -494,9 +540,9 @@ pub struct ViewMarker;
 /// ```
 pub const DEFINITION: ViewMarker = ViewMarker;
 
-/// Marks the view as existing (skip creation).
+/// Marks the view as already existing, so migrations do not create it.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteView(EXISTING)]
@@ -509,13 +555,15 @@ pub const EXISTING: ViewMarker = ViewMarker;
 // Table Attribute Markers
 //------------------------------------------------------------------------------
 
-/// Marker struct for table-level attributes.
+/// The type of the table option constants.
 #[derive(Debug, Clone, Copy)]
 pub struct TableMarker;
 
-/// Adds a table-level composite foreign key constraint.
+/// Adds a table-level foreign key, for keys over several columns.
 ///
-/// ## Example
+/// `on_delete` and `on_update` take the action as a string here.
+///
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(foreign_key(
@@ -533,9 +581,10 @@ pub struct TableMarker;
 /// See: <https://sqlite.org/foreignkeys.html#fk_composite>
 pub const FOREIGN_KEY: TableMarker = TableMarker;
 
-/// Enables STRICT mode for the table.
+/// Makes the table `STRICT`, so SQLite rejects values that do not match
+/// the declared column types.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(strict)]
@@ -547,20 +596,16 @@ pub const FOREIGN_KEY: TableMarker = TableMarker;
 /// # "####;
 /// ```
 ///
-/// # `SQLite` Behavior
-/// - Enforces that values match declared column types exactly
-/// - `INTEGER` columns only accept integers
-/// - `TEXT` columns only accept text
-/// - `REAL` columns only accept floating-point numbers
-/// - `BLOB` columns only accept blobs
-/// - `ANY` type allows any value (only in STRICT tables)
+/// A STRICT table still converts values losslessly where it can (the text
+/// `'1'` into an `INTEGER` column), and only `ANY` columns accept any value.
 ///
 /// See: <https://sqlite.org/stricttables.html>
 pub const STRICT: TableMarker = TableMarker;
 
-/// Enables WITHOUT ROWID optimization for the table.
+/// Makes the table `WITHOUT ROWID`, stored as a clustered index on its
+/// primary key.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(without_rowid)]
@@ -581,13 +626,13 @@ pub const WITHOUT_ROWID: TableMarker = TableMarker;
 // Column Type Markers
 //------------------------------------------------------------------------------
 
-/// Marker struct for column type attributes.
+/// The type of the column type constants.
 #[derive(Debug, Clone, Copy)]
 pub struct TypeMarker;
 
-/// Specifies an INTEGER column type.
+/// Sets the column type to `INTEGER`.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(integer, primary)]
@@ -601,9 +646,9 @@ pub struct TypeMarker;
 /// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
 pub const INTEGER: TypeMarker = TypeMarker;
 
-/// Specifies a TEXT column type.
+/// Sets the column type to `TEXT`.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(text)]
@@ -611,14 +656,14 @@ pub const INTEGER: TypeMarker = TypeMarker;
 /// # "####;
 /// ```
 ///
-/// TEXT columns store variable-length UTF-8 character strings with no size limit.
+/// TEXT columns store strings in the database encoding (UTF-8 by default).
 ///
 /// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
 pub const TEXT: TypeMarker = TypeMarker;
 
-/// Specifies a BLOB column type.
+/// Sets the column type to `BLOB`.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(blob)]
@@ -626,14 +671,14 @@ pub const TEXT: TypeMarker = TypeMarker;
 /// # "####;
 /// ```
 ///
-/// BLOB columns store binary data exactly as input.
+/// BLOB columns store bytes exactly as given.
 ///
 /// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
 pub const BLOB: TypeMarker = TypeMarker;
 
-/// Specifies a REAL column type.
+/// Sets the column type to `REAL`.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(real)]
@@ -641,14 +686,14 @@ pub const BLOB: TypeMarker = TypeMarker;
 /// # "####;
 /// ```
 ///
-/// REAL columns store 8-byte IEEE floating point numbers.
+/// REAL columns store 8-byte IEEE 754 floating-point numbers.
 ///
 /// See: <https://sqlite.org/datatype3.html#storage_classes_and_datatypes>
 pub const REAL: TypeMarker = TypeMarker;
 
-/// Specifies a NUMERIC column type.
+/// Sets the column type to `NUMERIC`.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(numeric)]
@@ -656,14 +701,15 @@ pub const REAL: TypeMarker = TypeMarker;
 /// # "####;
 /// ```
 ///
-/// NUMERIC columns store values as INTEGER, REAL, or TEXT depending on the value.
+/// A NUMERIC column converts text that looks like a number into INTEGER or
+/// REAL, and stores other values as given.
 ///
 /// See: <https://sqlite.org/datatype3.html#type_affinity>
 pub const NUMERIC: TypeMarker = TypeMarker;
 
-/// Specifies an ANY column type (STRICT tables only).
+/// Sets the column type to `ANY` (STRICT tables only).
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[SQLiteTable(strict)]
@@ -674,14 +720,14 @@ pub const NUMERIC: TypeMarker = TypeMarker;
 /// # "####;
 /// ```
 ///
-/// ANY allows any type of data. Only valid in STRICT tables.
+/// An ANY column stores any value without conversion.
 ///
 /// See: <https://sqlite.org/stricttables.html>
 pub const ANY: TypeMarker = TypeMarker;
 
-/// Specifies a BOOLEAN column (stored as INTEGER 0/1).
+/// Stores a `bool` as `INTEGER` 0 or 1.
 ///
-/// ## Example
+/// # Examples
 /// ```rust
 /// # let _ = r####"
 /// #[column(boolean)]

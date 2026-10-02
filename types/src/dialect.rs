@@ -1,13 +1,9 @@
-//! Unified database dialect enum
-//!
-//! This module provides a single source of truth for database dialect identification,
-//! replacing the previously duplicated definitions across `drizzle-core`, `migrations/config.rs`,
-//! and `migrations/parser.rs`.
+//! The [`Dialect`] enum, shared by every drizzle crate that needs to name a database.
 
-/// SQL dialect for database-specific behavior
+/// A supported SQL database: `SQLite`, `PostgreSQL` or `MySQL`.
 ///
-/// This enum represents the supported SQL database dialects in Drizzle ORM.
-/// Each dialect has different placeholder syntax, type mappings, and SQL generation rules.
+/// Parse one from a name with [`Dialect::parse`] or [`str::parse`]; print it
+/// with `Display` (`"sqlite"`, `"postgresql"`, `"mysql"`).
 ///
 /// # Examples
 ///
@@ -24,37 +20,36 @@
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum Dialect {
-    /// `SQLite` - uses `?` positional placeholders
+    /// `SQLite`, with `?` positional placeholders.
     ///
     /// Compatible with: rusqlite, libsql, turso
     #[default]
     SQLite,
 
-    /// `PostgreSQL` - uses `$1, $2, ...` numbered placeholders
+    /// `PostgreSQL`, with `$1, $2, ...` numbered placeholders.
     ///
     /// Compatible with: tokio-postgres, postgres
     PostgreSQL,
 
-    /// `MySQL` - uses `?` positional placeholders
+    /// `MySQL`, with `?` positional placeholders.
     ///
     /// Compatible with: mysql
     MySQL,
 }
 
 impl Dialect {
-    /// Returns `true` if this dialect uses numbered placeholders (`$1, $2, ...`)
+    /// Returns `true` if the dialect uses numbered placeholders (`$1, $2, ...`).
     ///
-    /// Currently only `PostgreSQL` uses numbered placeholders.
-    /// `SQLite` and `MySQL` use positional `?` placeholders.
+    /// Only `PostgreSQL` does; `SQLite` and `MySQL` use `?`.
     #[inline]
     #[must_use]
     pub const fn uses_numbered_placeholders(&self) -> bool {
         matches!(self, Self::PostgreSQL)
     }
 
-    /// Parse a dialect from a string (case-insensitive)
+    /// Parses a dialect name, ignoring case. Returns `None` for an unknown name.
     ///
-    /// Supports various common aliases:
+    /// Accepted names:
     /// - `SQLite`: `"sqlite"`, `"turso"`, `"libsql"`
     /// - `PostgreSQL`: `"postgresql"`, `"postgres"`, `"pg"`
     /// - `MySQL`: `"mysql"`
@@ -89,9 +84,8 @@ impl Dialect {
         }
     }
 
-    /// Get the table attribute prefix for this dialect in generated code
-    ///
-    /// Used by schema parsers and code generators.
+    /// Returns the start of the table attribute used in generated code, such
+    /// as `"#[PostgresTable"`.
     #[must_use]
     pub const fn table_prefix(&self) -> &'static str {
         match self {
@@ -101,7 +95,8 @@ impl Dialect {
         }
     }
 
-    /// Get the index attribute prefix for this dialect in generated code
+    /// Returns the start of the index attribute used in generated code, such
+    /// as `"#[PostgresIndex"`.
     #[must_use]
     pub const fn index_prefix(&self) -> &'static str {
         match self {
@@ -111,7 +106,8 @@ impl Dialect {
         }
     }
 
-    /// Get the schema derive attribute for this dialect
+    /// Returns the schema derive attribute used in generated code, such as
+    /// `"#[derive(PostgresSchema)]"`.
     #[must_use]
     pub const fn schema_derive(&self) -> &'static str {
         match self {
@@ -121,7 +117,7 @@ impl Dialect {
         }
     }
 
-    /// Get the dialect name as a lowercase string
+    /// Returns the lowercase name: `"sqlite"`, `"postgresql"` or `"mysql"`.
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -146,7 +142,7 @@ impl core::str::FromStr for Dialect {
     }
 }
 
-/// Error returned when parsing an unknown dialect string
+/// Error from parsing an unknown dialect name with [`str::parse`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DialectParseError;
 

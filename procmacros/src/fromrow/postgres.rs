@@ -1,7 +1,9 @@
 //! Shared field assignment generation for postgres-sync and tokio-postgres `FromRow` derive.
 //!
-//! Both drivers use the shared `DrizzleRow::get_column` interface for unified type conversion
-//! via the `FromPostgresValue` trait, while standard types use the native driver's get method.
+//! Both drivers share one row type. `ArrayString`, `ArrayVec` and UUID fields
+//! convert through drizzle's `DrizzleRowByIndex` / `DrizzleRowByName` traits;
+//! every other type uses the driver's own `Row::get`, which panics on a
+//! missing column or a type mismatch.
 
 use crate::postgres::field::TypeCategory;
 use proc_macro2::TokenStream;
@@ -67,10 +69,12 @@ fn extract_inner_type(ty: &syn::Type) -> &syn::Type {
     ty
 }
 
-/// Generate field assignment using the driver-agnostic approach.
+/// Generate one field's assignment for `TryFrom<&Row>`: by column name for a
+/// named field, by index for a tuple field.
 ///
-/// For special types like ArrayVec/ArrayString, uses `DrizzleRow::get_column`
-/// with `FromPostgresValue` trait. For standard types, uses the native driver's get method.
+/// `ArrayString`, `ArrayVec` and UUID fields go through `DrizzleRowByName` /
+/// `DrizzleRowByIndex` (and so `FromPostgresValue`); other types use the
+/// driver's `Row::get`.
 pub fn generate_field_assignment(
     idx: usize,
     field: &Field,

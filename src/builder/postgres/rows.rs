@@ -2,7 +2,8 @@ use core::marker::PhantomData;
 
 use drizzle_core::error::DrizzleError;
 
-/// Shared lazy decoded row cursor used by postgres drivers.
+/// Rows returned by `.rows()` on the PostgreSQL drivers: fetched up front,
+/// decoded into `R` as you iterate.
 pub struct DecodeRows<RowT, R> {
     #[cfg(feature = "std")]
     rows: std::vec::IntoIter<RowT>,

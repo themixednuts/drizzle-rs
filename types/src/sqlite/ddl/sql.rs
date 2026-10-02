@@ -1,7 +1,10 @@
-//! SQL generation for `SQLite` DDL types
+//! Renders `SQLite` DDL statements from the runtime schema types.
 //!
-//! This module provides SQL generation methods for DDL types, enabling
-//! unified SQL output from both compile-time and runtime schema definitions.
+//! [`TableSql`] renders `CREATE TABLE` with all of a table's columns and
+//! constraints. The entity types also get methods here for single
+//! statements and clauses (`add_column_sql`, `create_index_sql`,
+//! `to_constraint_sql`, ...). Identifiers are quoted with backticks; SQL
+//! fragments (types, defaults, expressions) are written as stored.
 
 use crate::alloc_prelude::*;
 use core::fmt::Write;
@@ -45,19 +48,46 @@ fn is_wrapped_in_parens(expr: &str) -> bool {
 // Table SQL Generation
 // =============================================================================
 
-/// A complete table definition with all related entities for SQL generation
+/// A table and the entities that belong to it, for rendering
+/// `CREATE TABLE`.
+///
+/// Start with [`TableSql::new`] and add the rest with the builder methods.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::sqlite::ddl::{ColumnDef, TableDef, TableSql};
+///
+/// let table = TableDef::new("users").strict().into_table();
+/// let columns = [
+///     ColumnDef::new("users", "id", "INTEGER").primary_key().into_column(),
+///     ColumnDef::new("users", "name", "TEXT").not_null().into_column(),
+/// ];
+///
+/// let sql = TableSql::new(&table).columns(&columns).create_table_sql();
+/// assert_eq!(
+///     sql,
+///     "CREATE TABLE `users` (\n\t`id` INTEGER PRIMARY KEY,\n\t`name` TEXT NOT NULL\n) STRICT;"
+/// );
+/// ```
 #[derive(Clone, Debug)]
 pub struct TableSql<'a> {
+    /// The table.
     pub table: &'a Table,
+    /// Its columns, in order.
     pub columns: &'a [Column],
+    /// Its primary key entity, if any.
     pub primary_key: Option<&'a PrimaryKey>,
+    /// Its foreign keys.
     pub foreign_keys: &'a [ForeignKey],
+    /// Its unique constraints.
     pub unique_constraints: &'a [UniqueConstraint],
+    /// Its check constraints.
     pub check_constraints: &'a [CheckConstraint],
 }
 
 impl<'a> TableSql<'a> {
-    /// Create a new `TableSql` for SQL generation
+    /// Starts with just the table: no columns or constraints.
     #[must_use]
     pub const fn new(table: &'a Table) -> Self {
         Self {
@@ -70,42 +100,48 @@ impl<'a> TableSql<'a> {
         }
     }
 
-    /// Set columns
+    /// Sets the columns.
     #[must_use]
     pub const fn columns(mut self, columns: &'a [Column]) -> Self {
         self.columns = columns;
         self
     }
 
-    /// Set primary key
+    /// Sets the primary key entity.
     #[must_use]
     pub const fn primary_key(mut self, pk: Option<&'a PrimaryKey>) -> Self {
         self.primary_key = pk;
         self
     }
 
-    /// Set foreign keys
+    /// Sets the foreign keys.
     #[must_use]
     pub const fn foreign_keys(mut self, fks: &'a [ForeignKey]) -> Self {
         self.foreign_keys = fks;
         self
     }
 
-    /// Set unique constraints
+    /// Sets the unique constraints.
     #[must_use]
     pub const fn unique_constraints(mut self, uniques: &'a [UniqueConstraint]) -> Self {
         self.unique_constraints = uniques;
         self
     }
 
-    /// Set check constraints
+    /// Sets the check constraints.
     #[must_use]
     pub const fn check_constraints(mut self, checks: &'a [CheckConstraint]) -> Self {
         self.check_constraints = checks;
         self
     }
 
-    /// Generate CREATE TABLE SQL
+    /// Renders the `CREATE TABLE` statement, ending in `;`.
+    ///
+    /// A single-column primary key or unique constraint without an explicit
+    /// name is written inline on the column; composite or named ones become
+    /// table constraints. Columns flagged `primary_key` but not covered by
+    /// the primary key entity also get a primary key. `WITHOUT ROWID` and
+    /// `STRICT` are appended from the table.
     #[must_use]
     pub fn create_table_sql(&self) -> String {
         let mut sql = format!("CREATE TABLE {} (\n", quote_ident(self.table.name()));
@@ -232,7 +268,7 @@ impl<'a> TableSql<'a> {
         sql
     }
 
-    /// Generate DROP TABLE SQL
+    /// Renders `DROP TABLE` for the table.
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
         format!("DROP TABLE {};", quote_ident(self.table.name()))
@@ -244,7 +280,12 @@ impl<'a> TableSql<'a> {
 // =============================================================================
 
 impl Column {
-    /// Generate the column definition SQL (without leading/trailing punctuation)
+    /// Renders the column definition as used inside `CREATE TABLE`, such as
+    /// `` `name` TEXT NOT NULL ``.
+    ///
+    /// `inline_pk` adds `PRIMARY KEY` (and `AUTOINCREMENT`, which is
+    /// otherwise dropped); `inline_unique` adds `UNIQUE`. `NOT NULL` is left
+    /// out on an inline primary key whose type starts with `INT`.
     #[must_use]
     pub fn to_column_sql(&self, inline_pk: bool, inline_unique: bool) -> String {
         let mut sql = format!(
@@ -271,7 +312,8 @@ impl Column {
             sql.push_str(&generated.to_sql());
         }
 
-        // NOT NULL - skip for INTEGER PRIMARY KEY (allows NULL by default in SQLite)
+        // NOT NULL - skipped for an inline INT... PRIMARY KEY: an INTEGER
+        // PRIMARY KEY is the rowid alias, which is never NULL.
         if self.not_null && !(inline_pk && self.sql_type().to_lowercase().starts_with("int")) {
             sql.push_str(" NOT NULL");
         }
@@ -289,7 +331,7 @@ impl Column {
         sql
     }
 
-    /// Generate ADD COLUMN SQL
+    /// Renders `ALTER TABLE ... ADD COLUMN ...;`.
     #[must_use]
     pub fn add_column_sql(&self) -> String {
         format!(
@@ -299,7 +341,7 @@ impl Column {
         )
     }
 
-    /// Generate DROP COLUMN SQL
+    /// Renders `ALTER TABLE ... DROP COLUMN ...;`.
     #[must_use]
     pub fn drop_column_sql(&self) -> String {
         format!(
@@ -315,12 +357,12 @@ impl Column {
 // =============================================================================
 
 impl Generated {
-    /// Generate the GENERATED clause SQL
+    /// Renders ` GENERATED ALWAYS AS (expr) STORED` (or `VIRTUAL`), with a
+    /// leading space.
     ///
-    /// `SQLite` requires the generation expression to be parenthesized
-    /// (`GENERATED ALWAYS AS (expr)`), so the expression is wrapped in parens
-    /// unless it is already fully parenthesized (the table macros store
-    /// pre-parenthesized expressions; introspection stores bare expressions).
+    /// The expression is wrapped in parentheses unless it already is (the
+    /// table macros store parenthesized expressions; introspection stores
+    /// bare ones).
     #[must_use]
     pub fn to_sql(&self) -> String {
         let gen_type = match self.gen_type {
@@ -341,7 +383,8 @@ impl Generated {
 // =============================================================================
 
 impl ForeignKey {
-    /// Generate the CONSTRAINT ... FOREIGN KEY clause SQL
+    /// Renders `CONSTRAINT name FOREIGN KEY (...) REFERENCES table(...)`,
+    /// with `ON UPDATE` / `ON DELETE` unless they are `NO ACTION`.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let from_cols = self
@@ -381,7 +424,8 @@ impl ForeignKey {
         sql
     }
 
-    /// Generate ADD FOREIGN KEY SQL (via new table constraint)
+    /// Returns a SQL comment: `SQLite` cannot add a foreign key to an
+    /// existing table without recreating it.
     #[must_use]
     pub fn add_fk_sql(&self) -> String {
         // SQLite doesn't support ADD CONSTRAINT for foreign keys directly
@@ -393,7 +437,8 @@ impl ForeignKey {
         )
     }
 
-    /// Generate DROP FOREIGN KEY SQL (comment since `SQLite` doesn't support it)
+    /// Returns a SQL comment: `SQLite` cannot drop a foreign key without
+    /// recreating the table.
     #[must_use]
     pub fn drop_fk_sql(&self) -> String {
         format!(
@@ -409,7 +454,8 @@ impl ForeignKey {
 // =============================================================================
 
 impl Index {
-    /// Generate CREATE INDEX SQL
+    /// Renders `CREATE [UNIQUE] INDEX ... ON table(...)`, with the partial
+    /// index `WHERE` clause if set.
     #[must_use]
     pub fn create_index_sql(&self) -> String {
         let unique = if self.is_unique { "UNIQUE " } else { "" };
@@ -438,7 +484,7 @@ impl Index {
         sql
     }
 
-    /// Generate DROP INDEX SQL
+    /// Renders `DROP INDEX ...;`.
     #[must_use]
     pub fn drop_index_sql(&self) -> String {
         format!("DROP INDEX {};", quote_ident(self.name()))
@@ -446,7 +492,8 @@ impl Index {
 }
 
 impl IndexColumnDef {
-    /// Generate the column reference for an index
+    /// Renders the key part: the quoted column name, or the expression as
+    /// written.
     #[must_use]
     pub fn to_sql(&self) -> String {
         if self.is_expression {
@@ -462,7 +509,8 @@ impl IndexColumnDef {
 // =============================================================================
 
 impl View {
-    /// Generate CREATE VIEW SQL
+    /// Renders `CREATE VIEW name AS definition;`, or a SQL comment when the
+    /// view has no definition.
     #[must_use]
     pub fn create_view_sql(&self) -> String {
         self.definition.as_ref().map_or_else(
@@ -471,7 +519,7 @@ impl View {
         )
     }
 
-    /// Generate DROP VIEW SQL
+    /// Renders `DROP VIEW ...;`.
     #[must_use]
     pub fn drop_view_sql(&self) -> String {
         format!("DROP VIEW {};", quote_ident(self.name()))
@@ -483,13 +531,13 @@ impl View {
 // =============================================================================
 
 impl Table {
-    /// Generate DROP TABLE SQL
+    /// Renders `DROP TABLE ...;`.
     #[must_use]
     pub fn drop_table_sql(&self) -> String {
         format!("DROP TABLE {};", quote_ident(self.name()))
     }
 
-    /// Generate RENAME TABLE SQL
+    /// Renders `ALTER TABLE ... RENAME TO new_name;`.
     #[must_use]
     pub fn rename_table_sql(&self, new_name: &str) -> String {
         format!(
@@ -505,7 +553,7 @@ impl Table {
 // =============================================================================
 
 impl PrimaryKey {
-    /// Generate the PRIMARY KEY constraint clause
+    /// Renders `CONSTRAINT name PRIMARY KEY(...)`.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
@@ -528,7 +576,7 @@ impl PrimaryKey {
 // =============================================================================
 
 impl UniqueConstraint {
-    /// Generate the UNIQUE constraint clause
+    /// Renders `CONSTRAINT name UNIQUE(...)`.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         let cols = self
@@ -547,7 +595,7 @@ impl UniqueConstraint {
 // =============================================================================
 
 impl CheckConstraint {
-    /// Generate the CHECK constraint clause
+    /// Renders `CONSTRAINT name CHECK(expression)`.
     #[must_use]
     pub fn to_constraint_sql(&self) -> String {
         format!(

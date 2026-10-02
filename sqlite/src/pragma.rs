@@ -1,26 +1,16 @@
-//! `SQLite` PRAGMA statements for database configuration and introspection
+//! `SQLite` PRAGMA statements.
 //!
-//! This module provides type-safe, ergonomic access to `SQLite`'s PRAGMA statements.
-//! PRAGMA statements are SQL extension specific to `SQLite` and are used to modify
-//! the operation of the `SQLite` library or to query the `SQLite` library for internal
-//! (non-table) data.
+//! A PRAGMA changes a setting of the `SQLite` library or reads internal
+//! data such as table metadata. [`Pragma`] has one variant per pragma, with
+//! enums for settings that take a fixed set of values. Render it with
+//! [`ToSQL::to_sql`] and run the SQL with your driver.
 //!
-//! [SQLite PRAGMA Documentation](https://sqlite.org/pragma.html)
+//! Table, index and directory names are written into the SQL as given,
+//! without quoting or escaping. Only pass trusted names.
 //!
-//! ## Features
+//! See the [SQLite PRAGMA documentation](https://sqlite.org/pragma.html).
 //!
-//! - **Type Safety**: Enums for all pragma values (no string literals needed)
-//! - **Ergonomic API**: Uses `&'static str` instead of `String` - no `.to_string()` calls
-//! - **Documentation Links**: Each pragma links to official `SQLite` documentation
-//! - **`ToSQL` Integration**: Seamless integration with the query builder
-//!
-//! ## Categories
-//!
-//! - **Configuration**: `foreign_keys`, `journal_mode`, `wal_autocheckpoint`, `cache_spill`, etc.
-//! - **Introspection**: `table_info`, `index_list`, `compile_options`, etc.
-//! - **Maintenance**: `integrity_check`, `incremental_vacuum`, `wal_checkpoint`, etc.
-//!
-//! ## Examples
+//! # Examples
 //!
 //! ```
 //! use drizzle_sqlite::pragma::{Pragma, JournalMode, AutoVacuum};
@@ -55,7 +45,7 @@ use drizzle_core::{SQL, ToSQL};
 pub enum AutoVacuum {
     /// Disable auto-vacuum
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::AutoVacuum;
     /// # use drizzle_core::ToSQL;
@@ -65,7 +55,7 @@ pub enum AutoVacuum {
 
     /// Enable full auto-vacuum
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::AutoVacuum;
     /// # use drizzle_core::ToSQL;
@@ -75,7 +65,7 @@ pub enum AutoVacuum {
 
     /// Enable incremental auto-vacuum
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::AutoVacuum;
     /// # use drizzle_core::ToSQL;
@@ -91,7 +81,7 @@ pub enum AutoVacuum {
 pub enum JournalMode {
     /// Delete journal file after each transaction
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::JournalMode;
     /// # use drizzle_core::ToSQL;
@@ -101,7 +91,7 @@ pub enum JournalMode {
 
     /// Truncate journal file after each transaction
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::JournalMode;
     /// # use drizzle_core::ToSQL;
@@ -111,7 +101,7 @@ pub enum JournalMode {
 
     /// Keep journal file persistent
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::JournalMode;
     /// # use drizzle_core::ToSQL;
@@ -121,7 +111,7 @@ pub enum JournalMode {
 
     /// Store journal in memory
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::JournalMode;
     /// # use drizzle_core::ToSQL;
@@ -131,7 +121,7 @@ pub enum JournalMode {
 
     /// Write-Ahead Logging mode
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::JournalMode;
     /// # use drizzle_core::ToSQL;
@@ -141,7 +131,7 @@ pub enum JournalMode {
 
     /// Disable journaling
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::JournalMode;
     /// # use drizzle_core::ToSQL;
@@ -157,7 +147,7 @@ pub enum JournalMode {
 pub enum Synchronous {
     /// No syncing - fastest but least safe
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Synchronous;
     /// # use drizzle_core::ToSQL;
@@ -167,7 +157,7 @@ pub enum Synchronous {
 
     /// Sync at critical moments - good balance
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Synchronous;
     /// # use drizzle_core::ToSQL;
@@ -177,7 +167,7 @@ pub enum Synchronous {
 
     /// Sync frequently - safest but slower
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Synchronous;
     /// # use drizzle_core::ToSQL;
@@ -187,7 +177,7 @@ pub enum Synchronous {
 
     /// Like FULL with additional syncing
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Synchronous;
     /// # use drizzle_core::ToSQL;
@@ -203,7 +193,7 @@ pub enum Synchronous {
 pub enum TempStore {
     /// Use default storage mode
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::TempStore;
     /// # use drizzle_core::ToSQL;
@@ -213,7 +203,7 @@ pub enum TempStore {
 
     /// Store temporary tables in files
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::TempStore;
     /// # use drizzle_core::ToSQL;
@@ -223,7 +213,7 @@ pub enum TempStore {
 
     /// Store temporary tables in memory
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::TempStore;
     /// # use drizzle_core::ToSQL;
@@ -239,7 +229,7 @@ pub enum TempStore {
 pub enum LockingMode {
     /// Normal locking mode - allows multiple readers
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::LockingMode;
     /// # use drizzle_core::ToSQL;
@@ -249,7 +239,7 @@ pub enum LockingMode {
 
     /// Exclusive locking mode - single connection only
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::LockingMode;
     /// # use drizzle_core::ToSQL;
@@ -265,7 +255,7 @@ pub enum LockingMode {
 pub enum SecureDelete {
     /// Disable secure delete
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::SecureDelete;
     /// # use drizzle_core::ToSQL;
@@ -275,7 +265,7 @@ pub enum SecureDelete {
 
     /// Enable secure delete - overwrite deleted data
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::SecureDelete;
     /// # use drizzle_core::ToSQL;
@@ -285,7 +275,7 @@ pub enum SecureDelete {
 
     /// Fast secure delete - partial overwriting
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::SecureDelete;
     /// # use drizzle_core::ToSQL;
@@ -301,7 +291,7 @@ pub enum SecureDelete {
 pub enum Encoding {
     /// UTF-8 encoding
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Encoding;
     /// # use drizzle_core::ToSQL;
@@ -311,7 +301,7 @@ pub enum Encoding {
 
     /// UTF-16 little endian encoding
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Encoding;
     /// # use drizzle_core::ToSQL;
@@ -321,7 +311,7 @@ pub enum Encoding {
 
     /// UTF-16 big endian encoding
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Encoding;
     /// # use drizzle_core::ToSQL;
@@ -337,7 +327,7 @@ pub enum Encoding {
 pub enum CacheSpill {
     /// Enable or disable cache spilling
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::CacheSpill;
     /// # use drizzle_core::ToSQL;
@@ -348,7 +338,7 @@ pub enum CacheSpill {
 
     /// Set the spill threshold (pages)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::CacheSpill;
     /// # use drizzle_core::ToSQL;
@@ -371,11 +361,11 @@ pub enum WalCheckpointMode {
     Restart,
     /// Truncate checkpoint
     Truncate,
-    /// No-op checkpoint (query status only)
+    /// No checkpoint; only reports the WAL status
     Noop,
 }
 
-/// Writable schema modes (test-only)
+/// Values for [`Pragma::WritableSchema`]. Misuse can corrupt the database.
 ///
 /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_writable_schema)
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -386,15 +376,21 @@ pub enum WritableSchema {
     Reset,
 }
 
-/// `SQLite` pragma statements for database configuration and introspection
+/// A `SQLite` PRAGMA statement.
+///
+/// Variants are grouped as settings, read-only queries, maintenance
+/// commands, and per-table queries. A setting variant renders an assignment
+/// (`PRAGMA cache_size = -2000`); to read a setting's current value, use
+/// [`Pragma::query`]. Names passed to variants (tables, indexes,
+/// directories) are not quoted or escaped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pragma {
     // Read/Write Configuration Pragmas
-    /// Set or query the 32-bit signed big-endian application ID
+    /// Sets the 32-bit signed big-endian application ID
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_application_id)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -403,11 +399,11 @@ pub enum Pragma {
     /// ```
     ApplicationId(i32),
 
-    /// Query or set the auto-vacuum status in the database
+    /// Sets the auto-vacuum mode
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_auto_vacuum)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::{Pragma, AutoVacuum};
     /// # use drizzle_core::ToSQL;
@@ -416,11 +412,11 @@ pub enum Pragma {
     /// ```
     AutoVacuum(AutoVacuum),
 
-    /// Suggest maximum number of database disk pages in memory
+    /// Sets the suggested page cache size: pages if positive, KiB if negative
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_cache_size)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -429,11 +425,11 @@ pub enum Pragma {
     /// ```
     CacheSize(i32),
 
-    /// Query, set, or clear the enforcement of foreign key constraints
+    /// Turns foreign key enforcement on or off
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_foreign_keys)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -445,11 +441,11 @@ pub enum Pragma {
     /// ```
     ForeignKeys(bool),
 
-    /// Query or set the journal mode for databases
+    /// Sets the journal mode for databases
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_journal_mode)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::{Pragma, JournalMode};
     /// # use drizzle_core::ToSQL;
@@ -458,11 +454,11 @@ pub enum Pragma {
     /// ```
     JournalMode(JournalMode),
 
-    /// Query or set the WAL auto-checkpoint threshold (pages)
+    /// Sets the WAL auto-checkpoint threshold (pages)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_wal_autocheckpoint)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -471,11 +467,11 @@ pub enum Pragma {
     /// ```
     WalAutocheckpoint(i32),
 
-    /// Control how aggressively `SQLite` will write data
+    /// Sets how often `SQLite` syncs writes to disk
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_synchronous)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::{Pragma, Synchronous};
     /// # use drizzle_core::ToSQL;
@@ -484,11 +480,11 @@ pub enum Pragma {
     /// ```
     Synchronous(Synchronous),
 
-    /// Query or set the storage mode used by temporary tables and indices
+    /// Sets the storage mode used by temporary tables and indices
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_temp_store)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::{Pragma, TempStore};
     /// # use drizzle_core::ToSQL;
@@ -497,11 +493,11 @@ pub enum Pragma {
     /// ```
     TempStore(TempStore),
 
-    /// Query or set the database connection locking-mode
+    /// Sets the connection's locking mode
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_locking_mode)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::{Pragma, LockingMode};
     /// # use drizzle_core::ToSQL;
@@ -510,11 +506,11 @@ pub enum Pragma {
     /// ```
     LockingMode(LockingMode),
 
-    /// Query or set the secure-delete setting
+    /// Sets the secure-delete setting
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_secure_delete)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::{Pragma, SecureDelete};
     /// # use drizzle_core::ToSQL;
@@ -523,11 +519,11 @@ pub enum Pragma {
     /// ```
     SecureDelete(SecureDelete),
 
-    /// Set or get the user-version integer
+    /// Sets the user-version integer
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_user_version)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -536,11 +532,11 @@ pub enum Pragma {
     /// ```
     UserVersion(i32),
 
-    /// Query or set the text encoding used by the database
+    /// Sets the text encoding used by the database
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_encoding)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::{Pragma, Encoding};
     /// # use drizzle_core::ToSQL;
@@ -549,11 +545,11 @@ pub enum Pragma {
     /// ```
     Encoding(Encoding),
 
-    /// Query or set the database page size in bytes
+    /// Sets the database page size in bytes
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_page_size)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -562,11 +558,11 @@ pub enum Pragma {
     /// ```
     PageSize(i32),
 
-    /// Query or set the maximum memory map size
+    /// Sets the maximum memory map size
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_mmap_size)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -579,7 +575,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_recursive_triggers)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -588,27 +584,27 @@ pub enum Pragma {
     /// ```
     RecursiveTriggers(bool),
 
-    /// Query or set the ANALYZE limit
+    /// Sets the ANALYZE limit
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_analysis_limit)
     AnalysisLimit(i32),
 
-    /// Query or set automatic indexing
+    /// Sets automatic indexing
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_automatic_index)
     AutomaticIndex(bool),
 
-    /// Query or set the busy timeout (milliseconds)
+    /// Sets the busy timeout (milliseconds)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_busy_timeout)
     BusyTimeout(i32),
 
-    /// Query or set cache spill settings
+    /// Sets cache spill settings
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_cache_spill)
     CacheSpill(CacheSpill),
 
-    /// Query or set `case_sensitive_like` (deprecated)
+    /// Sets `case_sensitive_like` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_case_sensitive_like)
     CaseSensitiveLike(bool),
@@ -623,57 +619,57 @@ pub enum Pragma {
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_checkpoint_fullfsync)
     CheckpointFullFsync(bool),
 
-    /// Query or set `count_changes` (deprecated)
+    /// Sets `count_changes` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_count_changes)
     CountChanges(bool),
 
-    /// Query or set `data_store_directory` (deprecated)
+    /// Sets `data_store_directory` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_data_store_directory)
     DataStoreDirectory(&'static str),
 
-    /// Query or set `default_cache_size` (deprecated)
+    /// Sets `default_cache_size` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_default_cache_size)
     DefaultCacheSize(i32),
 
-    /// Query or set `defer_foreign_keys`
+    /// Sets `defer_foreign_keys`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_defer_foreign_keys)
     DeferForeignKeys(bool),
 
-    /// Query or set `empty_result_callbacks` (deprecated)
+    /// Sets `empty_result_callbacks` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_empty_result_callbacks)
     EmptyResultCallbacks(bool),
 
-    /// Query or set `full_column_names` (deprecated)
+    /// Sets `full_column_names` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_full_column_names)
     FullColumnNames(bool),
 
-    /// Query or set fullfsync
+    /// Sets fullfsync
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_fullfsync)
     FullFsync(bool),
 
-    /// Query or set `hard_heap_limit`
+    /// Sets `hard_heap_limit`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_hard_heap_limit)
     HardHeapLimit(i64),
 
-    /// Query or set `ignore_check_constraints`
+    /// Sets `ignore_check_constraints`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_ignore_check_constraints)
     IgnoreCheckConstraints(bool),
 
-    /// Query or set `journal_size_limit`
+    /// Sets `journal_size_limit`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_journal_size_limit)
     JournalSizeLimit(i64),
 
-    /// Query or set `legacy_alter_table`
+    /// Sets `legacy_alter_table`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_legacy_alter_table)
     LegacyAlterTable(bool),
@@ -683,82 +679,82 @@ pub enum Pragma {
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_legacy_file_format)
     LegacyFileFormat,
 
-    /// Query or set `max_page_count`
+    /// Sets `max_page_count`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_max_page_count)
     MaxPageCount(i32),
 
-    /// Query or set `query_only`
+    /// Sets `query_only`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_query_only)
     QueryOnly(bool),
 
-    /// Query or set `read_uncommitted`
+    /// Sets `read_uncommitted`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_read_uncommitted)
     ReadUncommitted(bool),
 
-    /// Query or set `reverse_unordered_selects`
+    /// Sets `reverse_unordered_selects`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_reverse_unordered_selects)
     ReverseUnorderedSelects(bool),
 
-    /// Query or set `schema_version` (test-only)
+    /// Sets `schema_version`. Misuse can corrupt the database
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_schema_version)
     SchemaVersion(i32),
 
-    /// Query or set `short_column_names` (deprecated)
+    /// Sets `short_column_names` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_short_column_names)
     ShortColumnNames(bool),
 
-    /// Query or set `soft_heap_limit`
+    /// Sets `soft_heap_limit`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_soft_heap_limit)
     SoftHeapLimit(i64),
 
-    /// Query or set `temp_store_directory` (deprecated)
+    /// Sets `temp_store_directory` (deprecated)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_temp_store_directory)
     TempStoreDirectory(&'static str),
 
-    /// Query or set threads
+    /// Sets threads
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_threads)
     Threads(i32),
 
-    /// Query or set `trusted_schema`
+    /// Sets `trusted_schema`
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_trusted_schema)
     TrustedSchema(bool),
 
-    /// Query or set `writable_schema` (test-only)
+    /// Sets `writable_schema`. Misuse can corrupt the database
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_writable_schema)
     WritableSchema(WritableSchema),
 
-    /// Query or set `parser_trace` (requires `SQLITE_DEBUG`)
+    /// Sets `parser_trace` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_parser_trace)
     ParserTrace(bool),
 
-    /// Query or set `vdbe_addoptrace` (requires `SQLITE_DEBUG`)
+    /// Sets `vdbe_addoptrace` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_addoptrace)
     VdbeAddoptrace(bool),
 
-    /// Query or set `vdbe_debug` (requires `SQLITE_DEBUG`)
+    /// Sets `vdbe_debug` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_debug)
     VdbeDebug(bool),
 
-    /// Query or set `vdbe_listing` (requires `SQLITE_DEBUG`)
+    /// Sets `vdbe_listing` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_listing)
     VdbeListing(bool),
 
-    /// Query or set `vdbe_trace` (requires `SQLITE_DEBUG`)
+    /// Sets `vdbe_trace` (requires `SQLITE_DEBUG`)
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_vdbe_trace)
     VdbeTrace(bool),
@@ -768,7 +764,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_collation_list)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -781,7 +777,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_compile_options)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -794,7 +790,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_database_list)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -807,7 +803,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_function_list)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -820,7 +816,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_table_list)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -833,7 +829,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_table_xinfo)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -846,7 +842,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_module_list)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -900,7 +896,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_integrity_check)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -918,7 +914,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_quick_check)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -934,7 +930,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_optimize)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -950,7 +946,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_foreign_key_check)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -967,7 +963,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_table_info)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -980,7 +976,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_index_list)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -993,7 +989,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_index_info)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -1011,7 +1007,7 @@ pub enum Pragma {
     ///
     /// [SQLite Documentation](https://sqlite.org/pragma.html#pragma_foreign_key_list)
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use drizzle_sqlite::pragma::Pragma;
     /// # use drizzle_core::ToSQL;
@@ -1267,67 +1263,77 @@ impl<'a> ToSQL<'a, SQLiteValue<'a>> for Pragma {
 }
 
 impl Pragma {
-    /// Create a PRAGMA query to get the current value (read-only operation)
+    /// Builds `PRAGMA name`, which reads the pragma's current value.
+    ///
+    /// `pragma_name` is written into the SQL as given; only pass trusted
+    /// names.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use drizzle_sqlite::pragma::Pragma;
+    /// assert_eq!(Pragma::query("journal_mode").sql(), "PRAGMA journal_mode");
+    /// ```
     #[must_use]
     pub fn query(pragma_name: &str) -> SQL<'static, SQLiteValue<'static>> {
         SQL::raw(format!("PRAGMA {pragma_name}"))
     }
 
-    /// Convenience constructor for `foreign_keys` pragma
+    /// Same as [`Pragma::ForeignKeys`].
     #[must_use]
     pub const fn foreign_keys(enabled: bool) -> Self {
         Self::ForeignKeys(enabled)
     }
 
-    /// Convenience constructor for `journal_mode` pragma
+    /// Same as [`Pragma::JournalMode`].
     #[must_use]
     pub const fn journal_mode(mode: JournalMode) -> Self {
         Self::JournalMode(mode)
     }
 
-    /// Convenience constructor for `wal_autocheckpoint` pragma
+    /// Same as [`Pragma::WalAutocheckpoint`].
     #[must_use]
     pub const fn wal_autocheckpoint(pages: i32) -> Self {
         Self::WalAutocheckpoint(pages)
     }
 
-    /// Convenience constructor for `table_info` pragma
+    /// Same as [`Pragma::TableInfo`].
     #[must_use]
     pub const fn table_info(table: &'static str) -> Self {
         Self::TableInfo(table)
     }
 
-    /// Convenience constructor for `index_list` pragma
+    /// Same as [`Pragma::IndexList`].
     #[must_use]
     pub const fn index_list(table: &'static str) -> Self {
         Self::IndexList(table)
     }
 
-    /// Convenience constructor for `foreign_key_list` pragma
+    /// Same as [`Pragma::ForeignKeyList`].
     #[must_use]
     pub const fn foreign_key_list(table: &'static str) -> Self {
         Self::ForeignKeyList(table)
     }
 
-    /// Convenience constructor for `integrity_check` pragma
+    /// Same as [`Pragma::IntegrityCheck`].
     #[must_use]
     pub const fn integrity_check(table: Option<&'static str>) -> Self {
         Self::IntegrityCheck(table)
     }
 
-    /// Convenience constructor for `foreign_key_check` pragma
+    /// Same as [`Pragma::ForeignKeyCheck`].
     #[must_use]
     pub const fn foreign_key_check(table: Option<&'static str>) -> Self {
         Self::ForeignKeyCheck(table)
     }
 
-    /// Convenience constructor for `table_xinfo` pragma
+    /// Same as [`Pragma::TableXInfo`].
     #[must_use]
     pub const fn table_xinfo(table: &'static str) -> Self {
         Self::TableXInfo(table)
     }
 
-    /// Convenience constructor for encoding pragma
+    /// Same as [`Pragma::Encoding`].
     #[must_use]
     pub const fn encoding(encoding: Encoding) -> Self {
         Self::Encoding(encoding)

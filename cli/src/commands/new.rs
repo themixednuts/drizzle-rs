@@ -52,13 +52,15 @@ pub struct NewOptions {
     pub schema_help: bool,
 }
 
-/// Run the `new` command to scaffold a schema definition.
+/// Runs `drizzle new`: builds a [`SchemaDefinition`] from prompts or JSON,
+/// validates it, and writes the generated Rust schema file (`--schema`, else
+/// the definition's `output_path`).
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if loading or validating the JSON schema definition
-/// fails, if interactive prompts are cancelled, or if writing the generated
-/// Rust schema files fails.
+/// Returns [`CliError`] if the JSON cannot be read or parsed, a prompt is
+/// cancelled, the definition fails validation (unknown tables or columns,
+/// options used on the wrong dialect, ...), or a file cannot be written.
 pub fn run(config: Option<&Config>, options: &NewOptions) -> Result<(), CliError> {
     // --schema-help: print annotated example and exit
     if options.schema_help {
@@ -165,20 +167,29 @@ pub fn run(config: Option<&Config>, options: &NewOptions) -> Result<(), CliError
 
 // ── Schema definition (top-level JSON document) ─────────────────────────────
 
+/// The JSON document `drizzle new --json` reads and `--export-json` writes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SchemaDefinition {
+    /// Target dialect.
     pub dialect: Dialect,
+    /// Casing of generated Rust field names (default `snake_case`).
     #[serde(default = "default_casing")]
     pub casing: FieldCasing,
+    /// Name of the generated schema struct (default `AppSchema`).
     #[serde(default = "default_schema_name")]
     pub schema_name: String,
+    /// Where to write the schema file (default `src/schema.rs`).
     #[serde(default = "default_output_path")]
     pub output_path: String,
+    /// Enum types (PostgreSQL enums or MySQL inline enums).
     #[serde(default)]
     pub enums: Vec<EnumDef>,
+    /// Tables.
     pub tables: Vec<TableDef>,
+    /// Indexes.
     #[serde(default)]
     pub indexes: Vec<IndexDef>,
+    /// Foreign keys.
     #[serde(default)]
     pub foreign_keys: Vec<ForeignKeyDef>,
 }
@@ -201,15 +212,21 @@ fn default_fk_action() -> String {
 
 // ── Intermediate structs ────────────────────────────────────────────────────
 
+/// An enum type: name and labels.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EnumDef {
+    /// Enum name, referenced by a column's `enum_name`.
     pub name: String,
+    /// Labels, in order.
     pub variants: Vec<String>,
 }
 
+/// A table definition.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TableDef {
+    /// SQL table name.
     pub name: String,
+    /// Columns, in order.
     pub columns: Vec<ColumnDef>,
     /// `SQLite` only
     #[serde(default)]
@@ -217,7 +234,7 @@ pub struct TableDef {
     /// `SQLite` only
     #[serde(default)]
     pub without_rowid: bool,
-    /// `PostgreSQL` only
+    /// `PostgreSQL` only: the table's schema (default `public`).
     #[serde(default = "default_pg_schema")]
     pub pg_schema: String,
 }
@@ -241,17 +258,23 @@ pub enum AutoGenKind {
     Identity,
 }
 
+/// A column definition.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ColumnDef {
+    /// SQL column name.
     pub name: String,
-    /// The SQL type string the codegen expects
+    /// SQL type, as the database spells it (for example `integer`, `text`).
     pub sql_type: String,
+    /// Adds `NOT NULL`.
     #[serde(default)]
     pub not_null: bool,
+    /// Part of the primary key.
     #[serde(default)]
     pub primary_key: bool,
+    /// Adds a unique constraint.
     #[serde(default)]
     pub unique: bool,
+    /// SQL default expression.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
     /// Auto-generation strategy (SQLite/MySQL autoincrement or PostgreSQL identity).
@@ -263,51 +286,70 @@ pub struct ColumnDef {
 }
 
 impl ColumnDef {
+    /// Returns `true` if [`auto_gen`](Self::auto_gen) is `autoincrement`.
     #[must_use]
     pub const fn is_autoincrement(&self) -> bool {
         matches!(self.auto_gen, Some(AutoGenKind::Autoincrement))
     }
 
+    /// Returns `true` if [`auto_gen`](Self::auto_gen) is `identity`.
     #[must_use]
     pub const fn is_identity(&self) -> bool {
         matches!(self.auto_gen, Some(AutoGenKind::Identity))
     }
 }
 
+/// An index definition.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct IndexDef {
+    /// Index name.
     pub name: String,
+    /// Table it indexes.
     pub table: String,
+    /// Indexed columns, in order.
     pub columns: Vec<String>,
+    /// Creates a unique index.
     #[serde(default)]
     pub unique: bool,
-    /// PG schema
+    /// `PostgreSQL` only: the table's schema.
     #[serde(default)]
     pub pg_schema: String,
 }
 
+/// A foreign-key definition.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ForeignKeyDef {
+    /// Constraint name.
     pub name: String,
+    /// Referencing table.
     pub table: String,
+    /// Referencing columns.
     pub columns: Vec<String>,
+    /// Referenced table.
     pub table_to: String,
+    /// Referenced columns, matching `columns` in order.
     pub columns_to: Vec<String>,
+    /// `ON DELETE` action (default `No Action`).
     #[serde(default = "default_fk_action")]
     pub on_delete: String,
+    /// `ON UPDATE` action (default `No Action`).
     #[serde(default = "default_fk_action")]
     pub on_update: String,
-    /// PG schema
+    /// `PostgreSQL` only: the referencing table's schema.
     #[serde(default)]
     pub pg_schema: String,
+    /// `PostgreSQL` only: the referenced table's schema.
     #[serde(default)]
     pub pg_schema_to: String,
 }
 
+/// Casing of generated Rust field names.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 pub enum FieldCasing {
+    /// `snake_case`.
     #[serde(rename = "snake_case")]
     Snake,
+    /// `camelCase`.
     #[serde(rename = "camelCase")]
     Camel,
 }

@@ -1,7 +1,5 @@
-//! `SQLite` schema serialization
-//!
-//! This module provides functionality to serialize Drizzle schema definitions
-//! into DDL entities and snapshots.
+//! Reads and writes SQLite `snapshot.json` files and pairs the newest one with
+//! a new DDL state for diffing.
 
 use super::collection::SQLiteDDL;
 use super::ddl::SqliteEntity;
@@ -11,7 +9,9 @@ use std::path::Path;
 /// Error type for serialization operations
 #[derive(Debug, Clone)]
 pub struct SerializerError {
+    /// What went wrong.
     pub message: String,
+    /// The file or folder involved, if any.
     pub path: Option<String>,
 }
 
@@ -43,7 +43,8 @@ pub struct PreparedSnapshots {
     pub snapshot_prev: SQLiteSnapshot,
 }
 
-/// Load a snapshot from a JSON file.
+/// Reads a snapshot from a JSON file, upgrading legacy v5/v6 documents in
+/// memory.
 ///
 /// # Errors
 ///
@@ -78,7 +79,7 @@ pub fn load_snapshot(path: &Path) -> SerializerResult<SQLiteSnapshot> {
     })
 }
 
-/// Save a snapshot to a JSON file.
+/// Writes a snapshot as pretty-printed JSON, creating parent folders.
 ///
 /// # Errors
 ///
@@ -106,7 +107,8 @@ pub fn save_snapshot(snapshot: &SQLiteSnapshot, path: &Path) -> SerializerResult
     Ok(())
 }
 
-/// Load the latest snapshot from a drizzle folder.
+/// Loads the newest `snapshot.json` (by folder name) in a migrations folder,
+/// or `None` if there is none.
 ///
 /// # Errors
 ///
@@ -117,7 +119,8 @@ pub fn load_latest_snapshot(drizzle_folder: &Path) -> SerializerResult<Option<SQ
     snapshots.last().map(|path| load_snapshot(path)).transpose()
 }
 
-/// Find all snapshot files in a drizzle folder.
+/// Returns the `<folder>/<tag>/snapshot.json` paths in a migrations folder,
+/// sorted by tag. A missing folder gives an empty list.
 ///
 /// # Errors
 ///
@@ -152,7 +155,8 @@ pub fn find_snapshot_files(drizzle_folder: &Path) -> SerializerResult<Vec<std::p
     Ok(snapshots)
 }
 
-/// Prepare snapshots for migration generation.
+/// Pairs the newest snapshot in `drizzle_folder` (or an empty one) with
+/// `current_ddl`, building the new snapshot that follows it.
 ///
 /// # Errors
 ///
@@ -180,13 +184,13 @@ pub fn prepare_snapshots(
     })
 }
 
-/// Create an empty/dry snapshot (for initial migrations)
+/// Returns an empty snapshot, the baseline for a first migration.
 #[must_use]
 pub fn empty_snapshot() -> SQLiteSnapshot {
     SQLiteSnapshot::new()
 }
 
-/// Create a DDL from a list of entities
+/// Same as `from_entities` on the DDL type.
 #[must_use]
 pub fn ddl_from_entities(entities: Vec<SqliteEntity>) -> SQLiteDDL {
     SQLiteDDL::from_entities(entities)

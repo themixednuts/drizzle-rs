@@ -1,6 +1,4 @@
-//! `SQLite` type category definitions
-//!
-//! Provides type classification for both Rust type mapping and SQL parsing.
+//! Classification of Rust field types and `SQLite` type declarations.
 
 use super::SQLiteType;
 
@@ -8,11 +6,12 @@ use super::SQLiteType;
 // TypeCategory - Rust type classification for code generation
 // =============================================================================
 
-/// Categorizes Rust types for consistent handling across the macro system.
+/// The kind of a Rust field type, as the `SQLite` macros see it.
 ///
-/// This enum provides a single source of truth for type detection, eliminating
-/// fragile string matching scattered across multiple files. This is used for
-/// both type inference (Rust type → `SQLite` type) and code generation.
+/// [`from_type_string`](Self::from_type_string) finds the category of a type
+/// written as a string, and [`to_sqlite_type`](Self::to_sqlite_type) gives
+/// its default column type (the `SQLite` table macro uses it for fields
+/// without an explicit type).
 ///
 /// # Examples
 ///
@@ -46,23 +45,23 @@ pub enum TypeCategory {
     Json,
     /// Any type with `#[enum]` flag (defaults to TEXT, can be INTEGER)
     Enum,
-    /// `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32` - Integer types
+    /// `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, `u32`, `usize` -
+    /// Integer types (`u64` is not included)
     Integer,
     /// `f32`, `f64` - Floating point types
     Real,
     /// `bool` - Boolean type (stored as INTEGER 0/1)
     Bool,
-    /// Chrono date/time types - stored as TEXT
+    /// `chrono`, `time` and `jiff` date/time types - stored as TEXT
     DateTime,
-    /// Unknown type - requires explicit type annotation
+    /// Not recognized; the column type must be given explicitly.
     Unknown,
 }
 
 impl TypeCategory {
-    /// Detect the category from a type string representation.
-    ///
-    /// Order matters: more specific types (`ArrayString`) must be checked
-    /// before more general types (String).
+    /// Classifies a Rust type written as a string, such as `"Option<i64>"`
+    /// or `"chrono::NaiveDate"`. `Option<T>` classifies as `T`; spaces are
+    /// ignored. Unrecognized types return [`TypeCategory::Unknown`].
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_type_string(type_str: &str) -> Self {
@@ -147,10 +146,11 @@ impl TypeCategory {
         }
     }
 
-    /// Infer the `SQLite` type from this category.
+    /// Returns the default `SQLite` column type for this category, or `None`
+    /// for `Unknown`.
     ///
-    /// Returns `Some(SQLiteType)` for types that can be automatically inferred,
-    /// or `None` for types that require explicit annotation (Unknown).
+    /// Integers and `bool` are `INTEGER`; strings, date/times, JSON and enums
+    /// are `TEXT`; bytes and UUIDs are `BLOB`; floats are `REAL`.
     #[must_use]
     pub const fn to_sqlite_type(&self) -> Option<SQLiteType> {
         match self {
@@ -171,13 +171,15 @@ impl TypeCategory {
         }
     }
 
-    /// Check if this category requires the `FromSQLiteValue` trait for conversion
+    /// Returns `true` for `ArrayString` and `ArrayVec`, whose values are
+    /// converted through `FromSQLiteValue`.
     #[must_use]
     pub const fn uses_from_sqlite_value(&self) -> bool {
         matches!(self, Self::ArrayString | Self::ArrayVec)
     }
 
-    /// Check if this category should use a generic `impl Into<...>` parameter
+    /// Returns `true` for `String`, `Blob` and `Uuid`, whose values can be
+    /// taken as an `impl Into<...>` parameter.
     #[must_use]
     pub const fn uses_into_param(&self) -> bool {
         matches!(self, Self::String | Self::Blob | Self::Uuid)
@@ -188,10 +190,13 @@ impl TypeCategory {
 // SQLTypeCategory - SQL type affinity for parsing
 // =============================================================================
 
-/// SQL type category for parsing SQL type strings.
+/// The affinity group of a `SQLite` type declaration, such as `VARCHAR(255)`
+/// or `INTEGER`.
 ///
-/// This categorizes SQL type declarations (e.g., "VARCHAR(255)", "INTEGER")
-/// into their `SQLite` affinity groups for migration/introspection purposes.
+/// Only the type names listed on each variant are recognized, exactly or
+/// followed directly by `(`; anything else is `Numeric`. This is simpler
+/// than `SQLite`'s own substring rules, so `BIGINT UNSIGNED` is `Numeric`
+/// here.
 ///
 /// # Examples
 ///
@@ -206,15 +211,17 @@ impl TypeCategory {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum SQLTypeCategory {
-    /// Integer affinity types: INT, INTEGER, TINYINT, SMALLINT, MEDIUMINT, BIGINT, etc.
+    /// INT, INTEGER, TINYINT, SMALLINT, MEDIUMINT, BIGINT, UNSIGNED BIG INT,
+    /// INT2, INT8
     Integer,
-    /// Real affinity types: REAL, DOUBLE, DOUBLE PRECISION, FLOAT
+    /// REAL, DOUBLE, DOUBLE PRECISION, FLOAT
     Real,
-    /// Numeric affinity types: NUMERIC, DECIMAL, BOOLEAN, DATE, DATETIME
+    /// NUMERIC, DECIMAL, BOOLEAN, DATE, DATETIME, and any unrecognized type
     Numeric,
-    /// Text affinity types: TEXT, CHARACTER, VARCHAR, NCHAR, NVARCHAR, CLOB
+    /// TEXT, CHARACTER, VARCHAR, VARYING CHARACTER, NCHAR, NATIVE CHARACTER,
+    /// NVARCHAR, CLOB
     Text,
-    /// Blob type
+    /// BLOB
     Blob,
 }
 
@@ -250,7 +257,7 @@ const TEXT_AFFINITIES: &[&str] = &[
 ];
 
 impl SQLTypeCategory {
-    /// Determine the type category for a SQL type string
+    /// Classifies a SQL type declaration, ignoring case.
     #[must_use]
     pub fn from_sql_type(sql_type: &str) -> Self {
         // Helper to check if s starts with prefix followed by '('  (case-insensitive)
@@ -298,7 +305,8 @@ impl SQLTypeCategory {
         Self::Numeric
     }
 
-    /// Get the drizzle import name for this type
+    /// Returns the name of the matching drizzle-orm (TypeScript) column
+    /// builder, such as `"integer"`.
     #[must_use]
     pub const fn drizzle_import(&self) -> &'static str {
         match self {

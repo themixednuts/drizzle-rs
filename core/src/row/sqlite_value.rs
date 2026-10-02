@@ -1,16 +1,11 @@
 //! Shared `FromDrizzleRow` machinery for SQLite-flavored driver rows.
 //!
-//! `rusqlite::Row`, `libsql::Row`, and `turso::Row` all expose a single
-//! per-cell fetch that returns a tagged union of integer / real / text /
-//! blob / null. The leaf `FromDrizzleRow` impls for each driver were
-//! near-clones of the same match-on-variant pattern, differing only in how
-//! the fetch is spelled.
-//!
-//! This module captures that pattern as the [`SqliteValueRow`] trait. Each
-//! driver supplies one tiny adapter that normalizes its native cell into a
-//! [`SqliteCell`]; the leaf [`FromDrizzleRow`] impls for every Rust target
-//! type (`i64`, `f64`, `String`, `Vec<u8>`, `bool`, `uuid::Uuid`, chrono /
-//! serde types, `Option<T>`) live here once as blanket impls keyed on
+//! `rusqlite::Row`, `libsql::Row` and `turso::Row` each fetch a cell as a
+//! tagged union of integer, real, text, blob or null. Each driver
+//! implements [`SqliteValueRow`] to turn its cell into a [`SqliteCell`];
+//! the leaf [`FromDrizzleRow`] impls for every Rust target type (`i64`,
+//! `f64`, `String`, `Vec<u8>`, `bool`, `uuid::Uuid`, chrono and serde
+//! types, `Option<T>`) are blanket impls here, keyed on
 //! `R: SqliteValueRow`.
 //!
 //! ## NULL probes

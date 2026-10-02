@@ -1,20 +1,39 @@
-//! Type-level query scope.
+//! Compile-time checks that a query only reads tables it has joined.
 //!
-//! A SELECT carries its FROM/JOIN sources as a type-level list (the *scope*).
-//! Every expression carries the sources it reads as a type-level tree (its
-//! [`Sources`](crate::expr::ExprSources::Sources)). Checking a clause is one
-//! question: does every source in the expression's tree appear in the scope?
+//! This module is internal machinery. Users never name these types; they see
+//! the result as a compile error when a query reads a table it never added
+//! with `.from(...)` or `.join(...)`:
 //!
-//! The same walk also answers how NULL reaches the expression's value. A
-//! source on the nullable side of an outer join behaves like a table whose
-//! every column is nullable, and the tree records how each operator passes
-//! NULL from its operands to its result.
+//! ```text
+//! error[E0277]: `Posts` is not in this query's FROM/JOIN scope
+//!    |
+//! 47 |     db.select(users.id).from(users).r#where(eq(posts.views, 1)).all();
+//!    |                                                                  ^^^ this expression reads a table that the query never joins
+//! ```
 //!
-//! # Scope
+//! The error points at the terminal method (`.all()`, `.get()`, `.rows()`),
+//! because that is where the whole query is checked.
 //!
-//! The scope is `Cons<Entry, Cons<Entry, ... Nil>>`, newest source first.
-//! Each entry implements [`ScopeEntry`], which names the key that columns
-//! use to refer to it and whether an outer join can leave it NULL.
+//! # How it works
+//!
+//! - **Scope.** A SELECT builder carries its FROM/JOIN sources in its marker
+//!   type ([`Scoped`]) as a type-level list, newest first:
+//!   `Cons<Posts, Cons<Users, Nil>>`. Each element is a [`ScopeEntry`].
+//! - **Sources.** Every expression carries the sources it reads as a type
+//!   (its [`Sources`](crate::expr::ExprSources::Sources)): `users.id` reads
+//!   `Src<Users>`, and `eq(users.id, posts.author_id)` reads both.
+//! - **Recording.** Each clause (JOIN ON, WHERE, GROUP BY, HAVING, ORDER BY)
+//!   adds its expression's sources to the marker ([`HasScope::With`]), paired
+//!   with the scope at that point ([`At`]). Joins update the scope through
+//!   [`JoinStep`].
+//! - **Checking.** The terminal method requires
+//!   [`MarkerScopeValidFor`](crate::row::MarkerScopeValidFor), which asks
+//!   [`SourcesIn`]: is every recorded source in the scope?
+//!
+//! The same walk also works out nullability. A source on the nullable side
+//! of an outer join behaves like a table whose columns are all nullable, so
+//! after `.left_join(posts)` a selected `posts.title` must be decoded as
+//! `Option<String>`.
 //!
 //! # Sources tree
 //!
@@ -25,18 +44,66 @@
 //! | `(A, B)` | both, NULL-propagating | `A` or `B` is NULL |
 //! | [`Coalesce<A, B>`] | both, NULL-absorbing | `A` and `B` are NULL |
 //! | [`NonNull`] / [`Null`] | an operand's declared nullability | `Null` |
+//! | [`At<Scope, S>`] | sources of another query or an earlier clause | never |
 //!
 //! Operators whose result is never NULL (`IS NULL`, `COUNT`, `EXISTS`) wrap
 //! their operands in [`ScopeOnly`], so the operands are still scope-checked
 //! but cannot make the result NULL.
+//!
+//! # Examples
+//!
+//! A source in scope passes the check:
+//!
+//! ```
+//! use drizzle_core::{Cons, Nil};
+//! use drizzle_core::expr::NonNull;
+//! use drizzle_core::scope::{ScopeEntry, SourcesIn, Src, TableKey, name::{H1, H2}};
+//!
+//! struct Users;
+//! impl ScopeEntry for Users {
+//!     type Key = TableKey<Cons<H1, Nil>, Users>;
+//!     type Nullable = NonNull;
+//!     type Sources = ();
+//! }
+//!
+//! fn in_scope<S: SourcesIn<Scope, P>, Scope, P>() {}
+//!
+//! in_scope::<Src<Users>, Cons<Users, Nil>, _>();
+//! ```
+//!
+//! A source that was never joined does not:
+//!
+//! ```compile_fail
+//! use drizzle_core::{Cons, Nil};
+//! use drizzle_core::expr::NonNull;
+//! use drizzle_core::scope::{ScopeEntry, SourcesIn, Src, TableKey, name::{H1, H2}};
+//!
+//! struct Users;
+//! struct Posts;
+//! impl ScopeEntry for Users {
+//!     type Key = TableKey<Cons<H1, Nil>, Users>;
+//!     type Nullable = NonNull;
+//!     type Sources = ();
+//! }
+//! impl ScopeEntry for Posts {
+//!     type Key = TableKey<Cons<H2, Nil>, Posts>;
+//!     type Nullable = NonNull;
+//!     type Sources = ();
+//! }
+//!
+//! fn in_scope<S: SourcesIn<Scope, P>, Scope, P>() {}
+//!
+//! // error: `Posts` is not in this query's FROM/JOIN scope
+//! in_scope::<Src<Posts>, Cons<Users, Nil>, _>();
+//! ```
 
 use core::marker::PhantomData;
 
 use crate::expr::{NonNull, Null, Nullability};
 use crate::{Cons, Nil};
 
-/// Bound-free `Clone`/`Copy`/`Default`/`Debug` for type-level markers, so user
-/// tag and table types need not implement them.
+// Bound-free `Clone`/`Copy`/`Default`/`Debug` for type-level markers, so user
+// tag and table types need not implement them.
 macro_rules! marker_impls {
     ($($name:ident<$($p:ident),+>),+ $(,)?) => {$(
         impl<$($p),+> Clone for $name<$($p),+> {
@@ -74,19 +141,25 @@ marker_impls!(
 // Scope entries
 // =============================================================================
 
-/// A source that can appear in a query scope.
+/// Something that can be listed in FROM or JOIN: a table, view, alias,
+/// derived table, CTE, or raw SQL.
 ///
-/// Tables and views are their own key. Aliased sources (`Table::alias::<Tag>()`,
-/// derived tables, CTEs) are keyed by [`AliasKey<Tag>`], because the alias name
-/// is what SQL resolves their columns against.
+/// Table, view, and alias macros implement this for you. A column's
+/// [`Sources`](crate::expr::ExprSources::Sources) names its source as
+/// [`Src<T>`], and the scope check looks up `T::Key` in the query's scope.
+///
+/// Tables and views are keyed by their SQL name ([`TableKey`]). Aliased
+/// sources (`Table::alias::<Tag>()`, derived tables, CTEs) are keyed by
+/// [`AliasKey<Tag>`], because SQL resolves their columns by alias name.
 pub trait ScopeEntry {
-    /// The identity columns use to refer to this source.
+    /// How columns refer to this source: a [`TableKey`] or an [`AliasKey`].
     type Key;
     /// [`Null`] when an outer join can leave this source NULL.
     type Nullable: Nullability;
-    /// Sources this source reads itself: a derived table's subquery. They
-    /// resolve against the enclosing query (or, for a `LATERAL` join, the
-    /// sources joined before it). Tables and views read nothing (`()`).
+    /// Sources this source reads itself, such as the tables a derived
+    /// table's subquery reads from an outer query. They resolve against the
+    /// enclosing query (or, for a `LATERAL` join, the sources joined before
+    /// it). Tables and views read nothing (`()`).
     type Sources;
 }
 
@@ -96,7 +169,7 @@ impl<T: ScopeEntry + ?Sized> ScopeEntry for &T {
     type Sources = T::Sources;
 }
 
-/// Key of a raw SQL source (`.from(sql)`): no typed column refers to it.
+/// Key of a raw SQL source (`.from(sql)`). No typed column can refer to it.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RawSource;
 
@@ -106,7 +179,8 @@ impl<V: crate::SQLParam> ScopeEntry for crate::SQL<'_, V> {
     type Sources = ();
 }
 
-/// Key for a source referred to by an alias name.
+/// Key of a source that SQL refers to by an alias name. `Tag` is the alias's
+/// type-level name.
 pub struct AliasKey<Tag>(PhantomData<Tag>);
 
 impl<Tag> ScopeEntry for AliasKey<Tag> {
@@ -128,23 +202,29 @@ impl<T: ScopeEntry> ScopeEntry for OuterJoined<T> {
     type Sources = ();
 }
 
-/// Type-level witness that a source is the head of a scope list.
+/// Proof that an item is the first element of a type-level list.
+///
+/// The compiler infers these proof types; users never write them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScopeHere;
 
-/// Type-level witness that a source is deeper in a scope list.
+/// Proof that an item is further down a type-level list, at the position
+/// `Prev` proves for the tail.
 pub struct ScopeThere<Prev>(PhantomData<Prev>);
 
-/// Witness for a table or view key, found by name comparison.
+/// Proof that a table or view was found in a scope by name comparison.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScopeFound;
 
-/// The scope has a source whose key is `Key`.
+/// The scope `Self` contains a source whose key is `Key`.
 ///
 /// Tables and views are looked up by SQL name, so the first (innermost)
 /// matching source wins: a correlated subquery that reads the same table as
 /// its outer query resolves to its own copy, as in SQL. Aliased sources are
 /// looked up by alias type.
+///
+/// When this fails, the compiler reports "`X` is not in this query's
+/// FROM/JOIN scope". `Witness` is a proof type the compiler infers.
 #[diagnostic::on_unimplemented(
     message = "`{Key}` is not in this query's FROM/JOIN scope",
     label = "this expression reads a source that the query never joins",
@@ -181,8 +261,12 @@ where
 // Table keys: decidable comparison by SQL name
 // =============================================================================
 
-/// Key of a table or view: its SQL name as a type-level list of nibbles
-/// (see [`name`]), plus the Rust type for diagnostics.
+/// Key of a table or view: its SQL name spelled as a type-level list of
+/// nibbles (see [`name`]), plus the Rust type for error messages.
+///
+/// Rust's trait system cannot tell that two different types are *not*
+/// equal, but it can compare two nibble lists digit by digit. Comparing by
+/// name is what lets the lookup skip non-matching tables.
 pub struct TableKey<Name, Table>(PhantomData<(Name, Table)>);
 
 /// Type-level boolean `true`.
@@ -192,7 +276,10 @@ pub struct True;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct False;
 
-/// Nibbles that spell a table's SQL name, two per byte.
+/// Type-level hex digits that spell a table's SQL name, two per byte (high
+/// nibble first). `"posts"` is `Cons<H7, Cons<H0, Cons<H6, Cons<HF, ...>>>>`.
+///
+/// The table macros generate these lists; users never write them.
 pub mod name {
     use super::{False, True};
 
@@ -210,7 +297,7 @@ pub mod name {
         H0, H1, H2, H3, H4, H5, H6, H7, H8, H9, HA, HB, HC, HD, HE, HF
     );
 
-    /// Nibble equality.
+    /// Type-level equality of two nibbles: `Out` is [`True`] or [`False`].
     pub trait NibEq<Other> {
         type Out;
     }
@@ -238,7 +325,7 @@ pub mod name {
     );
 }
 
-/// Equality of two nibble lists.
+/// Type-level equality of two nibble lists: `Out` is [`True`] or [`False`].
 #[doc(hidden)]
 pub trait NameEq<Other> {
     type Out;
@@ -311,8 +398,8 @@ impl<Table> IsTable<Table> for RawSource {
     type Out = False;
 }
 
-/// Finds the first source in a scope list that is the table `Table`
-/// (compared by SQL name).
+/// Finds the first source in a scope list that is the table `Table`,
+/// compared by SQL name.
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
     message = "`{Table}` is not in this query's FROM/JOIN scope",
@@ -333,7 +420,8 @@ where
         <<Head::Key as IsTable<Table>>::Out as FoundOr<Head::Nullable, Tail, Table>>::Nullable;
 }
 
-/// `True`: the head matched; `False`: keep searching the tail.
+/// Continues a [`FindTable`] search: [`True`] stops at the head, [`False`]
+/// searches the tail.
 #[doc(hidden)]
 pub trait FoundOr<Nullable, Rest, Table> {
     type Nullable: Nullability;
@@ -350,23 +438,35 @@ where
     type Nullable = Rest::Nullable;
 }
 
-/// Marker wrapper that carries the sources of a SELECT.
+/// SELECT marker that also carries the query's scope and the sources its
+/// clauses read.
 ///
+/// `.from(...)` wraps the select marker (`SelectStar`, `SelectCols`, ...) in
+/// this type, and each join and clause updates it.
+///
+/// - `Marker`: how rows decode (see [`crate::row`]).
 /// - `Scope`: the FROM/JOIN sources, newest first.
 /// - `Used`: a sources tree of every clause added so far (JOIN ON, WHERE,
 ///   GROUP BY, HAVING, ORDER BY), each wrapped in [`At`] with the scope it
-///   was written against. It is checked when the query runs, or against the
-///   enclosing query when this one is used as a subquery, so correlated
-///   subqueries can read their outer query's sources.
+///   was written against.
+///
+/// `Used` is checked by `.all()`, `.get()` and `.rows()` (through
+/// [`MarkerScopeValidFor`](crate::row::MarkerScopeValidFor)). When the query
+/// is used as a subquery, `Used` is checked against the outer query instead,
+/// so a correlated subquery can read its outer query's tables.
 pub struct Scoped<Marker, Scope, Used = ()>(PhantomData<(Marker, Scope, Used)>);
 
-/// Exposes the scope of a SELECT marker and records clause sources on it.
+/// Reads the scope of a SELECT marker and records clause sources on it.
+///
+/// Builder methods such as `.r#where(expr)` use `M::With<E::Sources>` as the
+/// new marker type, so the clause is checked later with the rest of the query.
 pub trait HasScope {
     /// The FROM/JOIN sources.
     type Scope;
     /// Sources of every clause added so far.
     type Used;
-    /// This marker after a clause reading `Sources` against the current scope.
+    /// This marker after adding a clause that reads `Sources`, recorded
+    /// against the current scope.
     type With<Sources>;
 }
 
@@ -380,20 +480,26 @@ impl<Marker, Scope, Used> HasScope for Scoped<Marker, Scope, Used> {
 // Sources tree
 // =============================================================================
 
-/// Sources-tree leaf: a column of the source `T` (a [`ScopeEntry`]).
+/// Sources-tree leaf: the expression reads a column of the source `T` (a
+/// [`ScopeEntry`]).
 pub struct Src<T>(PhantomData<T>);
 
-/// Sources-tree node that is NULL only when both sides are NULL.
+/// Sources-tree node that is NULL only when both sides are NULL, as in
+/// `COALESCE(a, b)`.
 pub struct Coalesce<A, B>(PhantomData<(A, B)>);
 
-/// Sources that are scope-checked but never make the result NULL.
+/// Sources that are scope-checked but never make the result NULL (used by
+/// `IS NULL`, `COUNT`, `EXISTS`).
 pub type ScopeOnly<S> = Coalesce<S, NonNull>;
 
-/// Every source in a sources tree is in `Scope`.
+/// Every source in the sources tree `Self` is in `Scope`.
 ///
-/// `Nullable` is [`Null`] when an outer join can make the expression NULL
-/// even though its declared nullability says otherwise.
+/// This is the core scope check. It fails, with "`X` is not in this query's
+/// FROM/JOIN scope", when a [`Src<T>`] in the tree names a source that
+/// `Scope` does not contain. `Proof` is a witness type the compiler infers.
 pub trait SourcesIn<Scope, Proof> {
+    /// [`Null`] when an outer join can make the expression NULL even though
+    /// its declared nullability says otherwise.
     type Nullable: Nullability;
 }
 
@@ -433,8 +539,10 @@ where
     type Nullable = <A::Nullable as Nullability>::And<B::Nullable>;
 }
 
-/// Sources read by a clause of another query (or an earlier join step),
-/// resolved against `Scope` first and then the enclosing scope.
+/// Sources `S` read by a clause written against `Scope`.
+///
+/// They resolve against `Scope` first and then against the enclosing scope.
+/// This is how a subquery's clauses can read the outer query's tables.
 ///
 /// Never NULL by itself: a subquery's inner sources do not make the outer
 /// expression NULL (the subquery operator decides that).
@@ -454,6 +562,7 @@ where
 /// FROM/JOIN scope first ([`At`]); whatever does not resolve there must be a
 /// source of the enclosing query (a correlated reference).
 pub trait SelectSources {
+    /// The sources tree the outer query must contain.
     type Sources;
 }
 
@@ -484,9 +593,10 @@ impl<M: SelectSources, Scope, Used> SelectSources for Scoped<M, Scope, Used> {
 /// The marker of a compound query (`UNION`, `INTERSECT`, `EXCEPT`) built
 /// from a query with marker `Self` and an operand with marker `Other`.
 ///
-/// The compound decodes like the left query; the operand's sources are kept
+/// The compound decodes like the left query. The operand's sources are kept
 /// so the compound is scope-checked as a whole.
 pub trait SetOperand<Other> {
+    /// The marker of the compound query.
     type Combined;
 }
 
@@ -510,18 +620,19 @@ impl<R, Other> SetOperand<Other> for crate::row::SelectAs<R> {
     type Combined = Self;
 }
 
-/// Sources of a COALESCE-style operand: its declared nullability plus the
-/// nullability its sources pick up from outer joins.
+/// Sources of a COALESCE-style operand: its declared nullability `N` plus
+/// its sources `S`, which may add nullability from outer joins.
 pub type Arg<N, S> = (N, S);
 
 // =============================================================================
 // Generic type lists
 // =============================================================================
 
-/// Exact type membership in a `Cons` list.
+/// The `Cons` list `Self` contains the type `T`.
 ///
 /// Used for column lists (GROUP BY keys, INSERT target columns), where the
-/// elements are compared by type rather than by scope key.
+/// elements are compared by type rather than by scope key. `Witness` is a
+/// proof type the compiler infers ([`ScopeHere`] / [`ScopeThere`]).
 pub trait ListContains<T, Witness> {}
 
 impl<Head, Tail> ListContains<Head, ScopeHere> for Cons<Head, Tail> {}
@@ -531,7 +642,7 @@ impl<Head, Tail, T, Witness> ListContains<T, ScopeThere<Witness>> for Cons<Head,
 {
 }
 
-/// Every element of `Required` is in `Self`.
+/// Every element of the `Cons` list `Required` is in the list `Self`.
 pub trait ListIncludes<Required, Proof> {}
 
 impl<List> ListIncludes<Nil, ()> for List {}
@@ -547,21 +658,26 @@ where
 // Joins
 // =============================================================================
 
-/// Join kind: `JOIN` / `INNER JOIN` / `CROSS JOIN`.
+/// Join kind for [`JoinStep`]: `JOIN`, `INNER JOIN` or `CROSS JOIN`. No
+/// source becomes nullable.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InnerJoin;
-/// `LEFT [OUTER] JOIN`: the joined source can be NULL.
+/// Join kind for [`JoinStep`]: `LEFT [OUTER] JOIN`. The joined source can
+/// be NULL.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LeftJoin;
-/// `RIGHT [OUTER] JOIN`: every source already in scope can be NULL.
+/// Join kind for [`JoinStep`]: `RIGHT [OUTER] JOIN`. Every source already
+/// in scope can be NULL.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RightJoin;
-/// `FULL [OUTER] JOIN`: every source can be NULL.
+/// Join kind for [`JoinStep`]: `FULL [OUTER] JOIN`. Every source can be
+/// NULL.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FullJoin;
 
-/// `[INNER|LEFT|CROSS] JOIN LATERAL`: the joined subquery may read the
-/// sources joined before it.
+/// Join kind for [`JoinStep`]: `[INNER|LEFT|CROSS] JOIN LATERAL` (`Kind` is
+/// [`InnerJoin`] or [`LeftJoin`]). The joined subquery may read the sources
+/// joined before it.
 pub struct Lateral<Kind>(PhantomData<Kind>);
 
 /// Wraps every entry of a scope list in [`OuterJoined`].
@@ -581,19 +697,26 @@ impl<Head, Tail: OuterJoinScope> OuterJoinScope for Cons<Head, Tail> {
 /// How a select marker's row type changes when `Joined` is joined.
 ///
 /// `SELECT *` grows the row by the joined model (wrapped in `Option` on the
-/// nullable side); every other marker keeps its row.
+/// nullable side). Every other marker keeps its row.
 #[doc(hidden)]
 pub trait JoinRow<Row, Joined, Kind> {
     type Row;
 }
 
-/// The marker and row type after joining `Joined` with join kind `Kind`.
+/// The marker and row type after joining `Joined` with join kind `Kind`
+/// ([`InnerJoin`], [`LeftJoin`], [`RightJoin`], [`FullJoin`] or
+/// [`Lateral`]).
+///
+/// Join builder methods use this to compute their return type. It pushes
+/// `Joined` onto the scope, wrapping the sources an outer join can leave
+/// NULL in [`OuterJoined`].
 ///
 /// `On` is the sources tree of the join's `ON` condition. It is recorded
 /// against the scope that includes `Joined`, which is exactly what the
 /// condition may reference (plus the enclosing query, for a correlated
 /// subquery). The joined source's own [`ScopeEntry::Sources`] resolve against
 /// the enclosing query only, or against the new scope for a [`Lateral`] join.
+/// Nothing is checked here; the check happens at the terminal method.
 pub trait JoinStep<Row, Joined, Kind, On = ()> {
     /// The new marker, with `Joined` pushed into its scope.
     type Marker;
@@ -660,5 +783,6 @@ where
     type Row = M::Row;
 }
 
-/// The marker after `.from(source)`.
+/// The marker after `.from(source)`: `M` wrapped in [`Scoped`] with `Source`
+/// as the only scope entry.
 pub type FromMarker<M, Source> = Scoped<M, Cons<Source, Nil>, <Source as ScopeEntry>::Sources>;

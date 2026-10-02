@@ -9,24 +9,63 @@ mod private {
     pub trait Sealed {}
 }
 
-/// Argument accepted by `LIMIT` and `OFFSET` clauses.
+/// A value accepted by `.limit(...)` and `.offset(...)`: an integer or an
+/// integer placeholder.
 ///
-/// Numeric values render as SQL numeric literals, unless the dialect's value
-/// type opts into bound pagination parameters via
-/// [`SQLParam::pagination_param`] (`PostgreSQL` does, so `.limit(10)` renders
-/// as `LIMIT $n` there, keeping SQL text stable for statement caching).
-/// Placeholders render through the dialect's parameter syntax so prepared
-/// statements can bind pagination values.
+/// Integers render as literals (`LIMIT 10`) unless the value type binds them
+/// as parameters through [`SQLParam::pagination_param`]. PostgreSQL and
+/// MySQL do, so the SQL text stays the same across pages and a cached
+/// prepared statement can be reused. Placeholders render as parameters, so
+/// a prepared statement can take the page size when it runs.
 ///
 /// # Panics
 ///
-/// Numeric arguments panic during SQL construction when they are negative or
-/// too large to fit in `usize`.
+/// An integer argument panics when the SQL is built if it is negative or
+/// does not fit in `usize`.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::{PaginationArg, SQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// let limit: SQL<'_, Value> = 10_i32.into_pagination_sql();
+/// assert_eq!(limit.sql(), "10");
+/// ```
+///
+/// ```should_panic
+/// use drizzle_core::{PaginationArg, SQL};
+/// # use drizzle_core::{Dialect, SQLParam, SQLiteDialect};
+/// # use std::borrow::Cow;
+/// # #[derive(Debug, Clone, PartialEq)]
+/// # struct Value(i64);
+/// # impl SQLParam for Value {
+/// #     const DIALECT: Dialect = Dialect::SQLite;
+/// #     type DialectMarker = SQLiteDialect;
+/// # }
+/// # impl From<Value> for Cow<'_, Value> {
+/// #     fn from(value: Value) -> Self { Cow::Owned(value) }
+/// # }
+///
+/// // panics: LIMIT/OFFSET value must be non-negative
+/// let _: SQL<'_, Value> = (-1_i64).into_pagination_sql();
+/// ```
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be used as a LIMIT/OFFSET argument",
     label = "expected a non-negative integer value or an integer placeholder"
 )]
 pub trait PaginationArg<'a, V: SQLParam + 'a>: private::Sealed {
+    /// Renders the value as a literal or parameter.
     #[track_caller]
     fn into_pagination_sql(self) -> SQL<'a, V>;
 }

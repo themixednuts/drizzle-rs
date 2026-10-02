@@ -1,7 +1,9 @@
 use super::{Generator, RngCore, SeedValue};
 use rand::Rng;
 
-/// Generates random dates in YYYY-MM-DD format (2000-01-01 to 2030-12-31).
+/// Generates random dates from 2000-01-01 to 2030-12-28 (days 1 to 28) as
+/// `YYYY-MM-DD` text, or as approximate Unix milliseconds when the column type
+/// contains `INT`.
 pub struct DateGen;
 
 impl Generator for DateGen {
@@ -24,7 +26,9 @@ impl Generator for DateGen {
     }
 }
 
-/// Generates random timestamps in YYYY-MM-DD HH:MM:SS format.
+/// Generates random timestamps from 2000 to 2030 as `YYYY-MM-DD HH:MM:SS`
+/// text, or as approximate Unix milliseconds when the column type contains
+/// `INT`.
 pub struct TimestampGen;
 
 impl Generator for TimestampGen {

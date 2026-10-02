@@ -8,16 +8,15 @@ pub use drizzle_core::builder::{
     SelectOrderSet, SelectSetOpSet, SelectWhereSet,
 };
 
-/// Marker for a SELECT after its single HAVING clause.
+/// Builder state after `having`. A SELECT takes at most one HAVING.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectHavingSet;
 
 impl ExecutableState for SelectHavingSet {}
 
-/// Marker for a base table that already carries one MySQL index hint.
+/// Builder state after an index hint on the FROM table.
 ///
-/// MySQL rejects some mixed hint kinds for the same scope. Keeping the chosen
-/// kind in the select state prevents an invalid second hint from being added.
+/// The FROM table takes one hint; `Kind` records which one.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectIndexHintSet<Kind>(core::marker::PhantomData<Kind>);
@@ -49,7 +48,11 @@ pub struct NoWait;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SkipLocked;
 
-/// Terminal MySQL locking-read state.
+/// Builder state after `for_update` or `for_share`.
+///
+/// `Strength` is [`ForUpdate`] or [`ForShare`]; `Modifier` is [`Wait`],
+/// [`NoWait`] or [`SkipLocked`]. Only `nowait` or `skip_locked` can follow,
+/// once.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectForSet<Strength, Modifier = Wait>(core::marker::PhantomData<(Strength, Modifier)>);
 
@@ -70,7 +73,8 @@ impl<Strength, Modifier> ExecutableState for SelectForSet<Strength, Modifier> {}
 )]
 pub trait SelectClause<C> {}
 
-/// MySQL clause marker: `OFFSET` (rendered with `LIMIT` when needed).
+/// Clause marker for `OFFSET`, which is rendered with a `LIMIT` when none was
+/// given.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MySqlOffset;
@@ -127,7 +131,86 @@ impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy> for Select
 impl<Kind> drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> for SelectIndexHintSet<Kind> {}
 impl drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> for SelectHavingSet {}
 
-/// Typed MySQL `SELECT` builder.
+/// A `SELECT` query being built for `MySQL`.
+///
+/// This is [`QueryBuilder`](super::QueryBuilder) in one of the `Select*`
+/// states. Start it with [`QueryBuilder::select`](super::QueryBuilder::select),
+/// then call [`from`](Self::from).
+///
+/// # Clause order
+///
+/// Clauses must be added in SQL order. Each method is only available in the
+/// states listed here:
+///
+/// | After | You can call |
+/// |---|---|
+/// | `select` | `from` |
+/// | `from` | an index hint, joins, `where`, `group_by`, `order_by`, `limit`, `offset` |
+/// | an index hint | joins, `where`, `group_by`, `order_by`, `limit`, `offset` |
+/// | a join | more joins, `where`, `group_by`, `order_by`, `limit`, `offset` |
+/// | `where` | `group_by`, `order_by`, `limit`, `offset` |
+/// | `group_by` | `having`, `order_by`, `limit`, `offset` |
+/// | `having` | `order_by`, `limit`, `offset` |
+/// | `order_by` | `limit`, `offset` |
+/// | `limit` | `offset` |
+/// | a set operation | more set operations, `order_by`, `limit`, `offset` |
+/// | `for_update` / `for_share` | `nowait` or `skip_locked` |
+///
+/// Every state from `from` on (except after a locking clause) also accepts
+/// set operations (`union`, `intersect`, `except` and their `_all` forms).
+/// Every state from `from` on, except a compound query, accepts a locking
+/// clause (`for_update`, `for_share`) and [`into_cte`](Self::into_cte).
+/// A finished query can be named as a derived table with
+/// [`alias`](Self::alias) or compiled with [`prepare`](Self::prepare); one
+/// without a locking clause can also be a subquery or an `INSERT` source.
+///
+/// # Compile-time checks
+///
+/// Besides clause order, the builder rejects: a second index hint on the
+/// FROM table, a second HAVING, a set operation after a locking clause, a
+/// locking clause on a compound query, and a WHERE, HAVING or JOIN
+/// condition that is not boolean. Column references and grouping are
+/// checked by [`prepare`](Self::prepare) and when the query runs.
+///
+/// # Examples
+///
+/// ```rust
+/// # let _ = r####"
+/// # use drizzle::core::expr::{alias, count, eq, gt};
+/// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+/// # #[MySQLTable(NAME = "users")]
+/// # struct Users {
+/// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+/// #     #[column(VARCHAR(255))] name: String,
+/// #     #[column(DEFAULT = true)] active: bool,
+/// # }
+/// # #[MySQLTable(NAME = "posts")]
+/// # struct Posts {
+/// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+/// #     #[column(REFERENCES = Users::id)] user_id: u64,
+/// #     title: String,
+/// # }
+/// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+/// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+/// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+/// # let builder = QueryBuilder::new::<Schema>();
+/// # let Schema { users, posts } = Schema::new();
+/// let query = builder
+///     .select((users.id, count(posts.id)))
+///     .from(users)
+///     .inner_join((posts, eq(posts.user_id, users.id)))
+///     .r#where(eq(users.active, true))
+///     .group_by(users.id)
+///     .having(gt(count(posts.id), 0))
+///     .order_by(desc(users.id))
+///     .limit(10)
+///     .offset(20);
+/// // SELECT `users`.`id`, COUNT(`posts`.`id`) FROM `users`
+/// //   INNER JOIN `posts` ON `posts`.`user_id` = `users`.`id`
+/// //   WHERE `users`.`active` = ? GROUP BY `users`.`id`
+/// //   HAVING COUNT(`posts`.`id`)> ? ORDER BY `users`.`id` DESC LIMIT ? OFFSET ?
+/// # "####;
+/// ```
 pub type SelectBuilder<'a, Schema, State, Table = (), Marker = (), Row = (), Grouped = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>;
 
@@ -159,8 +242,49 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: private::Prepare,
 {
-    /// Compiles named or anonymous placeholders into MySQL's ordered
-    /// positional bind plan after validating scope and grouping.
+    /// Renders this query as a [`PreparedStatement`](drizzle_core::prepared::PreparedStatement).
+    ///
+    /// `MySQL` binds parameters by position, so named placeholders are put in
+    /// the order they appear in the SQL (a name used twice is bound twice).
+    /// Bind values by name later with `bind`.
+    ///
+    /// # Compile-time checks
+    ///
+    /// Only compiles when every column reference is in scope (its table is
+    /// in FROM or a JOIN) and every selected column is grouped or inside an
+    /// aggregate.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # let _ = r####"
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
+    /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+    /// # #[MySQLTable(NAME = "users")]
+    /// # struct Users {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(VARCHAR(255))] name: String,
+    /// #     #[column(DEFAULT = true)] active: bool,
+    /// # }
+    /// # #[MySQLTable(NAME = "posts")]
+    /// # struct Posts {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(REFERENCES = Users::id)] user_id: u64,
+    /// #     title: String,
+    /// # }
+    /// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+    /// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+    /// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { users, posts } = Schema::new();
+    /// let query = builder
+    ///     .select(users.id)
+    ///     .from(users)
+    ///     .r#where(eq(users.name, Placeholder::named("name")));
+    /// let prepared = query.prepare();
+    /// assert_eq!(prepared.sql(), "SELECT `users`.`id` FROM `users` WHERE `users`.`name` = ?");
+    /// # "####;
+    /// ```
     #[must_use]
     pub fn prepare<ScopeProof, AggProof>(
         &self,
@@ -174,7 +298,12 @@ where
 }
 
 impl<'a, S, M> SelectBuilder<'a, S, SelectInitial, (), M> {
-    /// Sets the source selected from by this query.
+    /// Sets the FROM source: a table, a CTE, or a derived table made with
+    /// [`alias`](Self::alias).
+    ///
+    /// The result row type is inferred from the selected columns and this
+    /// source. With `select(())`, the row is the table's generated select
+    /// model.
     #[allow(clippy::type_complexity)]
     pub fn from<T>(
         self,
@@ -199,7 +328,46 @@ impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectFromSet, T, M, R, G>
 where
     T: crate::traits::MySQLTable<'a>,
 {
-    /// Advises MySQL to consider this table's generated index.
+    /// Adds `USE INDEX (..)` to the FROM table.
+    ///
+    /// Pass one `#[MySQLIndex]` index of this table, or a tuple of up to
+    /// eight. An index of another table does not compile. Only one hint
+    /// (`use_index`, `force_index` or `ignore_index`) can be added, right
+    /// after `from`. To hint a joined table, use [`MySQLIndexHintExt`](crate::helpers::MySQLIndexHintExt).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # let _ = r####"
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
+    /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+    /// # #[MySQLTable(NAME = "users")]
+    /// # struct Users {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(VARCHAR(255))] name: String,
+    /// #     #[column(DEFAULT = true)] active: bool,
+    /// # }
+    /// # #[MySQLTable(NAME = "posts")]
+    /// # struct Posts {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(REFERENCES = Users::id)] user_id: u64,
+    /// #     title: String,
+    /// # }
+    /// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+    /// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+    /// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { users, posts } = Schema::new();
+    /// let query = builder
+    ///     .select(users.id)
+    ///     .from(users)
+    ///     .use_index(UsersNameIdx::new());
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     "SELECT `users`.`id` FROM `users` USE INDEX (`users_name_idx`)"
+    /// );
+    /// # "####;
+    /// ```
     #[must_use]
     pub fn use_index<Indexes>(
         self,
@@ -213,7 +381,9 @@ where
         ))
     }
 
-    /// Advises MySQL to strongly prefer this table's generated index.
+    /// Adds `FORCE INDEX (..)` to the FROM table, which tells `MySQL` to use
+    /// a table scan only if none of these indexes can be used. See
+    /// [`use_index`](Self::use_index).
     #[must_use]
     pub fn force_index<Indexes>(
         self,
@@ -229,7 +399,8 @@ where
         >(&indexes)))
     }
 
-    /// Advises MySQL not to use this table's generated index.
+    /// Adds `IGNORE INDEX (..)` to the FROM table. See
+    /// [`use_index`](Self::use_index).
     #[must_use]
     pub fn ignore_index<Indexes>(
         self,
@@ -248,7 +419,49 @@ where
 
 macro_rules! join_on_method {
     ($name:ident, $join:expr, $kind:ident) => {
-        #[doc = concat!("Adds a typed `", stringify!($name), "` join.")]
+        #[doc = concat!("Adds a join with `", stringify!($name), "`.")]
+        ///
+        /// Pass `(source, condition)` with a boolean condition, or a bare table
+        /// to join on its foreign key to the previous table. The source can be
+        /// a table, a derived table (see [`alias`](Self::alias)), or a table
+        /// with an index hint (see [`MySQLIndexHintExt`](crate::helpers::MySQLIndexHintExt)).
+        /// After a LEFT or RIGHT join, selected columns of the side that may
+        /// be missing decode as `Option`; with `select(())`, that side's
+        /// whole model is an `Option` in the row.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # let _ = r####"
+        /// # use drizzle::core::expr::{alias, count, eq, gt};
+        /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+        /// # #[MySQLTable(NAME = "users")]
+        /// # struct Users {
+        /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+        /// #     #[column(VARCHAR(255))] name: String,
+        /// #     #[column(DEFAULT = true)] active: bool,
+        /// # }
+        /// # #[MySQLTable(NAME = "posts")]
+        /// # struct Posts {
+        /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+        /// #     #[column(REFERENCES = Users::id)] user_id: u64,
+        /// #     title: String,
+        /// # }
+        /// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+        /// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+        /// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+        /// # let builder = QueryBuilder::new::<Schema>();
+        /// # let Schema { users, posts } = Schema::new();
+        /// let query = builder
+        ///     .select((users.name, posts.title))
+        ///     .from(users)
+        ///     .left_join((posts, eq(posts.user_id, users.id)));
+        /// assert_eq!(
+        ///     query.to_sql().sql(),
+        ///     "SELECT `users`.`name`, `posts`.`title` FROM `users` LEFT JOIN `posts` ON `posts`.`user_id` = `users`.`id`"
+        /// );
+        /// # "####;
+        /// ```
         #[allow(clippy::type_complexity)]
         pub fn $name<J: helpers::JoinArg<'a, T>>(
             self,
@@ -289,10 +502,10 @@ where
         RightJoin
     );
 
-    /// Adds a cross join.
+    /// Adds a `CROSS JOIN`, which pairs every row with every row of `arg`.
     ///
     /// A bare source renders `CROSS JOIN`. For backwards compatibility,
-    /// `(source, predicate)` renders the equivalent `INNER JOIN ... ON ...`.
+    /// `(source, condition)` renders the equivalent `INNER JOIN ... ON ...`.
     #[allow(clippy::type_complexity)]
     pub fn cross_join<Arg: helpers::CrossJoinArg<'a, T>>(
         self,
@@ -322,7 +535,10 @@ where
         SelectBuilder::from_sql(self.sql.append(arg.into_cross_join_sql()))
     }
 
-    /// Adds an INNER JOIN LATERAL clause.
+    /// Adds `INNER JOIN LATERAL (subquery) AS name ON condition`.
+    ///
+    /// A lateral subquery may reference columns of the tables before it.
+    /// Requires `MySQL` 8.0.14 or later.
     #[allow(clippy::type_complexity)]
     pub fn inner_join_lateral<Arg>(
         self,
@@ -361,7 +577,11 @@ where
         )
     }
 
-    /// Adds a LEFT JOIN LATERAL clause.
+    /// Adds `LEFT JOIN LATERAL (subquery) AS name ON condition`.
+    ///
+    /// Like [`inner_join_lateral`](Self::inner_join_lateral), but keeps rows
+    /// with no match. The selection must allow the lateral columns to be
+    /// missing.
     #[allow(clippy::type_complexity)]
     pub fn left_join_lateral<Arg, SelectionProof>(
         self,
@@ -400,7 +620,7 @@ where
         )
     }
 
-    /// Adds a CROSS JOIN LATERAL clause without an ON condition.
+    /// Adds `CROSS JOIN LATERAL (subquery) AS name`, with no ON condition.
     #[allow(clippy::type_complexity)]
     pub fn cross_join_lateral<Source>(
         self,
@@ -438,7 +658,7 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectClause<drizzle_core::clause::Where>,
 {
-    /// Filters rows before grouping and projection.
+    /// Adds a WHERE clause. The condition must be a boolean expression.
     #[allow(clippy::type_complexity)]
     pub fn r#where<E>(
         self,
@@ -465,7 +685,11 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::GroupBy>,
 {
-    /// Groups rows by the supplied expressions.
+    /// Adds a GROUP BY clause. Pass one expression or a tuple.
+    ///
+    /// Every selected column that is not inside an aggregate must appear in
+    /// the GROUP BY list, or belong to a table grouped by its single-column
+    /// primary key. This is checked by `prepare` and when the query runs.
     #[allow(clippy::type_complexity)]
     pub fn group_by<Gr>(
         self,
@@ -491,7 +715,10 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Having>,
 {
-    /// Filters grouped rows.
+    /// Adds a HAVING clause, which filters groups.
+    ///
+    /// Only available after `group_by`, and only once. The condition must
+    /// be a boolean expression and may use aggregates.
     #[allow(clippy::type_complexity)]
     pub fn having<E>(
         self,
@@ -518,7 +745,9 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectClause<drizzle_core::clause::OrderBy>,
 {
-    /// Orders the selected rows.
+    /// Adds an ORDER BY clause. Pass one ordering term or a tuple; wrap a
+    /// column in [`asc`](crate::helpers::asc) or
+    /// [`desc`](crate::helpers::desc) to set the direction.
     #[allow(clippy::type_complexity)]
     pub fn order_by<O>(
         self,
@@ -541,7 +770,48 @@ where
 }
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
-    /// Orders a compound query by an output expression or alias.
+    /// Sorts a compound (set operation) result.
+    ///
+    /// Pass a selected column (rendered without its table name), or
+    /// [`output_alias`](crate::helpers::output_alias) for a named output,
+    /// optionally wrapped in [`asc`](crate::helpers::asc) or
+    /// [`desc`](crate::helpers::desc). A column the first query does not
+    /// select does not compile.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # let _ = r####"
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
+    /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+    /// # #[MySQLTable(NAME = "users")]
+    /// # struct Users {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(VARCHAR(255))] name: String,
+    /// #     #[column(DEFAULT = true)] active: bool,
+    /// # }
+    /// # #[MySQLTable(NAME = "posts")]
+    /// # struct Posts {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(REFERENCES = Users::id)] user_id: u64,
+    /// #     title: String,
+    /// # }
+    /// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+    /// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+    /// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { users, posts } = Schema::new();
+    /// let query = builder
+    ///     .select(alias(users.name, "label"))
+    ///     .from(users)
+    ///     .union(builder.select(alias(posts.title, "label")).from(posts))
+    ///     .order_by(desc(output_alias("label")));
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     "(SELECT `users`.`name` AS `label` FROM `users`) UNION (SELECT `posts`.`title` AS `label` FROM `posts`) ORDER BY `label` DESC"
+    /// );
+    /// # "####;
+    /// ```
     pub fn order_by<O, Proof>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
     where
         O: helpers::SetOrderBy<'a, M, T, Proof>,
@@ -558,7 +828,15 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: SelectClause<drizzle_core::clause::Limit>,
 {
-    /// Limits the number of returned rows.
+    /// Adds a LIMIT clause.
+    ///
+    /// Pass a non-negative integer or an integer placeholder. Both are sent
+    /// as bound parameters.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a numeric argument is negative or does not fit in
+    /// `usize`.
     #[track_caller]
     pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
     where
@@ -572,10 +850,47 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<MySqlOffset>,
 {
-    /// Skips rows without an explicit limit.
+    /// Skips the first `offset` rows without limiting the row count.
     ///
-    /// MySQL has no bare `OFFSET`, so this renders `LIMIT 9223372036854775807`
-    /// before the offset (see [`drizzle_core::helpers::MYSQL_UNBOUNDED_LIMIT`]).
+    /// `MySQL` has no bare `OFFSET`, so this renders
+    /// `LIMIT 9223372036854775807 OFFSET ?` (see
+    /// [`drizzle_core::helpers::MYSQL_UNBOUNDED_LIMIT`]).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # let _ = r####"
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
+    /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+    /// # #[MySQLTable(NAME = "users")]
+    /// # struct Users {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(VARCHAR(255))] name: String,
+    /// #     #[column(DEFAULT = true)] active: bool,
+    /// # }
+    /// # #[MySQLTable(NAME = "posts")]
+    /// # struct Posts {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(REFERENCES = Users::id)] user_id: u64,
+    /// #     title: String,
+    /// # }
+    /// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+    /// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+    /// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { users, posts } = Schema::new();
+    /// let query = builder.select(users.id).from(users).offset(5);
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     "SELECT `users`.`id` FROM `users` LIMIT 9223372036854775807 OFFSET ?"
+    /// );
+    /// # "####;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when a numeric argument is negative or does not fit in
+    /// `usize`.
     #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
@@ -586,7 +901,12 @@ where
 }
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
-    /// Skips rows after an explicit limit.
+    /// Adds an OFFSET clause after LIMIT.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a numeric argument is negative or does not fit in
+    /// `usize`.
     #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
@@ -600,7 +920,49 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple>,
 {
-    /// Locks matching rows for update.
+    /// Adds `FOR UPDATE`, which locks the selected rows until the
+    /// transaction ends.
+    ///
+    /// Must be the last clause; only [`nowait`](Self::nowait) or
+    /// [`skip_locked`](Self::skip_locked) can follow. Not available on a
+    /// compound query, and the result cannot be a set operand, a subquery or
+    /// an `INSERT` source.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # let _ = r####"
+    /// # use drizzle::core::expr::{alias, count, eq, gt};
+    /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+    /// # #[MySQLTable(NAME = "users")]
+    /// # struct Users {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(VARCHAR(255))] name: String,
+    /// #     #[column(DEFAULT = true)] active: bool,
+    /// # }
+    /// # #[MySQLTable(NAME = "posts")]
+    /// # struct Posts {
+    /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+    /// #     #[column(REFERENCES = Users::id)] user_id: u64,
+    /// #     title: String,
+    /// # }
+    /// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+    /// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+    /// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+    /// # let builder = QueryBuilder::new::<Schema>();
+    /// # let Schema { users, posts } = Schema::new();
+    /// let query = builder
+    ///     .select(users.id)
+    ///     .from(users)
+    ///     .limit(2)
+    ///     .for_update()
+    ///     .skip_locked();
+    /// assert_eq!(
+    ///     query.to_sql().sql(),
+    ///     "SELECT `users`.`id` FROM `users` LIMIT ? FOR UPDATE SKIP LOCKED"
+    /// );
+    /// # "####;
+    /// ```
     #[must_use]
     pub fn for_update(self) -> SelectBuilder<'a, S, SelectForSet<ForUpdate>, T, M, R, G> {
         SelectBuilder::from_sql(
@@ -610,7 +972,9 @@ where
         )
     }
 
-    /// Acquires shared locks on matching rows.
+    /// Adds `FOR SHARE`, which takes shared locks on the selected rows: other
+    /// transactions can read them but not change them. See
+    /// [`for_update`](Self::for_update).
     #[must_use]
     pub fn for_share(self) -> SelectBuilder<'a, S, SelectForSet<ForShare>, T, M, R, G> {
         SelectBuilder::from_sql(
@@ -622,13 +986,15 @@ where
 }
 
 impl<'a, S, Strength, T, M, R, G> SelectBuilder<'a, S, SelectForSet<Strength, Wait>, T, M, R, G> {
-    /// Fails immediately instead of waiting for a conflicting row lock.
+    /// Adds `NOWAIT`: fail at once instead of waiting when a row is locked
+    /// by another transaction.
     #[must_use]
     pub fn nowait(self) -> SelectBuilder<'a, S, SelectForSet<Strength, NoWait>, T, M, R, G> {
         SelectBuilder::from_sql(self.sql.push(drizzle_core::Token::NOWAIT))
     }
 
-    /// Skips rows currently held by another transaction.
+    /// Adds `SKIP LOCKED`: leave out rows locked by another transaction
+    /// instead of waiting for them.
     #[must_use]
     pub fn skip_locked(
         self,
@@ -646,7 +1012,12 @@ where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> + ExecutableState,
     T: SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>,
 {
-    /// Converts this query into a named common table expression.
+    /// Turns this SELECT into a common table expression named `Tag::NAME`.
+    ///
+    /// The result derefs to an aliased copy of the FROM table, so you can
+    /// select its columns with the usual field access. Pass it to
+    /// [`QueryBuilder::with`](super::QueryBuilder::with), which has an
+    /// example. Not available on a compound query.
     #[must_use]
     pub fn into_cte<Tag: drizzle_core::Tag + 'static>(
         self,
@@ -664,7 +1035,12 @@ impl<'a, S, State, T, M, R, G> SelectBuilder<'a, S, State, T, M, R, G>
 where
     State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
 {
-    /// Names this completed projection for use as a derived table.
+    /// Names this query so it can be used as a derived table in `from` or a
+    /// join.
+    ///
+    /// `tag` is a value of a [`Tag`](drizzle_core::Tag) type; its `NAME`
+    /// becomes the SQL alias. The result exposes the selected columns, so
+    /// the outer query can reference them with typed accessors.
     ///
     /// # Panics
     ///
@@ -698,7 +1074,47 @@ where
 
 macro_rules! set_operation {
     ($name:ident, $token:expr, $all:expr) => {
-        #[doc = concat!("Combines this query with another using `", stringify!($name), "`.")]
+        #[doc = concat!("Combines this query with `other` using `", stringify!($name), "`.")]
+        ///
+        /// Both queries must select the same row type. Each operand is wrapped
+        /// in parentheses, so its own ORDER BY and LIMIT stay with it. After a
+        /// set operation you can chain more set operations, then `order_by`,
+        /// `limit` and `offset` for the combined result. `INTERSECT` and
+        /// `EXCEPT` need `MySQL` 8.0.31 or later.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # let _ = r####"
+        /// # use drizzle::core::expr::{alias, count, eq, gt};
+        /// # use drizzle::mysql::{builder::QueryBuilder, prelude::*};
+        /// # #[MySQLTable(NAME = "users")]
+        /// # struct Users {
+        /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+        /// #     #[column(VARCHAR(255))] name: String,
+        /// #     #[column(DEFAULT = true)] active: bool,
+        /// # }
+        /// # #[MySQLTable(NAME = "posts")]
+        /// # struct Posts {
+        /// #     #[column(PRIMARY, AUTO_INCREMENT)] id: u64,
+        /// #     #[column(REFERENCES = Users::id)] user_id: u64,
+        /// #     title: String,
+        /// # }
+        /// # #[MySQLIndex] struct UsersNameIdx(Users::name);
+        /// # #[MySQLIndex] struct PostsUserIdIdx(Posts::user_id);
+        /// # #[derive(MySQLSchema)] struct Schema { users: Users, posts: Posts }
+        /// # let builder = QueryBuilder::new::<Schema>();
+        /// # let Schema { users, posts } = Schema::new();
+        /// let query = builder
+        ///     .select(users.id)
+        ///     .from(users)
+        ///     .union(builder.select(posts.user_id).from(posts));
+        /// assert_eq!(
+        ///     query.to_sql().sql(),
+        ///     "(SELECT `users`.`id` FROM `users`) UNION (SELECT `posts`.`user_id` FROM `posts`)"
+        /// );
+        /// # "####;
+        /// ```
         #[allow(clippy::type_complexity)]
         pub fn $name<O>(
             self,
@@ -738,7 +1154,7 @@ where
     set_operation!(except_all, drizzle_core::Token::EXCEPT, true);
 }
 
-/// A completed SELECT with the inferred row shape `R`.
+/// A finished SELECT with row type `R`.
 ///
 /// This trait is sealed so INSERT ... SELECT and set operations cannot accept
 /// arbitrary SQL or DML builders.
@@ -750,7 +1166,8 @@ pub trait CompletedSelect<'a, S, R>: private::SealedSelect {
     fn into_select_sql(self) -> drizzle_core::SQL<'a, MySQLValue<'a>>;
 }
 
-/// Safe extension seam for driver wrappers around a completed MySQL select.
+/// Converts a finished SELECT, or a driver builder that wraps one, into its
+/// [`CompletedSelect`].
 ///
 /// Implementations must unwrap to the sealed [`CompletedSelect`] type; they cannot
 /// manufacture an arbitrary SQL fragment or row marker.

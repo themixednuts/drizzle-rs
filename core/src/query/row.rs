@@ -1,4 +1,4 @@
-//! `QueryRow<Base, Store>` — nested relation JSON decode target.
+//! [`QueryRow`]: a decoded base row together with its loaded relations.
 
 use core::ops::Deref;
 

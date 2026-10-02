@@ -1,8 +1,7 @@
-//! `SQLite` SQL statement types and generation (v7 DDL format)
+//! SQLite migration statements and their SQL rendering (v7 DDL format).
 //!
-//! This implements the full statement generation from drizzle-kit beta.
-//! - `JsonStatement` enum represents migration operations
-//! - Convertor functions convert statements to SQL strings
+//! Ported from drizzle-kit beta: `JsonStatement` describes one migration
+//! operation, and the convertor functions render each one to SQL.
 
 use crate::sqlite::ddl::{
     CheckConstraint, Column, ForeignKey, Index, PrimaryKey, Table, TableSql, UniqueConstraint, View,
@@ -10,7 +9,8 @@ use crate::sqlite::ddl::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// SQL statement breakpoint marker (used by drizzle-kit)
+/// The line that separates statements in `migration.sql` (drizzle-kit's
+/// marker).
 pub const BREAKPOINT: &str = "--> statement-breakpoint";
 
 fn quote_ident(ident: &str) -> String {
@@ -21,15 +21,22 @@ fn quote_ident(ident: &str) -> String {
 // JSON Statement Types (matching statements.ts)
 // =============================================================================
 
-/// Full table information for create/recreate operations
+/// A table with everything `CREATE TABLE` needs inline: columns, primary
+/// key, foreign keys, unique and check constraints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableFull {
+    /// Table name.
     pub name: String,
+    /// Columns, in order.
     pub columns: Vec<Column>,
+    /// Primary key, if any.
     pub pk: Option<PrimaryKey>,
+    /// Foreign keys.
     pub fks: Vec<ForeignKey>,
+    /// Unique constraints.
     pub uniques: Vec<UniqueConstraint>,
+    /// Check constraints.
     pub checks: Vec<CheckConstraint>,
     /// Whether the table has STRICT mode enabled
     #[serde(default)]
@@ -40,6 +47,7 @@ pub struct TableFull {
 }
 
 impl TableFull {
+    /// Creates an empty, non-strict, rowid table named `name`.
     #[must_use]
     pub fn new(name: &str) -> Self {
         Self {
@@ -74,27 +82,44 @@ fn create_table_sql(table: &TableFull) -> String {
         .create_table_sql()
 }
 
-/// All possible JSON statement types
+/// One SQLite migration operation; [`convert_statement`] renders it to SQL.
+///
+/// Serialized with a snake_case `type` tag (see
+/// [`type_name`](Self::type_name)).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum JsonStatement {
+    /// `CREATE TABLE` with inline constraints.
     CreateTable(CreateTableStatement),
+    /// `DROP TABLE`.
     DropTable(DropTableStatement),
+    /// `ALTER TABLE ... RENAME TO`.
     RenameTable(RenameTableStatement),
+    /// `ALTER TABLE ... ADD COLUMN`.
     AddColumn(AddColumnStatement),
+    /// `ALTER TABLE ... DROP COLUMN`.
     DropColumn(DropColumnStatement),
+    /// `ALTER TABLE ... RENAME COLUMN`.
     RenameColumn(RenameColumnStatement),
+    /// `DROP COLUMN` then `ADD COLUMN` (stored values are lost).
     RecreateColumn(RecreateColumnStatement),
+    /// Full table rebuild through a `__new_<table>` copy, wrapped in
+    /// `PRAGMA foreign_keys=OFF`/`ON`.
     RecreateTable(RecreateTableStatement),
+    /// `CREATE [UNIQUE] INDEX`.
     CreateIndex(CreateIndexStatement),
+    /// `DROP INDEX IF EXISTS`.
     DropIndex(DropIndexStatement),
+    /// `CREATE VIEW`.
     CreateView(CreateViewStatement),
+    /// `DROP VIEW IF EXISTS`.
     DropView(DropViewStatement),
+    /// Drop and re-create the view under its new name.
     RenameView(RenameViewStatement),
 }
 
 impl JsonStatement {
-    /// Get the type name of this statement
+    /// Returns the serialized `type` tag, e.g. `"create_table"`.
     #[must_use]
     pub const fn type_name(&self) -> &'static str {
         match self {
@@ -115,118 +140,169 @@ impl JsonStatement {
     }
 }
 
+/// Payload of [`JsonStatement::CreateTable`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTableStatement {
+    /// The table to create.
     pub table: TableFull,
 }
 
+/// Payload of [`JsonStatement::DropTable`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DropTableStatement {
+    /// The table to drop.
     pub table_name: String,
 }
 
+/// Payload of [`JsonStatement::RenameTable`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameTableStatement {
+    /// Current name.
     pub from: String,
+    /// New name.
     pub to: String,
 }
 
+/// Payload of [`JsonStatement::AddColumn`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddColumnStatement {
+    /// The column to add.
     pub column: Column,
+    /// A single-column foreign key rendered inline as `REFERENCES ...`.
     pub fk: Option<ForeignKey>,
 }
 
+/// Payload of [`JsonStatement::DropColumn`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DropColumnStatement {
+    /// The column to drop.
     pub column: Column,
 }
 
+/// Payload of [`JsonStatement::RenameColumn`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameColumnStatement {
+    /// Table containing the column.
     pub table: String,
+    /// Current name.
     pub from: String,
+    /// New name.
     pub to: String,
 }
 
+/// Payload of [`JsonStatement::RecreateColumn`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecreateColumnStatement {
+    /// The column's new definition.
     pub column: Column,
+    /// A single-column foreign key rendered inline.
     pub fk: Option<ForeignKey>,
 }
 
+/// Payload of [`JsonStatement::RecreateTable`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecreateTableStatement {
+    /// The table as it is now.
     pub from: TableFull,
+    /// The table as it should be.
     pub to: TableFull,
+    /// Typed data movement for the copy step; `None` copies same-named,
+    /// non-generated columns as is.
     #[serde(default)]
     pub data: Option<RebuildTableData>,
 }
 
 /// Validated data movement rendered as part of one table rebuild.
+///
+/// Validations run first, against the old table, through a temporary guard
+/// table whose `CHECK` fails the migration if any row is invalid.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RebuildTableData {
+    /// Target column name to the expression that fills it.
     pub copies: BTreeMap<String, RebuildCopyExpression>,
+    /// Checks the old rows must pass before the rebuild.
     pub validations: Vec<RebuildDataValidation>,
 }
 
+/// How a rebuilt column is filled from the old table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum RebuildCopyExpression {
+    /// `unhex(source)`: hex text to a blob.
     HexTextToBlob {
+        /// Old column.
         source: String,
     },
+    /// `CASE source WHEN from THEN to ... ELSE NULL END`.
     IntegerMap {
+        /// Old column.
         source: String,
+        /// `(from, to)` pairs.
         cases: Vec<(i64, i64)>,
     },
 }
 
+/// A check that every non-NULL value of an old column must pass.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum RebuildDataValidation {
+    /// `column` is text of exactly `bytes * 2` hex digits that decodes to
+    /// `bytes` bytes.
     HexText { column: String, bytes: usize },
+    /// `column` is text holding valid JSON.
     JsonValid { column: String },
+    /// `column` is an integer from `allowed`.
     IntegerSet { column: String, allowed: Vec<i64> },
 }
 
+/// Payload of [`JsonStatement::CreateIndex`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateIndexStatement {
+    /// The index to create.
     pub index: Index,
 }
 
+/// Payload of [`JsonStatement::DropIndex`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DropIndexStatement {
+    /// The index to drop.
     pub index: Index,
 }
 
+/// Payload of [`JsonStatement::CreateView`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateViewStatement {
+    /// The view to create.
     pub view: View,
 }
 
+/// Payload of [`JsonStatement::DropView`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DropViewStatement {
+    /// The view to drop.
     pub view: View,
 }
 
+/// Payload of [`JsonStatement::RenameView`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameViewStatement {
+    /// The view under its current name.
     pub from: View,
+    /// The view under its new name.
     pub to: View,
 }
 
@@ -234,7 +310,8 @@ pub struct RenameViewStatement {
 // Convertor - Statement to SQL (matching convertor.ts)
 // =============================================================================
 
-/// Convert a JSON statement to SQL string(s)
+/// Renders one statement as SQL; some (rebuilds, recreates, view renames)
+/// produce several statements.
 #[must_use]
 pub fn convert_statement(statement: &JsonStatement) -> Vec<String> {
     match statement {
@@ -254,7 +331,8 @@ pub fn convert_statement(statement: &JsonStatement) -> Vec<String> {
     }
 }
 
-/// Convert multiple statements to SQL with optional breakpoints
+/// Renders `statements` and joins them with `--> statement-breakpoint` lines,
+/// or with newlines when `breakpoints` is `false`.
 pub fn statements_to_sql(statements: &[JsonStatement], breakpoints: bool) -> String {
     let sql_statements: Vec<String> = statements.iter().flat_map(convert_statement).collect();
 
@@ -923,18 +1001,21 @@ impl Default for Generator {
 }
 
 impl Generator {
+    /// Creates a generator with breakpoints on.
     #[must_use]
     pub const fn new() -> Self {
         Self { breakpoints: true }
     }
 
+    /// Sets [`breakpoints`](Self::breakpoints).
     #[must_use]
     pub const fn with_breakpoints(mut self, breakpoints: bool) -> Self {
         self.breakpoints = breakpoints;
         self
     }
 
-    /// Generate SQL from a schema diff
+    /// Generates SQL statements for a [`SchemaDiff`]: table drops, table
+    /// creates, column additions, then index changes.
     #[must_use]
     pub fn generate_migration(&self, diff: &SchemaDiff) -> Vec<String> {
         let mut statements = Vec::new();
@@ -947,7 +1028,8 @@ impl Generator {
         statements
     }
 
-    /// Generate SQL from migration statements
+    /// Joins statements with `--> statement-breakpoint` lines, or with
+    /// newlines when breakpoints are off.
     #[must_use]
     pub fn statements_to_sql(&self, statements: &[String]) -> String {
         if self.breakpoints {

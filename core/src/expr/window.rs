@@ -1,26 +1,40 @@
-//! Window functions and OVER clause support.
+//! Window functions and the `OVER (...)` clause.
 //!
-//! Provides:
-//! - `WindowSpec` builder for PARTITION BY, ORDER BY, and frame clauses
-//! - `.over()` method on aggregate `SQLExpr` to convert Agg → Scalar
-//! - Pure window functions: `row_number`, `rank`, `dense_rank`, `ntile`,
-//!   `percent_rank`, `cume_dist`, `lag`, `lead`, `first_value`, `last_value`,
-//!   `nth_value`
+//! - [`window`] starts a window specification ([`WindowSpec`]) with
+//!   `PARTITION BY`, `ORDER BY` and a frame.
+//! - `.over(spec)` on an aggregate (such as [`sum`](super::sum) or
+//!   [`count`](super::count)) makes it a window function. The result is
+//!   scalar, so it can sit next to plain columns without `GROUP BY`.
+//! - Pure window functions ([`row_number`], [`rank`], [`lag`], ...) return a
+//!   [`WindowFnExpr`], which cannot be used until `.over(...)` is called.
 //!
-//! # Example
+//! # Examples
 //!
 //! ```rust
-//! # let _ = r####"
-//! use drizzle_core::expr::*;
+//! # use drizzle_core::asc;
+//! # use drizzle_core::desc;
+//! # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+//! # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+//! # #[derive(Clone, Debug)] struct Value(String);
+//! # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+//! # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+//! # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+//! # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+//! # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+//! # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+//! # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+//! # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+//! let running_total = sum(users.score).over(window().order_by(asc(users.id)));
+//! assert_eq!(
+//!     running_total.sql(),
+//!     r#"SUM ("users"."score") OVER (ORDER BY "users"."id" ASC)"#
+//! );
 //!
-//! // Aggregate as window function
-//! count(()).over(window().partition_by([users.dept]))
-//! // → SQLExpr<CountType, NonNull, Scalar>
-//!
-//! // Pure window function
-//! row_number().over(window().order_by([asc(users.id)]))
-//! // → SQLExpr<CountType, NonNull, Scalar>
-//! # "####;
+//! let position = row_number().over(window().partition_by([users.name]).order_by(desc(users.age)));
+//! assert_eq!(
+//!     position.sql(),
+//!     r#"ROW_NUMBER() OVER (PARTITION BY "users"."name" ORDER BY "users"."age" DESC)"#
+//! );
 //! ```
 
 use crate::dialect::{DialectSupports, feature};
@@ -41,18 +55,19 @@ impl DialectSupports<feature::AggregateFilter> for crate::PostgresDialect {}
 // Frame Bounds
 // =============================================================================
 
-/// Specifies a bound for a window frame (ROWS/RANGE BETWEEN).
+/// One end of a window frame, for [`WindowSpec::rows_between`] and
+/// [`WindowSpec::range_between`].
 #[derive(Debug, Clone, Copy)]
 pub enum FrameBound {
-    /// UNBOUNDED PRECEDING
+    /// `UNBOUNDED PRECEDING`: the first row of the partition.
     UnboundedPreceding,
-    /// N PRECEDING
+    /// `n PRECEDING`: `n` rows (or, for `RANGE`, values) before the current row.
     Preceding(u64),
-    /// CURRENT ROW
+    /// `CURRENT ROW`.
     CurrentRow,
-    /// N FOLLOWING
+    /// `n FOLLOWING`: `n` rows (or, for `RANGE`, values) after the current row.
     Following(u64),
-    /// UNBOUNDED FOLLOWING
+    /// `UNBOUNDED FOLLOWING`: the last row of the partition.
     UnboundedFollowing,
 }
 
@@ -76,17 +91,35 @@ impl FrameBound {
 // WindowSpec
 // =============================================================================
 
-/// Builder for a window specification (the content inside `OVER (...)`).
+/// The contents of an `OVER (...)` clause; start one with [`window`].
 ///
-/// # Example
+/// `S` records the tables that `PARTITION BY` and `ORDER BY` read, for the
+/// query's scope check.
+///
+/// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
-/// window()
-///     .partition_by([users.dept])
-///     .order_by([asc(users.salary)])
-///     .rows_between(FrameBound::UnboundedPreceding, FrameBound::CurrentRow)
-/// # "####;
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let spec = window()
+///     .partition_by([users.name])
+///     .order_by(asc(users.created_at))
+///     .rows_between(FrameBound::UnboundedPreceding, FrameBound::CurrentRow);
+/// let total = sum(users.score).over(spec);
+/// assert_eq!(
+///     total.sql(),
+///     r#"SUM ("users"."score") OVER (PARTITION BY "users"."name" ORDER BY "users"."created_at" ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"#
+/// );
 /// ```
 #[derive(Debug, Clone)]
 pub struct WindowSpec<'a, V: SQLParam, S = ()> {
@@ -97,7 +130,27 @@ pub struct WindowSpec<'a, V: SQLParam, S = ()> {
     sources: PhantomData<fn() -> S>,
 }
 
-/// Create an empty window specification.
+/// Starts an empty window specification (`OVER ()`).
+///
+/// An empty window covers the whole result set.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let share = count::<Value, _>(()).over(window());
+/// assert_eq!(share.sql(), "COUNT(*) OVER ()");
+/// ```
 #[must_use]
 pub const fn window<'a, V: SQLParam>() -> WindowSpec<'a, V> {
     WindowSpec {
@@ -118,7 +171,9 @@ impl<'a, V: SQLParam + 'a, S> WindowSpec<'a, V, S> {
         }
     }
 
-    /// Set the PARTITION BY clause.
+    /// Sets `PARTITION BY`; the window restarts for each distinct value.
+    ///
+    /// Takes an array or other iterator of expressions of one Rust type.
     #[must_use]
     #[allow(clippy::type_complexity)]
     pub fn partition_by<I>(
@@ -137,7 +192,10 @@ impl<'a, V: SQLParam + 'a, S> WindowSpec<'a, V, S> {
         self.with_sources()
     }
 
-    /// Set the ORDER BY clause.
+    /// Sets `ORDER BY` inside the window.
+    ///
+    /// Takes one ordering term such as [`asc`](crate::asc)`(col)`, or a tuple or
+    /// array of terms.
     #[must_use]
     pub fn order_by<T: ToSQL<'a, V> + ExprSources>(
         mut self,
@@ -151,7 +209,7 @@ impl<'a, V: SQLParam + 'a, S> WindowSpec<'a, V, S> {
         self.with_sources()
     }
 
-    /// Set a ROWS frame specification.
+    /// Sets a `ROWS BETWEEN start AND end` frame, counted in rows.
     #[must_use]
     pub fn rows_between(mut self, start: FrameBound, end: FrameBound) -> Self {
         self.frame = Some(
@@ -164,7 +222,7 @@ impl<'a, V: SQLParam + 'a, S> WindowSpec<'a, V, S> {
         self
     }
 
-    /// Set a RANGE frame specification.
+    /// Sets a `RANGE BETWEEN start AND end` frame, measured in `ORDER BY` values.
     #[must_use]
     pub fn range_between(mut self, start: FrameBound, end: FrameBound) -> Self {
         self.frame = Some(
@@ -177,7 +235,7 @@ impl<'a, V: SQLParam + 'a, S> WindowSpec<'a, V, S> {
         self
     }
 
-    /// Build the window spec into SQL (contents inside the OVER parentheses).
+    /// Renders the clause contents, without the surrounding `OVER (...)`.
     fn into_sql(self) -> SQL<'a, V> {
         let mut sql = SQL::empty();
         if let Some(p) = self.partition {
@@ -203,21 +261,30 @@ where
     T: DataType,
     N: Nullability,
 {
-    /// Apply a window specification to this aggregate expression.
+    /// Turns this aggregate into a window function (`agg OVER (...)`).
     ///
-    /// Converts the expression from `Agg` to `Scalar`, generating
-    /// `<expr> OVER (...)`.
+    /// The result keeps the SQL type and nullability but is scalar, so it can
+    /// be selected next to plain columns.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
-    /// # let _ = r####"
-    /// sum(orders.amount).over(
-    ///     window()
-    ///         .partition_by([orders.customer_id])
-    ///         .order_by([asc(orders.date)])
-    /// )
-    /// # "####;
+    /// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+    /// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+    /// # #[derive(Clone, Debug)] struct Value(String);
+    /// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+    /// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+    /// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+    /// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+    /// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+    /// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+    /// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+    /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+    /// let per_name = sum(users.score).over(window().partition_by([users.name]));
+    /// assert_eq!(
+    ///     per_name.sql(),
+    ///     r#"SUM ("users"."score") OVER (PARTITION BY "users"."name")"#
+    /// );
     /// ```
     pub fn over<W>(self, spec: WindowSpec<'a, V, W>) -> SQLExpr<'a, V, T, N, Scalar, (S, W)> {
         let sql = self
@@ -229,9 +296,31 @@ where
         SQLExpr::new(sql)
     }
 
-    /// Apply a FILTER clause to this aggregate (`PostgreSQL` extension).
+    /// Limits the rows an aggregate sees (`agg FILTER (WHERE condition)`), on
+    /// SQLite and PostgreSQL.
     ///
-    /// Generates `<agg> FILTER (WHERE <condition>)`.
+    /// The condition must be boolean. The result is still an aggregate.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+    /// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+    /// # #[derive(Clone, Debug)] struct Value(String);
+    /// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+    /// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+    /// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+    /// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+    /// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+    /// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+    /// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+    /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+    /// let adults = count(users.id).filter(gt(users.age, 18));
+    /// assert_eq!(
+    ///     adults.sql(),
+    ///     r#"COUNT ("users"."id") FILTER (WHERE "users"."age" > ?)"#
+    /// );
+    /// ```
     #[allow(clippy::type_complexity)]
     pub fn filter<C>(self, condition: C) -> SQLExpr<'a, V, T, N, Agg, (S, ScopeOnly<C::Sources>)>
     where
@@ -254,11 +343,27 @@ where
 // WindowFnExpr — pure window functions that require .over()
 // =============================================================================
 
-/// A window function expression that is not yet valid SQL.
+/// A window function that still needs its `OVER (...)` clause.
 ///
-/// Pure window functions like `ROW_NUMBER`, RANK, LAG, etc. MUST have an
-/// `.over()` call before they can be used in a query. This type enforces
-/// that at compile time by not implementing `Expr` or `ToSQL`.
+/// [`row_number`], [`rank`], [`lag`] and the other pure window functions
+/// return this type. It implements neither [`Expr`] nor [`ToSQL`], so it
+/// cannot be used in a query until [`over`](Self::over) is called.
+///
+/// ```rust,compile_fail
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// // ROW_NUMBER() without OVER is not an expression.
+/// let wrong = gt(row_number::<Value>(), 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct WindowFnExpr<'a, V: SQLParam, T: DataType, N: Nullability, S = ()> {
     sql: SQL<'a, V>,
@@ -278,9 +383,7 @@ where
         }
     }
 
-    /// Apply a window specification, producing a usable scalar expression.
-    ///
-    /// Generates `<fn> OVER (...)`.
+    /// Adds the window clause, producing a scalar expression (`fn OVER (...)`).
     pub fn over<W>(self, spec: WindowSpec<'a, V, W>) -> SQLExpr<'a, V, T, N, Scalar, (S, W)> {
         let sql = self
             .sql
@@ -296,9 +399,28 @@ where
 // Pure Window Functions
 // =============================================================================
 
-/// `ROW_NUMBER()` — sequential row number within the partition.
+/// Number of the row within its partition, from 1 (`ROW_NUMBER()`).
 ///
-/// Returns an integer, never NULL.
+/// The result is the dialect's big-integer type and never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = row_number().over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"ROW_NUMBER() OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[must_use]
 pub fn row_number<'a, V>()
 -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
@@ -308,9 +430,29 @@ where
     WindowFnExpr::new(SQL::raw("ROW_NUMBER()"))
 }
 
-/// `RANK()` — rank with gaps for ties.
+/// Rank of the row, with gaps after ties (`RANK()`).
 ///
-/// Returns an integer, never NULL.
+/// Tied rows share a rank and the next rank skips ahead (1, 1, 3). The result
+/// is the dialect's big-integer type and never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = rank().over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"RANK() OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[must_use]
 pub fn rank<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
 where
@@ -319,9 +461,29 @@ where
     WindowFnExpr::new(SQL::raw("RANK()"))
 }
 
-/// `DENSE_RANK()` — rank without gaps.
+/// Rank of the row, without gaps after ties (`DENSE_RANK()`).
 ///
-/// Returns an integer, never NULL.
+/// Tied rows share a rank and the next rank follows on (1, 1, 2). The result
+/// is the dialect's big-integer type and never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = dense_rank().over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"DENSE_RANK() OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[must_use]
 pub fn dense_rank<'a, V>()
 -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::BigInt, NonNull>
@@ -331,9 +493,29 @@ where
     WindowFnExpr::new(SQL::raw("DENSE_RANK()"))
 }
 
-/// NTILE(n) — divide rows into n roughly equal groups.
+/// Splits the partition into `n` groups of nearly equal size (`NTILE(n)`).
 ///
-/// Returns an integer, never NULL.
+/// Returns the group number, from 1. The result is the dialect's integer type
+/// and never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = ntile(4).over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"NTILE (4) OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[must_use]
 pub fn ntile<'a, V>(
     n: usize,
@@ -344,9 +526,28 @@ where
     WindowFnExpr::new(SQL::func("NTILE", SQL::number(n)))
 }
 
-/// `PERCENT_RANK()` — relative rank of the current row: (rank - 1) / (total rows - 1).
+/// Relative rank: `(rank - 1) / (rows - 1)` (`PERCENT_RANK()`).
 ///
-/// Returns a float between 0.0 and 1.0, never NULL.
+/// The result is the dialect's double type, between 0 and 1, and never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = percent_rank().over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"PERCENT_RANK() OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[must_use]
 pub fn percent_rank<'a, V>()
 -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull>
@@ -356,9 +557,29 @@ where
     WindowFnExpr::new(SQL::raw("PERCENT_RANK()"))
 }
 
-/// `CUME_DIST()` — cumulative distribution: fraction of rows <= current row.
+/// Fraction of rows ordered at or before this row (`CUME_DIST()`).
 ///
-/// Returns a float between 0.0 and 1.0 (exclusive of 0), never NULL.
+/// The result is the dialect's double type, greater than 0 and at most 1, and
+/// never NULL.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = cume_dist().over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"CUME_DIST() OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[must_use]
 pub fn cume_dist<'a, V>() -> WindowFnExpr<'a, V, <V::DialectMarker as DialectTypes>::Double, NonNull>
 where
@@ -367,9 +588,29 @@ where
     WindowFnExpr::new(SQL::raw("CUME_DIST()"))
 }
 
-/// LAG(expr) — value of expr from the previous row.
+/// The value of `expr` in the previous row (`LAG(expr)`).
 ///
-/// Returns the same type as expr, always nullable (no previous row → NULL).
+/// The result has `expr`'s SQL type and is always nullable: the first row has
+/// no previous row.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = lag(users.name).over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"LAG ("users"."name") OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 pub fn lag<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
@@ -378,9 +619,29 @@ where
     WindowFnExpr::new(SQL::func("LAG", expr.into_sql()))
 }
 
-/// LAG(expr, offset, default) — value of expr from N rows back with a default.
+/// The value of `expr` `offset` rows back, or `default` (`LAG(expr, offset, default)`).
 ///
-/// Nullability is the combination of the expression's and default's nullability.
+/// `default` must have a type compatible with `expr`. The result has `expr`'s
+/// SQL type and is nullable if `expr` or `default` is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = lag_with_default(users.name, 2, "none").over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"LAG ("users"."name", 2, ?) OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn lag_with_default<'a, V, E, D>(
     expr: E,
@@ -409,9 +670,29 @@ where
     WindowFnExpr::new(SQL::func("LAG", args))
 }
 
-/// LEAD(expr) — value of expr from the next row.
+/// The value of `expr` in the next row (`LEAD(expr)`).
 ///
-/// Returns the same type as expr, always nullable (no next row → NULL).
+/// The result has `expr`'s SQL type and is always nullable: the last row has
+/// no next row.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = lead(users.name).over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"LEAD ("users"."name") OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 pub fn lead<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
@@ -420,9 +701,29 @@ where
     WindowFnExpr::new(SQL::func("LEAD", expr.into_sql()))
 }
 
-/// LEAD(expr, offset, default) — value of expr from N rows ahead with a default.
+/// The value of `expr` `offset` rows ahead, or `default` (`LEAD(expr, offset, default)`).
 ///
-/// Nullability is the combination of the expression's and default's nullability.
+/// `default` must have a type compatible with `expr`. The result has `expr`'s
+/// SQL type and is nullable if `expr` or `default` is.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = lead_with_default(users.name, 1, "none").over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"LEAD ("users"."name", 1, ?) OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn lead_with_default<'a, V, E, D>(
     expr: E,
@@ -451,9 +752,28 @@ where
     WindowFnExpr::new(SQL::func("LEAD", args))
 }
 
-/// `FIRST_VALUE(expr)` — value of expr from the first row of the frame.
+/// The value of `expr` in the first row of the frame (`FIRST_VALUE(expr)`).
 ///
-/// Always nullable (frame may be empty for some edge cases).
+/// The result has `expr`'s SQL type and is typed as nullable.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = first_value(users.name).over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"FIRST_VALUE ("users"."name") OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 pub fn first_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
@@ -462,9 +782,30 @@ where
     WindowFnExpr::new(SQL::func("FIRST_VALUE", expr.into_sql()))
 }
 
-/// `LAST_VALUE(expr)` — value of expr from the last row of the frame.
+/// The value of `expr` in the last row of the frame (`LAST_VALUE(expr)`).
 ///
-/// Always nullable (frame boundaries affect result).
+/// With an `ORDER BY` and the default frame, the frame ends at the current
+/// row (and its ties); use [`WindowSpec::rows_between`] to look further.
+/// The result has `expr`'s SQL type and is typed as nullable.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = last_value(users.name).over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"LAST_VALUE ("users"."name") OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 pub fn last_value<'a, V, E>(expr: E) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,
@@ -473,9 +814,29 @@ where
     WindowFnExpr::new(SQL::func("LAST_VALUE", expr.into_sql()))
 }
 
-/// `NTH_VALUE(expr`, n) — value of expr from the nth row of the frame.
+/// The value of `expr` in the `n`-th row of the frame, from 1 (`NTH_VALUE(expr, n)`).
 ///
-/// Always nullable (n may exceed frame size).
+/// The result has `expr`'s SQL type and is always nullable: the frame may
+/// have fewer than `n` rows.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::asc;
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// let n = nth_value(users.name, 2).over(window().order_by(asc(users.age)));
+/// assert_eq!(n.sql(), r#"NTH_VALUE ("users"."name", 2) OVER (ORDER BY "users"."age" ASC)"#);
+/// ```
 pub fn nth_value<'a, V, E>(expr: E, n: usize) -> WindowFnExpr<'a, V, E::SQLType, Null, E::Sources>
 where
     V: SQLParam + 'a,

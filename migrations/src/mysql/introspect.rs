@@ -1,8 +1,11 @@
-//! Driver-neutral MySQL 8 catalog introspection.
+//! Driver-neutral MySQL 8 catalog introspection, used by `drizzle pull` and
+//! `drizzle push`.
 //!
-//! Database adapters decode rows from the parameterized queries in [`queries`]
-//! into the raw structs here. [`assemble_ddl`] is the only place that turns
-//! transport data into the canonical MySQL migration model.
+//! A driver runs each query in [`queries`] against the selected database,
+//! decodes the rows (in the query's column order) into the `Raw*` structs
+//! here, optionally fills view headers with [`apply_show_create_view`], and
+//! passes the lot to [`assemble_ddl`], the only place that turns catalog rows
+//! into the canonical [`MySQLDDL`]. No connection is touched in this module.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -16,10 +19,15 @@ use drizzle_types::mysql::ddl::{
 
 use super::{MySQLCatalogDefaults, MySQLDDL, MySQLSnapshot, ValidationError};
 
+/// Errors from [`assemble_ddl`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum IntrospectError {
+    /// [`RawDatabaseInfo::name`] is empty: the connection has no selected
+    /// database.
     #[error("MySQL connection has no selected database")]
     NoDatabase,
+    /// A foreign key points into another database, which a single-database
+    /// snapshot cannot represent.
     #[error(
         "MySQL catalog references unsupported cross-database foreign key `{name}` from `{from}` to `{to}`"
     )]
@@ -28,12 +36,17 @@ pub enum IntrospectError {
         from: String,
         to: String,
     },
+    /// A row is inconsistent or uses a value this crate does not model
+    /// (unknown referential action, empty index, row from another database,
+    /// ...).
     #[error("invalid MySQL catalog metadata: {0}")]
     InvalidCatalog(String),
+    /// The assembled DDL failed [`MySQLDDL`] validation.
     #[error(transparent)]
     InvalidSnapshot(#[from] ValidationError),
 }
 
+/// The selected database and its defaults; one row of [`queries::DATABASE`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RawDatabaseInfo {
     pub name: String,
@@ -43,6 +56,8 @@ pub struct RawDatabaseInfo {
 }
 
 impl RawDatabaseInfo {
+    /// Returns the database's default engine, charset, and collation, which
+    /// tables and columns that do not override them inherit.
     #[must_use]
     pub fn catalog_defaults(&self) -> MySQLCatalogDefaults {
         MySQLCatalogDefaults {
@@ -53,6 +68,7 @@ impl RawDatabaseInfo {
     }
 }
 
+/// One base table; a row of [`queries::TABLES`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawTableInfo {
     pub database: String,
@@ -63,6 +79,8 @@ pub struct RawTableInfo {
     pub comment: Option<String>,
 }
 
+/// One table column; a row of [`queries::COLUMNS`] (`nullable` decodes
+/// `IS_NULLABLE = 'YES'`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawColumnInfo {
     pub database: String,
@@ -79,6 +97,8 @@ pub struct RawColumnInfo {
     pub ordinal_position: u32,
 }
 
+/// One key part of an index; a row of [`queries::INDEXES`]. Parts are grouped
+/// into indexes by name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawIndexPart {
     pub database: String,
@@ -95,6 +115,7 @@ pub struct RawIndexPart {
     pub visible: Option<bool>,
 }
 
+/// One primary-key column; a row of [`queries::PRIMARY_KEYS`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawPrimaryKeyPart {
     pub database: String,
@@ -104,6 +125,7 @@ pub struct RawPrimaryKeyPart {
     pub ordinal_position: u32,
 }
 
+/// One column pair of a foreign key; a row of [`queries::FOREIGN_KEYS`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawForeignKeyPart {
     pub database: String,
@@ -118,6 +140,7 @@ pub struct RawForeignKeyPart {
     pub on_delete: String,
 }
 
+/// One check constraint; a row of [`queries::CHECKS`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawCheckInfo {
     pub database: String,
@@ -127,6 +150,11 @@ pub struct RawCheckInfo {
     pub enforced: Option<bool>,
 }
 
+/// One view; a row of [`queries::VIEWS`].
+///
+/// That query has no `ALGORITHM` column: leave `algorithm` as `None` and fill
+/// it (and the definer and SQL security) from `SHOW CREATE VIEW` with
+/// [`apply_show_create_view`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawViewInfo {
     pub database: String,
@@ -140,6 +168,7 @@ pub struct RawViewInfo {
     pub collation: Option<String>,
 }
 
+/// Every decoded catalog row for one database: the input to [`assemble_ddl`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RawIntrospection {
     pub database: RawDatabaseInfo,
@@ -152,12 +181,16 @@ pub struct RawIntrospection {
     pub views: Vec<RawViewInfo>,
 }
 
+/// An introspected database's DDL.
 #[derive(Debug, Clone)]
 pub struct IntrospectionResult {
+    /// The assembled DDL.
     pub ddl: MySQLDDL,
 }
 
 impl IntrospectionResult {
+    /// Returns a new snapshot (fresh ID, following the origin) holding
+    /// [`ddl`](Self::ddl).
     #[must_use]
     pub fn to_snapshot(&self) -> MySQLSnapshot {
         let mut snapshot = MySQLSnapshot::new();
@@ -166,7 +199,21 @@ impl IntrospectionResult {
     }
 }
 
-/// Convert decoded catalog rows into a validated, deterministic MySQL DDL.
+/// Converts decoded catalog rows into a validated, deterministically ordered
+/// [`MySQLDDL`].
+///
+/// Objects end up unqualified (no database name), matching ordinary
+/// `#[MySQLTable]` schemas; a table engine, charset, or collation (and a
+/// column charset or collation) equal to the inherited default is dropped,
+/// and view definers are discarded. Invisible columns are rejected.
+///
+/// # Errors
+///
+/// Returns [`IntrospectError::NoDatabase`] if no database is selected,
+/// [`IntrospectError::CrossDatabaseForeignKey`] for a foreign key into
+/// another database, [`IntrospectError::InvalidCatalog`] for inconsistent or
+/// unsupported rows, or [`IntrospectError::InvalidSnapshot`] if the result
+/// fails validation.
 pub fn assemble_ddl(mut raw: RawIntrospection) -> Result<MySQLDDL, IntrospectError> {
     let database = raw.database.name.trim();
     if database.is_empty() {
@@ -718,11 +765,13 @@ fn parse_enum<T>(
         .ok_or_else(|| IntrospectError::InvalidCatalog(format!("unsupported {kind} `{value}`")))
 }
 
-/// Enrich a view row with metadata only exposed by `SHOW CREATE VIEW`.
+/// Fills `algorithm`, `definer`, and `sql_security` on `view` from the header
+/// of its `SHOW CREATE VIEW` output.
 ///
-/// `information_schema.VIEWS` is still the source of the normalized query
-/// definition. This parser deliberately extracts only the stable header
-/// options so formatting inside the view query cannot confuse it.
+/// Only the header before ` VIEW ` is read, so text inside the view query
+/// cannot confuse it; the query itself still comes from
+/// `information_schema.VIEWS`. Options missing from the header are reset to
+/// `None` (SQL security is left as it was).
 pub fn apply_show_create_view(view: &mut RawViewInfo, create_sql: &str) {
     let header_end = find_ascii_case_insensitive(create_sql, " VIEW ").unwrap_or(create_sql.len());
     let header = &create_sql[..header_end];
@@ -771,15 +820,21 @@ fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
         .position(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
-/// Parameterized catalog queries. Every `?` is the one selected database;
-/// adapters must bind it rather than interpolate user input.
+/// Catalog queries for the selected database.
+///
+/// Each `?` placeholder is the selected database's name: bind it, do not
+/// interpolate it. Column order matches the fields of the corresponding
+/// `Raw*` struct.
 pub mod queries {
+    /// The selected database (`DATABASE()`) and its default engine, charset,
+    /// and collation. No parameters. Rows: [`RawDatabaseInfo`](super::RawDatabaseInfo).
     pub const DATABASE: &str = r#"
 SELECT s.SCHEMA_NAME, @@default_storage_engine,
        s.DEFAULT_CHARACTER_SET_NAME, s.DEFAULT_COLLATION_NAME
 FROM information_schema.SCHEMATA s
 WHERE s.SCHEMA_NAME = DATABASE()"#;
 
+    /// Base tables. Rows: [`RawTableInfo`](super::RawTableInfo).
     pub const TABLES: &str = r#"
 SELECT t.TABLE_SCHEMA, t.TABLE_NAME, t.ENGINE,
        ccsa.CHARACTER_SET_NAME, t.TABLE_COLLATION, t.TABLE_COMMENT
@@ -789,6 +844,8 @@ LEFT JOIN information_schema.COLLATION_CHARACTER_SET_APPLICABILITY ccsa
 WHERE t.TABLE_SCHEMA = ? AND t.TABLE_TYPE = 'BASE TABLE'
 ORDER BY t.TABLE_NAME"#;
 
+    /// Columns of base tables, in ordinal order.
+    /// Rows: [`RawColumnInfo`](super::RawColumnInfo).
     pub const COLUMNS: &str = r#"
 SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE,
        c.IS_NULLABLE, c.COLUMN_DEFAULT, c.EXTRA, c.GENERATION_EXPRESSION,
@@ -800,6 +857,8 @@ JOIN information_schema.TABLES t
 WHERE c.TABLE_SCHEMA = ? AND t.TABLE_TYPE = 'BASE TABLE'
 ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION"#;
 
+    /// Index key parts (including the primary key's `PRIMARY` index).
+    /// Rows: [`RawIndexPart`](super::RawIndexPart).
     pub const INDEXES: &str = r#"
 SELECT s.TABLE_SCHEMA, s.TABLE_NAME, s.INDEX_NAME, s.NON_UNIQUE,
        s.SEQ_IN_INDEX, s.COLUMN_NAME, s.EXPRESSION, s.SUB_PART,
@@ -808,6 +867,7 @@ FROM information_schema.STATISTICS s
 WHERE s.TABLE_SCHEMA = ?
 ORDER BY s.TABLE_NAME, s.INDEX_NAME, s.SEQ_IN_INDEX"#;
 
+    /// Primary-key columns. Rows: [`RawPrimaryKeyPart`](super::RawPrimaryKeyPart).
     pub const PRIMARY_KEYS: &str = r#"
 SELECT k.TABLE_SCHEMA, k.TABLE_NAME, k.CONSTRAINT_NAME,
        k.COLUMN_NAME, k.ORDINAL_POSITION
@@ -820,6 +880,8 @@ JOIN information_schema.KEY_COLUMN_USAGE k
 WHERE tc.TABLE_SCHEMA = ? AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
 ORDER BY k.TABLE_NAME, k.ORDINAL_POSITION"#;
 
+    /// Foreign-key column pairs with their update/delete rules.
+    /// Rows: [`RawForeignKeyPart`](super::RawForeignKeyPart).
     pub const FOREIGN_KEYS: &str = r#"
 SELECT k.TABLE_SCHEMA, k.TABLE_NAME, k.CONSTRAINT_NAME, k.COLUMN_NAME,
        k.ORDINAL_POSITION, k.REFERENCED_TABLE_SCHEMA,
@@ -833,6 +895,7 @@ JOIN information_schema.REFERENTIAL_CONSTRAINTS r
 WHERE k.TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
 ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION"#;
 
+    /// Check constraints. Rows: [`RawCheckInfo`](super::RawCheckInfo).
     pub const CHECKS: &str = r#"
 SELECT tc.TABLE_SCHEMA, tc.TABLE_NAME, tc.CONSTRAINT_NAME,
        cc.CHECK_CLAUSE, tc.ENFORCED
@@ -843,6 +906,9 @@ JOIN information_schema.CHECK_CONSTRAINTS cc
 WHERE tc.TABLE_SCHEMA = ? AND tc.CONSTRAINT_TYPE = 'CHECK'
 ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME"#;
 
+    /// Views (no `ALGORITHM` column; see
+    /// [`apply_show_create_view`](super::apply_show_create_view)).
+    /// Rows: [`RawViewInfo`](super::RawViewInfo).
     pub const VIEWS: &str = r#"
 SELECT v.TABLE_SCHEMA, v.TABLE_NAME, v.VIEW_DEFINITION, v.DEFINER,
        v.SECURITY_TYPE, v.CHECK_OPTION, v.CHARACTER_SET_CLIENT,

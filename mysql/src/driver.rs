@@ -1,8 +1,11 @@
-//! Shared contracts between the MySQL dialect and wire-driver adapters.
+//! Row decoding shared by the `MySQL` drivers.
 //!
-//! This module deliberately contains no connection, pool, runtime, or stream
-//! abstraction. It owns only the data that crosses that boundary: a borrowed
-//! row view and checked value decoding.
+//! A driver exposes its rows through [`MySQLRowAccess`]; [`MySQLRow`] wraps
+//! one so generated models and `FromDrizzleRow` types can decode it. There
+//! is no connection, pool or runtime code here; the drivers live in the
+//! `drizzle` crate. With the `mysql-common` feature, `mysql_common::Row`
+//! implements [`MySQLRowAccess`] and `MySQLValue` converts to
+//! `mysql_common::Value`.
 
 #[cfg(feature = "query")]
 use crate::traits::MySQLJsonStorage;
@@ -16,36 +19,60 @@ use drizzle_core::{FromDrizzleRow, error::DrizzleError};
 #[cfg(not(feature = "std"))]
 use alloc::format;
 
-/// Adapter-owned row storage exposed as client-neutral MySQL values.
+/// A driver row whose cells can be read as [`MySQLValue`]s.
 ///
-/// Implementations must return `Ok(None)` for a missing or previously consumed
-/// cell. They must never panic for an invalid offset or conversion.
+/// Implemented for `[OwnedMySQLValue]`, `Vec<OwnedMySQLValue>`,
+/// `[MySQLValue]`, and (with `mysql-common`) `mysql_common::Row`.
+/// Implementations must return `Ok(None)` for a missing or already consumed
+/// cell, and must not panic on a bad offset or conversion.
 pub trait MySQLRowAccess {
-    /// Returns a borrowed value at `offset`, if present.
+    /// Returns the cell at `offset` (0-based), or `None` if there is none.
     ///
     /// # Errors
     ///
-    /// Returns an adapter error when the underlying row cannot be inspected.
+    /// Returns an error when the driver cannot read the row.
     fn value_at(&self, offset: usize) -> Result<Option<MySQLValue<'_>>, DrizzleError>;
 
-    /// Returns whether the cell uses MySQL's packed `BIT` wire representation.
+    /// Returns whether the cell at `offset` is a `BIT` column, whose bytes
+    /// are a packed big-endian number.
     ///
-    /// Client-neutral rows return `false`; wire adapters override this from
-    /// their column metadata so the requested Rust decoder decides whether to
-    /// interpret the bytes numerically or preserve them as bytes.
+    /// The default is `false`. Drivers override it from their column
+    /// metadata, so integer and `bool` decoders read `BIT` bytes as a number
+    /// while byte decoders keep them as bytes.
     fn is_bit_at(&self, _offset: usize) -> bool {
         false
     }
 }
 
-/// Borrowed, non-owning view used by [`FromDrizzleRow`] implementations.
+/// A borrowed row that [`FromDrizzleRow`] types decode from.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::FromDrizzleRow;
+/// use drizzle_mysql::MySQLRow;
+/// use drizzle_mysql::values::OwnedMySQLValue;
+///
+/// let cells = vec![
+///     OwnedMySQLValue::Int(7),
+///     OwnedMySQLValue::Bytes(b"Alice".to_vec()),
+///     OwnedMySQLValue::Null,
+/// ];
+/// let row = MySQLRow::new(&cells);
+///
+/// assert_eq!(i64::from_row_at(&row, 0)?, 7);
+/// assert_eq!(String::from_row_at(&row, 1)?, "Alice");
+/// assert_eq!(Option::<String>::from_row_at(&row, 2)?, None);
+/// assert!(row.is_null_at(3).is_err());
+/// # Ok::<(), drizzle_core::error::DrizzleError>(())
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct MySQLRow<'row, R: ?Sized> {
     inner: &'row R,
 }
 
 impl<'row, R: MySQLRowAccess + ?Sized> MySQLRow<'row, R> {
-    /// Wraps adapter-owned row storage without copying it.
+    /// Wraps a driver row without copying it.
     #[must_use]
     pub const fn new(inner: &'row R) -> Self {
         Self { inner }
@@ -72,8 +99,8 @@ impl<'row, R: MySQLRowAccess + ?Sized> MySQLRow<'row, R> {
     ///
     /// # Errors
     ///
-    /// Returns an error when the offset is missing or the adapter cannot
-    /// inspect the row.
+    /// Returns an error when the row has no cell at `offset` or the driver
+    /// cannot read the row.
     pub fn is_null_at(&self, offset: usize) -> Result<bool, DrizzleError> {
         Ok(self.value_at(offset)?.is_null())
     }
@@ -82,8 +109,8 @@ impl<'row, R: MySQLRowAccess + ?Sized> MySQLRow<'row, R> {
     ///
     /// # Errors
     ///
-    /// Returns an error when the offset is missing, the adapter cannot inspect
-    /// the row, or the codec rejects the stored value.
+    /// Returns an error when the row has no cell at `offset`, the driver
+    /// cannot read the row, or the codec rejects the stored value.
     #[doc(hidden)]
     pub fn decode_column<T: DrizzleMySQLColumn>(&self, offset: usize) -> Result<T, DrizzleError> {
         T::decode(self.value_at(offset)?)

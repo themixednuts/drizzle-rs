@@ -1,40 +1,37 @@
-//! `PostgreSQL` DDL (Data Definition Language) entity types
+//! `PostgreSQL` schema objects (schemas, enums, sequences, roles, policies,
+//! privileges, tables, columns, indexes, constraints, views) for migrations.
 //!
-//! This module provides two complementary types for each DDL entity:
+//! Each object comes in two forms:
 //!
-//! - **`*Def` types** - Const-friendly definitions using only `Copy` types (`&'static str`, `bool`)
-//!   for compile-time schema definitions
-//! - **Runtime types** - Full types with `Cow<'static, str>` for serde serialization/deserialization
+//! - **`*Def` types** ([`TableDef`], [`ColumnDef`], ...) hold only `Copy`
+//!   data (`&'static str`, `bool`, slices) so they can be built in `const`
+//!   items. The schema macros generate these.
+//! - **Runtime types** ([`Table`], [`Column`], ...) hold `Cow<'static, str>`
+//!   and can be serialized with the `serde` feature. Migration snapshots
+//!   store these, as a list of [`PostgresEntity`] values.
 //!
-//! # Design Pattern
+//! Convert a definition with its `into_*` method or `From`. [`TableSql`]
+//! renders `CREATE TABLE` and related statements.
 //!
-//! ```rust
-//! # let _ = r####"
-//! ┌─────────────────────────────────────────────────────────────────────────┐
-//! │  Compile Time (const)           Runtime (serde)                         │
-//! │  ─────────────────────           ────────────────                        │
-//! │                                                                          │
-//! │  const DEF: TableDef = ...;     let table: Table = DEF.into_table();     │
-//! │  const COLS: &[ColumnDef] = ... let cols: Vec<Column> = ...              │
-//! │                                                                          │
-//! │  Uses: &'static str, bool       Uses: Cow<'static, str>, Vec, Option     │
-//! │  All types are Copy             Supports serde, owned strings            │
-//! └─────────────────────────────────────────────────────────────────────────┘
-//! # "####;
+//! Compared with `SQLite`, `PostgreSQL` adds schemas, enum types, sequences,
+//! roles, row-level security policies, privileges, identity columns, and
+//! index options such as operator classes and `NULLS FIRST`/`LAST`.
+//!
+//! # Examples
+//!
 //! ```
+//! use drizzle_types::postgres::ddl::{ColumnDef, Table, TableDef};
 //!
-//! # PostgreSQL-Specific Features
+//! const USERS: TableDef = TableDef::new("public", "users");
+//! const COLUMNS: &[ColumnDef] = &[
+//!     ColumnDef::new("public", "users", "id", "integer").not_null(),
+//!     ColumnDef::new("public", "users", "name", "text").default_value("'anonymous'"),
+//! ];
 //!
-//! `PostgreSQL` DDL types include additional features not present in `SQLite`:
-//!
-//! - **Schemas** - Namespace support (`public`, `custom_schema`, etc.)
-//! - **Enums** - User-defined enumerated types
-//! - **Sequences** - Auto-increment sequences (alternative to SERIAL)
-//! - **Roles** - Database roles/permissions
-//! - **Policies** - Row-level security policies
-//! - **Identity Columns** - GENERATED ALWAYS/BY DEFAULT AS IDENTITY
-//! - **Generated Columns** - GENERATED AS expression STORED
-//! - **Index Options** - Operator classes, nulls ordering, etc.
+//! let table: Table = USERS.into_table();
+//! assert_eq!(table.schema(), "public");
+//! # let _ = COLUMNS;
+//! ```
 
 mod check_constraint;
 mod column;

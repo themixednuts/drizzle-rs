@@ -1,10 +1,10 @@
-//! Build-time migration generation helpers.
+//! Generate migrations from `build.rs`, without the CLI.
 //!
-//! This module is intended for `build.rs` flows where users do not want to use
-//! the CLI. It parses Rust schema files, computes diffs against the latest
-//! snapshot in `./drizzle`, and writes a new migration folder when needed.
+//! [`run`] parses your Rust schema files, diffs them against the newest
+//! snapshot in the output folder (`./drizzle` by default), and writes a new
+//! `<tag>/migration.sql` + `<tag>/snapshot.json` when something changed.
 //!
-//! # Recommended flow
+//! # Examples
 //!
 //! ```rust,no_run
 //! use drizzle_migrations::build::{Config, Output, run};
@@ -39,7 +39,10 @@ use drizzle_types::{ConfigValue, ConfigValueError, Dialect};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// Build-time migration generation configuration.
+/// Settings for [`run`]: schema files, output folder, dialect, and naming.
+///
+/// Build it with [`Config::new`] and the builder methods, or load it from a
+/// `drizzle.config.toml` with [`Config::from_toml`].
 #[derive(Debug, Clone)]
 pub struct Config {
     files: Vec<PathBuf>,
@@ -82,7 +85,7 @@ impl std::fmt::Debug for StatementTransform {
 }
 
 impl Config {
-    /// Create a new configuration.
+    /// Creates a config for `dialect` with no schema files.
     ///
     /// `out_dir` defaults to `./drizzle`, breakpoints are enabled by default,
     /// and migration tag prefixes default to timestamp mode. Tracking defaults
@@ -107,16 +110,28 @@ impl Config {
         }
     }
 
-    /// Load configuration from a `drizzle.config.toml` file.
+    /// Loads a config from a `drizzle.config.toml` file.
     ///
-    /// Reads `dialect`, `schema` (one path or a list), `out`, `dbCredentials.url`
-    /// (literal string or `{ env = "VAR" }`), and an optional `[migrations]`
-    /// section with tracking overrides and a checked-in
-    /// `sqliteRebuildDataPlan` path.
+    /// Reads `dialect`, `schema` (one path or a list), `out`, `breakpoints`,
+    /// `casing`, `dbCredentials.url` (literal string or `{ env = "VAR" }`),
+    /// and an optional `[migrations]` section with `table`/`schema` tracking
+    /// overrides and a `sqliteRebuildDataPlan` path (relative to the config
+    /// file).
     ///
-    /// Anything else in the file is ignored — this loader covers only what
+    /// Anything else in the file is ignored: this loader covers only what
     /// the build-time generate/migrate flow needs. The CLI's full loader
-    /// handles multi-database configs, filters, and casing-from-TOML.
+    /// handles multi-database configs and filters.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use drizzle_migrations::build::{Config, run};
+    ///
+    /// let cfg = Config::from_toml("drizzle.config.toml")?;
+    /// cfg.watch();
+    /// run(&cfg)?;
+    /// # Ok::<(), drizzle_migrations::BuildError>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -177,7 +192,7 @@ impl Config {
         Ok(cfg)
     }
 
-    /// Add one Rust source file to the build input set.
+    /// Adds a Rust schema file. Call it once per file.
     #[must_use]
     pub fn file(self, path: impl Into<PathBuf>) -> Self {
         let mut this = self;
@@ -185,35 +200,42 @@ impl Config {
         this
     }
 
-    /// Set the output migrations directory.
+    /// Sets the migrations folder (default `./drizzle`).
     #[must_use]
     pub fn out(mut self, out_dir: impl Into<PathBuf>) -> Self {
         self.out_dir = out_dir.into();
         self
     }
 
-    /// Set the inferred naming casing strategy.
+    /// Records a [`Casing`] preference.
+    ///
+    /// Currently has no effect on generated migrations: the table macros
+    /// always snake_case inferred names, so the diff uses those names. Kept
+    /// for API compatibility.
     #[must_use]
     pub const fn casing(mut self, casing: Casing) -> Self {
         self.casing = Some(casing);
         self
     }
 
-    /// Enable or disable statement breakpoints in written SQL.
+    /// Writes `--> statement-breakpoint` between statements when `true`
+    /// (the default); joins them with blank lines when `false`.
     #[must_use]
     pub const fn breakpoints(mut self, enabled: bool) -> Self {
         self.breakpoints = enabled;
         self
     }
 
-    /// Set migration tag prefix mode.
+    /// Sets how the migration folder name is prefixed (default:
+    /// [`PrefixMode::Timestamp`]).
     #[must_use]
     pub const fn prefix_mode(mut self, mode: PrefixMode) -> Self {
         self.prefix_mode = mode;
         self
     }
 
-    /// Set a custom suffix for the generated migration tag.
+    /// Uses `name` as the tag suffix instead of a random `adjective_hero`
+    /// (for example `20240101120000_add_users`).
     #[must_use]
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.custom_name = Some(name.into());
@@ -236,7 +258,10 @@ impl Config {
     /// The snapshot is **not** transformed: it records the schema the diff was
     /// computed from, and rewriting it would desynchronize the next diff.
     ///
-    /// # Example
+    /// Cannot be combined with a SQLite rebuild-data plan; [`run`] returns
+    /// [`BuildError::SqliteRebuildDataTransformConflict`] if both are set.
+    ///
+    /// # Examples
     ///
     /// ```rust,no_run
     /// use drizzle_migrations::build::{Config, run};
@@ -250,7 +275,7 @@ impl Config {
     ///     .transform_statements(|statements| {
     ///         statements
     ///             .into_iter()
-    ///             .filter(|sql| !sql.contains("\"scratch_\""))
+    ///             .filter(|sql| !sql.contains("`scratch_"))
     ///             .collect()
     ///     });
     ///
@@ -270,7 +295,7 @@ impl Config {
         self
     }
 
-    /// Attach typed data movement to SQLite table rebuilds in this generation.
+    /// Attaches typed data movement to SQLite table rebuilds in this generation.
     ///
     /// The plan is validated against both schema snapshots and its exact
     /// predecessor ID. It does not rewrite generated statements after diffing.
@@ -282,7 +307,7 @@ impl Config {
         self
     }
 
-    /// Attach a versioned registry of snapshot-bound SQLite rebuild plans.
+    /// Attaches a versioned registry of snapshot-bound SQLite rebuild plans.
     #[must_use]
     pub fn sqlite_rebuild_data_plan_registry(
         mut self,
@@ -292,8 +317,8 @@ impl Config {
         self
     }
 
-    /// Load a checked-in, versioned SQLite rebuild-data plan during normal
-    /// generation.
+    /// Loads a checked-in, versioned SQLite rebuild-data plan (JSON) from
+    /// `path` when [`run`] is called.
     #[must_use]
     pub fn sqlite_rebuild_data_plan_file(mut self, path: impl Into<PathBuf>) -> Self {
         self.sqlite_rebuild_data = Some(SqliteRebuildDataSource::File(path.into()));
@@ -309,7 +334,8 @@ impl Config {
     }
 
     /// Paths cargo must watch: the schema files, the TOML config (if loaded
-    /// via [`Config::from_toml`]), and the migrations output directory.
+    /// via [`Config::from_toml`]), the migrations output directory, and the
+    /// SQLite rebuild-data plan file (if any).
     ///
     /// Split out of [`Config::watch`] so the set is assertable without
     /// capturing the build script's stdout.
@@ -325,9 +351,10 @@ impl Config {
         targets
     }
 
-    /// Emit `cargo:rerun-if-changed=` for schema files, the TOML config (if
-    /// loaded via [`Config::from_toml`]), and the migrations output directory,
-    /// plus `cargo:rerun-if-env-changed=` for any env vars referenced by
+    /// Prints `cargo:rerun-if-changed=` for schema files, the TOML config (if
+    /// loaded via [`Config::from_toml`]), the migrations output directory, and
+    /// a SQLite rebuild-data plan file (if one is set), plus
+    /// `cargo:rerun-if-env-changed=` for any env vars referenced by
     /// `dbCredentials.url`.
     ///
     /// The output directory is watched because the previous-snapshot chain
@@ -349,23 +376,22 @@ impl Config {
         }
     }
 
-    /// Dialect this config targets.
+    /// Returns the dialect this config targets.
     #[inline]
     #[must_use]
     pub const fn dialect(&self) -> Dialect {
         self.dialect
     }
 
-    /// Migrations output directory (where generated `migration.sql` /
-    /// `snapshot.json` folders are written).
+    /// Returns the migrations folder.
     #[inline]
     #[must_use]
     pub fn out_dir(&self) -> &Path {
         &self.out_dir
     }
 
-    /// Resolved database URL, reading from the environment if configured as
-    /// `{ env = "VAR" }`.
+    /// Returns the database URL, reading the env var when it was configured
+    /// as `{ env = "VAR" }`.
     ///
     /// # Errors
     ///
@@ -380,7 +406,7 @@ impl Config {
         })
     }
 
-    /// Migration tracking table/schema for this config.
+    /// Returns the migration tracking table and schema.
     ///
     /// Defaults to the dialect-appropriate `Tracking::SQLITE`,
     /// `Tracking::POSTGRES`, or `Tracking::MYSQL`, with overrides applied from
@@ -459,7 +485,8 @@ pub enum Output {
     Generated {
         /// Generated migration tag (folder name).
         tag: String,
-        /// Absolute/relative path to the written migration directory.
+        /// Path to the written migration folder (under the configured
+        /// output folder).
         path: PathBuf,
         /// Number of SQL statements emitted.
         statement_count: usize,
@@ -467,23 +494,27 @@ pub enum Output {
 }
 
 impl Output {
+    /// Returns `true` for [`Output::Generated`].
     #[must_use]
     pub const fn is_generated(&self) -> bool {
         matches!(self, Self::Generated { .. })
     }
 }
 
-/// Errors that can occur while generating migrations in `build.rs`.
+/// Errors from [`run`] and [`Config`] loading.
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
+    /// No schema files were added with [`Config::file`] or `schema` in TOML.
     #[error("no schema files configured")]
     MissingSchemaFiles,
 
+    /// A SQLite rebuild-data plan and a statement transform were both set.
     #[error(
         "SQLite rebuild-data plans cannot be combined with statement transforms; typed plan validation must remain the final migration authority"
     )]
     SqliteRebuildDataTransformConflict,
 
+    /// A schema file could not be read.
     #[error("failed to read schema file `{path:?}`: {source}")]
     ReadSchema {
         path: PathBuf,
@@ -491,18 +522,23 @@ pub enum BuildError {
         source: std::io::Error,
     },
 
+    /// The schema source has parse errors.
     #[error("schema source failed to parse:\n{0}")]
     SchemaParse(String),
 
+    /// Reading or writing the migrations folder failed.
     #[error("failed to parse or write migration metadata: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Diffing or writing the migration failed.
     #[error("failed to generate migration diff: {0}")]
     Migration(#[from] crate::writer::MigrationError),
 
+    /// The TOML config file does not exist.
     #[error("config file not found: {}", .0.display())]
     ConfigNotFound(PathBuf),
 
+    /// The TOML config file is invalid.
     #[error("failed to parse config `{}`: {source}", path.display())]
     Toml {
         path: PathBuf,
@@ -510,6 +546,7 @@ pub enum BuildError {
         source: toml::de::Error,
     },
 
+    /// The SQLite rebuild-data plan file could not be read.
     #[error("failed to read SQLite rebuild-data plan `{}`: {source}", path.display())]
     ReadSqliteRebuildDataPlan {
         path: PathBuf,
@@ -517,6 +554,7 @@ pub enum BuildError {
         source: std::io::Error,
     },
 
+    /// The SQLite rebuild-data plan file is not valid JSON for the plan.
     #[error("failed to parse SQLite rebuild-data plan `{}`: {source}", path.display())]
     ParseSqliteRebuildDataPlan {
         path: PathBuf,
@@ -524,12 +562,15 @@ pub enum BuildError {
         source: serde_json::Error,
     },
 
+    /// [`Config::url`] was called but no URL is configured.
     #[error("no database URL configured (set `dbCredentials.url` in TOML)")]
     MissingUrl,
 
+    /// The env var named by `dbCredentials.url` is not set.
     #[error("env var `{0}` not set")]
     EnvVarNotSet(String),
 
+    /// The env var named by `dbCredentials.url` is not valid UTF-8.
     #[error("env var `{0}` contains invalid unicode")]
     EnvVarNotUnicode(String),
 }
@@ -555,14 +596,16 @@ fn load_sqlite_rebuild_data_plan(
     }
 }
 
-/// Generate and write a migration folder when schema changes are detected.
+/// Writes a new migration folder if the schema changed since the last snapshot.
 ///
-/// This is the high-level API that handles:
-/// - diffing against the latest local snapshot
-/// - tag generation
-/// - writing `migration.sql` and `snapshot.json` in `./drizzle/<tag>/`
+/// Steps: parse the schema files, diff against the newest `snapshot.json`
+/// in the output folder (or an empty schema), apply any
+/// [`transform_statements`](Config::transform_statements) hook, then write
+/// `<out>/<tag>/migration.sql` and `snapshot.json`. Parse and diff warnings
+/// are printed as `cargo:warning=` lines. Returns [`Output::NoChanges`] when
+/// the schema has no tables or indexes, or nothing changed.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust,no_run
 /// use drizzle_migrations::build::{Config, Output, run};
@@ -581,9 +624,10 @@ fn load_sqlite_rebuild_data_plan(
 ///
 /// # Errors
 ///
-/// Returns a [`BuildError`] if the config has no schema files, schema parsing
-/// fails, snapshot/migration generation fails, or any filesystem operation
-/// (read/write) errors while materializing the migration folder.
+/// Returns a [`BuildError`] if the config has no schema files, both a SQLite
+/// rebuild-data plan and a statement transform are set, the schema has parse
+/// errors, diffing fails, the generated tag already exists, or a file
+/// read/write fails.
 pub fn run(config: &Config) -> Result<Output, BuildError> {
     if config.files.is_empty() {
         return Err(BuildError::MissingSchemaFiles);

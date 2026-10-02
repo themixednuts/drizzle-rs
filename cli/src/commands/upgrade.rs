@@ -1,4 +1,4 @@
-//! Upgrade command - upgrades migration snapshots to the latest version
+//! `drizzle up`: upgrades migration folders and snapshots to the current format.
 //!
 //! This command matches drizzle-kit's `up` command and handles two layouts:
 //!
@@ -30,14 +30,16 @@ pub struct UpgradeOptions {
     pub out: Option<PathBuf>,
 }
 
-/// Run the upgrade command.
+/// Runs `drizzle up` on the migrations folder (see the [module docs](self)).
+///
+/// A missing folder only prints a note. Does not connect to the database.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the database cannot be resolved, the migration
-/// directory is unreadable, the legacy journal cannot be parsed, a legacy
-/// snapshot fails to convert to the current format, or writing the upgraded
-/// files to disk fails.
+/// Returns [`CliError`] if `db_name` does not match the config, the folder
+/// or a file in it cannot be read, the legacy journal is malformed, a
+/// snapshot does not convert to the current format, or writing the upgraded
+/// files fails.
 pub fn run(config: &Config, db_name: Option<&str>, opts: &UpgradeOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 

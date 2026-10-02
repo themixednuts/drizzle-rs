@@ -1,7 +1,11 @@
-//! Expr implementations for Rust primitive types.
+//! [`Expr`] implementations for Rust values: integers, floats, `bool`, text,
+//! bytes, `Option`, references, and (with their features) UUID, decimal and
+//! date/time types.
 //!
-//! These implementations allow using Rust literals directly in type-safe
-//! SQL expressions.
+//! A Rust value used as an expression is sent as a bound parameter. Its SQL
+//! type is the type the dialect stores it as (for example `i32` is `INTEGER`
+//! on SQLite and `int4` on PostgreSQL), and it is never NULL, except
+//! `Option<T>`, which is nullable.
 
 use crate::bind::ValueTypeForDialect;
 use crate::dialect::DialectTypes;
@@ -449,8 +453,8 @@ where
 // Date and Time Values (Feature-Gated)
 // =============================================================================
 
-/// Lets a date or time value stand where an expression goes (`eq(col, value)`,
-/// `gt(col, value)`), typed as the SQL type its dialect stores it as.
+// Lets a date or time value stand where an expression goes (`eq(col, value)`,
+// `gt(col, value)`), typed as the SQL type its dialect stores it as.
 #[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
 macro_rules! impl_value_expr {
     ($($ty:ty),+ $(,)?) => {$(

@@ -1,29 +1,32 @@
-//! IDE-visible markers accepted by the MySQL schema macros.
+//! Names accepted inside `#[MySQLTable(...)]`, `#[column(...)]`,
+//! `#[MySQLView(...)]` and `#[MySQLIndex(...)]`.
 //!
-//! Attribute macros parse these tokens before Rust type checking. Re-exporting
-//! marker constants from the prelude lets rust-analyzer resolve and document
-//! them without turning the attribute vocabulary into runtime state.
+//! The macros read these attributes by name before type checking. The
+//! constants here exist so your editor can resolve each attribute and show
+//! its documentation on hover; import them through the prelude. They carry
+//! no runtime state.
 
-/// Zero-sized marker referenced by generated hover bindings.
+/// The type of every attribute constant in this module.
 #[derive(Debug, Clone, Copy)]
 pub struct AttributeMarker;
 
 macro_rules! markers {
     ($($name:ident),+ $(,)?) => {
         $(
-            #[doc = concat!("MySQL schema attribute marker `", stringify!($name), "`.")]
+            #[doc = concat!("The `", stringify!($name), "` schema attribute.")]
             pub const $name: AttributeMarker = AttributeMarker;
         )+
     };
 }
 
-/// Adds a database `DEFAULT` clause and leaves omitted insert values to MySQL.
+/// Adds a `DEFAULT` clause to the column, so `MySQL` fills it when an insert
+/// leaves it out.
 ///
 /// String literals become quoted SQL values. SQL keywords and function calls
-/// are emitted as database expressions.
+/// are written as SQL expressions.
 pub const DEFAULT: AttributeMarker = AttributeMarker;
 
-/// Generates an omitted insert value in the Rust application.
+/// Generates a value in Rust for each insert that leaves the column unset.
 ///
 /// This does not add a database `DEFAULT` clause.
 pub const DEFAULT_FN: AttributeMarker = AttributeMarker;

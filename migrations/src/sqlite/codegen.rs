@@ -1,8 +1,7 @@
-//! `SQLite` schema code generation
+//! Generates Rust schema source (`#[SQLiteTable]` structs) from introspected
+//! SQLite DDL entities.
 //!
-//! This module generates Rust source code from introspected DDL entities.
-//! The generated code uses the lowercase attribute syntax (e.g., `primary` instead of `PRIMARY`)
-//! that is the current recommended style.
+//! Output uses the lowercase attribute style (`primary`, not `PRIMARY`).
 
 use super::collection::SQLiteDDL;
 use super::ddl::{CheckConstraint, Column, ForeignKey, Index, Table, UniqueConstraint, View};

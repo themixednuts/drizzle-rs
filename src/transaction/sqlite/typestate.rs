@@ -1,23 +1,11 @@
-//! Re-exports of the shared `DrizzleBuilder` / `DrizzleOnConflictBuilder`
-//! under the `TransactionBuilder` / `TransactionOnConflictBuilder` names.
+//! The transaction query builder names.
 //!
-//! The query-builder typestate machinery used to live here in a duplicated
-//! `TransactionBuilder<'tx, Tx, Schema, Builder, State>` struct with its own
-//! `delete` / `insert` / `update` / `select` impls — structurally identical
-//! to the `DrizzleBuilder` in [`crate::builder::sqlite::common`]. Those two
-//! collapsed into one generic struct keyed on an opaque `Runner` parameter,
-//! so the Transaction layer just aliases the canonical type with
-//! `Runner = Transaction<'conn, Schema>` (per driver). All typestate-advancing
-//! methods (`.value` / `.values` / `.r#where` / `.set` / `.on_conflict[*]` /
-//! `.returning` / `.from` / `.join` / `.*_join` / `.group_by` / `.having` /
-//! `.order_by` / `.limit` / `.offset` / `.union[_all]` / `.intersect` /
-//! `.except` / `.into_cte`) now live exactly once in
+//! A transaction's queries use the same builder as the database handle's:
+//! `TransactionBuilder` is [`DrizzleBuilder`](crate::builder::sqlite::common::DrizzleBuilder)
+//! with the driver's `Transaction` as its runner, so every clause method
+//! (`r#where`, `join`, `order_by`, `returning`, ...) is defined once, in
 //! `builder/sqlite/common.rs`. SQLite has no `INTERSECT ALL` or `EXCEPT ALL`,
-//! so the SQLite builders do not offer them.
-//!
-//! Re-exporting under the old names preserves the `TransactionBuilder` /
-//! `TransactionOnConflictBuilder` identifiers in user-facing error messages
-//! without paying for the duplicate definition.
+//! so neither builder offers them.
 
 pub use crate::builder::sqlite::common::{
     DrizzleBuilder as TransactionBuilder, DrizzleOnConflictBuilder as TransactionOnConflictBuilder,

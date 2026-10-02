@@ -1,6 +1,8 @@
-//! Relational Query API.
+//! The relational query API (`db.query(table)`): load rows together with
+//! their related rows, as nested structs, in one SQL statement.
 //!
-//! Provides type-safe relational queries with nested relation loading.
+//! This module holds the driver-independent parts. Users reach them through
+//! a driver's `db.query(...)`.
 //!
 //! [`QueryBuilder`] collects [`RelationHandle`]s via `.with()`. At execution
 //! time, handles are rendered into SQL via [`RenderRelations`] and

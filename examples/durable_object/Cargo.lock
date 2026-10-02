@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "const_format",
  "drizzle-core",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-core"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "arrayvec",
  "bit-vec",
@@ -326,7 +326,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-macros"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "drizzle-migrations",
  "drizzle-types",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-migrations"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "drizzle-types",
  "heck",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-mysql"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "compact_str",
  "drizzle-core",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-postgres"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "compact_str",
  "drizzle-core",
@@ -388,7 +388,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-sqlite"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "compact_str",
  "drizzle-core",
@@ -402,7 +402,7 @@ dependencies = [
 
 [[package]]
 name = "drizzle-types"
-version = "0.1.16"
+version = "0.2.1"
 dependencies = [
  "serde",
 ]

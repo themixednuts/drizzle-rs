@@ -1,21 +1,23 @@
-//! Drizzle CLI - Command-line interface for drizzle-rs migrations
+//! Library behind the `drizzle` migration CLI for drizzle-rs.
 //!
-//! This crate provides a standalone CLI tool for managing database migrations
-//! using a `drizzle.config.toml` configuration file instead of requiring Rust code.
+//! The CLI reads a `drizzle.config.toml` instead of Rust code, so you can
+//! generate and apply migrations without a `build.rs`. This crate exposes the
+//! config loader ([`Config`]) and the command implementations
+//! ([`commands`]) that the binary dispatches to.
 //!
-//! # Quick Start
+//! # Quick start
 //!
 //! 1. Install the CLI with the drivers it should connect through:
 //!    `cargo install drizzle-cli --locked --features sqlite-all` (or
-//!    `postgres-all`, `mysql-all`, or individual driver features such as
+//!    `postgres-all`, `mysql-all`, or single driver features such as
 //!    `rusqlite`). Without a driver, `migrate`, `push`, and `introspect`
-//!    report "No driver available".
-//! 2. Run `drizzle init` to create a `drizzle.config.toml`
-//! 3. Run `drizzle generate` to create migrations
+//!    fail with "No driver available".
+//! 2. Run `drizzle init` to create `drizzle.config.toml`.
+//! 3. Run `drizzle generate` to write a migration, then `drizzle migrate`.
 //!
 //! # Configuration
 //!
-//! Create a `drizzle.config.toml` file in your project root (or run `drizzle init`):
+//! `drizzle.config.toml` in the project root (or run `drizzle init`):
 //!
 //! ```toml
 //! dialect = "sqlite"
@@ -26,7 +28,7 @@
 //! url = "./dev.db"
 //! ```
 //!
-//! For `PostgreSQL`:
+//! For PostgreSQL:
 //!
 //! ```toml
 //! dialect = "postgresql"
@@ -39,13 +41,18 @@
 //!
 //! # Commands
 //!
-//! - `drizzle init` - Create a new drizzle.config.toml configuration file
-//! - `drizzle generate` - Generate a new migration from schema changes
-//! - `drizzle generate --custom` - Create an empty migration for manual SQL
-//! - `drizzle status` - Show migration status
-//! - `drizzle migrate` - Run pending migrations (requires database connection)
-//! - `drizzle push` - Push schema directly to database (requires database connection)
-//! - `drizzle introspect` - Introspect database and generate snapshot (requires database connection)
+//! | Command | What it does | Needs a database |
+//! |---|---|---|
+//! | `drizzle init` | Create `drizzle.config.toml` | no |
+//! | `drizzle generate` | Write a migration from schema changes (`--custom` for an empty one) | no |
+//! | `drizzle migrate` | Apply pending migrations | yes |
+//! | `drizzle push` | Apply the schema directly, without migration files | yes |
+//! | `drizzle introspect` / `drizzle pull` | Generate a schema file from a live database | yes |
+//! | `drizzle status` | List local migrations and whether each has a snapshot | no |
+//! | `drizzle check` | Validate the config file | no |
+//! | `drizzle export` | Print the schema as SQL | no |
+//! | `drizzle up` | Upgrade old snapshots to the current format | no |
+//! | `drizzle new` | Build a schema file interactively | no |
 
 pub mod commands;
 pub mod config;
