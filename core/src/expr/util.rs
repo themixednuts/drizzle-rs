@@ -101,7 +101,6 @@ where
 /// let n = count(users.id).alias("user_count");
 /// assert_eq!(n.to_sql().sql(), r#"COUNT ("users"."id") AS "user_count""#);
 /// ```
-
 pub trait AliasExt: Sized {
     /// Renames this expression: `expr AS "name"`.
     fn alias(self, name: &'static str) -> AliasedExpr<Self> {

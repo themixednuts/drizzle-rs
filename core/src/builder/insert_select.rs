@@ -37,7 +37,6 @@ pub trait InsertSelectTable {
     const INSERT_COLUMNS: &'static [&'static str];
 
     /// Renders `("col1", "col2", ...)` from [`Self::INSERT_COLUMNS`].
-
     fn insert_columns_sql<'a, V: SQLParam>() -> SQL<'a, V> {
         let mut sql = SQL::empty();
         for (index, column) in Self::INSERT_COLUMNS.iter().enumerate() {
