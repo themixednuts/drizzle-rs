@@ -18,13 +18,6 @@ use drizzle_cli::config::Config;
 use drizzle_cli::error::CliError;
 use drizzle_cli::output;
 
-/// Default configuration file name
-const DEFAULT_CONFIG_FILE: &str = "drizzle.config.toml";
-
-/// JSON schema URL for TOML validation
-const SCHEMA_URL: &str =
-    "https://raw.githubusercontent.com/themixednuts/drizzle-rs/main/cli/schema.json";
-
 /// Drizzle - Database migration CLI for drizzle-rs
 #[derive(Parser, Debug)]
 #[command(name = "drizzle")]
@@ -135,7 +128,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         // `new` runs with an optional config (the wizard can scaffold from
         // scratch); `init` doesn't read a config at all.
         Command::New(opts) => commands::new::run(load_config(config_path).ok().as_ref(), &opts),
-        Command::Init { dialect, driver } => run_init(&dialect, driver.as_deref()),
+        Command::Init { dialect, driver } => commands::init::run(&dialect, driver.as_deref()),
 
         // Everything else requires a loaded config.
         Command::Generate(opts) => {
@@ -167,180 +160,6 @@ fn load_config(custom_path: Option<&std::path::Path>) -> Result<Config, CliError
             Config::load_from(path).map_err(Into::into)
         },
     )
-}
-
-/// Initialize a new drizzle.config.toml file
-fn run_init(dialect: &str, driver: Option<&str>) -> Result<(), CliError> {
-    let config_path = PathBuf::from(DEFAULT_CONFIG_FILE);
-
-    if config_path.exists() {
-        return Err(CliError::Other(format!(
-            "{DEFAULT_CONFIG_FILE} already exists. Delete it first to reinitialize."
-        )));
-    }
-
-    let config_content = generate_init_config(dialect, driver)?;
-
-    std::fs::write(&config_path, config_content).map_err(|e| CliError::IoError(e.to_string()))?;
-
-    println!(
-        "{}",
-        output::success(&format!("Created {DEFAULT_CONFIG_FILE}"))
-    );
-    println!();
-    println!("Next steps:");
-    println!("  1. Edit {DEFAULT_CONFIG_FILE} with your database credentials");
-    println!(
-        "  2. Create your schema file at {}",
-        output::heading("src/schema.rs")
-    );
-    println!(
-        "  3. Run {} to generate your first migration",
-        output::heading("drizzle generate")
-    );
-
-    Ok(())
-}
-
-/// Generate the init configuration content based on dialect and driver
-fn generate_init_config(dialect: &str, driver: Option<&str>) -> Result<String, CliError> {
-    let dialect = dialect.to_lowercase();
-    let driver = driver.map(str::to_lowercase);
-
-    // Rust-only: keep init output aligned with what `cli/src/config.rs` can actually parse.
-    match dialect.as_str() {
-        "sqlite" => {
-            if let Some(ref d) = driver
-                && d != "rusqlite"
-            {
-                return Err(CliError::Other(format!(
-                    "Invalid driver for sqlite: {d}. Supported: rusqlite"
-                )));
-            }
-            Ok(format!(
-                r#"#:schema {SCHEMA_URL}
-
-# Drizzle Configuration (drizzle-rs)
-#
-# This file is parsed by `drizzle-cli` and should stay aligned with its config schema:
-# - dialect: sqlite | turso | postgresql | mysql
-# - drivers: Rust drivers only (optional)
-
-dialect = "sqlite"
-# driver = "rusqlite"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "./dev.db"
-"#
-            ))
-        }
-        "turso" => {
-            if let Some(ref d) = driver
-                && d != "libsql"
-                && d != "turso"
-            {
-                return Err(CliError::Other(format!(
-                    "Invalid driver for turso: {d}. Supported: libsql, turso"
-                )));
-            }
-            Ok(format!(
-                r#"#:schema {SCHEMA_URL}
-
-# Drizzle Configuration (drizzle-rs)
-
-dialect = "turso"
-# driver = "libsql"   # local libsql (embedded)
-# driver = "turso"    # remote Turso
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "libsql://your-db.turso.io"
-authToken = "your-auth-token"
-"#
-            ))
-        }
-        "postgresql" | "postgres" => {
-            if let Some(ref d) = driver
-                && d != "postgres-sync"
-                && d != "tokio-postgres"
-            {
-                return Err(CliError::Other(format!(
-                    "Invalid driver for postgresql: {d}. Supported: postgres-sync, tokio-postgres"
-                )));
-            }
-            Ok(format!(
-                r#"#:schema {SCHEMA_URL}
-
-# Drizzle Configuration (drizzle-rs)
-
-dialect = "postgresql"
-# driver = "postgres-sync"
-# driver = "tokio-postgres"
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "postgres://user:password@localhost:5432/mydb"
-
-# Or use individual connection fields:
-# [dbCredentials]
-# host = "localhost"
-# port = 5432
-# user = "postgres"
-# password = "password"
-# database = "mydb"
-# ssl = true
-"#
-            ))
-        }
-        "mysql" => {
-            if let Some(ref driver) = driver
-                && driver != "mysql-sync"
-                && driver != "mysql-async"
-            {
-                return Err(CliError::Other(format!(
-                    "Invalid driver for mysql: {driver}. Supported: mysql-sync, mysql-async"
-                )));
-            }
-            let driver_config = driver.as_deref().map_or_else(
-                || "# driver = \"mysql-sync\"\n# driver = \"mysql-async\"".to_string(),
-                |driver| format!("driver = \"{driver}\""),
-            );
-            Ok(format!(
-                r#"#:schema {SCHEMA_URL}
-
-# Drizzle Configuration (drizzle-rs)
-
-dialect = "mysql"
-{driver_config}
-schema = "src/schema.rs"
-out = "./drizzle"
-# breakpoints = true
-
-[dbCredentials]
-url = "mysql://user:password@localhost:3306/mydb"
-
-# Or use individual connection fields:
-# [dbCredentials]
-# host = "localhost"
-# port = 3306
-# user = "root"
-# password = "password"
-# database = "mydb"
-# ssl = "required"
-"#
-            ))
-        }
-        _ => Err(CliError::Other(format!(
-            "Unknown dialect: {dialect}. Supported: sqlite, turso, postgresql, mysql"
-        ))),
-    }
 }
 
 #[cfg(test)]
@@ -534,23 +353,6 @@ mod tests {
             }
             _ => panic!("expected push command"),
         }
-    }
-
-    #[test]
-    fn mysql_init_template_uses_mysql_port_and_drivers() {
-        let config = generate_init_config("mysql", Some("mysql-sync")).expect("mysql config");
-        assert!(config.contains("dialect = \"mysql\""), "{config}");
-        assert!(config.contains("mysql://user:password@localhost:3306/mydb"));
-        assert!(config.contains("driver = \"mysql-sync\""), "{config}");
-        assert!(!config.contains("ssl = \"preferred\""), "{config}");
-
-        let async_config =
-            generate_init_config("mysql", Some("mysql-async")).expect("async mysql config");
-        assert!(
-            async_config.contains("driver = \"mysql-async\""),
-            "{async_config}"
-        );
-        assert!(generate_init_config("mysql", Some("postgres-sync")).is_err());
     }
 
     #[test]

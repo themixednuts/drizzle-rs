@@ -54,6 +54,7 @@
 //! | `drizzle up` | Upgrade old snapshots to the current format | no |
 //! | `drizzle new` | Build a schema file interactively | no |
 
+pub mod codegen;
 pub mod commands;
 pub mod config;
 pub mod db;
