@@ -125,7 +125,11 @@ pub use rand::RngCore;
 
 /// A built-in generator, chosen by type/name inference or set with
 /// `SeedConfig::kind`.
+///
+/// New kinds may be added in any release, so a `match` on it needs a `_`
+/// arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GeneratorKind {
     /// Sequential integers starting at 1 (row index + 1).
     IntPrimaryKey,
@@ -143,7 +147,8 @@ pub enum GeneratorKind {
     LastName,
     /// First and last name.
     FullName,
-    /// `first.last{row}@domain`; the row index keeps emails unique.
+    /// `first.last{row}@example.com` (or another domain reserved for
+    /// testing); the row index keeps emails unique.
     Email,
     /// US-style phone number, `(555) 555-5555`.
     Phone,
@@ -155,6 +160,15 @@ pub enum GeneratorKind {
     Address,
     /// Job title from a built-in list.
     JobTitle,
+    /// A short sentence-case phrase, such as a post title: `Dolor sit amet`.
+    Title,
+    /// `https://` URL on a reserved example domain; the row index keeps
+    /// URLs unique.
+    Url,
+    /// Lowercase `first_last{row}`; the row index keeps usernames unique.
+    Username,
+    /// URL slug, `dolor-sit-amet-{row}`; the row index keeps slugs unique.
+    Slug,
     /// Company name: a last name and a suffix, such as `Smith Inc`.
     Company,
     /// Ten words of lorem ipsum.
@@ -164,10 +178,10 @@ pub enum GeneratorKind {
     /// Small JSON object as text.
     Json,
     /// Date between 2000 and 2030 as `YYYY-MM-DD`; for an integer column
-    /// type, approximate Unix milliseconds instead.
+    /// type, its Unix milliseconds (UTC midnight) instead.
     Date,
     /// Timestamp between 2000 and 2030 as `YYYY-MM-DD HH:MM:SS`; for an
-    /// integer column type, approximate Unix milliseconds instead.
+    /// integer column type, its Unix milliseconds (UTC) instead.
     Timestamp,
     /// Time of day, `HH:MM:SS`.
     Time,
@@ -235,6 +249,10 @@ impl GeneratorKind {
             Self::Country => Box::new(string::CountryGen),
             Self::Address => Box::new(string::AddressGen),
             Self::JobTitle => Box::new(string::JobTitleGen),
+            Self::Title => Box::new(string::TitleGen),
+            Self::Url => Box::new(string::UrlGen),
+            Self::Username => Box::new(string::UsernameGen),
+            Self::Slug => Box::new(string::SlugGen),
             Self::Company => Box::new(string::CompanyGen),
             Self::LoremIpsum => Box::new(string::LoremGen { words: 10 }),
             Self::Uuid => Box::new(special::UuidGen),
@@ -293,6 +311,10 @@ mod tests {
             GeneratorKind::Country,
             GeneratorKind::Address,
             GeneratorKind::JobTitle,
+            GeneratorKind::Title,
+            GeneratorKind::Url,
+            GeneratorKind::Username,
+            GeneratorKind::Slug,
             GeneratorKind::Company,
             GeneratorKind::LoremIpsum,
             GeneratorKind::Uuid,

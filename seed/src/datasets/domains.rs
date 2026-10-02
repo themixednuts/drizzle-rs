@@ -1,24 +1,19 @@
+/// Domains reserved for documentation and testing (RFC 2606), so a seeded
+/// address can never reach a real inbox.
 pub static EMAIL_DOMAINS: &[&str] = &[
-    "gmail.com",
-    "yahoo.com",
-    "outlook.com",
-    "hotmail.com",
-    "protonmail.com",
-    "icloud.com",
-    "mail.com",
-    "zoho.com",
-    "aol.com",
-    "fastmail.com",
-    "yandex.com",
-    "gmx.com",
-    "tutanota.com",
-    "pm.me",
-    "hey.com",
-    "live.com",
-    "msn.com",
-    "me.com",
-    "mac.com",
-    "inbox.com",
+    "example.com",
+    "example.org",
+    "example.net",
+    "mail.example.com",
+    "test.example.org",
+];
+
+/// Hosts for seeded URLs, also reserved (RFC 2606).
+pub static URL_HOSTS: &[&str] = &[
+    "example.com",
+    "www.example.com",
+    "cdn.example.net",
+    "example.org",
 ];
 
 pub static COMPANY_SUFFIXES: &[&str] = &[

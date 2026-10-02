@@ -186,6 +186,78 @@ impl Generator for LoremGen {
     }
 }
 
+fn lorem_words(rng: &mut dyn RngCore, count: usize) -> Vec<&'static str> {
+    (0..count)
+        .map(|_| domains::LOREM_WORDS[rng.random_range(0..domains::LOREM_WORDS.len())])
+        .collect()
+}
+
+/// Generates a short sentence-case phrase with no final period, such as a
+/// post title: `Dolor sit amet consectetur`.
+pub struct TitleGen;
+
+impl Generator for TitleGen {
+    fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
+        let count = rng.random_range(3..=8);
+        let text = lorem_words(rng, count).join(" ");
+        let mut chars = text.chars();
+        let title = chars.next().map_or_else(String::new, |first| {
+            first.to_uppercase().chain(chars).collect()
+        });
+        SeedValue::Text(title)
+    }
+    fn name(&self) -> &'static str {
+        "Title"
+    }
+}
+
+/// Generates an `https://` URL on a reserved example domain. The row index
+/// keeps URLs unique.
+pub struct UrlGen;
+
+impl Generator for UrlGen {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, _sql_type: &str) -> SeedValue {
+        let host = domains::URL_HOSTS[rng.random_range(0..domains::URL_HOSTS.len())];
+        let count = rng.random_range(1..=2);
+        let path = lorem_words(rng, count).join("/");
+        SeedValue::Text(format!("https://{host}/{path}/{}", index + 1))
+    }
+    fn name(&self) -> &'static str {
+        "Url"
+    }
+}
+
+/// Generates a lowercase username, `first_last{row}`; the row index keeps
+/// usernames unique.
+pub struct UsernameGen;
+
+impl Generator for UsernameGen {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, _sql_type: &str) -> SeedValue {
+        let first =
+            names::FIRST_NAMES[rng.random_range(0..names::FIRST_NAMES.len())].to_lowercase();
+        let last = names::LAST_NAMES[rng.random_range(0..names::LAST_NAMES.len())].to_lowercase();
+        SeedValue::Text(format!("{first}_{last}{}", index + 1))
+    }
+    fn name(&self) -> &'static str {
+        "Username"
+    }
+}
+
+/// Generates a URL slug, `dolor-sit-amet-{row}`; the row index keeps slugs
+/// unique.
+pub struct SlugGen;
+
+impl Generator for SlugGen {
+    fn generate(&self, rng: &mut dyn RngCore, index: usize, _sql_type: &str) -> SeedValue {
+        let count = rng.random_range(2..=4);
+        let words = lorem_words(rng, count).join("-");
+        SeedValue::Text(format!("{words}-{}", index + 1))
+    }
+    fn name(&self) -> &'static str {
+        "Slug"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -514,7 +514,8 @@ macro_rules! kind_constructors {
 }
 
 kind_constructors! {
-    /// `first.last{row}@domain`; the row number keeps emails unique.
+    /// `first.last{row}@example.com` (or another reserved example domain);
+    /// the row number keeps emails unique.
     email => Email,
     /// A first name.
     first_name => FirstName,
@@ -534,6 +535,14 @@ kind_constructors! {
     company => Company,
     /// A job title.
     job_title => JobTitle,
+    /// A short sentence-case phrase, such as a post title.
+    title => Title,
+    /// An `https://` URL on a reserved example domain, unique per row.
+    url => Url,
+    /// A lowercase username, `first_last{row}`, unique per row.
+    username => Username,
+    /// A URL slug, `dolor-sit-amet-{row}`, unique per row.
+    slug => Slug,
     /// A random UUID v4 as text.
     uuid => Uuid,
     /// A small JSON object as text.
