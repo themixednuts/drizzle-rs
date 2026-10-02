@@ -16,7 +16,7 @@ pub enum UsersRoleEnum {
     FOREIGN_KEY(columns(user_id), references(Users, id), name = "auditLog_userId_users_id_fk", on_delete = "SET NULL", on_update = "NO ACTION"),
 )]
 pub struct AuditLog {
-    #[column(NAME = "createdAt", TIMESTAMP, DEFAULT = (now()))]
+    #[column(NAME = "createdAt", TIMESTAMP, DEFAULT = now())]
     pub created_at: String,
     #[column(NAME = "id", BIGINT_UNSIGNED, PRIMARY, AUTO_INCREMENT)]
     pub id: u64,
@@ -77,7 +77,7 @@ pub struct Tags {
 pub struct Users {
     #[column(NAME = "balance", DECIMAL(10, 2), DEFAULT = "0.00")]
     pub balance: String,
-    #[column(NAME = "created_at", TIMESTAMP, DEFAULT = (now()))]
+    #[column(NAME = "created_at", TIMESTAMP, DEFAULT = now())]
     pub created_at: String,
     #[column(NAME = "email", VARCHAR(255))]
     pub email: String,

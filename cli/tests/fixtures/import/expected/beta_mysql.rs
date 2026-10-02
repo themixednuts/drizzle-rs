@@ -20,7 +20,7 @@ pub struct AuditLog {
     pub id: u64,
     #[column(NAME = "userId", BIGINT_UNSIGNED)]
     pub user_id: Option<u64>,
-    #[column(NAME = "createdAt", TIMESTAMP, DEFAULT = (now()))]
+    #[column(NAME = "createdAt", TIMESTAMP, DEFAULT = now())]
     pub created_at: String,
     #[column(NAME = "type", VARCHAR(32), DEFAULT = "event")]
     pub type_: String,
@@ -80,7 +80,7 @@ pub struct Users {
     pub name: String,
     #[column(NAME = "role", ENUM, DEFAULT = "member")]
     pub role: UsersRoleEnum,
-    #[column(NAME = "balance", DECIMAL(10, 2), DEFAULT = (0.00))]
+    #[column(NAME = "balance", DECIMAL(10, 2), DEFAULT = 0.00)]
     pub balance: String,
     #[column(NAME = "rating", DOUBLE)]
     pub rating: Option<f64>,
@@ -90,7 +90,7 @@ pub struct Users {
     pub settings: Option<String>,
     #[column(NAME = "is_active", BOOLEAN, DEFAULT = TRUE)]
     pub is_active: bool,
-    #[column(NAME = "created_at", TIMESTAMP, DEFAULT = (now()))]
+    #[column(NAME = "created_at", TIMESTAMP, DEFAULT = now())]
     pub created_at: String,
     #[column(NAME = "updated_at", TIMESTAMP, ON_UPDATE = "CURRENT_TIMESTAMP")]
     pub updated_at: Option<String>,

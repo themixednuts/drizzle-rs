@@ -219,18 +219,29 @@ pub fn is_parenthesized(value: &str) -> bool {
 /// assert_eq!(canonical_default("text", "'hello'"), "('hello')");
 /// assert_eq!(canonical_default("varchar(36)", "UUID()"), "(UUID())");
 /// assert_eq!(canonical_default("timestamp", "CURRENT_TIMESTAMP"), "CURRENT_TIMESTAMP");
+/// assert_eq!(canonical_default("timestamp", "(now())"), "now()");
+/// assert_eq!(canonical_default("decimal(10,2)", "(0.00)"), "0.00");
+/// assert_eq!(canonical_default("text", "('a')"), "('a')");
 /// assert_eq!(canonical_default("int", "-1"), "-1");
 /// ```
 #[must_use]
 pub fn canonical_default(sql_type: &str, value: &str) -> String {
     let value = value.trim();
-    if is_parenthesized(value) || value.eq_ignore_ascii_case("null") {
-        return value.to_string();
-    }
     let temporal = matches!(
         MySQLTypeCategory::classify(sql_type),
         MySQLTypeCategory::DateTime | MySQLTypeCategory::Timestamp
     );
+    if is_parenthesized(value) {
+        // drizzle-kit 1.0 wraps every default (`(now())`, `(0.00)`); one that
+        // may stand bare is the same default as its bare form.
+        let inner = value[1..value.len() - 1].trim();
+        let bare = (temporal && is_current_timestamp(inner))
+            || (is_literal_default(inner) && !requires_expression_default(sql_type));
+        return if bare { inner } else { value }.to_string();
+    }
+    if value.eq_ignore_ascii_case("null") {
+        return value.to_string();
+    }
     if temporal && is_current_timestamp(value) {
         return value.to_string();
     }
