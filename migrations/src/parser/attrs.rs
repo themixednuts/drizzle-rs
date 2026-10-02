@@ -1960,6 +1960,19 @@ pub(crate) fn postgres_column_spec(
                     spec.deferrable = true;
                     spec.initially_deferred = true;
                 }
+                "FK_NAME" => {
+                    meta.input.parse::<Token![=]>()?;
+                    let lit: Lit = meta.input.parse()?;
+                    match lit {
+                        Lit::Str(s) if !s.value().is_empty() => {
+                            spec.named_values.push((key, format!("{:?}", s.value())));
+                            spec.fk_name = Some(s.value());
+                        }
+                        _ => {
+                            return Err(meta.error("fk_name requires a non-empty string literal"));
+                        }
+                    }
+                }
                 other => {
                     return Err(meta.error(format!("unknown #[column] attribute `{other}`")));
                 }
@@ -1982,6 +1995,11 @@ pub(crate) fn postgres_column_spec(
         if spec.relation.is_some() && spec.references.is_none() {
             diags.errors.push(format!(
                 "{field_desc}: relation requires a `references = Table::column` attribute"
+            ));
+        }
+        if spec.fk_name.is_some() && spec.references.is_none() {
+            diags.errors.push(format!(
+                "{field_desc}: fk_name requires a `references = Table::column` attribute"
             ));
         }
         if spec.json && spec.jsonb {
@@ -2184,6 +2202,17 @@ fn parse_composite_fk(
                     ));
                 }
             }
+            Meta::NameValue(nv)
+                if dialect != Dialect::SQLite
+                    && (nv.path.is_ident("name") || nv.path.is_ident("NAME")) =>
+            {
+                match lit_str_value(&nv.value) {
+                    Some(name) if !name.is_empty() => fk.name = Some(name),
+                    _ => diags.errors.push(format!(
+                        "{desc}: FOREIGN_KEY name must be a non-empty string literal"
+                    )),
+                }
+            }
             Meta::Path(path) if dialect == Dialect::PostgreSQL && path.is_ident("deferrable") => {
                 fk.deferrable = true;
             }
@@ -2223,6 +2252,47 @@ fn parse_composite_fk(
     }
 
     Some(fk)
+}
+
+/// `PRIMARY_KEY(name = "...")` (`PostgreSQL`): names the key formed by the
+/// `#[column(primary)]` fields.
+fn parse_primary_key_name(
+    tokens: proc_macro2::TokenStream,
+    desc: &str,
+    diags: &mut Diags,
+) -> Option<String> {
+    let metas = match Punctuated::<Meta, Token![,]>::parse_terminated.parse2(tokens) {
+        Ok(metas) => metas,
+        Err(err) => {
+            diags
+                .errors
+                .push(format!("{desc}: failed to parse PRIMARY_KEY(...): {err}"));
+            return None;
+        }
+    };
+    let mut name = None;
+    for meta in metas {
+        match meta {
+            Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
+                match lit_str_value(&nv.value) {
+                    Some(value) if !value.is_empty() => name = Some(value),
+                    _ => diags.errors.push(format!(
+                        "{desc}: PRIMARY_KEY name must be a non-empty string literal"
+                    )),
+                }
+            }
+            other => diags.errors.push(format!(
+                "{desc}: PRIMARY_KEY(...) takes only name = \"...\", not `{}`",
+                other.to_token_stream()
+            )),
+        }
+    }
+    if name.is_none() {
+        diags
+            .errors
+            .push(format!("{desc}: PRIMARY_KEY(...) requires name = \"...\""));
+    }
+    name
 }
 
 fn parse_table_unique(
@@ -2600,6 +2670,16 @@ pub(crate) fn table_spec(
                             {
                                 spec.check_constraints.push(check);
                             }
+                            continue;
+                        }
+                        "PRIMARY_KEY" if dialect == Dialect::PostgreSQL => {
+                            if spec.primary_key_name.is_some() {
+                                diags
+                                    .errors
+                                    .push(format!("{desc}: PRIMARY_KEY(...) may appear only once"));
+                            }
+                            spec.primary_key_name =
+                                parse_primary_key_name(inner.tokens.clone(), desc, diags);
                             continue;
                         }
                         _ => {}

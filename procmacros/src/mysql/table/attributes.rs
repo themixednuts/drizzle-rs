@@ -28,6 +28,9 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) target_columns: Vec<Ident>,
     pub(crate) on_delete: Option<String>,
     pub(crate) on_update: Option<String>,
+    /// Explicit constraint name; `None` derives one (see
+    /// `MySQLTableContext::composite_foreign_key_name`).
+    pub(crate) name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -103,8 +106,18 @@ impl Parse for CompositeForeignKeyAttr {
         let mut target = None;
         let mut on_delete = None;
         let mut on_update = None;
+        let mut name = None;
         for meta in metas {
             match meta {
+                Meta::NameValue(value)
+                    if value.path.is_ident("name") || value.path.is_ident("NAME") =>
+                {
+                    let value_name = string_value(&value, "name")?;
+                    if value_name.is_empty() {
+                        return Err(syn::Error::new(value.span(), "name cannot be empty"));
+                    }
+                    name = Some(value_name);
+                }
                 Meta::List(list) if list.path.is_ident("columns") => {
                     let cols = Punctuated::<Ident, Token![,]>::parse_terminated
                         .parse2(list.tokens.clone())?;
@@ -153,6 +166,7 @@ impl Parse for CompositeForeignKeyAttr {
             target_columns: target.columns,
             on_delete,
             on_update,
+            name,
         })
     }
 }

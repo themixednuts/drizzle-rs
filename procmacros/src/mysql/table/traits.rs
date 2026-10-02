@@ -312,7 +312,7 @@ pub(super) fn generate_table_impls(
         };
         table_ref_fks.push(ForeignKeyRefInput {
             name: quote! { #fk_name },
-            name_explicit: false,
+            name_explicit: cfk.name.is_some(),
             source_columns,
             target_schema,
             target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },

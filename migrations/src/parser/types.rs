@@ -127,6 +127,9 @@ pub struct ColumnSpec {
     pub deferrable: bool,
     /// `initially_deferred` FK marker (`PostgreSQL` only).
     pub initially_deferred: bool,
+    /// `fk_name = "..."`: the column foreign key's constraint name
+    /// (`PostgreSQL` and `MySQL`).
+    pub fk_name: Option<String>,
     /// Explicit column name from `name = "..."`.
     pub explicit_name: Option<String>,
     /// `collate = ...` / `COLLATE = "..."` (SQLite uppercases bare idents;
@@ -191,6 +194,8 @@ pub struct CompositeFkSpec {
     pub deferrable: bool,
     /// INITIALLY DEFERRED (`PostgreSQL` only).
     pub initially_deferred: bool,
+    /// Explicit constraint name (`PostgreSQL` and `MySQL`).
+    pub name: Option<String>,
 }
 
 /// Table-level `UNIQUE(...)` attribute.
@@ -254,6 +259,8 @@ pub struct TableSpec {
     pub unique_constraints: Vec<TableUniqueSpec>,
     /// Table-level `CHECK(...)` attributes in declaration order.
     pub check_constraints: Vec<TableCheckSpec>,
+    /// `PRIMARY_KEY(name = "...")`: the primary key's name (`PostgreSQL`).
+    pub primary_key_name: Option<String>,
     /// Doc comment (used as the table comment for `PostgreSQL`).
     pub comment: Option<String>,
     /// Raw `key = value` pairs for the textual `attr_value` compat accessor.

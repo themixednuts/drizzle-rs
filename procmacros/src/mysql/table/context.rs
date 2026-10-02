@@ -52,7 +52,11 @@ impl MacroContext<'_> {
     /// its first column unless another foreign key on this table would get
     /// the same name, then after all of its columns.
     pub(crate) fn composite_foreign_key_name(&self, index: usize) -> String {
-        let columns = self.composite_foreign_key_columns(&self.attrs.composite_foreign_keys[index]);
+        let foreign_key = &self.attrs.composite_foreign_keys[index];
+        if let Some(name) = &foreign_key.name {
+            return name.clone();
+        }
+        let columns = self.composite_foreign_key_columns(foreign_key);
         let first = columns.first();
         let collides =
             self.field_infos

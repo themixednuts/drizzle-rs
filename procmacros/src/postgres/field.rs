@@ -633,6 +633,8 @@ pub struct PostgreSQLReference {
     pub on_update: Option<String>,
     pub deferrable: bool,
     pub initially_deferred: bool,
+    /// `fk_name = "..."`: the constraint name (default `{table}_{column}_fkey`).
+    pub name: Option<String>,
 }
 
 /// Identity column mode for GENERATED IDENTITY columns
@@ -851,6 +853,7 @@ const POSTGRES_COLUMN_KEYS: &[&str] = &[
     "default_fn",
     "check",
     "references",
+    "fk_name",
     "relation",
     "on_delete",
     "on_update",
@@ -1149,6 +1152,7 @@ impl FieldInfo {
         let mut on_update: Option<(String, Ident)> = None;
         let mut deferrable: Option<Ident> = None;
         let mut initially_deferred: Option<Ident> = None;
+        let mut fk_name: Option<(String, Ident)> = None;
         let mut default = None;
         let mut default_kind: Option<&'static str> = None;
         let mut default_fn = None;
@@ -1527,6 +1531,21 @@ impl FieldInfo {
                         // Add marker for the action value (CASCADE, SET_NULL, etc.)
                         marker_exprs.push(make_uppercase_path(&action_ident, &action_upper));
                     }
+                    "FK_NAME" => {
+                        meta.input.parse::<Token![=]>()?;
+                        let lit: Lit = meta.input.parse()?;
+                        match lit {
+                            Lit::Str(s) if !s.value().is_empty() => {
+                                fk_name = Some((s.value(), path_ident.clone()));
+                            }
+                            other => {
+                                return Err(syn::Error::new_spanned(
+                                    other,
+                                    "fk_name requires a non-empty string literal, e.g. fk_name = \"posts_author_id_fk\"",
+                                ));
+                            }
+                        }
+                    }
                     "DEFERRABLE" => {
                         deferrable = Some(path_ident.clone());
                         marker_exprs.push(make_uppercase_path(path_ident, "DEFERRABLE"));
@@ -1564,6 +1583,13 @@ impl FieldInfo {
             if initially_deferred.is_some() {
                 fk.initially_deferred = true;
             }
+            fk.name = fk_name.take().map(|(name, _)| name);
+        } else if let Some((_, key)) = fk_name.as_ref() {
+            return Err(syn::Error::new_spanned(
+                key,
+                "fk_name requires a references attribute.\n\
+                 Example: #[column(references = Table::column, fk_name = \"posts_author_id_fk\")]",
+            ));
         } else if let Some((_, key)) = on_delete.as_ref().or(on_update.as_ref()) {
             return Err(syn::Error::new_spanned(
                 key,
@@ -1681,6 +1707,7 @@ impl FieldInfo {
             on_update: None, // Set via on_update = ... attribute
             deferrable: false,
             initially_deferred: false,
+            name: None, // Set via fk_name = ... attribute
         })
     }
 }
@@ -1900,7 +1927,10 @@ impl FieldInfo {
         let fk_ref = self.foreign_key.as_ref()?;
         let table_to = fk_ref.table.to_string();
         let column_to = fk_ref.column.to_string();
-        let fk_name = format!("{}_{}_fkey", table_name, self.column_name);
+        let fk_name = fk_ref
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, self.column_name));
 
         let mut fk = drizzle_types::postgres::ddl::ForeignKey::from_strings(
             schema.to_string(),

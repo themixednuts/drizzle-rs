@@ -130,6 +130,11 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
             action_sql("ON DELETE", &foreign_key.on_delete),
             action_sql("ON UPDATE", &foreign_key.on_update)
         );
+        let constraint = foreign_key
+            .name
+            .as_deref()
+            .map(|name| format!("CONSTRAINT {} ", quoted(name)))
+            .unwrap_or_default();
         push_entry(quote! {
             #const_format::concatcp!(
                 #constraint, "FOREIGN KEY (", #source, ") REFERENCES ",

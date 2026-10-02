@@ -331,6 +331,7 @@ mod tests {
             composite_foreign_keys: Vec::new(),
             unique_constraints: Vec::new(),
             check_constraints: Vec::new(),
+            primary_key_name: None,
             marker_exprs: Vec::new(),
         };
 

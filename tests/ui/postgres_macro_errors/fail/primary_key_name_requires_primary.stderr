@@ -1,0 +1,5 @@
+error: PRIMARY_KEY(name = "posts_pk") names the primary key, but no field is marked #[column(primary)]
+ --> tests/ui/postgres_macro_errors/fail/primary_key_name_requires_primary.rs:5:8
+  |
+5 | struct Posts {
+  |        ^^^^^

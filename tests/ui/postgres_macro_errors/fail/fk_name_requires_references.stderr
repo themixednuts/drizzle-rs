@@ -1,0 +1,6 @@
+error: fk_name requires a references attribute.
+       Example: #[column(references = Table::column, fk_name = "posts_author_id_fk")]
+ --> tests/ui/postgres_macro_errors/fail/fk_name_requires_references.rs:8:14
+  |
+8 |     #[column(fk_name = "posts_user_fk")]
+  |              ^^^^^^^
