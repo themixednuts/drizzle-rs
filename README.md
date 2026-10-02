@@ -1679,9 +1679,9 @@ Other useful commands:
 
 ### Renames
 
-When a change drops one table, column, view, PostgreSQL schema, enum, or index and adds another of the same kind (in the same schema, and for columns and indexes the same table), the diff cannot tell a rename from a drop plus a create. `drizzle generate` and `drizzle push` never guess; they ask, the way drizzle-kit does.
+When a change drops one table, column, view, or PostgreSQL schema, enum, index, or constraint (unique, check, primary key, foreign key) and adds another of the same kind (in the same schema, and for columns, indexes, and constraints the same table), the diff cannot tell a rename from a drop plus a create. `drizzle generate` and `drizzle push` never guess; they ask, the way drizzle-kit does.
 
-**With a terminal**, they ask once per new entity that has dropped candidates, schemas first, then enums, tables, columns, indexes, and views:
+**With a terminal**, they ask once per new entity that has dropped candidates, schemas first, then enums, tables, columns, unique constraints, checks, indexes, primary keys, foreign keys, and views:
 
 ```text
 ? Is accounts table created or renamed from another table?
@@ -1691,6 +1691,8 @@ When a change drops one table, column, view, PostgreSQL schema, enum, or index a
 ```
 
 Picking a rename uses up that candidate, and column questions use the tables' new names. `push --force` does not skip these questions; it only approves data loss.
+
+A constraint or index whose name was derived rather than written out keeps the name it has in the database when only that derived name changes, for example `users_pkey` after `users` becomes `accounts`. As in drizzle-kit, nothing is asked or planned for it, and the new snapshot records the kept name.
 
 **Without a terminal** (CI, scripts), answer with drizzle-kit's hints, inline or from a file:
 
@@ -1706,7 +1708,7 @@ drizzle push --hints-file hints.json
 ]
 ```
 
-`rename` turns a drop plus a create into a rename; `create` keeps them separate. Identifiers are `[name]` for schemas, `[schema, name]` for tables, views, and enums, and `[schema, table, name]` for columns and indexes. SQLite and MySQL use `public` as the schema, as drizzle-kit does. A column's table is its new name. Hints that match nothing in the current diff are ignored, so one file can be reused. If a question has no hint, the command changes nothing: it prints each unresolved decision with the hints that would answer it and exits with code 2.
+`rename` turns a drop plus a create into a rename; `create` keeps them separate. Identifiers are `[name]` for schemas, `[schema, name]` for tables, views, and enums, and `[schema, table, name]` for columns, indexes, and constraints (`unique`, `check`, `primary_key`, `foreign key`). SQLite and MySQL use `public` as the schema, as drizzle-kit does. A column's table is its new name. Hints that match nothing in the current diff are ignored, so one file can be reused. If a question has no hint, the command changes nothing: it prints each unresolved decision with the hints that would answer it and exits with code 2.
 
 The Rust API (`drizzle_migrations::diff`, `diff_with`, `build::run`, and the drivers' `db.push`) still infers renames of otherwise identical tables and columns on SQLite and PostgreSQL. Turn that off with `DiffOptions::infer_renames(false)`, and list the questions yourself with `drizzle_migrations::rename_questions`.
 

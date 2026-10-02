@@ -45,8 +45,8 @@
 use std::fmt;
 
 use crate::generate::{
-    DiffOptions, RenameHints, apply_postgres_rename_hints, apply_sqlite_rename_hints,
-    mysql_diff_options,
+    ConstraintKind, DiffOptions, RenameHints, apply_postgres_rename_hints,
+    apply_sqlite_rename_hints, mysql_diff_options,
 };
 use crate::mysql::collection::MySQLDDL;
 use crate::postgres::collection::PostgresDDL;
@@ -68,8 +68,16 @@ pub enum RenameKind {
     Table,
     /// Column of a table.
     Column,
+    /// PostgreSQL unique constraint.
+    Unique,
+    /// PostgreSQL check constraint.
+    Check,
     /// PostgreSQL index.
     Index,
+    /// PostgreSQL primary key.
+    PrimaryKey,
+    /// PostgreSQL foreign key.
+    ForeignKey,
     /// View (PostgreSQL and MySQL; SQLite cannot rename a view, so it is
     /// never asked about there).
     View,
@@ -77,17 +85,22 @@ pub enum RenameKind {
 
 impl RenameKind {
     /// Every kind, in the order questions are asked.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 10] = [
         Self::Schema,
         Self::Enum,
         Self::Table,
         Self::Column,
+        Self::Unique,
+        Self::Check,
         Self::Index,
+        Self::PrimaryKey,
+        Self::ForeignKey,
         Self::View,
     ];
 
     /// drizzle-kit's name for the kind, as used in hint `kind` fields:
-    /// `schema`, `enum`, `table`, `column`, `index`, `view`.
+    /// `schema`, `enum`, `table`, `column`, `unique`, `check`, `index`,
+    /// `primary_key`, `foreign key`, `view`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -95,7 +108,11 @@ impl RenameKind {
             Self::Enum => "enum",
             Self::Table => "table",
             Self::Column => "column",
+            Self::Unique => "unique",
+            Self::Check => "check",
             Self::Index => "index",
+            Self::PrimaryKey => "primary_key",
+            Self::ForeignKey => "foreign key",
             Self::View => "view",
         }
     }
@@ -243,6 +260,13 @@ impl RenameQuestion {
             (RenameKind::Index, None) => taken.rename_index(table, from, to),
             (RenameKind::View, Some(schema)) => taken.rename_view_in(schema, from, to),
             (RenameKind::View, None) => taken.rename_view(from, to),
+            (kind, schema) => {
+                let constraint = constraint_kind(kind).expect("every other kind is matched above");
+                match schema {
+                    Some(schema) => taken.rename_constraint_in(constraint, schema, table, from, to),
+                    None => taken.rename_constraint(constraint, table, from, to),
+                }
+            }
         };
         Ok(())
     }
@@ -253,7 +277,8 @@ impl RenameQuestion {
 ///
 /// One question per created entity that has deleted candidates in scope,
 /// grouped by kind in drizzle-kit's order (schemas, enums, tables, columns,
-/// indexes, views). The rename hints in `options` are applied first, so
+/// unique constraints, checks, indexes, primary keys, foreign keys, views).
+/// The rename hints in `options` are applied first, so
 /// renamed entities are neither asked about nor offered as candidates, and
 /// columns are compared under their tables' new names. Entities in
 /// [`RenameHints::creates`] are not asked about.
@@ -267,7 +292,11 @@ impl RenameQuestion {
 ///
 /// Kinds per dialect, as drizzle-kit asks them: SQLite tables and columns;
 /// MySQL tables, columns, and views; PostgreSQL schemas, enums, tables,
-/// columns, indexes, and views (`public` is never asked about). A
+/// columns, unique constraints, checks, indexes, primary keys, foreign keys,
+/// and views (`public` is never asked about). An implicitly named
+/// PostgreSQL constraint or index whose definition is unchanged keeps its
+/// existing name (drizzle-kit's `preserveEntityNames`), so a table or
+/// column rename asks nothing about it. A
 /// PostgreSQL entity's candidates come from its own schema: moving an entity
 /// between schemas is not expressible.
 ///
@@ -366,6 +395,39 @@ pub fn rename_questions(
             };
             asker.ask(RenameKind::Column, &columns(&prev), &columns(&cur))?;
 
+            // Implicitly named constraints and indexes whose definition did
+            // not change keep their names (drizzle-kit's
+            // `preserveEntityNames`), so they are not asked about.
+            let mut cur = cur;
+            crate::postgres::diff::preserve_entity_names(&prev, &mut cur);
+            let on_tables = |entries: Vec<(&str, &str, &str)>| -> Vec<Entry> {
+                entries
+                    .into_iter()
+                    .filter(|(schema, table, _)| in_shared(schema, table))
+                    .map(|(schema, table, name)| Entry::new(Some(schema), Some(table), name))
+                    .collect()
+            };
+            let uniques = |ddl: &PostgresDDL| {
+                on_tables(
+                    ddl.uniques
+                        .list()
+                        .iter()
+                        .map(|u| (u.schema.as_ref(), u.table.as_ref(), u.name.as_ref()))
+                        .collect(),
+                )
+            };
+            asker.ask(RenameKind::Unique, &uniques(&prev), &uniques(&cur))?;
+            let checks = |ddl: &PostgresDDL| {
+                on_tables(
+                    ddl.checks
+                        .list()
+                        .iter()
+                        .map(|c| (c.schema.as_ref(), c.table.as_ref(), c.name.as_ref()))
+                        .collect(),
+                )
+            };
+            asker.ask(RenameKind::Check, &checks(&prev), &checks(&cur))?;
+
             // Index names are unique per schema, so an index counts as
             // created or deleted by `(schema, name)`, then is asked about on
             // its table.
@@ -383,6 +445,27 @@ pub fn rename_questions(
                 &created_or_deleted_indexes(&prev, &cur),
                 &created_or_deleted_indexes(&cur, &prev),
             )?;
+
+            let pks = |ddl: &PostgresDDL| {
+                on_tables(
+                    ddl.pks
+                        .list()
+                        .iter()
+                        .map(|p| (p.schema.as_ref(), p.table.as_ref(), p.name.as_ref()))
+                        .collect(),
+                )
+            };
+            asker.ask(RenameKind::PrimaryKey, &pks(&prev), &pks(&cur))?;
+            let fks = |ddl: &PostgresDDL| {
+                on_tables(
+                    ddl.fks
+                        .list()
+                        .iter()
+                        .map(|f| (f.schema.as_ref(), f.table.as_ref(), f.name.as_ref()))
+                        .collect(),
+                )
+            };
+            asker.ask(RenameKind::ForeignKey, &fks(&prev), &fks(&cur))?;
 
             let views = |ddl: &PostgresDDL| -> Vec<Entry> {
                 ddl.views
@@ -592,6 +675,30 @@ fn unapplied_rename(hints: &RenameHints, kind: RenameKind, entry: &Entry) -> Opt
             .iter()
             .find(|h| h.to == entry.name && schema_matches(entry, h.schema.as_deref()))
             .map(|h| h.from.clone()),
+        kind => {
+            let constraint = constraint_kind(kind)?;
+            hints
+                .constraint_renames
+                .iter()
+                .find(|h| {
+                    h.kind == constraint
+                        && h.to == entry.name
+                        && h.table == table
+                        && schema_matches(entry, h.schema.as_deref())
+                })
+                .map(|h| h.from.clone())
+        }
+    }
+}
+
+/// The [`ConstraintKind`] a constraint [`RenameKind`] renames.
+const fn constraint_kind(kind: RenameKind) -> Option<ConstraintKind> {
+    match kind {
+        RenameKind::Unique => Some(ConstraintKind::Unique),
+        RenameKind::Check => Some(ConstraintKind::Check),
+        RenameKind::PrimaryKey => Some(ConstraintKind::PrimaryKey),
+        RenameKind::ForeignKey => Some(ConstraintKind::ForeignKey),
+        _ => None,
     }
 }
 
@@ -611,8 +718,9 @@ mod tests {
     use crate::mysql::{MySQLEntity, MySQLSnapshot};
     use crate::postgres::PostgresSnapshot;
     use crate::postgres::ddl::{
-        Column as PgColumn, Enum as PgEnum, Index as PgIndex, IndexColumn as PgIndexColumn,
-        PostgresEntity, Schema as PgSchema, Table as PgTable, View as PgView,
+        CheckConstraint as PgCheck, Column as PgColumn, Enum as PgEnum, ForeignKey as PgForeignKey,
+        Index as PgIndex, IndexColumn as PgIndexColumn, PostgresEntity, PrimaryKey as PgPrimaryKey,
+        Schema as PgSchema, Table as PgTable, UniqueConstraint as PgUnique, View as PgView,
     };
     use crate::sqlite::SQLiteSnapshot;
     use crate::sqlite::ddl::{Column, SqliteEntity, Table, View as SqliteView};
@@ -669,7 +777,11 @@ mod tests {
         for kind in RenameKind::ALL {
             assert_eq!(RenameKind::from_hint_kind(kind.as_str()), Some(kind));
         }
-        assert_eq!(RenameKind::from_hint_kind("foreign key"), None);
+        assert_eq!(
+            RenameKind::from_hint_kind("foreign key"),
+            Some(RenameKind::ForeignKey)
+        );
+        assert_eq!(RenameKind::from_hint_kind("sequence"), None);
     }
 
     #[test]
@@ -862,39 +974,85 @@ mod tests {
         assert!(questions.is_empty());
     }
 
-    fn pg(
+    /// Names for every PostgreSQL kind asked about, all chosen explicitly.
+    struct PgNames {
         schema: &'static str,
         enum_: &'static str,
+        unique: &'static str,
+        check: &'static str,
         index: &'static str,
+        pk: &'static str,
+        fk: &'static str,
         view: &'static str,
-    ) -> Snapshot {
+    }
+
+    fn pg(names: &PgNames) -> Snapshot {
         let mut snapshot = PostgresSnapshot::new();
         snapshot.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
-        snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema)));
+        snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(names.schema)));
         snapshot.add_entity(PostgresEntity::Enum(PgEnum::new(
             "public",
-            enum_,
+            names.enum_,
             vec![Cow::Borrowed("a"), Cow::Borrowed("b")],
         )));
-        snapshot.add_entity(PostgresEntity::Table(PgTable::new("public", "users")));
-        snapshot.add_entity(PostgresEntity::Column(
-            PgColumn::new("public", "users", "id", "integer").not_null(),
-        ));
-        snapshot.add_entity(PostgresEntity::Column(
-            PgColumn::new("public", "users", "email", "text").not_null(),
-        ));
-        snapshot.add_entity(PostgresEntity::Index(PgIndex::new(
+        for (table, columns) in [
+            ("users", &["id", "email"][..]),
+            ("posts", &["id", "user_id"][..]),
+        ] {
+            snapshot.add_entity(PostgresEntity::Table(PgTable::new("public", table)));
+            for column in columns {
+                snapshot.add_entity(PostgresEntity::Column(
+                    PgColumn::new("public", table, *column, "integer").not_null(),
+                ));
+            }
+        }
+        let mut unique = PgUnique::from_strings(
+            "public".into(),
+            "users".into(),
+            names.unique.into(),
+            vec!["email".into()],
+        );
+        unique.name_explicit = true;
+        snapshot.add_entity(PostgresEntity::UniqueConstraint(unique));
+        snapshot.add_entity(PostgresEntity::CheckConstraint(PgCheck::new(
             "public",
             "users",
-            index,
-            vec![PgIndexColumn::new("email")],
+            names.check,
+            "email > 0",
         )));
+        let mut index = PgIndex::new(
+            "public",
+            "users",
+            names.index,
+            vec![PgIndexColumn::new("email")],
+        );
+        index.name_explicit = true;
+        snapshot.add_entity(PostgresEntity::Index(index));
+        let mut pk = PgPrimaryKey::from_strings(
+            "public".into(),
+            "users".into(),
+            names.pk.into(),
+            vec!["id".into()],
+        );
+        pk.name_explicit = true;
+        snapshot.add_entity(PostgresEntity::PrimaryKey(pk));
+        let mut fk = PgForeignKey::from_strings(
+            "public".into(),
+            "posts".into(),
+            names.fk.into(),
+            vec!["user_id".into()],
+            "public".into(),
+            "users".into(),
+            vec!["id".into()],
+        );
+        fk.name_explicit = true;
+        snapshot.add_entity(PostgresEntity::ForeignKey(fk));
         // A table in the renamed schema: asked about only through the schema.
-        snapshot.add_entity(PostgresEntity::Table(PgTable::new(schema, "items")));
+        snapshot.add_entity(PostgresEntity::Table(PgTable::new(names.schema, "items")));
         snapshot.add_entity(PostgresEntity::Column(
-            PgColumn::new(schema, "items", "id", "integer").not_null(),
+            PgColumn::new(names.schema, "items", "id", "integer").not_null(),
         ));
-        let mut v = PgView::new("public", view);
+        let mut v = PgView::new("public", names.view);
         v.definition = Some(Cow::Borrowed("SELECT 1"));
         snapshot.add_entity(PostgresEntity::View(v));
         Snapshot::Postgres(snapshot)
@@ -902,22 +1060,46 @@ mod tests {
 
     #[test]
     fn postgres_asks_every_kind_in_drizzle_kit_order() {
-        let prev = pg("old_s", "mood", "users_email_idx", "v_old");
-        let cur = pg("new_s", "feeling", "users_mail_idx", "v_new");
+        let prev = pg(&PgNames {
+            schema: "old_s",
+            enum_: "mood",
+            unique: "users_email_uq",
+            check: "email_positive",
+            index: "users_email_idx",
+            pk: "users_id_pk",
+            fk: "posts_user_fk",
+            view: "v_old",
+        });
+        let cur = pg(&PgNames {
+            schema: "new_s",
+            enum_: "feeling",
+            unique: "users_email_key",
+            check: "email_is_positive",
+            index: "users_mail_idx",
+            pk: "users_pk",
+            fk: "posts_user_id_fk",
+            view: "v_new",
+        });
         let mut options = no_inference();
 
         let questions = rename_questions(&prev, &cur, &options).unwrap();
+        let users =
+            |kind, name, from: &str| question(kind, Some("public"), Some("users"), name, &[from]);
         assert_eq!(
             questions,
             [
                 question(RenameKind::Schema, None, None, "new_s", &["old_s"]),
                 question(RenameKind::Enum, Some("public"), None, "feeling", &["mood"]),
+                users(RenameKind::Unique, "users_email_key", "users_email_uq"),
+                users(RenameKind::Check, "email_is_positive", "email_positive"),
+                users(RenameKind::Index, "users_mail_idx", "users_email_idx"),
+                users(RenameKind::PrimaryKey, "users_pk", "users_id_pk"),
                 question(
-                    RenameKind::Index,
+                    RenameKind::ForeignKey,
                     Some("public"),
-                    Some("users"),
-                    "users_mail_idx",
-                    &["users_email_idx"]
+                    Some("posts"),
+                    "posts_user_id_fk",
+                    &["posts_user_fk"]
                 ),
                 question(RenameKind::View, Some("public"), None, "v_new", &["v_old"]),
             ],
@@ -931,9 +1113,89 @@ mod tests {
             [
                 "ALTER SCHEMA \"old_s\" RENAME TO \"new_s\";",
                 "ALTER TYPE \"mood\" RENAME TO \"feeling\";",
+                "ALTER TABLE \"users\" RENAME CONSTRAINT \"users_email_uq\" TO \"users_email_key\";",
+                "ALTER TABLE \"users\" RENAME CONSTRAINT \"email_positive\" TO \"email_is_positive\";",
+                "ALTER TABLE \"users\" RENAME CONSTRAINT \"users_id_pk\" TO \"users_pk\";",
+                "ALTER TABLE \"posts\" RENAME CONSTRAINT \"posts_user_fk\" TO \"posts_user_id_fk\";",
                 "ALTER INDEX \"users_email_idx\" RENAME TO \"users_mail_idx\";",
                 "ALTER VIEW \"v_old\" RENAME TO \"v_new\";",
             ]
+        );
+    }
+
+    /// drizzle-kit keeps implicitly named constraints across a table rename
+    /// (`preserveEntityNames`), so renaming the table raises no constraint
+    /// or index questions and plans only the table rename.
+    #[test]
+    fn postgres_table_rename_asks_nothing_about_implicitly_named_constraints() {
+        let snapshot = |table: &'static str| {
+            let mut snapshot = PostgresSnapshot::new();
+            snapshot.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
+            snapshot.add_entity(PostgresEntity::Table(PgTable::new("public", table)));
+            for column in ["id", "email", "parent_id"] {
+                snapshot.add_entity(PostgresEntity::Column(
+                    PgColumn::new("public", table, column, "integer").not_null(),
+                ));
+            }
+            let mut pk = PgPrimaryKey::from_strings(
+                "public".into(),
+                table.into(),
+                format!("{table}_pkey"),
+                vec!["id".into()],
+            );
+            pk.name_explicit = false;
+            snapshot.add_entity(PostgresEntity::PrimaryKey(pk));
+            let unique = PgUnique::from_strings(
+                "public".into(),
+                table.into(),
+                format!("{table}_email_key"),
+                vec!["email".into()],
+            );
+            snapshot.add_entity(PostgresEntity::UniqueConstraint(unique));
+            snapshot.add_entity(PostgresEntity::Index(PgIndex::new(
+                "public",
+                table,
+                format!("{table}_email_idx"),
+                vec![PgIndexColumn::new("email")],
+            )));
+            snapshot.add_entity(PostgresEntity::CheckConstraint(PgCheck::new(
+                "public",
+                table,
+                format!("{table}_email_check"),
+                "email > 0",
+            )));
+            let fk = PgForeignKey::from_strings(
+                "public".into(),
+                table.into(),
+                format!("{table}_parent_id_{table}_id_fk"),
+                vec!["parent_id".into()],
+                "public".into(),
+                table.into(),
+                vec!["id".into()],
+            );
+            snapshot.add_entity(PostgresEntity::ForeignKey(fk));
+            Snapshot::Postgres(snapshot)
+        };
+        let (prev, cur) = (snapshot("users"), snapshot("accounts"));
+        let mut options = no_inference();
+        let questions = rename_questions(&prev, &cur, &options).unwrap();
+        assert_eq!(
+            questions,
+            [question(
+                RenameKind::Table,
+                Some("public"),
+                None,
+                "accounts",
+                &["users"]
+            )]
+        );
+
+        rename_all(&prev, &cur, &mut options);
+        assert!(rename_questions(&prev, &cur, &options).unwrap().is_empty());
+        let plan = diff_with(&prev, &cur, &options).unwrap();
+        assert_eq!(
+            plan.statements,
+            ["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
         );
     }
 

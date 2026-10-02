@@ -137,6 +137,9 @@ pub struct RenameHints {
     pub column_renames: Vec<ColumnRenameHint>,
     /// PostgreSQL index rename hints (`ALTER INDEX ... RENAME TO`).
     pub index_renames: Vec<IndexRenameHint>,
+    /// PostgreSQL constraint rename hints (`ALTER TABLE ... RENAME
+    /// CONSTRAINT`).
+    pub constraint_renames: Vec<ConstraintRenameHint>,
     /// View rename hints.
     pub view_renames: Vec<ViewRenameHint>,
     /// Entities declared newly created rather than renamed. They only affect
@@ -208,6 +211,46 @@ impl RenameHints {
         to: impl Into<String>,
     ) -> Self {
         self.index_renames.push(IndexRenameHint {
+            schema: Some(schema.into()),
+            table: table.into(),
+            from: from.into(),
+            to: to.into(),
+        });
+        self
+    }
+
+    /// Adds a PostgreSQL constraint rename on `table` in the default schema
+    /// (`public`).
+    #[must_use]
+    pub fn rename_constraint(
+        mut self,
+        kind: ConstraintKind,
+        table: impl Into<String>,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        self.constraint_renames.push(ConstraintRenameHint {
+            kind,
+            schema: None,
+            table: table.into(),
+            from: from.into(),
+            to: to.into(),
+        });
+        self
+    }
+
+    /// Adds a PostgreSQL constraint rename on `schema.table`.
+    #[must_use]
+    pub fn rename_constraint_in(
+        mut self,
+        kind: ConstraintKind,
+        schema: impl Into<String>,
+        table: impl Into<String>,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        self.constraint_renames.push(ConstraintRenameHint {
+            kind,
             schema: Some(schema.into()),
             table: table.into(),
             from: from.into(),
@@ -394,6 +437,35 @@ pub struct IndexRenameHint {
     pub to: String,
 }
 
+/// The kind of constraint a [`ConstraintRenameHint`] renames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ConstraintKind {
+    /// Unique constraint.
+    Unique,
+    /// Check constraint.
+    Check,
+    /// Primary key.
+    PrimaryKey,
+    /// Foreign key.
+    ForeignKey,
+}
+
+/// PostgreSQL constraint rename hint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConstraintRenameHint {
+    /// Constraint kind.
+    pub kind: ConstraintKind,
+    /// PostgreSQL schema; `None` means `public`.
+    pub schema: Option<String>,
+    /// Table the constraint is on.
+    pub table: String,
+    /// Current constraint name.
+    pub from: String,
+    /// New constraint name.
+    pub to: String,
+}
+
 /// Generation options for [`diff_with`] and [`diff_schemas_with`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiffOptions {
@@ -507,6 +579,35 @@ impl DiffOptions {
         to: impl Into<String>,
     ) -> Self {
         self.renames = self.renames.rename_index_in(schema, table, from, to);
+        self
+    }
+
+    /// See [`RenameHints::rename_constraint`].
+    #[must_use]
+    pub fn rename_constraint(
+        mut self,
+        kind: ConstraintKind,
+        table: impl Into<String>,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        self.renames = self.renames.rename_constraint(kind, table, from, to);
+        self
+    }
+
+    /// See [`RenameHints::rename_constraint_in`].
+    #[must_use]
+    pub fn rename_constraint_in(
+        mut self,
+        kind: ConstraintKind,
+        schema: impl Into<String>,
+        table: impl Into<String>,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> Self {
+        self.renames = self
+            .renames
+            .rename_constraint_in(kind, schema, table, from, to);
         self
     }
 
@@ -903,10 +1004,13 @@ pub(crate) fn mysql_diff_options(
     options: &DiffOptions,
 ) -> Result<crate::mysql::diff::DiffOptions, MigrationError> {
     if options.strict_renames
-        && (!options.renames.enum_renames.is_empty() || !options.renames.index_renames.is_empty())
+        && (!options.renames.enum_renames.is_empty()
+            || !options.renames.index_renames.is_empty()
+            || !options.renames.constraint_renames.is_empty())
     {
         return Err(MigrationError::ConfigError(
-            "mysql rename_enum and rename_index hints are not supported".to_string(),
+            "mysql rename_enum, rename_index and rename_constraint hints are not supported"
+                .to_string(),
         ));
     }
     Ok(crate::mysql::diff::DiffOptions {
@@ -962,10 +1066,13 @@ pub(crate) fn apply_sqlite_rename_hints(
     }
 
     if options.strict_renames
-        && (!options.renames.enum_renames.is_empty() || !options.renames.index_renames.is_empty())
+        && (!options.renames.enum_renames.is_empty()
+            || !options.renames.index_renames.is_empty()
+            || !options.renames.constraint_renames.is_empty())
     {
         return Err(MigrationError::ConfigError(
-            "sqlite rename_enum and rename_index hints are not supported".to_string(),
+            "sqlite rename_enum, rename_index and rename_constraint hints are not supported"
+                .to_string(),
         ));
     }
 
@@ -1242,6 +1349,36 @@ pub(crate) fn apply_postgres_rename_hints(
             pg_ident(&hint.to)
         ));
         apply_postgres_column_rename(prev, schema, &hint.table, &hint.from, &hint.to);
+    }
+
+    for hint in &options.renames.constraint_renames {
+        let schema = hint.schema.as_deref().unwrap_or("public");
+        let (table, from, to) = (hint.table.as_str(), hint.from.as_str(), hint.to.as_str());
+        let can_apply = valid_rename_name(schema)
+            && valid_rename_name(table)
+            && valid_rename_name(from)
+            && valid_rename_name(to)
+            && from != to
+            && postgres_constraint_exists(prev, hint.kind, schema, table, from)
+            && !postgres_constraint_exists(prev, hint.kind, schema, table, to)
+            && postgres_constraint_exists(cur, hint.kind, schema, table, to);
+        if !can_apply {
+            if options.strict_renames {
+                return Err(MigrationError::ConfigError(format!(
+                    "postgres {:?} rename hint did not match snapshots: {schema}.{table}.{from} -> {to}",
+                    hint.kind
+                )));
+            }
+            continue;
+        }
+
+        statements.push(format!(
+            "ALTER TABLE {} RENAME CONSTRAINT {} TO {};",
+            pg_qualified(schema, table),
+            pg_ident(from),
+            pg_ident(to)
+        ));
+        rename_postgres_constraint(prev, hint.kind, schema, table, from, to);
     }
 
     for hint in &options.renames.index_renames {
@@ -1705,6 +1842,82 @@ fn valid_rename_name(name: &str) -> bool {
 /// Quotes a PostgreSQL identifier.
 fn pg_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// Whether `ddl` has a constraint of `kind` named `name` on `schema.table`.
+fn postgres_constraint_exists(
+    ddl: &PostgresDDL,
+    kind: ConstraintKind,
+    schema: &str,
+    table: &str,
+    name: &str,
+) -> bool {
+    let here = |s: &str, t: &str, n: &str| s == schema && t == table && n == name;
+    match kind {
+        ConstraintKind::Unique => ddl
+            .uniques
+            .list()
+            .iter()
+            .any(|c| here(&c.schema, &c.table, &c.name)),
+        ConstraintKind::Check => ddl
+            .checks
+            .list()
+            .iter()
+            .any(|c| here(&c.schema, &c.table, &c.name)),
+        ConstraintKind::PrimaryKey => ddl
+            .pks
+            .list()
+            .iter()
+            .any(|c| here(&c.schema, &c.table, &c.name)),
+        ConstraintKind::ForeignKey => ddl
+            .fks
+            .list()
+            .iter()
+            .any(|c| here(&c.schema, &c.table, &c.name)),
+    }
+}
+
+/// Renames constraint `from` of `kind` on `schema.table` to `to` in `ddl`.
+fn rename_postgres_constraint(
+    ddl: &mut PostgresDDL,
+    kind: ConstraintKind,
+    schema: &str,
+    table: &str,
+    from: &str,
+    to: &str,
+) {
+    let here = |s: &str, t: &str, n: &str| s == schema && t == table && n == from;
+    let renamed = || Cow::Owned(to.to_string());
+    match kind {
+        ConstraintKind::Unique => {
+            for c in ddl.uniques.list_mut() {
+                if here(&c.schema, &c.table, &c.name) {
+                    c.name = renamed();
+                }
+            }
+        }
+        ConstraintKind::Check => {
+            for c in ddl.checks.list_mut() {
+                if here(&c.schema, &c.table, &c.name) {
+                    c.name = renamed();
+                }
+            }
+        }
+        ConstraintKind::PrimaryKey => {
+            for c in ddl.pks.list_mut() {
+                if here(&c.schema, &c.table, &c.name) {
+                    c.name = renamed();
+                }
+            }
+        }
+        ConstraintKind::ForeignKey => {
+            for c in ddl.fks.list_mut() {
+                if here(&c.schema, &c.table, &c.name) {
+                    c.name = renamed();
+                }
+            }
+        }
+    }
 }
 
 /// `"schema"."name"`, or just `"name"` in `public`, as drizzle-kit writes it.

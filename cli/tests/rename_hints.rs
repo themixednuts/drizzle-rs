@@ -256,12 +256,71 @@ fn generate_uses_drizzle_kit_ids_for_postgres_and_mysql() {
             .args(["generate", "--name", "renamed", "--hints", hints])
             .assert()
             .success();
-        // PostgreSQL then re-creates the primary key under its new default
-        // name; only the table itself matters here.
+        // Only the table is renamed: on PostgreSQL the primary key keeps
+        // its implicit name (`users_pkey`), as in drizzle-kit.
         let sql = latest_sql(root);
-        assert!(sql.starts_with(expected), "{dialect}: {sql}");
-        assert!(!sql.contains("DROP TABLE"), "{dialect}: {sql}");
+        assert_eq!(sql.trim(), expected, "{dialect}");
+        // The snapshot records the kept name, so nothing is left to do.
+        cargo_bin_cmd!("drizzle")
+            .current_dir(root)
+            .arg("generate")
+            .assert()
+            .success()
+            .stdout(contains("No schema changes"));
     }
+}
+
+/// A renamed, explicitly named PostgreSQL constraint is asked about like
+/// drizzle-kit does, and a `unique` hint renames it in place.
+#[test]
+fn generate_renames_an_explicitly_named_postgres_constraint() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let schema = |name: &str| {
+        format!(
+            "#[PostgresTable(unique(columns(email), name = \"{name}\"))]\npub struct Users {{\n  #[column(primary)]\n  pub id: i32,\n  pub email: String,\n}}\n"
+        )
+    };
+    fs::write(root.join("schema.rs"), schema("users_email_uq")).expect("write schema");
+    fs::write(
+        root.join("drizzle.config.toml"),
+        format!(
+            "dialect = \"postgresql\"\nschema = '{}'\nout = '{}'\n\n[migrations]\nprefix = \"index\"\n",
+            root.join("schema.rs").to_string_lossy(),
+            root.join("migrations").to_string_lossy(),
+        ),
+    )
+    .expect("write config");
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["generate", "--name", "init"])
+        .assert()
+        .success();
+    fs::write(root.join("schema.rs"), schema("users_email_key")).expect("rewrite schema");
+
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .arg("generate")
+        .assert()
+        .code(2)
+        .stdout(contains(
+            r#"{ "type": "create", "kind": "unique", "entity": ["public", "users", "users_email_key"] }"#,
+        ));
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args([
+            "generate",
+            "--name",
+            "renamed",
+            "--hints",
+            r#"[{"type":"rename","kind":"unique","from":["public","users","users_email_uq"],"to":["public","users","users_email_key"]}]"#,
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        latest_sql(root).trim(),
+        "ALTER TABLE \"users\" RENAME CONSTRAINT \"users_email_uq\" TO \"users_email_key\";"
+    );
 }
 
 #[cfg(feature = "rusqlite")]

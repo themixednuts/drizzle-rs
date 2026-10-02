@@ -442,14 +442,20 @@ fn answer_from_hints(
 
 /// drizzle-kit's identifier tuple for `name` in `question`'s scope:
 /// `[name]` for schemas, `[schema, name]` for enums, tables, and views,
-/// `[schema, table, name]` for columns and indexes. SQLite and MySQL use the
+/// `[schema, table, name]` for columns, indexes, and constraints. SQLite and
+/// MySQL use the
 /// placeholder schema `public`, as drizzle-kit does.
 #[must_use]
 pub fn entity_id(question: &RenameQuestion, name: &str) -> Vec<String> {
     let schema = question.schema.as_deref().unwrap_or("public").to_string();
     match question.kind {
         RenameKind::Schema => vec![name.to_string()],
-        RenameKind::Column | RenameKind::Index => vec![
+        RenameKind::Column
+        | RenameKind::Index
+        | RenameKind::Unique
+        | RenameKind::Check
+        | RenameKind::PrimaryKey
+        | RenameKind::ForeignKey => vec![
             schema,
             question.table.clone().unwrap_or_default(),
             name.to_string(),
