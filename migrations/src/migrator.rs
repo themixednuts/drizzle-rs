@@ -898,6 +898,57 @@ impl Migrations {
         }
     }
 
+    /// Returns the whole v0 → v1 tracking-table upgrade: an `ALTER TABLE` for
+    /// each of `name` / `applied_at` that is missing, then one
+    /// [`backfill_migration_metadata_sql`](Self::backfill_migration_metadata_sql)
+    /// per matched row.
+    ///
+    /// Run the statements in one transaction. Applied one by one, a crash
+    /// between the two `ALTER`s leaves a table that has `name` but no
+    /// `applied_at`, which every later run would then trip over.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use drizzle_migrations::Migrations;
+    /// use drizzle_types::Dialect;
+    ///
+    /// let set = Migrations::new(Vec::new(), Dialect::PostgreSQL);
+    /// let sql = set.tracking_upgrade_sql(true, false, &[]);
+    /// assert_eq!(sql.len(), 1);
+    /// assert!(sql[0].contains("ADD COLUMN \"applied_at\""));
+    /// ```
+    #[must_use]
+    pub fn tracking_upgrade_sql(
+        &self,
+        has_name: bool,
+        has_applied_at: bool,
+        matched: &[MatchedMigrationMetadata],
+    ) -> Vec<String> {
+        let table = self.table_ident();
+        let (name_column, applied_at_column) = match self.dialect {
+            Dialect::SQLite => ("\"name\" text", "\"applied_at\" TEXT"),
+            Dialect::PostgreSQL => (
+                "\"name\" TEXT",
+                "\"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
+            ),
+            Dialect::MySQL => ("`name` TEXT NULL", "`applied_at` TIMESTAMP NULL DEFAULT NULL"),
+        };
+        let mut statements = Vec::with_capacity(matched.len() + 2);
+        if !has_name {
+            statements.push(format!("ALTER TABLE {table} ADD COLUMN {name_column}"));
+        }
+        if !has_applied_at {
+            statements.push(format!("ALTER TABLE {table} ADD COLUMN {applied_at_column}"));
+        }
+        statements.extend(
+            matched
+                .iter()
+                .map(|row| self.backfill_migration_metadata_sql(row)),
+        );
+        statements
+    }
+
     /// Returns the `UPDATE` that backfills `name`/`applied_at` on a legacy
     /// tracking row.
     ///

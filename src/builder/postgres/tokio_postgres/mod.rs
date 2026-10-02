@@ -732,15 +732,18 @@ impl<Schema> Drizzle<Schema> {
             tracking,
         );
 
-        if let Some(schema_sql) = set.create_schema_sql() {
-            self.client.execute(&schema_sql, &[]).await?;
-        }
+        // Take the lock before creating anything: concurrent first runs
+        // otherwise race on `CREATE SCHEMA/TABLE IF NOT EXISTS`, which is not
+        // safe against concurrent creation in PostgreSQL.
         let lock_key = set.postgres_advisory_lock_key();
         self.client
             .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
             .await?;
 
         let result = async {
+            if let Some(schema_sql) = set.create_schema_sql() {
+                self.client.execute(&schema_sql, &[]).await?;
+            }
             ensure_postgres_migration_table(&self.client, &set).await?;
             let mut applied = repair_dirty_migrations(&self.client, &set, repair).await?;
 
@@ -842,14 +845,18 @@ async fn ensure_postgres_migration_table(
         .iter()
         .map(|row| row.try_get::<_, String>(0))
         .collect::<Result<Vec<_>, tokio_postgres::Error>>()?;
-    if column_names.iter().any(|column| column == "name") {
+    // Check each column: an earlier, non-transactional upgrade may have
+    // added `name` and died before adding `applied_at`.
+    let has_name = column_names.iter().any(|column| column == "name");
+    let has_applied_at = column_names.iter().any(|column| column == "applied_at");
+    if has_name && has_applied_at {
         return Ok(());
     }
 
     let rows = client
         .query(
             &format!(
-                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                "SELECT id::bigint, hash, created_at FROM {} ORDER BY id ASC",
                 set.table_ident_sql()
             ),
             &[],
@@ -869,30 +876,15 @@ async fn ensure_postgres_migration_table(
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
 
+    // One simple-query batch runs as a single implicit transaction, so the
+    // column additions and backfills land together or not at all.
+    let upgrade = set
+        .tracking_upgrade_sql(has_name, has_applied_at, &matched)
+        .join(";\n");
     client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"name\" TEXT",
-                set.table_ident_sql()
-            ),
-            &[],
-        )
-        .await?;
-    client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
-                set.table_ident_sql()
-            ),
-            &[],
-        )
-        .await?;
-
-    for row in matched {
-        client
-            .execute(&set.backfill_migration_metadata_sql(&row), &[])
-            .await?;
-    }
+        .batch_execute(&upgrade)
+        .await
+        .map_err(|e| pg_async_err("failed to upgrade the migrations tracking table", &e))?;
 
     Ok(())
 }
