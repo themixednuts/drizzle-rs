@@ -480,7 +480,10 @@ fn table_rename_keeps_the_primary_key_an_fk_depends_on() {
     posts(&mut cur, "accounts");
     let statements = db.apply(&prev, &cur, "INSERT INTO users VALUES (1);");
     // Like drizzle-kit, the implicitly named key keeps the name it has.
-    assert_eq!(statements, ["ALTER TABLE \"users\" RENAME TO \"accounts\";"]);
+    assert_eq!(
+        statements,
+        ["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
+    );
     let pk_name: String = db
         .client
         .query_one(
