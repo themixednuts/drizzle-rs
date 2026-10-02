@@ -18,6 +18,10 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
   - [Automatic: Generate from build.rs](#automatic-generate-from-buildrs)
   - [Applying Migrations](#applying-migrations)
   - [Push (Dev Only)](#push-dev-only)
+- [Porting from drizzle-orm (TypeScript)](#porting-from-drizzle-orm-typescript)
+  - [Keep the Migration History](#keep-the-migration-history)
+  - [What to Port by Hand](#what-to-port-by-hand)
+  - [Schema Cheat Sheet](#schema-cheat-sheet)
 - [Generated Models](#generated-models)
   - [Insert](#insert)
   - [Update](#update)
@@ -350,6 +354,101 @@ db.push(&schema)?;
 
 > [!CAUTION]
 > `push` is for local iteration only. It bypasses the migration tracking table and offers no audit trail. Never run it against a production database.
+
+## Porting from drizzle-orm (TypeScript)
+
+drizzle-kit records your TypeScript schema in every migration's snapshot, so
+`drizzle import` writes the Rust schema from those snapshots. It reads no
+TypeScript. Point it at the folder drizzle-kit writes to (`out` in
+`drizzle.config.ts`):
+
+```bash
+drizzle import ./drizzle                        # writes src/schema.rs
+drizzle import ./drizzle --out src/db/schema.rs
+drizzle import ./drizzle/meta/0007_snapshot.json --out -   # one snapshot, to stdout
+```
+
+It takes either migration layout drizzle-kit writes (`meta/_journal.json` from
+drizzle-kit 0.x, or one folder per migration from 1.x) and uses the newest
+snapshot. The dialect comes from the snapshot; `--dialect turso` imports a
+SQLite snapshot for Turso. The schema goes to `--out`, else the config's
+`schema`, else `src/schema.rs`, and an existing file is only replaced with
+`--force`. Field names are `snake_case` unless `--casing camel` (or
+`[introspect] casing` in the config) says otherwise; the SQL names are kept
+with `name = "..."` wherever they differ. The command prints what it could not
+express and the steps below.
+
+### Keep the Migration History
+
+drizzle-rs uses drizzle-kit's migration folders and tracking table, so the
+migrations you already ran stay applied:
+
+1. Point `out` in `drizzle.config.toml` at the existing folder (or pass
+   `--init-config` to `drizzle import` to write a starter config that does):
+
+   ```toml
+   dialect = "postgresql"
+   schema = "src/schema.rs"
+   out = "./drizzle"
+   ```
+
+2. If the folder has `meta/_journal.json` (drizzle-kit 0.x), convert it to the
+   folder layout with `drizzle up` (or pass `--upgrade` to `drizzle import`).
+   This moves the files in place; the SQL is not changed.
+3. `drizzle migrate` reads the `__drizzle_migrations` table drizzle-orm wrote
+   (in the `drizzle` schema on PostgreSQL) and runs only migrations that are
+   not recorded there. If `drizzle.config.ts` set `migrations.table` or
+   `migrations.schema`, set the same under `[migrations]`.
+4. `drizzle generate` should now report no changes. From here on, edit the
+   Rust schema and generate migrations as usual.
+
+### What to Port by Hand
+
+Snapshots describe the database, not the TypeScript around it:
+
+- `relations()`: drizzle-rs derives relations from foreign keys. A
+  `#[column(references = Users::id)]` gives `posts.author()` and
+  `users.posts()` in the relational query API; `relation = "..."` renames the
+  reverse side.
+- `$type<T>()` and column modes (`{ mode: 'json' | 'timestamp' | 'bigint' }`):
+  fields get the column's storage type. Switch to your Rust type, for example
+  `#[column(json)]` with a `serde` type, or an enum deriving `SQLiteEnum`.
+- `$default()`, `$defaultFn()`, `$onUpdate()`: values computed in JavaScript.
+  Use `#[column(default_fn = path)]` or set them in code.
+- `customType()`: the column keeps its SQL type; give it a Rust type that
+  implements the dialect's column trait (`DrizzlePostgresColumn` and friends).
+- PostgreSQL sequences, `numeric` and `interval` columns, and index ordering
+  (`.desc()`, `.nullsFirst()`) have no Rust schema equivalent yet; the import
+  warns about each one, and `drizzle generate` would drop or change them.
+
+### Schema Cheat Sheet
+
+| drizzle-orm | drizzle-rs |
+|---|---|
+| `sqliteTable('users', {...})`, `pgTable(...)`, `mysqlTable(...)` | `#[SQLiteTable]`, `#[PostgresTable]`, `#[MySQLTable]` on a struct; `name = "..."` when the table is not the struct name in `snake_case` |
+| `pgSchema('auth').table(...)` | `#[PostgresTable(schema = "auth")]` |
+| `text('created_at')` with a different key | a field plus `#[column(name = "created_at")]` |
+| `.notNull()` / nullable | a plain field / `Option<T>` |
+| `.primaryKey()` | `#[column(primary)]` |
+| `primaryKey({ columns: [t.a, t.b], name })` | `#[column(primary)]` on each field; on PostgreSQL `#[PostgresTable(primary_key(name = "..."))]` |
+| `integer().primaryKey({ autoIncrement: true })` | `#[column(primary, autoincrement)]` (SQLite), `#[column(primary, auto_increment)]` (MySQL) |
+| `serial()`, `bigserial()` | `#[column(serial)]` on `i32`, `#[column(bigserial)]` on `i64` (PostgreSQL); `#[column(serial)]` on `u64` (MySQL) |
+| `.generatedAlwaysAsIdentity({ startWith: 100 })` | `#[column(identity(always, start = 100))]`, `identity(by_default)` |
+| `.default('member')`, `.defaultNow()`, `` .default(sql`...`) `` | `#[column(default = "member")]`, `#[column(default = now())]`, `#[column(default = expression)]` |
+| `.unique()` | `#[column(unique)]` |
+| `unique('name').on(t.a, t.b)` | `#[...Table(unique(columns(a, b), name = "name"))]` |
+| `.references(() => users.id, { onDelete: 'cascade' })` | `#[column(references = Users::id, on_delete = CASCADE)]`; on PostgreSQL `fk_name = "..."` keeps a constraint name |
+| `foreignKey({ columns, foreignColumns, name })` | `#[...Table(foreign_key(columns(a, b), references(Parent, x, y), on_delete = "CASCADE"))]`; `name = "..."` on PostgreSQL and MySQL |
+| `index('name').on(t.a)`, `uniqueIndex(...)` | `#[SQLiteIndex] pub struct UsersEmailIdx(Users::email);` and `#[PostgresIndex(unique)]`, `#[MySQLIndex(unique)]`; `where = "..."` for partial indexes |
+| ``check('name', sql`...`)`` | `#[...Table(check(name = "name", expr = "..."))]` or `#[column(check = "...")]` |
+| ``.generatedAlwaysAs(sql`...`)`` | `#[column(generated(stored, "expr"))]` or `generated(virtual, "expr")` |
+| `pgEnum('role', ['admin', 'member'])` | `#[derive(PostgresEnum)]` on an enum whose name and variants are the SQL type and values, and `#[column(enum)]` on the field; `#[postgres_enum(schema = "auth")]` for another schema |
+| `mysqlEnum('role', [...])` | `#[derive(MySQLEnum)]` and `#[column(ENUM)]` |
+| `text({ enum: [...] })` (SQLite) | `#[derive(SQLiteEnum)]` and `#[column(enum)]`, or keep a `String` |
+| `json()`, `jsonb()` | `#[column(json)]` / `#[column(jsonb)]` with a `serde` type (`serde_json::Value` maps to `JSONB`) |
+| `pgView('v').as(...)`, `sqliteView`, `mysqlView` | `#[PostgresView(definition = "...")]` (`materialized` for `pgMaterializedView`), `#[SQLiteView(...)]`, `#[MySQLView(...)]` on a struct with the view's columns |
+| `relations(...)` | not needed; see above |
+| `drizzle(client, { schema })` | `#[derive(SQLiteSchema)]` / `PostgresSchema` / `MySQLSchema` on a struct listing the tables, enums, indexes and views |
 
 ## Generated Models
 
@@ -1574,6 +1673,7 @@ Other useful commands:
 | `drizzle check` | Validate config |
 | `drizzle export` | Print schema as raw SQL |
 | `drizzle up` | Upgrade migration snapshots to the latest format |
+| `drizzle import <folder>` | Write the Rust schema of a drizzle-orm (TypeScript) project from its drizzle-kit snapshots (see [Porting from drizzle-orm](#porting-from-drizzle-orm-typescript)) |
 
 `drizzle pull` is an alias for `introspect`. Commands that read the config accept `-c <path>` for a custom config file and `--db <name>` for multi-database configs.
 
