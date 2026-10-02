@@ -7,6 +7,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/themixednuts/drizzle-rs/compare/v0.2.1...v0.3.0) - 2026-10-02
+
+### Added
+
+- *(cli)* ask about PostgreSQL constraint renames like drizzle-kit
+- *(cli)* add drizzle import
+- *(macros)* name foreign keys and primary keys
+- *(postgres)* introspect only the schemas named
+- *(cli)* add `drizzle seed`
+- *(seed)* seed from snapshots and live databases; write seeds as SQL
+- *(seed)* runtime schema builder and name-based settings
+- *(seed)* generators module, plain row output, SeedValue conversions
+- *(core)* record enum variants in column metadata
+- reject out-of-scope columns and non-Option outer-join decodes at compile time
+- *(migrations)* list rename-or-create questions and allow turning off rename inference
+- *(seed)* [**breaking**] infer titles, URLs, usernames and slugs; seed reserved email domains
+- *(cli)* ask about ambiguous renames in generate and push like drizzle-kit
+
+### Changed
+
+- *(cli)* share schema codegen, summary, and the init template
+
+### Documentation
+
+- port drizzle-orm projects with drizzle import
+- document rename prompts and hints for the CLI
+- document migration transaction scope and branch merges
+- *(core)* attach two doc comments to their items
+- finish doc-comment audit across the remaining crates
+- audit and rewrite doc comments (partial)
+- wip doc-comment audit checkpoint
+- write PostgreSQL enum types quoted, as the derive now creates them
+
+### Fixed
+
+- *(migrations)* keep implicit PostgreSQL constraint names like drizzle-kit
+- *(macros)* quote and qualify PostgreSQL enum types and FK targets
+- *(mysql)* run migration SQL over the text protocol
+- *(postgres)* run migration chunks whole and report server errors
+- *(postgres)* lock before tracking setup and upgrade it atomically
+- *(migrations)* count drizzle-orm-upgraded tracking rows as applied
+- *(macros)* name MySQL CREATE TABLE constraints like the snapshot
+- *(macros)* keep derived MySQL foreign-key names within 64 characters
+- *(migrations)* parenthesize MySQL expression-only and function defaults
+- *(migrations)* read SQLite CHECK constraints, collations and constraint names on introspection
+- *(seed)* leave defaulted columns out of SQLite INSERTs
+- *(sqlite)* build without std; check every no_std crate in CI
+- *(seed)* drop rows that repeat a composite key
+- *(seed)* generate values each column can hold, on every dialect
+- *(core)* keep outer-join decode candidates out of unrelated errors
+- *(macros)* keep derived names on unnamed MySQL composite foreign keys
+- *(migrations)* generate schemas that keep what a snapshot says
+- *(types)* do not quote role keywords in PostgreSQL policies
+- *(migrations)* never create or drop the PostgreSQL public schema
+- *(sqlite)* keep NOT NULL on primary keys that don't alias the rowid
+- *(sqlite)* round-trip chrono and time durations through text
+- *(migrations)* diff drizzle-kit snapshots without spurious changes
+- *(migrations)* read MySQL snapshots written by drizzle-kit
+- *(migrations)* write hinted PostgreSQL renames like drizzle-kit
+- *(cli)* compare PostgreSQL expressions the way push does
+- *(migrations)* recreate PostgreSQL enums before new tables and columns use them
+- *(migrations)* warn when a column default uses an enum value added in the same migration
+- *(migrations)* treat declared PostgreSQL enums as enums in the schema parser
+- *(migrations)* keep default-named PostgreSQL constraints across renames
+- *(migrations)* make PostgreSQL push of an unchanged schema a no-op
+- *(migrations)* order PostgreSQL statements by dependency and fix column alters
+- *(migrations)* diff against every branch after a git merge
+- *(cli)* name `drizzle up` folders the way drizzle-kit does
+- *(migrations)* split breakpoint files only on markers
+- *(migrations)* match legacy tracking rows at second precision
+- *(migrations)* treat introspected ENFORCED checks as the default
+- *(migrations)* compare MySQL catalog definitions by meaning during push
+- *(migrations)* keep rename-related column steps out of MySQL key batches
+- *(migrations)* reconcile MySQL character sets and convert inheriting columns
+- *(migrations)* handle the indexes InnoDB creates for foreign keys
+- *(migrations)* apply MySQL AUTO_INCREMENT key changes in one ALTER TABLE
+- *(migrations)* order MySQL column drops and adds by generated dependencies
+- *(migrations)* declare MySQL AUTO_INCREMENT secondary keys in CREATE TABLE
+- *(migrations)* accurate MySQL warning for new NOT NULL columns
+- *(migrations)* manage MySQL column UNIQUE as index steps
+- *(migrations)* normalize introspected MySQL defaults and expressions
+- *(migrations)* stop rewriting current MySQL definitions on column renames
+- *(migrations)* render parsed numeric defaults as decimal SQL
+- *(migrations)* write every SQLite change the snapshot records
+- *(migrations)* keep the SQLite AUTOINCREMENT counter across a rebuild
+- *(migrations)* rebuild SQLite tables for columns ADD COLUMN cannot add
+- *(migrations)* SQLite view rename without IF EXISTS; escape backticks; keep FK actions
+- *(migrations)* compare SQLite defaults by what the column stores
+- *(migrations)* SQLite renames, views and drops that broke migrations
+- *(types)* treat drizzle-kit's parenthesized MySQL defaults as their bare form
+- *(seed)* bind PostgreSQL integers at the column's width
+
+### Other
+
+- AggOr/NullOr/NullAnd become GATs on AggregateKind/Nullability; drop AggToStatus, NamedExt, HasPrimaryKey, SQLPrimaryKey, MySQLIndexMetadata; one RelationalPreparedDriver
+- DialectSupports<Feature> replaces 14 *Support traits; Count/Float/Random/Sign/CharLength/DomainMath policies fold into DialectTypes
+- EXISTS takes only a SELECT query
+- typed pg array/json/ilike/regex operands; set operands, subqueries and derived tables reject DML; Compound/Source clauses replace Completed/SetOperation
+- one ClauseAllowed<Clause> trait replaces per-clause state traits; Decoded GAT replaces WidenNullable; drop JoinKind/ReadsWithin
+- strict checks on rows() and scope/aggregate checks for d1, durable, aws data api
+- statement scope checks for update/delete/insert/returning and relational where
+- clause scope UI tests, deterministic table lookup diagnostics
+- track expression sources and check clause scope
+- alias-tagged columns, bound-free scope markers
+- dialect order terms, set operands, derived scope
+- Merge remote-tracking branch 'origin/main' into claude/blissful-edison-fulq4x
+
 ## [0.2.1](https://github.com/themixednuts/drizzle-rs/compare/v0.2.0...v0.2.1) - 2026-09-24
 
 ### Fixed
