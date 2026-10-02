@@ -539,6 +539,10 @@ url = '{db_url}'
             "public",
             "--extensionsFilters",
             "postgis",
+            // The database's tables are dropped and `users` is new; say so,
+            // since a run without a terminal does not ask.
+            "--hints",
+            r#"[{"type":"create","kind":"table","entity":["public","users"]}]"#,
         ])
         .assert()
         .success()

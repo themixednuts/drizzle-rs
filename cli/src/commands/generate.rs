@@ -47,6 +47,9 @@ pub struct GenerateOptions {
     /// the newest snapshot instead of failing
     #[arg(long)]
     pub ignore_conflicts: bool,
+
+    #[command(flatten)]
+    pub hints: crate::commands::renames::HintArgs,
 }
 
 /// Runs `drizzle generate`: diffs the schema files against the newest
@@ -64,14 +67,20 @@ pub struct GenerateOptions {
 /// `migrations.js` when bundling is enabled. Does not connect to the
 /// database.
 ///
+/// Ambiguous renames are asked about on a terminal and otherwise answered
+/// from `--hints` / `--hints-file`; renames are never inferred (see
+/// [`renames`](crate::commands::renames)).
+///
 /// # Errors
 ///
 /// Returns [`CliError`] if `db_name` does not match the config, the folder
 /// still uses the legacy `meta/_journal.json` layout (run `drizzle up`), no
 /// schema files are found or they have parse errors, merged migration
-/// branches conflict (unless `--ignore-conflicts`), the diff fails, or the
-/// migration folder cannot be written (including when its tag already
-/// exists).
+/// branches conflict (unless `--ignore-conflicts`), the hints are invalid
+/// ([`CliError::InvalidHints`]) or leave a rename question unanswered without
+/// a terminal ([`CliError::MissingHints`]), a prompt is aborted, the diff
+/// fails, or the migration folder cannot be written (including when its tag
+/// already exists).
 pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Result<(), CliError> {
     use drizzle_migrations::naming::{PrefixMode, generate_migration_tag_with_mode};
 
@@ -158,8 +167,14 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
                 conflicts => CliError::MigrationError(conflicts.to_string()),
             })?;
 
-    // Generate diff
-    let mut generated = generate_diff(&merge_base.snapshot, &current_snapshot)?;
+    // Ask (or read hints) about ambiguous renames, then diff with the answers.
+    let options = crate::commands::renames::resolve_for_command(
+        &merge_base.snapshot,
+        &current_snapshot,
+        drizzle_migrations::DiffOptions::new(),
+        &opts.hints,
+    )?;
+    let mut generated = generate_diff(&merge_base.snapshot, &current_snapshot, &options)?;
     if let Some(prev_ids) = merge_base.prev_ids {
         println!(
             "  {} {} migration branches",
@@ -450,8 +465,9 @@ fn map_migration_error(error: drizzle_migrations::MigrationError) -> CliError {
 fn generate_diff(
     prev: &drizzle_migrations::schema::Snapshot,
     current: &drizzle_migrations::schema::Snapshot,
+    options: &drizzle_migrations::DiffOptions,
 ) -> Result<drizzle_migrations::Plan, CliError> {
-    drizzle_migrations::diff(prev, current).map_err(map_migration_error)
+    drizzle_migrations::diff_with(prev, current, options).map_err(map_migration_error)
 }
 
 #[cfg(test)]

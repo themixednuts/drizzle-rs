@@ -113,6 +113,11 @@ fn main() -> ExitCode {
 
     match result {
         Ok(()) => ExitCode::SUCCESS,
+        // drizzle-kit prints unresolved decisions to stdout and exits with 2.
+        Err(CliError::MissingHints(report)) => {
+            print!("{report}");
+            ExitCode::from(2)
+        }
         Err(e) => {
             let msg = e.to_string();
             eprintln!("{}", output::err_line(&msg));

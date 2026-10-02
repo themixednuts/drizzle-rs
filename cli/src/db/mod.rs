@@ -183,6 +183,40 @@ pub fn plan_push(
     filters: &SnapshotFilters,
     migrations_table: &str,
 ) -> Result<PushPlan, CliError> {
+    plan_push_with_renames(
+        connection,
+        desired,
+        breakpoints,
+        filters,
+        migrations_table,
+        &mut |_, _, options| Ok(options),
+    )
+}
+
+/// [`plan_push`] that lets `resolve_renames` settle rename-or-create
+/// questions before diffing.
+///
+/// `resolve_renames` gets the live snapshot (after filtering), the desired
+/// snapshot, and the diff options, and returns the options to diff with,
+/// typically from
+/// [`renames::resolve_for_command`](crate::commands::renames::resolve_for_command).
+/// [`plan_push`] passes the options through, so the diff infers renames.
+///
+/// # Errors
+///
+/// Returns the errors of [`plan_push`] and of `resolve_renames`.
+pub fn plan_push_with_renames(
+    connection: &ResolvedConnection,
+    desired: &Snapshot,
+    breakpoints: bool,
+    filters: &SnapshotFilters,
+    migrations_table: &str,
+    resolve_renames: &mut dyn FnMut(
+        &Snapshot,
+        &Snapshot,
+        drizzle_migrations::DiffOptions,
+    ) -> Result<drizzle_migrations::DiffOptions, CliError>,
+) -> Result<PushPlan, CliError> {
     let introspected = introspect_database(connection)?;
     let mut current = introspected.snapshot;
     exclude_tracking_table(&mut current, connection.dialect, migrations_table)?;
@@ -196,6 +230,8 @@ pub fn plan_push(
     if let Some(defaults) = introspected.mysql_catalog_defaults {
         options = options.mysql_catalog_defaults(defaults);
     }
+    // Ask about renames on exactly the snapshots the diff compares.
+    let options = resolve_renames(&current, desired, options)?;
     let (sql_statements, warnings) = generate_push_sql(&current, desired, breakpoints, &options)?;
     let destructive = push_requires_confirmation(connection.dialect, &sql_statements, &warnings);
 
