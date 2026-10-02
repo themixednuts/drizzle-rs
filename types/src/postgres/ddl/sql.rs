@@ -69,15 +69,20 @@ fn index_column_sql(column: &IndexColumn) -> String {
         let _ = write!(sql, " {op}");
     }
 
-    if !column.asc {
-        sql.push_str(" DESC");
-    }
-
-    if column.nulls_first {
-        sql.push_str(" NULLS FIRST");
-    }
+    sql.push_str(nulls_order_sql(column.asc, column.nulls_first));
 
     sql
+}
+
+/// `DESC` and the NULLS order when it differs from the direction's default
+/// (`ASC NULLS LAST`, `DESC NULLS FIRST`).
+const fn nulls_order_sql(asc: bool, nulls_first: bool) -> &'static str {
+    match (asc, nulls_first) {
+        (true, false) => "",
+        (true, true) => " NULLS FIRST",
+        (false, true) => " DESC",
+        (false, false) => " DESC NULLS LAST",
+    }
 }
 
 // =============================================================================
@@ -671,13 +676,7 @@ impl IndexColumnDef {
             let _ = write!(sql, " {op}");
         }
 
-        if !self.asc {
-            sql.push_str(" DESC");
-        }
-
-        if self.nulls_first {
-            sql.push_str(" NULLS FIRST");
-        }
+        sql.push_str(nulls_order_sql(self.asc, self.nulls_first));
 
         sql
     }
@@ -971,8 +970,14 @@ impl Policy {
             let to_roles = to
                 .iter()
                 .map(|r| {
-                    if r.eq_ignore_ascii_case("public") {
-                        "PUBLIC".to_string()
+                    // `PUBLIC` and the role-name functions are keywords, not
+                    // role identifiers: quoting them names a role that does
+                    // not exist.
+                    if ["public", "current_user", "current_role", "session_user"]
+                        .iter()
+                        .any(|keyword| r.eq_ignore_ascii_case(keyword))
+                    {
+                        r.to_ascii_uppercase()
                     } else {
                         quote_ident(r)
                     }
@@ -1236,6 +1241,22 @@ mod tests {
         assert_eq!(
             policy.create_policy_sql(),
             "CREATE POLICY \"users_policy\" ON \"users\" AS PERMISSIVE TO PUBLIC;"
+        );
+    }
+
+    #[test]
+    fn test_policy_role_keywords_are_not_quoted() {
+        let mut policy = Policy::new("public", "users", "own_rows");
+        policy.to = Some(vec![
+            Cow::Borrowed("current_user"),
+            Cow::Borrowed("session_user"),
+            Cow::Borrowed("CURRENT_ROLE"),
+            Cow::Borrowed("app_user"),
+        ]);
+
+        assert_eq!(
+            policy.create_policy_sql(),
+            "CREATE POLICY \"own_rows\" ON \"users\" AS PERMISSIVE TO CURRENT_USER, SESSION_USER, CURRENT_ROLE, \"app_user\";"
         );
     }
 }

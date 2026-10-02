@@ -322,6 +322,9 @@ impl Snapshot<PostgresEntity> {
     ///    standalone sequence) is not mistaken for a serial column
     /// 4. Scope sequences to the ones `desired` declares (unmanaged
     ///    standalone sequences must be left alone, not dropped)
+    /// 5. Ignore the expression-formatting and derived-name differences
+    ///    drizzle-kit ignores in push mode (see
+    ///    `align_push_insensitive_fields`)
     #[must_use]
     pub fn prepare_for_push(&self, desired: &Self) -> Self {
         let tables = desired.table_names();
@@ -331,7 +334,181 @@ impl Snapshot<PostgresEntity> {
         scoped.normalize_columns_for_push();
         scoped.retain_sequences(&managed);
         scoped.retain_roles_declared_by(desired);
+        scoped.align_push_insensitive_fields(desired);
         scoped
+    }
+
+    /// Ignore, for push, the differences drizzle-kit ignores in push mode.
+    ///
+    /// `PostgreSQL` stores SQL expressions in its own canonical form (view
+    /// definitions, check constraints, policy `USING` / `WITH CHECK`,
+    /// generated columns, partial-index predicates and index expressions
+    /// come back reformatted, re-parenthesized and with added casts), so
+    /// comparing them with the schema's text would rewrite the object on
+    /// every push. Where both sides have such an expression, the live one
+    /// takes the desired text. Constraint and index names the database
+    /// chose are kept the same way when exactly one desired entity with a
+    /// derived name matches (drizzle-kit `preserveEntityNames` in push
+    /// mode).
+    ///
+    /// [`prepare_for_push`](Self::prepare_for_push) runs this; call it on
+    /// its own to compare a whole live database (no narrowing to `desired`'s
+    /// tables) the way push does.
+    pub fn align_push_insensitive_fields(&mut self, desired: &Self) {
+        use crate::postgres::collection::{
+            foreign_keys_equivalent, indexes_equivalent, pks_equivalent, uniques_equivalent,
+        };
+        use crate::postgres::ddl::{Generated, Index};
+
+        let desired_ddl =
+            crate::postgres::collection::PostgresDDL::from_entities(desired.ddl.clone());
+        let copy_if_both =
+            |live: &mut Option<std::borrow::Cow<'static, str>>,
+             wanted: Option<&std::borrow::Cow<'static, str>>| {
+                if live.is_some()
+                    && let Some(wanted) = wanted
+                {
+                    *live = Some(wanted.clone());
+                }
+            };
+        /// The single desired entity with a derived name that matches
+        /// `live` apart from its name.
+        fn single_match<'d, T>(
+            live: &T,
+            desired: &'d [T],
+            same_but_name: impl Fn(&T, &T) -> bool,
+            explicit: impl Fn(&T) -> bool,
+        ) -> Option<&'d T> {
+            let mut matches = desired
+                .iter()
+                .filter(|d| !explicit(d) && same_but_name(live, d));
+            let found = matches.next()?;
+            matches.next().is_none().then_some(found)
+        }
+
+        for entity in &mut self.ddl {
+            match entity {
+                PostgresEntity::View(view) => {
+                    if let Some(wanted) = desired_ddl.views.one(&view.schema, &view.name) {
+                        copy_if_both(&mut view.definition, wanted.definition.as_ref());
+                    }
+                }
+                PostgresEntity::CheckConstraint(check) => {
+                    if let Some(wanted) = desired_ddl
+                        .checks
+                        .for_table(&check.schema, &check.table)
+                        .into_iter()
+                        .find(|c| c.name == check.name)
+                    {
+                        check.value = wanted.value.clone();
+                    }
+                }
+                PostgresEntity::Policy(policy) => {
+                    if let Some(wanted) =
+                        desired_ddl
+                            .policies
+                            .one(&policy.schema, &policy.table, &policy.name)
+                    {
+                        copy_if_both(&mut policy.using, wanted.using.as_ref());
+                        copy_if_both(&mut policy.with_check, wanted.with_check.as_ref());
+                    }
+                }
+                PostgresEntity::Column(column) => {
+                    if let Some(wanted) =
+                        desired_ddl
+                            .columns
+                            .one(&column.schema, &column.table, &column.name)
+                        && let (Some(live), Some(wanted)) =
+                            (column.generated.as_mut(), wanted.generated.as_ref())
+                    {
+                        *live = Generated {
+                            expression: wanted.expression.clone(),
+                            gen_type: live.gen_type,
+                        };
+                    }
+                }
+                PostgresEntity::Index(index) => {
+                    let candidates = desired_ddl.indexes.for_table(&index.schema, &index.table);
+                    if !candidates.iter().any(|d| d.name == index.name) {
+                        let owned: Vec<Index> = candidates.iter().map(|i| (*i).clone()).collect();
+                        if let Some(wanted) = single_match(
+                            index,
+                            &owned,
+                            |live, wanted| {
+                                let mut live = live.clone();
+                                live.name.clone_from(&wanted.name);
+                                indexes_equivalent(&live, wanted)
+                            },
+                            |i| i.name_explicit,
+                        ) {
+                            index.name.clone_from(&wanted.name);
+                        }
+                    }
+                    if let Some(wanted) = desired_ddl.indexes.one(&index.schema, &index.name) {
+                        copy_if_both(&mut index.where_clause, wanted.where_clause.as_ref());
+                        if index.columns.len() == wanted.columns.len() {
+                            for (live, wanted) in index.columns.iter_mut().zip(&wanted.columns) {
+                                if live.is_expression && wanted.is_expression {
+                                    live.value.clone_from(&wanted.value);
+                                }
+                            }
+                        }
+                    }
+                }
+                PostgresEntity::PrimaryKey(pk) => {
+                    if desired_ddl.pks.one(&pk.schema, &pk.name).is_none()
+                        && let Some(wanted) = single_match(
+                            pk,
+                            desired_ddl.pks.list(),
+                            |live, wanted| {
+                                let mut live = live.clone();
+                                live.name.clone_from(&wanted.name);
+                                pks_equivalent(&live, wanted)
+                            },
+                            |p| p.name_explicit,
+                        )
+                    {
+                        pk.name.clone_from(&wanted.name);
+                    }
+                }
+                PostgresEntity::UniqueConstraint(unique) => {
+                    if desired_ddl
+                        .uniques
+                        .one(&unique.schema, &unique.name)
+                        .is_none()
+                        && let Some(wanted) = single_match(
+                            unique,
+                            desired_ddl.uniques.list(),
+                            |live, wanted| {
+                                let mut live = live.clone();
+                                live.name.clone_from(&wanted.name);
+                                uniques_equivalent(&live, wanted)
+                            },
+                            |u| u.name_explicit,
+                        )
+                    {
+                        unique.name.clone_from(&wanted.name);
+                    }
+                }
+                PostgresEntity::ForeignKey(fk) => {
+                    if desired_ddl.fks.one(&fk.schema, &fk.name).is_none()
+                        && let Some(wanted) = single_match(
+                            fk,
+                            desired_ddl.fks.list(),
+                            |live, wanted| {
+                                let mut live = live.clone();
+                                live.name.clone_from(&wanted.name);
+                                foreign_keys_equivalent(&live, wanted)
+                            },
+                            |f| f.name_explicit,
+                        )
+                    {
+                        fk.name.clone_from(&wanted.name);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Keeps only the live roles (and the privileges granted to them) that
@@ -703,6 +880,82 @@ mod tests {
             col.default.is_some(),
             "explicit nextval default must remain"
         );
+    }
+
+    #[test]
+    fn prepare_for_push_ignores_reformatted_expressions_and_database_names() {
+        use crate::postgres::ddl::{
+            CheckConstraint, Generated, GeneratedType, Policy, UniqueConstraint, View,
+        };
+        use std::borrow::Cow;
+
+        let generated = |expression: &'static str| Generated {
+            expression: Cow::Borrowed(expression),
+            gen_type: GeneratedType::Stored,
+        };
+
+        // As introspected: PostgreSQL's own spelling of every expression,
+        // and the name it gave the unique constraint.
+        let mut live = PostgresSnapshot::new();
+        live.add_entity(make_table("public", "users"));
+        let mut total = make_column("public", "users", "total", "int4");
+        total.generated = Some(generated("(price * 2)"));
+        live.add_entity(PostgresEntity::Column(total));
+        live.add_entity(PostgresEntity::CheckConstraint(CheckConstraint::new(
+            "public",
+            "users",
+            "users_status_check",
+            "CHECK ((status <> 'bad'::text))",
+        )));
+        let mut policy = Policy::new("public", "users", "own");
+        policy.using = Some(Cow::Borrowed("(owner = CURRENT_USER)"));
+        live.add_entity(PostgresEntity::Policy(policy));
+        let mut view = View::new("public", "v");
+        view.definition = Some(Cow::Borrowed(" SELECT users.total\n   FROM users;"));
+        live.add_entity(PostgresEntity::View(view));
+        live.add_entity(PostgresEntity::UniqueConstraint(
+            UniqueConstraint::from_strings(
+                "public".into(),
+                "users".into(),
+                "users_total_key".into(),
+                vec!["total".into()],
+            ),
+        ));
+
+        // As the schema declares it.
+        let mut desired = PostgresSnapshot::new();
+        desired.add_entity(make_table("public", "users"));
+        let mut total = make_column("public", "users", "total", "integer");
+        total.generated = Some(generated("price * 2"));
+        desired.add_entity(PostgresEntity::Column(total));
+        desired.add_entity(PostgresEntity::CheckConstraint(CheckConstraint::new(
+            "public",
+            "users",
+            "users_status_check",
+            "status <> 'bad'",
+        )));
+        let mut policy = Policy::new("public", "users", "own");
+        policy.using = Some(Cow::Borrowed("owner = current_user"));
+        desired.add_entity(PostgresEntity::Policy(policy));
+        let mut view = View::new("public", "v");
+        view.definition = Some(Cow::Borrowed("select total from users"));
+        desired.add_entity(PostgresEntity::View(view));
+        let mut unique = UniqueConstraint::from_strings(
+            "public".into(),
+            "users".into(),
+            "users_total_unique".into(),
+            vec!["total".into()],
+        );
+        unique.name_explicit = false;
+        desired.add_entity(PostgresEntity::UniqueConstraint(unique));
+
+        let live = live.prepare_for_push(&desired);
+        let plan = crate::diff(
+            &crate::schema::Snapshot::Postgres(live),
+            &crate::schema::Snapshot::Postgres(desired),
+        )
+        .expect("diff");
+        assert!(plan.statements.is_empty(), "{:#?}", plan.statements);
     }
 
     #[test]

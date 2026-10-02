@@ -1,6 +1,6 @@
 //! PostgreSQL migration statements and their SQL rendering.
 
-use super::collection::{DiffType, EntityDiff, PostgresDDL};
+use super::collection::{DiffType, EntityDiff, PostgresDDL, normalize_expression};
 use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, Policy, PostgresEntity, PrimaryKey, Role,
     Schema, Sequence, Table, TableSql, UniqueConstraint, View,
@@ -52,6 +52,7 @@ pub enum JsonStatement {
         column: Box<Column>,
     },
     AlterColumn {
+        from: Box<Column>,
         to: Box<Column>,
         #[serde(rename = "wasEnum")]
         was_enum: bool,
@@ -62,6 +63,20 @@ pub enum JsonStatement {
     RenameColumn {
         from: Box<Column>,
         to: Box<Column>,
+    },
+    /// `ALTER TABLE ... RENAME CONSTRAINT` (keys and foreign keys whose
+    /// derived name follows a table or column rename).
+    RenameConstraint {
+        schema: String,
+        table: String,
+        from: String,
+        to: String,
+    },
+    /// `ALTER INDEX ... RENAME TO`.
+    RenameIndex {
+        schema: String,
+        from: String,
+        to: String,
     },
     CreateIndex {
         index: Index,
@@ -200,8 +215,12 @@ pub enum JsonStatement {
     RecreateEnum {
         old_enum: Enum,
         new_enum: Enum,
-        /// Columns (from the current schema) whose type is this enum.
+        /// Columns typed with the enum before the migration; converted to
+        /// text while the type is recreated.
         columns: Vec<Column>,
+        /// Columns typed with the enum after the migration; converted back
+        /// and given their default.
+        restore: Vec<Column>,
     },
 }
 
@@ -322,6 +341,487 @@ fn rich_table_to_table(table: &RichTable) -> Table {
 }
 
 // =============================================================================
+// Generation context
+// =============================================================================
+
+/// Constraints and indexes that disappear with a column that is dropped and
+/// re-added (a column becoming generated, or changing its expression), and
+/// must be put back afterwards (drizzle-kit `recreate_column` parity).
+#[derive(Default)]
+struct RecreateExtras {
+    /// FKs that reference a recreated column: dropped before the column.
+    drop_fks: Vec<ForeignKey>,
+    create_indexes: Vec<Index>,
+    add_uniques: Vec<UniqueConstraint>,
+    add_pks: Vec<PrimaryKey>,
+    create_fks: Vec<ForeignKey>,
+    /// Keys (`schema.name`) of indexes/constraints the recreation removes
+    /// that also have an alter diff: their recreate renders the create half
+    /// only.
+    implicitly_dropped: HashSet<(EntityKind, String)>,
+}
+
+struct GenContext<'a> {
+    diff: &'a [EntityDiff],
+    index: DiffIndex<'a>,
+    prev: Option<&'a PostgresDDL>,
+    cur: Option<&'a PostgresDDL>,
+    created_tables: Vec<String>,
+    dropped_tables: Vec<String>,
+    recreate: RecreateExtras,
+    /// Columns (`schema.table.name`) an enum recreation converts back to
+    /// the enum and gives their default; their own alter skips the default.
+    enum_restored_columns: HashSet<String>,
+}
+
+fn column_key(column: &Column) -> String {
+    format!("{}.{}.{}", column.schema, column.table, column.name)
+}
+
+impl<'a> GenContext<'a> {
+    fn new(
+        diff: &'a [EntityDiff],
+        prev: Option<&'a PostgresDDL>,
+        cur: Option<&'a PostgresDDL>,
+    ) -> Self {
+        let created_tables = diff
+            .iter()
+            .filter(|d| d.diff_type == DiffType::Create && d.kind == EntityKind::Table)
+            .map(|d| d.name.clone())
+            .collect();
+        let dropped_tables = diff
+            .iter()
+            .filter(|d| d.diff_type == DiffType::Drop && d.kind == EntityKind::Table)
+            .map(|d| d.name.clone())
+            .collect();
+        let mut ctx = Self {
+            diff,
+            index: DiffIndex::new(diff),
+            prev,
+            cur,
+            created_tables,
+            dropped_tables,
+            recreate: RecreateExtras::default(),
+            enum_restored_columns: HashSet::new(),
+        };
+        ctx.recreate = ctx.collect_recreate_extras();
+        ctx.enum_restored_columns = ctx.collect_enum_restored_columns();
+        ctx
+    }
+
+    fn diff_for(&self, kind: EntityKind, key: &str) -> Option<DiffType> {
+        self.diff
+            .iter()
+            .find(|d| d.kind == kind && d.name == key)
+            .map(|d| d.diff_type)
+    }
+
+    fn on_dropped_table(&self, d: &EntityDiff) -> bool {
+        Generator::get_parent_table_key(d).is_some_and(|key| self.dropped_tables.contains(&key))
+    }
+
+    fn on_created_table(&self, d: &EntityDiff) -> bool {
+        Generator::get_parent_table_key(d).is_some_and(|key| self.created_tables.contains(&key))
+    }
+
+    /// drizzle-kit keeps an FK drop unless its table is dropped while the
+    /// referenced table survives (`DROP TABLE` removes it then). FKs
+    /// between two dropped tables are dropped first, which makes the order
+    /// of the table drops irrelevant.
+    fn keep_fk_drop(&self, fk: &ForeignKey) -> bool {
+        let from_dropped = self
+            .dropped_tables
+            .contains(&Generator::table_key(&fk.schema, &fk.table));
+        let to_dropped = (fk.schema != fk.schema_to || fk.table != fk.table_to)
+            && self
+                .dropped_tables
+                .contains(&Generator::table_key(&fk.schema_to, &fk.table_to));
+        !(from_dropped && !to_dropped)
+    }
+
+    fn sorted_drops(&self) -> Vec<String> {
+        topological_sort_tables_for_drop(&self.dropped_tables, self.diff)
+    }
+
+    fn is_enum_recreate(&self, d: &EntityDiff) -> bool {
+        matches!(
+            (&d.left, &d.right),
+            (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new)))
+                if old.values != new.values
+                    && !Generator::enum_values_are_pure_additions(&old.values, &new.values)
+        )
+    }
+
+    fn is_column_recreate(&self, d: &EntityDiff) -> bool {
+        matches!(
+            (&d.left, &d.right),
+            (Some(PostgresEntity::Column(old)), Some(PostgresEntity::Column(new)))
+                if Generator::column_needs_recreate(old, new)
+        )
+    }
+
+    fn is_enum_type(ddl: &PostgresDDL, column: &Column) -> bool {
+        let schema = column.type_schema.as_deref().unwrap_or("public");
+        ddl.enums.one(schema, &column.sql_type).is_some()
+    }
+
+    fn column_is_enum(column: &Column, enum_: &Enum) -> bool {
+        column.sql_type.as_ref() == enum_.name.as_ref()
+            && column.type_schema.as_deref().unwrap_or("public") == enum_.schema.as_ref()
+    }
+
+    /// Columns the recreation of an enum converts back to it: those still
+    /// typed with it after the migration.
+    fn collect_enum_restored_columns(&self) -> HashSet<String> {
+        let mut out = HashSet::new();
+        for d in self.diff.iter().filter(|d| self.is_enum_recreate(d)) {
+            let (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new))) =
+                (&d.left, &d.right)
+            else {
+                continue;
+            };
+            let (_, restore) = self.enum_recreate_columns(old, new);
+            out.extend(restore.iter().map(column_key));
+        }
+        out
+    }
+
+    /// The statement for one diff entry, with the cross-entity context the
+    /// plain conversion lacks.
+    fn statement_for(&self, d: &EntityDiff) -> Option<JsonStatement> {
+        let stmt = Generator::diff_to_statement_with_context(d, &self.index, self.cur)?;
+        Some(match stmt {
+            JsonStatement::RecreateEnum {
+                old_enum, new_enum, ..
+            } => {
+                let (columns, restore) = self.enum_recreate_columns(&old_enum, &new_enum);
+                JsonStatement::RecreateEnum {
+                    old_enum,
+                    new_enum,
+                    columns,
+                    restore,
+                }
+            }
+            JsonStatement::AlterColumn {
+                from, to, mut diff, ..
+            } => {
+                let was_enum = self.prev.map_or(from.type_schema.is_some(), |prev| {
+                    Self::is_enum_type(prev, &from)
+                });
+                let is_enum = self
+                    .cur
+                    .map_or(to.type_schema.is_some(), |cur| Self::is_enum_type(cur, &to));
+                if self.enum_restored_columns.contains(&column_key(&to)) {
+                    // The enum recreation already restored this default.
+                    diff.remove("default");
+                }
+                if diff.is_empty() {
+                    return None;
+                }
+                JsonStatement::AlterColumn {
+                    from,
+                    to,
+                    was_enum,
+                    is_enum,
+                    diff,
+                }
+            }
+            JsonStatement::RecreateIndex { new_index, .. }
+                if self.implicitly_dropped(
+                    EntityKind::Index,
+                    &new_index.schema,
+                    &new_index.name,
+                ) =>
+            {
+                JsonStatement::CreateIndex { index: *new_index }
+            }
+            JsonStatement::RecreateUnique { new_unique, .. }
+                if self.implicitly_dropped(
+                    EntityKind::UniqueConstraint,
+                    &new_unique.schema,
+                    &new_unique.name,
+                ) =>
+            {
+                JsonStatement::AddUnique { unique: new_unique }
+            }
+            JsonStatement::RecreatePk { new_pk, .. }
+                if self.implicitly_dropped(
+                    EntityKind::PrimaryKey,
+                    &new_pk.schema,
+                    &new_pk.name,
+                ) =>
+            {
+                JsonStatement::AddPk { pk: new_pk }
+            }
+            JsonStatement::RecreateFk { new_fk, .. }
+                if self.implicitly_dropped(
+                    EntityKind::ForeignKey,
+                    &new_fk.schema,
+                    &new_fk.name,
+                ) =>
+            {
+                JsonStatement::CreateFk { fk: new_fk }
+            }
+            other => other,
+        })
+    }
+
+    fn implicitly_dropped(&self, kind: EntityKind, schema: &str, name: &str) -> bool {
+        self.recreate
+            .implicitly_dropped
+            .contains(&(kind, format!("{schema}.{name}")))
+    }
+
+    /// The columns an enum recreation converts to text (every column typed
+    /// with the enum before the migration, including ones dropped later in
+    /// it) and the ones it converts back (still typed with the enum after).
+    fn enum_recreate_columns(
+        &self,
+        old_enum: &Enum,
+        new_enum: &Enum,
+    ) -> (Vec<Column>, Vec<Column>) {
+        let typed_in = |ddl: &PostgresDDL, enum_: &Enum| -> Vec<Column> {
+            ddl.columns
+                .list()
+                .iter()
+                .filter(|column| Self::column_is_enum(column, enum_))
+                .cloned()
+                .collect()
+        };
+        let Some(cur) = self.cur else {
+            return (Vec::new(), Vec::new());
+        };
+        let Some(prev) = self.prev else {
+            let columns = typed_in(cur, new_enum);
+            return (columns.clone(), columns);
+        };
+        // Every column using the type now, including ones a later step
+        // drops (with their table or alone): DROP TYPE needs them gone.
+        let columns = typed_in(prev, old_enum);
+        let converted: HashSet<String> = columns.iter().map(column_key).collect();
+        let restore = typed_in(cur, new_enum)
+            .into_iter()
+            .filter(|column| converted.contains(&column_key(column)))
+            .collect();
+        (columns, restore)
+    }
+
+    /// Created tables in dependency order, each with its inlined columns and
+    /// constraints. Returns the foreign keys left out of `CREATE TABLE`: FKs
+    /// inside a reference cycle, and FKs to a surviving table whose columns
+    /// or keys change later in this migration (the referenced unique key may
+    /// not exist yet).
+    fn push_created_tables(&self, sqls: &mut Vec<String>) -> Vec<ForeignKey> {
+        let sorted = topological_sort_tables_for_create(&self.created_tables, self.diff);
+        let mut deferred_fks = Vec::new();
+        let mut rich_tables = Vec::new();
+        for table_key in &sorted.ordered {
+            let Some(table_diff) = self.index.table_diff(table_key) else {
+                continue;
+            };
+            let Some(PostgresEntity::Table(table)) = &table_diff.right else {
+                continue;
+            };
+            let mut rich_table = Generator::build_rich_table(table, &self.index);
+            let (inline_fks, later_fks): (Vec<_>, Vec<_>) =
+                rich_table.foreign_keys.into_iter().partition(|fk| {
+                    !Generator::is_cycle_fk(fk, &sorted.cycle_tables) && !self.target_changes(fk)
+                });
+            rich_table.foreign_keys = inline_fks;
+            deferred_fks.extend(later_fks);
+            sqls.push(Generator::create_table_sql(&rich_table));
+            if sorted.cycle_tables.is_empty() {
+                Generator::push_created_table_extras(sqls, &rich_table);
+            } else {
+                rich_tables.push(rich_table);
+            }
+        }
+        for rich_table in &rich_tables {
+            Generator::push_created_table_extras(sqls, rich_table);
+        }
+        deferred_fks
+    }
+
+    /// Whether an FK's referenced table survives the migration but gains or
+    /// changes columns, keys or indexes in it.
+    fn target_changes(&self, fk: &ForeignKey) -> bool {
+        let target = Generator::table_key(&fk.schema_to, &fk.table_to);
+        if self.created_tables.contains(&target) {
+            return false;
+        }
+        self.diff.iter().any(|d| {
+            d.diff_type != DiffType::Drop
+                && matches!(
+                    d.kind,
+                    EntityKind::Column
+                        | EntityKind::PrimaryKey
+                        | EntityKind::UniqueConstraint
+                        | EntityKind::Index
+                )
+                && Generator::get_parent_table_key(d).as_deref() == Some(target.as_str())
+        })
+    }
+
+    /// Row-level security toggles for tables that exist before and after.
+    ///
+    /// A table has RLS when it enables it explicitly or has any policy
+    /// (drizzle-kit enables RLS for tables with policies), so adding the
+    /// first policy enables it and removing the last one disables it unless
+    /// the table enables it explicitly.
+    fn rls_toggles(&self) -> Vec<(String, String, bool)> {
+        let mut out = Vec::new();
+        if let (Some(prev), Some(cur)) = (self.prev, self.cur) {
+            for table in cur.tables.list() {
+                let Some(prev_table) = prev.tables.one(&table.schema, &table.name) else {
+                    continue;
+                };
+                let was = prev_table.is_rls_enabled.unwrap_or(false)
+                    || !prev
+                        .policies
+                        .for_table(&table.schema, &table.name)
+                        .is_empty();
+                let is = table.is_rls_enabled.unwrap_or(false)
+                    || !cur
+                        .policies
+                        .for_table(&table.schema, &table.name)
+                        .is_empty();
+                if was != is {
+                    out.push((table.schema.to_string(), table.name.to_string(), is));
+                }
+            }
+        } else {
+            for d in self
+                .diff
+                .iter()
+                .filter(|d| d.kind == EntityKind::Table && d.diff_type == DiffType::Alter)
+            {
+                if let (Some(PostgresEntity::Table(old)), Some(PostgresEntity::Table(new))) =
+                    (&d.left, &d.right)
+                {
+                    let was = old.is_rls_enabled.unwrap_or(false);
+                    let is = new.is_rls_enabled.unwrap_or(false);
+                    if was != is {
+                        out.push((new.schema.to_string(), new.name.to_string(), is));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Indexes, keys and FKs that dropping and re-adding a column removes,
+    /// to be created again afterwards.
+    fn collect_recreate_extras(&self) -> RecreateExtras {
+        let mut extras = RecreateExtras::default();
+        let Some(cur) = self.cur else {
+            return extras;
+        };
+        let recreated: Vec<&Column> = self
+            .diff
+            .iter()
+            .filter(|d| self.is_column_recreate(d))
+            .filter_map(|d| match &d.right {
+                Some(PostgresEntity::Column(column)) => Some(column),
+                _ => None,
+            })
+            .collect();
+
+        let mut seen: HashSet<(EntityKind, String)> = HashSet::new();
+        for column in recreated {
+            let (schema, table, name) = (&column.schema, &column.table, &column.name);
+            let has_column =
+                |columns: &[std::borrow::Cow<'static, str>]| columns.iter().any(|c| c == name);
+
+            for index in cur.indexes.for_table(schema, table) {
+                if !index
+                    .columns
+                    .iter()
+                    .any(|c| !c.is_expression && c.value == *name)
+                {
+                    continue;
+                }
+                let key = format!("{}.{}", index.schema, index.name);
+                if !seen.insert((EntityKind::Index, key.clone())) {
+                    continue;
+                }
+                match self.diff_for(EntityKind::Index, &key) {
+                    Some(DiffType::Create) => {}
+                    Some(DiffType::Alter) => {
+                        extras.implicitly_dropped.insert((EntityKind::Index, key));
+                    }
+                    _ => extras.create_indexes.push(index.clone()),
+                }
+            }
+            for unique in cur.uniques.for_table(schema, table) {
+                if !has_column(&unique.columns) {
+                    continue;
+                }
+                let key = format!("{}.{}", unique.schema, unique.name);
+                if !seen.insert((EntityKind::UniqueConstraint, key.clone())) {
+                    continue;
+                }
+                match self.diff_for(EntityKind::UniqueConstraint, &key) {
+                    Some(DiffType::Create) => {}
+                    Some(DiffType::Alter) => {
+                        extras
+                            .implicitly_dropped
+                            .insert((EntityKind::UniqueConstraint, key));
+                    }
+                    _ => extras.add_uniques.push(unique.clone()),
+                }
+            }
+            if let Some(pk) = cur.pks.for_table(schema, table)
+                && has_column(&pk.columns)
+            {
+                let key = format!("{}.{}", pk.schema, pk.name);
+                if seen.insert((EntityKind::PrimaryKey, key.clone())) {
+                    match self.diff_for(EntityKind::PrimaryKey, &key) {
+                        Some(DiffType::Create) => {}
+                        Some(DiffType::Alter) => {
+                            extras
+                                .implicitly_dropped
+                                .insert((EntityKind::PrimaryKey, key));
+                        }
+                        _ => extras.add_pks.push(pk.clone()),
+                    }
+                }
+            }
+            for fk in cur.fks.list() {
+                let from = fk.schema == *schema && fk.table == *table && has_column(&fk.columns);
+                let to =
+                    fk.schema_to == *schema && fk.table_to == *table && has_column(&fk.columns_to);
+                if !from && !to {
+                    continue;
+                }
+                let key = format!("{}.{}", fk.schema, fk.name);
+                if !seen.insert((EntityKind::ForeignKey, key.clone())) {
+                    continue;
+                }
+                match self.diff_for(EntityKind::ForeignKey, &key) {
+                    Some(DiffType::Create) => {}
+                    Some(DiffType::Alter) => {
+                        if to && !from {
+                            extras.drop_fks.push(fk.clone());
+                        }
+                        extras
+                            .implicitly_dropped
+                            .insert((EntityKind::ForeignKey, key));
+                    }
+                    _ => {
+                        if to && !from {
+                            // Referencing FKs block the column drop.
+                            extras.drop_fks.push(fk.clone());
+                        }
+                        extras.create_fks.push(fk.clone());
+                    }
+                }
+            }
+        }
+        extras
+    }
+}
+
+// =============================================================================
 // Generator
 // =============================================================================
 
@@ -354,235 +854,293 @@ impl Generator {
 
     /// Generates SQL statements from entity diffs; same as
     /// [`generate_with_ddl`](Self::generate_with_ddl) without the current DDL.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a table listed in `created_tables` is not found in `diff`
-    /// — this cannot happen in practice because `created_tables` is built
-    /// from `diff` itself.
     #[must_use]
     pub fn generate(&self, diff: &[EntityDiff]) -> Vec<String> {
-        self.generate_with_ddl(diff, None)
+        self.generate_with_context(diff, None, None)
     }
 
     /// Generate SQL statements from a set of entity diffs, with access to the
     /// full *current* DDL for cross-entity lookups (e.g. finding the columns
     /// that depend on an enum being recreated).
     ///
-    /// Statement ordering is dependency-phased:
+    /// Statement ordering follows drizzle-kit:
     ///
-    /// 1. creates of schemas → enums → sequences → roles,
-    /// 2. drops of views,
-    /// 3. drops of table sub-entities on surviving tables
-    ///    (FKs/indexes/constraints/policies before columns),
-    /// 4. table drops in reverse dependency order,
-    /// 5. table creates in dependency order (with inlined sub-entities),
-    /// 6. sub-entity creates on pre-existing tables (columns first),
-    /// 7. alters (including `ALTER COLUMN ... USING` enum conversions),
-    /// 8. enum and sequence drops (after alters so `USING` casts run before
-    ///    `DROP TYPE`),
-    /// 9. view creates,
-    /// 10. role and schema drops.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a table listed in `created_tables` is not found in `diff`
-    /// — this cannot happen in practice because `created_tables` is built
-    /// from `diff` itself.
+    /// 1. creates of schemas, enums (and `ADD VALUE`), sequences, roles,
+    /// 2. view drops (including views whose definition changes),
+    /// 3. recreation of enums whose values were removed or reordered,
+    /// 4. table creates (with inlined columns and constraints; foreign keys
+    ///    whose target is only completed later in the migration are
+    ///    deferred to step 10),
+    /// 5. policy and foreign-key drops,
+    /// 6. table drops,
+    /// 7. table alters (row-level security, logging, tablespace, comment),
+    /// 8. unique/check/index/primary-key drops on surviving tables,
+    /// 9. column adds, primary-key adds, generated-column recreation, column
+    ///    drops, column alters,
+    /// 10. unique, index, foreign-key and check creates on surviving tables,
+    /// 11. view creates, policy creates,
+    /// 12. enum, sequence, role and schema drops.
     #[must_use]
     pub fn generate_with_ddl(
         &self,
         diff: &[EntityDiff],
         cur_ddl: Option<&PostgresDDL>,
     ) -> Vec<String> {
-        let mut sqls = Vec::new();
-        let diff_index = DiffIndex::new(diff);
+        self.generate_with_context(diff, None, cur_ddl)
+    }
 
-        // Identify created/dropped tables to group and filter their components.
-        let created_tables: Vec<String> = diff
-            .iter()
-            .filter(|d| d.diff_type == DiffType::Create && d.kind == EntityKind::Table)
-            .map(|d| d.name.clone())
-            .collect();
-        let dropped_tables: Vec<String> = diff
-            .iter()
-            .filter(|d| d.diff_type == DiffType::Drop && d.kind == EntityKind::Table)
-            .map(|d| d.name.clone())
-            .collect();
+    /// [`generate_with_ddl`](Self::generate_with_ddl) with the *previous*
+    /// DDL as well, which lets the generator see what a dependent object
+    /// looked like before the migration (enum-typed columns, row-level
+    /// security implied by policies, serial columns).
+    #[must_use]
+    pub fn generate_with_context(
+        &self,
+        diff: &[EntityDiff],
+        prev_ddl: Option<&PostgresDDL>,
+        cur_ddl: Option<&PostgresDDL>,
+    ) -> Vec<String> {
+        let ctx = GenContext::new(diff, prev_ddl, cur_ddl);
+        let mut sqls = Vec::new();
 
         let push_diff = |sqls: &mut Vec<String>, d: &EntityDiff| {
-            if let Some(stmt) = Self::diff_to_statement_with_context(d, &diff_index, cur_ddl) {
+            if let Some(stmt) = ctx.statement_for(d) {
                 sqls.extend(Self::statement_to_sqls(stmt));
             }
         };
+        let of = |kind: EntityKind, diff_type: DiffType| {
+            diff.iter()
+                .filter(move |d| d.kind == kind && d.diff_type == diff_type)
+        };
 
-        // Phase 1: creates of top-level entities in dependency order.
-        for kind in [
-            EntityKind::Schema,
-            EntityKind::Enum,
-            EntityKind::Sequence,
-            EntityKind::Role,
-        ] {
-            for d in diff
-                .iter()
-                .filter(|d| d.kind == kind && d.diff_type == DiffType::Create)
-            {
-                push_diff(&mut sqls, d);
-            }
-        }
-
-        // Phase 2: view drops (views depend on tables/columns/enums, so they
-        // must go before any of those are dropped or altered).
-        for d in diff
-            .iter()
-            .filter(|d| d.kind == EntityKind::View && d.diff_type == DiffType::Drop)
-        {
+        // 1. Top-level creates. Enum `ADD VALUE` alters come right after the
+        //    enum creates (recreated enums are handled with the columns).
+        for d in of(EntityKind::Schema, DiffType::Create) {
             push_diff(&mut sqls, d);
         }
-
-        // Phase 3: sub-entity drops on surviving tables. FK, index and
-        // constraint drops must precede column drops — dropping a column
-        // first would implicitly remove its dependent objects and make the
-        // later DROP INDEX / DROP CONSTRAINT fail with "does not exist".
-        for kind in [
-            EntityKind::ForeignKey,
-            EntityKind::Index,
-            EntityKind::PrimaryKey,
-            EntityKind::UniqueConstraint,
-            EntityKind::CheckConstraint,
-            EntityKind::Policy,
-            EntityKind::Column,
-        ] {
-            for d in diff
-                .iter()
-                .filter(|d| d.kind == kind && d.diff_type == DiffType::Drop)
-            {
-                if let Some(parent_table) = Self::get_parent_table_key(d)
-                    && dropped_tables.contains(&parent_table)
-                {
-                    continue; // handled by DROP TABLE
-                }
+        for d in of(EntityKind::Enum, DiffType::Create) {
+            push_diff(&mut sqls, d);
+        }
+        for d in of(EntityKind::Enum, DiffType::Alter) {
+            if !ctx.is_enum_recreate(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for kind in [EntityKind::Sequence, EntityKind::Role] {
+            for d in of(kind, DiffType::Create) {
+                push_diff(&mut sqls, d);
+            }
+            for d in of(kind, DiffType::Alter) {
                 push_diff(&mut sqls, d);
             }
         }
 
-        // Phase 4: table drops in reverse dependency order (referencing
-        // tables drop before the tables they point at).
-        let sorted_drops = topological_sort_tables_for_drop(&dropped_tables, diff);
-        for table_key in &sorted_drops {
-            if let Some(table_diff) = diff_index.table_diff(table_key)
+        // 2. View drops: dropped views and views whose definition changes
+        //    (recreated in step 11). Views depend on columns that later
+        //    steps drop or retype.
+        for d in of(EntityKind::View, DiffType::Drop) {
+            push_diff(&mut sqls, d);
+        }
+        for d in of(EntityKind::View, DiffType::Alter) {
+            if let (Some(PostgresEntity::View(old)), Some(PostgresEntity::View(new))) =
+                (&d.left, &d.right)
+                && Self::view_needs_recreate(old, new)
+            {
+                sqls.push(Self::drop_view_sql(old));
+            }
+        }
+
+        // 3. Enums whose values were removed or reordered are recreated
+        //    before any new table or column can use them (DROP TYPE fails
+        //    while a column of the old type exists).
+        for d in of(EntityKind::Enum, DiffType::Alter) {
+            if ctx.is_enum_recreate(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+
+        // 4. Table creates in dependency order.
+        let deferred_fks = ctx.push_created_tables(&mut sqls);
+
+        // 5. Policy drops, then foreign-key drops: FKs on surviving tables,
+        //    FKs between two dropped tables (so the drop order of the tables
+        //    no longer matters), and FKs that reference a column about to
+        //    be recreated.
+        for d in of(EntityKind::Policy, DiffType::Drop) {
+            if !ctx.on_dropped_table(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for d in of(EntityKind::ForeignKey, DiffType::Drop) {
+            if let Some(PostgresEntity::ForeignKey(fk)) = &d.left
+                && ctx.keep_fk_drop(fk)
+            {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for fk in &ctx.recreate.drop_fks {
+            sqls.push(Self::drop_constraint_sql(&fk.schema, &fk.table, &fk.name));
+        }
+
+        // 6. Table drops.
+        for table_key in &ctx.sorted_drops() {
+            if let Some(table_diff) = ctx.index.table_diff(table_key)
                 && table_diff.diff_type == DiffType::Drop
             {
                 push_diff(&mut sqls, table_diff);
             }
         }
 
-        // Phase 5: table creates (Rich tables) in dependency order.
-        let sorted_creates = topological_sort_tables_for_create(&created_tables, diff);
-        if sorted_creates.cycle_tables.is_empty() {
-            for table_key in &sorted_creates.ordered {
-                let table_diff = diff_index
-                    .table_diff(table_key)
-                    .expect("created table must have an indexed table diff");
-                if let Some(PostgresEntity::Table(table)) = &table_diff.right {
-                    let rich_table = Self::build_rich_table(table, &diff_index);
-                    sqls.push(Self::create_table_sql(&rich_table));
-                    Self::push_created_table_extras(&mut sqls, &rich_table);
-                }
-            }
-        } else {
-            let mut deferred_fks = Vec::new();
-            let mut rich_tables = Vec::new();
-
-            for table_key in &sorted_creates.ordered {
-                let table_diff = diff_index
-                    .table_diff(table_key)
-                    .expect("created table must have an indexed table diff");
-                if let Some(PostgresEntity::Table(table)) = &table_diff.right {
-                    let mut rich_table = Self::build_rich_table(table, &diff_index);
-                    let (inline_fks, cycle_fks): (Vec<_>, Vec<_>) = rich_table
-                        .foreign_keys
-                        .into_iter()
-                        .partition(|fk| !Self::is_cycle_fk(fk, &sorted_creates.cycle_tables));
-                    rich_table.foreign_keys = inline_fks;
-                    deferred_fks.extend(cycle_fks);
-                    sqls.push(Self::create_table_sql(&rich_table));
-                    rich_tables.push(rich_table);
-                }
-            }
-
-            for fk in &deferred_fks {
-                sqls.push(Self::add_fk_sql(fk));
-            }
-
-            for rich_table in &rich_tables {
-                Self::push_created_table_extras(&mut sqls, rich_table);
-            }
+        // 7. Table alters: row-level security toggles, then the rest.
+        for (schema, name, enable) in ctx.rls_toggles() {
+            sqls.push(Self::alter_rls_sql(&schema, &name, enable));
+        }
+        for d in of(EntityKind::Table, DiffType::Alter) {
+            push_diff(&mut sqls, d);
         }
 
-        // Phase 6: sub-entity creates on pre-existing tables, columns first so
-        // constraints and indexes can reference them.
+        // 8. Constraint and index drops on surviving tables (dropped tables
+        //    took theirs with them).
         for kind in [
-            EntityKind::Column,
-            EntityKind::PrimaryKey,
             EntityKind::UniqueConstraint,
             EntityKind::CheckConstraint,
             EntityKind::Index,
-            EntityKind::ForeignKey,
-            EntityKind::Policy,
+            EntityKind::PrimaryKey,
         ] {
-            for d in diff
-                .iter()
-                .filter(|d| d.kind == kind && d.diff_type == DiffType::Create)
-            {
-                if let Some(parent_table) = Self::get_parent_table_key(d)
-                    && created_tables.contains(&parent_table)
-                {
-                    continue; // inlined in CREATE TABLE
+            for d in of(kind, DiffType::Drop) {
+                if !ctx.on_dropped_table(d) {
+                    push_diff(&mut sqls, d);
                 }
+            }
+        }
+
+        // 9. Columns.
+        for kind in [EntityKind::Column, EntityKind::PrimaryKey] {
+            for d in of(kind, DiffType::Create) {
+                if !ctx.on_created_table(d) {
+                    push_diff(&mut sqls, d);
+                }
+            }
+        }
+        for d in of(EntityKind::Column, DiffType::Alter) {
+            if ctx.is_column_recreate(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for d in of(EntityKind::Column, DiffType::Drop) {
+            if !ctx.on_dropped_table(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for d in of(EntityKind::PrimaryKey, DiffType::Alter) {
+            push_diff(&mut sqls, d);
+        }
+        for pk in &ctx.recreate.add_pks {
+            sqls.push(Self::add_pk_sql(pk));
+        }
+        for d in of(EntityKind::Column, DiffType::Alter) {
+            if !ctx.is_column_recreate(d) {
                 push_diff(&mut sqls, d);
             }
         }
 
-        // Phase 7: alters, in diff order (enum ADD VALUE alters precede
-        // column alters, which precede table/view alters).
-        for d in diff.iter().filter(|d| d.diff_type == DiffType::Alter) {
+        // 10. Constraint and index creates on surviving tables, after every
+        //    column they reference has its final type. Uniques and indexes
+        //    precede foreign keys so an FK can target a new unique key.
+        for d in of(EntityKind::Index, DiffType::Alter) {
             push_diff(&mut sqls, d);
         }
-
-        // Phase 8: enum and sequence drops. These must come after column
-        // alters: converting a column away from an enum (`ALTER COLUMN ...
-        // USING`) has to run before `DROP TYPE`, and a dropped sequence may
-        // be referenced by a column default until the alter removes it.
-        for kind in [EntityKind::Enum, EntityKind::Sequence] {
-            for d in diff
-                .iter()
-                .filter(|d| d.kind == kind && d.diff_type == DiffType::Drop)
-            {
+        for d in of(EntityKind::UniqueConstraint, DiffType::Create) {
+            if !ctx.on_created_table(d) {
                 push_diff(&mut sqls, d);
             }
         }
-
-        // Phase 9: view creates (after every table/column they may select from).
-        for d in diff
-            .iter()
-            .filter(|d| d.kind == EntityKind::View && d.diff_type == DiffType::Create)
-        {
+        for unique in &ctx.recreate.add_uniques {
+            sqls.push(Self::add_unique_sql(unique));
+        }
+        for d in of(EntityKind::UniqueConstraint, DiffType::Alter) {
+            push_diff(&mut sqls, d);
+        }
+        for d in of(EntityKind::Index, DiffType::Create) {
+            if !ctx.on_created_table(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for index in &ctx.recreate.create_indexes {
+            sqls.push(Self::create_index_sql(index));
+        }
+        for d in of(EntityKind::ForeignKey, DiffType::Create) {
+            if !ctx.on_created_table(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for fk in deferred_fks.iter().chain(&ctx.recreate.create_fks) {
+            sqls.push(Self::add_fk_sql(fk));
+        }
+        for d in of(EntityKind::ForeignKey, DiffType::Alter) {
+            push_diff(&mut sqls, d);
+        }
+        for d in of(EntityKind::CheckConstraint, DiffType::Create) {
+            if !ctx.on_created_table(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for d in of(EntityKind::CheckConstraint, DiffType::Alter) {
             push_diff(&mut sqls, d);
         }
 
-        // Phase 10: role drops (after the policies that referenced them) and
-        // schema drops (after everything inside the schema is gone).
-        for kind in [EntityKind::Role, EntityKind::Schema] {
-            for d in diff
-                .iter()
-                .filter(|d| d.kind == kind && d.diff_type == DiffType::Drop)
+        // 11. View creates (after every table/column they may select from),
+        //     then policies.
+        for d in of(EntityKind::View, DiffType::Create) {
+            push_diff(&mut sqls, d);
+        }
+        for d in of(EntityKind::View, DiffType::Alter) {
+            if let (Some(PostgresEntity::View(old)), Some(PostgresEntity::View(new))) =
+                (&d.left, &d.right)
+                && Self::view_needs_recreate(old, new)
             {
+                sqls.push(Self::create_view_sql(new));
+            }
+        }
+        for d in of(EntityKind::Policy, DiffType::Create) {
+            if !ctx.on_created_table(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+        for d in of(EntityKind::Policy, DiffType::Alter) {
+            push_diff(&mut sqls, d);
+        }
+
+        // 12. Drops of top-level entities, after the column alters that
+        //     move columns off a dropped enum or sequence, the policies that
+        //     referenced a dropped role, and everything inside a dropped
+        //     schema.
+        for kind in [
+            EntityKind::Enum,
+            EntityKind::Sequence,
+            EntityKind::Role,
+            EntityKind::Schema,
+        ] {
+            for d in of(kind, DiffType::Drop) {
                 push_diff(&mut sqls, d);
             }
         }
 
         sqls
+    }
+
+    /// A view whose definition (or another property `PostgreSQL` cannot
+    /// alter in place) changed is dropped and created again.
+    fn view_needs_recreate(old: &View, new: &View) -> bool {
+        !(old.is_existing || new.is_existing)
+    }
+
+    fn alter_rls_sql(schema: &str, name: &str, enable: bool) -> String {
+        format!(
+            "ALTER TABLE {} {} ROW LEVEL SECURITY;",
+            Self::qualified_name(schema, name),
+            if enable { "ENABLE" } else { "DISABLE" }
+        )
     }
 
     fn get_parent_table_key(d: &EntityDiff) -> Option<String> {
@@ -637,7 +1195,9 @@ impl Generator {
             sqls.push(Self::create_index_sql(index));
         }
 
-        if table.is_rls_enabled.unwrap_or(false) {
+        // Policies only take effect with row-level security on; drizzle-kit
+        // enables it for every table that has one.
+        if table.is_rls_enabled.unwrap_or(false) || !table.policies.is_empty() {
             sqls.push(format!(
                 "ALTER TABLE {} ENABLE ROW LEVEL SECURITY;",
                 Self::qualified_name(&table.schema, &table.name)
@@ -859,6 +1419,7 @@ impl Generator {
                     return Some(JsonStatement::RecreateEnum {
                         old_enum: old.clone(),
                         new_enum: new.clone(),
+                        restore: columns.clone(),
                         columns,
                     });
                 }
@@ -891,21 +1452,27 @@ impl Generator {
                 }
             }
             (Some(PostgresEntity::Column(old)), Some(PostgresEntity::Column(new))) => {
-                // PostgreSQL doesn't support ALTER COLUMN ... ADD GENERATED AS
-                let needs_recreate = old.generated.is_none() && new.generated.is_some();
-                if needs_recreate {
+                if Self::column_needs_recreate(old, new) {
                     Some(JsonStatement::RecreateColumn {
                         old_column: Box::new(old.clone()),
                         new_column: Box::new(new.clone()),
                     })
                 } else {
                     let diff = Self::build_column_diff(old, new);
-                    let was_enum = old.type_schema.is_some();
-                    let is_enum = new.type_schema.is_some();
+                    if diff.is_empty() {
+                        return None;
+                    }
+                    let is_custom = |column: &Column| {
+                        column
+                            .type_schema
+                            .as_deref()
+                            .is_some_and(|schema| !schema.eq_ignore_ascii_case("pg_catalog"))
+                    };
                     Some(JsonStatement::AlterColumn {
+                        from: Box::new(old.clone()),
                         to: Box::new(new.clone()),
-                        was_enum,
-                        is_enum,
+                        was_enum: is_custom(old),
+                        is_enum: is_custom(new),
                         diff,
                     })
                 }
@@ -1025,15 +1592,50 @@ impl Generator {
         (false, false)
     }
 
-    /// Build a granular diff structure for column alterations.
-    /// Tracks changes to type, default, notNull, generated, and identity.
-    fn build_column_diff(old: &Column, new: &Column) -> HashMap<String, serde_json::Value> {
-        let mut diff = HashMap::new();
+    /// Whether a column change needs `DROP COLUMN` + `ADD COLUMN`:
+    /// `PostgreSQL` cannot add a generation expression to an existing column,
+    /// and changing one needs `SET EXPRESSION` (PostgreSQL 17+), so like
+    /// drizzle-kit the column is recreated whenever its generated expression
+    /// is set or changed.
+    pub(crate) fn column_needs_recreate(old: &Column, new: &Column) -> bool {
+        let Some(new_generated) = new.generated.as_ref() else {
+            return false;
+        };
+        old.generated.as_ref().is_none_or(|old_generated| {
+            old_generated.gen_type != new_generated.gen_type
+                || normalize_expression(&old_generated.expression)
+                    != normalize_expression(&new_generated.expression)
+        })
+    }
 
-        // Type change
-        if old.sql_type != new.sql_type
-            || old.type_schema != new.type_schema
-            || old.dimensions != new.dimensions
+    /// Build a granular diff structure for column alterations: one entry per
+    /// changed property (`type`, `default`, `notNull`, `generated`,
+    /// `identity`, `collate`, `comment`), compared after normalizing
+    /// spellings that `PostgreSQL` treats as equal (`int4`/`INTEGER`,
+    /// `'-1'::integer`/`-1`, unset identity options/their defaults).
+    fn build_column_diff(old: &Column, new: &Column) -> HashMap<String, serde_json::Value> {
+        use super::collection::{
+            normalize_column_type_for_compare, normalize_default_for_compare,
+            normalize_identity_options,
+        };
+
+        let mut diff = HashMap::new();
+        let change = |from: serde_json::Value, to: serde_json::Value| {
+            let mut map = serde_json::Map::new();
+            map.insert("from".to_string(), from);
+            map.insert("to".to_string(), to);
+            serde_json::Value::Object(map)
+        };
+        let type_schema = |column: &Column| {
+            column
+                .type_schema
+                .as_deref()
+                .filter(|schema| !schema.eq_ignore_ascii_case("pg_catalog"))
+                .map(ToString::to_string)
+        };
+
+        if normalize_column_type_for_compare(old) != normalize_column_type_for_compare(new)
+            || type_schema(old) != type_schema(new)
         {
             let mut type_diff = serde_json::Map::new();
             type_diff.insert("from".to_string(), serde_json::json!(old.sql_type));
@@ -1048,56 +1650,82 @@ impl Generator {
             );
             diff.insert("type".to_string(), serde_json::Value::Object(type_diff));
 
-            if old.type_schema != new.type_schema {
-                let mut ts_diff = serde_json::Map::new();
-                ts_diff.insert("from".to_string(), serde_json::json!(old.type_schema));
-                ts_diff.insert("to".to_string(), serde_json::json!(new.type_schema));
-                diff.insert("typeSchema".to_string(), serde_json::Value::Object(ts_diff));
+            if type_schema(old) != type_schema(new) {
+                diff.insert(
+                    "typeSchema".to_string(),
+                    change(
+                        serde_json::json!(old.type_schema),
+                        serde_json::json!(new.type_schema),
+                    ),
+                );
             }
         }
 
-        // Default change
-        if old.default != new.default {
-            let mut default_diff = serde_json::Map::new();
-            default_diff.insert("from".to_string(), serde_json::json!(old.default));
-            default_diff.insert("to".to_string(), serde_json::json!(new.default));
+        if old.default.as_deref().map(normalize_default_for_compare)
+            != new.default.as_deref().map(normalize_default_for_compare)
+        {
             diff.insert(
                 "default".to_string(),
-                serde_json::Value::Object(default_diff),
+                change(
+                    serde_json::json!(old.default),
+                    serde_json::json!(new.default),
+                ),
             );
         }
 
-        // NOT NULL change
         if old.not_null != new.not_null {
-            let mut nn_diff = serde_json::Map::new();
-            nn_diff.insert("from".to_string(), serde_json::json!(old.not_null));
-            nn_diff.insert("to".to_string(), serde_json::json!(new.not_null));
-            diff.insert("notNull".to_string(), serde_json::Value::Object(nn_diff));
+            diff.insert(
+                "notNull".to_string(),
+                change(
+                    serde_json::json!(old.not_null),
+                    serde_json::json!(new.not_null),
+                ),
+            );
         }
 
-        // Generated column change
-        if old.generated != new.generated {
-            let mut gen_diff = serde_json::Map::new();
-            gen_diff.insert("from".to_string(), serde_json::json!(old.generated));
-            gen_diff.insert("to".to_string(), serde_json::json!(new.generated));
-            diff.insert("generated".to_string(), serde_json::Value::Object(gen_diff));
+        let generated_key = |column: &Column| {
+            column
+                .generated
+                .as_ref()
+                .map(|g| (normalize_expression(&g.expression), g.gen_type))
+        };
+        if generated_key(old) != generated_key(new) {
+            diff.insert(
+                "generated".to_string(),
+                change(
+                    serde_json::json!(old.generated),
+                    serde_json::json!(new.generated),
+                ),
+            );
         }
 
-        // Identity change
-        if old.identity != new.identity {
-            let mut id_diff = serde_json::Map::new();
-            id_diff.insert("from".to_string(), serde_json::json!(old.identity));
-            id_diff.insert("to".to_string(), serde_json::json!(new.identity));
-            diff.insert("identity".to_string(), serde_json::Value::Object(id_diff));
+        if normalize_identity_options(old) != normalize_identity_options(new) {
+            diff.insert(
+                "identity".to_string(),
+                change(
+                    serde_json::json!(old.identity),
+                    serde_json::json!(new.identity),
+                ),
+            );
+        }
+
+        if old.collate != new.collate {
+            diff.insert(
+                "collate".to_string(),
+                change(
+                    serde_json::json!(old.collate),
+                    serde_json::json!(new.collate),
+                ),
+            );
         }
 
         if old.comment != new.comment {
-            let mut comment_diff = serde_json::Map::new();
-            comment_diff.insert("from".to_string(), serde_json::json!(old.comment));
-            comment_diff.insert("to".to_string(), serde_json::json!(new.comment));
             diff.insert(
                 "comment".to_string(),
-                serde_json::Value::Object(comment_diff),
+                change(
+                    serde_json::json!(old.comment),
+                    serde_json::json!(new.comment),
+                ),
             );
         }
 
@@ -1203,61 +1831,47 @@ impl Generator {
     }
 
     /// Build the `SET GENERATED ... / SET <sequence option>` chain for an
-    /// identity column whose configuration changed. `old` is the serialized
-    /// [`super::ddl::Identity`] taken from the column diff (camelCase keys).
-    /// Returns `None` when nothing tracked actually changed.
+    /// identity column whose configuration changed. Returns `None` when
+    /// nothing tracked actually changed.
     fn identity_set_options_sql(
         new: &super::ddl::Identity,
-        old: &serde_json::Value,
+        old: &super::ddl::Identity,
     ) -> Option<String> {
         use super::ddl::IdentityType;
 
-        let old_str = |key: &str| old.get(key).and_then(|v| v.as_str());
         let mut pieces = Vec::new();
-
-        let new_type = match new.type_ {
-            IdentityType::Always => "always",
-            IdentityType::ByDefault => "byDefault",
-        };
-        if old_str("type").is_some_and(|t| t != new_type) {
+        if old.type_ != new.type_ {
             pieces.push(match new.type_ {
                 IdentityType::Always => "SET GENERATED ALWAYS".to_string(),
                 IdentityType::ByDefault => "SET GENERATED BY DEFAULT".to_string(),
             });
         }
-
-        if old_str("increment") != new.increment.as_deref() {
+        if old.increment != new.increment {
             let increment = new.increment.as_deref().unwrap_or("1");
             pieces.push(format!("SET INCREMENT BY {increment}"));
         }
-        if old_str("minValue") != new.min_value.as_deref() {
+        if old.min_value != new.min_value {
             match new.min_value.as_deref() {
                 Some(min) => pieces.push(format!("SET MINVALUE {min}")),
                 None => pieces.push("SET NO MINVALUE".to_string()),
             }
         }
-        if old_str("maxValue") != new.max_value.as_deref() {
+        if old.max_value != new.max_value {
             match new.max_value.as_deref() {
                 Some(max) => pieces.push(format!("SET MAXVALUE {max}")),
                 None => pieces.push("SET NO MAXVALUE".to_string()),
             }
         }
-        if old_str("startWith") != new.start_with.as_deref()
+        if old.start_with != new.start_with
             && let Some(start) = new.start_with.as_deref()
         {
             pieces.push(format!("SET START WITH {start}"));
         }
-        let old_cache = old.get("cache").and_then(serde_json::Value::as_i64);
-        if old_cache != new.cache.map(i64::from) {
-            let cache = new.cache.unwrap_or(1);
-            pieces.push(format!("SET CACHE {cache}"));
+        if old.cache != new.cache {
+            pieces.push(format!("SET CACHE {}", new.cache.unwrap_or(1)));
         }
-        let old_cycle = old
-            .get("cycle")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
         let new_cycle = new.cycle.unwrap_or(false);
-        if old_cycle != new_cycle {
+        if old.cycle.unwrap_or(false) != new_cycle {
             pieces.push(if new_cycle {
                 "SET CYCLE".to_string()
             } else {
@@ -1386,18 +2000,12 @@ impl Generator {
         format!("{drop_sql}\n{create_sql}")
     }
 
-    /// DROP INDEX + CREATE INDEX from the new definition. The old index's
-    /// CONCURRENTLY flag drives the drop, the new definition's flag drives
-    /// the create.
+    /// DROP INDEX + CREATE INDEX from the new definition. Like drizzle-kit,
+    /// the drop never uses CONCURRENTLY (it cannot run inside a migration's
+    /// transaction); the new definition's flag drives the create.
     fn recreate_index_sql(old_index: &Index, new_index: &Index) -> String {
-        let concurrently = if old_index.concurrently {
-            "CONCURRENTLY "
-        } else {
-            ""
-        };
         let drop_sql = format!(
-            "DROP INDEX {}{};",
-            concurrently,
+            "DROP INDEX {};",
             Self::qualified_name(&old_index.schema, &old_index.name)
         );
         format!("{drop_sql}\n{}", Self::create_index_sql(new_index))
@@ -1508,48 +2116,42 @@ impl Generator {
     }
 
     /// Recreate an enum whose values were removed or reordered, drizzle-kit
-    /// style: convert dependent columns to text, drop and recreate the type,
-    /// convert the columns back with `USING ::text::type`, restore defaults.
-    fn recreate_enum_sql(new_enum: &Enum, columns: &[Column]) -> String {
+    /// style: convert the columns typed with it to text (dropping their
+    /// defaults), drop and recreate the type, convert the columns that keep
+    /// the type back with `USING`, and restore their defaults. Array columns
+    /// keep their dimensions throughout. A column that moves to another type
+    /// in the same migration stays text here and is converted by its own
+    /// column alter.
+    fn recreate_enum_sql(new_enum: &Enum, columns: &[Column], restore: &[Column]) -> String {
         let type_name = Self::qualified_name(&new_enum.schema, &new_enum.name);
+        let dims = |column: &Column| "[]".repeat(column.dimensions.unwrap_or(0).max(0) as usize);
         let mut stmts = Vec::new();
 
         for column in columns {
+            let table = Self::qualified_name(&column.schema, &column.table);
+            let name = Self::quote_ident(&column.name);
             if column.default.is_some() {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT;",
-                    Self::qualified_name(&column.schema, &column.table),
-                    Self::quote_ident(&column.name)
+                    "ALTER TABLE {table} ALTER COLUMN {name} DROP DEFAULT;"
                 ));
             }
-        }
-        for column in columns {
+            let text = format!("text{}", dims(column));
             stmts.push(format!(
-                "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE text USING {}::text;",
-                Self::qualified_name(&column.schema, &column.table),
-                Self::quote_ident(&column.name),
-                Self::quote_ident(&column.name)
+                "ALTER TABLE {table} ALTER COLUMN {name} SET DATA TYPE {text} USING {name}::{text};"
             ));
         }
         stmts.push(format!("DROP TYPE {type_name};"));
         stmts.push(Self::create_enum_sql(new_enum));
-        for column in columns {
+        for column in restore {
+            let table = Self::qualified_name(&column.schema, &column.table);
+            let name = Self::quote_ident(&column.name);
+            let enum_type = format!("{type_name}{}", dims(column));
             stmts.push(format!(
-                "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {} USING {}::text::{};",
-                Self::qualified_name(&column.schema, &column.table),
-                Self::quote_ident(&column.name),
-                type_name,
-                Self::quote_ident(&column.name),
-                type_name
+                "ALTER TABLE {table} ALTER COLUMN {name} SET DATA TYPE {enum_type} USING {name}::{enum_type};"
             ));
-        }
-        for column in columns {
             if let Some(default) = column.default.as_deref() {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {};",
-                    Self::qualified_name(&column.schema, &column.table),
-                    Self::quote_ident(&column.name),
-                    default
+                    "ALTER TABLE {table} ALTER COLUMN {name} SET DEFAULT {default};"
                 ));
             }
         }
@@ -1567,30 +2169,78 @@ impl Generator {
     /// [`Self::statement_to_sql`].
     pub(crate) fn statement_to_sqls(stmt: JsonStatement) -> Vec<String> {
         Self::split_joined_commands(Self::statement_to_sql(stmt))
+            .into_iter()
+            .filter(|sql| !sql.trim().is_empty())
+            .collect()
     }
 
     /// Split renderer output holding several `;`-terminated commands
-    /// separated by newlines into individual statements. A boundary exists
-    /// only after a line ending in `;` — interior lines of a single
-    /// multi-line command (e.g. a CREATE TABLE body) end with `,` or `(`,
-    /// never `;`, so such commands stay whole.
+    /// separated by newlines into individual statements. A boundary is a `;`
+    /// at the end of a line outside any string literal, quoted identifier or
+    /// dollar-quoted body — so a comment or default containing `;` followed
+    /// by a newline stays whole, as does a multi-line CREATE TABLE body.
     fn split_joined_commands(sql: String) -> Vec<String> {
         if !sql.contains('\n') {
             return vec![sql];
         }
+        let bytes = sql.as_bytes();
         let mut out = Vec::new();
-        let mut current = String::new();
-        for line in sql.lines() {
-            if !current.is_empty() {
-                current.push('\n');
+        let mut start = 0;
+        let mut i = 0;
+        let mut quote: Option<u8> = None;
+        let mut dollar_tag: Option<&str> = None;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if let Some(tag) = dollar_tag {
+                if sql[i..].starts_with(tag) {
+                    i += tag.len();
+                    dollar_tag = None;
+                } else {
+                    i += 1;
+                }
+                continue;
             }
-            current.push_str(line);
-            if line.trim_end().ends_with(';') {
-                out.push(std::mem::take(&mut current));
+            if let Some(q) = quote {
+                // A doubled quote closes and immediately reopens: still
+                // inside the literal either way.
+                if b == q {
+                    quote = None;
+                }
+                i += 1;
+                continue;
             }
+            match b {
+                b'\'' | b'"' => quote = Some(b),
+                b'$' => {
+                    let tag_end = sql[i + 1..]
+                        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                        .map(|offset| i + 1 + offset);
+                    if let Some(tag_end) = tag_end
+                        && bytes[tag_end] == b'$'
+                        && !sql[i + 1..tag_end].starts_with(|c: char| c.is_ascii_digit())
+                    {
+                        dollar_tag = Some(&sql[i..=tag_end]);
+                        i = tag_end + 1;
+                        continue;
+                    }
+                }
+                b';' => {
+                    let rest = &sql[i + 1..];
+                    if let Some(newline) = rest.find('\n')
+                        && rest[..newline].trim().is_empty()
+                    {
+                        out.push(sql[start..=i].to_string());
+                        start = i + 1 + newline + 1;
+                        i = start;
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
         }
-        if !current.trim().is_empty() {
-            out.push(current);
+        if start < sql.len() && !sql[start..].trim().is_empty() {
+            out.push(sql[start..].to_string());
         }
         out
     }
@@ -1642,12 +2292,29 @@ impl Generator {
                 Self::quote_ident(&from.name),
                 Self::quote_ident(&to.name)
             ),
+            JsonStatement::RenameConstraint {
+                schema,
+                table,
+                from,
+                to,
+            } => format!(
+                "ALTER TABLE {} RENAME CONSTRAINT {} TO {};",
+                Self::qualified_name(&schema, &table),
+                Self::quote_ident(&from),
+                Self::quote_ident(&to)
+            ),
+            JsonStatement::RenameIndex { schema, from, to } => format!(
+                "ALTER INDEX {} RENAME TO {};",
+                Self::qualified_name(&schema, &from),
+                Self::quote_ident(&to)
+            ),
             JsonStatement::AlterColumn {
+                from,
                 to,
                 was_enum,
                 is_enum,
                 diff,
-            } => Self::alter_column_sql(&to, was_enum, is_enum, &diff),
+            } => Self::alter_column_sql(&from, &to, was_enum, is_enum, &diff).join("\n"),
             JsonStatement::RecreateColumn {
                 old_column,
                 new_column,
@@ -1737,8 +2404,11 @@ impl Generator {
                     .expect("alter role statement was prechecked")
             }
             JsonStatement::RecreateEnum {
-                new_enum, columns, ..
-            } => Self::recreate_enum_sql(&new_enum, &columns),
+                new_enum,
+                columns,
+                restore,
+                ..
+            } => Self::recreate_enum_sql(&new_enum, &columns, &restore),
         }
     }
 
@@ -1763,73 +2433,154 @@ impl Generator {
         )
     }
 
+    /// The integer type behind a serial pseudo-type (`serial` → `integer`);
+    /// `None` for other types.
+    fn serial_base_type(sql_type: &str) -> Option<&'static str> {
+        use super::grammar::PgTypeCategory;
+        match PgTypeCategory::from_sql_type(sql_type) {
+            PgTypeCategory::Serial => Some("integer"),
+            PgTypeCategory::BigSerial => Some("bigint"),
+            PgTypeCategory::SmallSerial => Some("smallint"),
+            _ => None,
+        }
+    }
+
+    /// The sequence `PostgreSQL` creates for a serial column.
+    fn serial_sequence_name(column: &Column) -> String {
+        Self::qualified_name(
+            &column.schema,
+            &format!("{}_{}_seq", column.table, column.name),
+        )
+    }
+
+    /// `ALTER TABLE ... ALTER COLUMN` statements for one changed column
+    /// (drizzle-kit `alter_column`): type (enum-to-enum through text, serial
+    /// pseudo-types expanded into their sequence, default dropped and put
+    /// back around an enum conversion), NOT NULL, default, generated
+    /// expression, identity, collation and comment.
+    #[allow(clippy::too_many_lines)]
     fn alter_column_sql(
+        from: &Column,
         to: &Column,
         was_enum: bool,
         is_enum: bool,
         diff: &HashMap<String, serde_json::Value>,
-    ) -> String {
+    ) -> Vec<String> {
         let table_key = Self::qualified_name(&to.schema, &to.table);
+        let column = Self::quote_ident(&to.name);
+        let alter =
+            |clause: &str| format!("ALTER TABLE {table_key} ALTER COLUMN {column} {clause};");
         let mut stmts = Vec::new();
 
-        if diff.contains_key("type") {
-            let type_sql = Self::column_type_sql(to);
-            // Enum-to-enum conversions must round-trip through text
-            // (drizzle-kit parity): PostgreSQL has no direct cast between
-            // distinct enum types.
-            let using_cast = if was_enum && is_enum {
-                format!("{}::text::{type_sql}", Self::quote_ident(&to.name))
-            } else {
-                format!("{}::{type_sql}", Self::quote_ident(&to.name))
-            };
-            stmts.push(format!(
-                "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {} USING {};",
-                table_key,
-                Self::quote_ident(&to.name),
-                type_sql,
-                using_cast
-            ));
+        let type_changed = diff.contains_key("type");
+        let collate_changed = diff.contains_key("collate");
+        // PostgreSQL cannot cast a default across enum types: drop it,
+        // convert, then set the new one.
+        let recreate_default = type_changed && (is_enum || was_enum) && from.default.is_some();
+        if recreate_default {
+            stmts.push(alter("DROP DEFAULT"));
         }
 
-        if diff.contains_key("notNull") {
-            if to.not_null {
+        if type_changed || collate_changed {
+            let from_serial = Self::serial_base_type(&from.sql_type);
+            let to_serial = Self::serial_base_type(&to.sql_type);
+            let mut target = to.clone();
+            if let Some(base) = to_serial {
+                target.sql_type = base.into();
+            }
+            let type_sql = Self::column_type_sql(&target);
+            let from_base = from_serial.map_or_else(
+                || super::collection::normalize_column_type_for_compare(from),
+                ToString::to_string,
+            );
+            let base_changed = type_changed
+                && (from_base != super::collection::normalize_column_type_for_compare(&target)
+                    || was_enum != is_enum
+                    || diff.contains_key("typeSchema"));
+
+            match (from_serial, to_serial) {
+                // serial -> plain integer: the column stops owning its
+                // sequence.
+                (Some(_), None) => {
+                    if !recreate_default {
+                        stmts.push(alter("DROP DEFAULT"));
+                    }
+                    stmts.push(format!(
+                        "DROP SEQUENCE {};",
+                        Self::serial_sequence_name(from)
+                    ));
+                }
+                // plain integer -> serial: create and attach the sequence.
+                (None, Some(base)) => {
+                    let sequence = Self::serial_sequence_name(to);
+                    stmts.push(format!("CREATE SEQUENCE {sequence} AS {base};"));
+                    stmts.push(alter(&format!(
+                        "SET DEFAULT nextval({})",
+                        Self::quote_literal(&sequence)
+                    )));
+                    stmts.push(format!(
+                        "ALTER SEQUENCE {sequence} OWNED BY {table_key}.{column};"
+                    ));
+                }
+                _ => {}
+            }
+
+            if base_changed || collate_changed {
+                let collate = if collate_changed {
+                    format!(
+                        " COLLATE {}",
+                        Self::quote_ident(to.collate.as_deref().unwrap_or("default"))
+                    )
+                } else {
+                    String::new()
+                };
+                // A generated column's values come from its expression;
+                // PostgreSQL rejects USING for it.
+                let using = if !base_changed || to.generated.is_some() {
+                    String::new()
+                } else if was_enum && is_enum {
+                    format!(" USING {column}::text::{type_sql}")
+                } else {
+                    format!(" USING {column}::{type_sql}")
+                };
+                stmts.push(alter(&format!("SET DATA TYPE {type_sql}{collate}{using}")));
+            }
+
+            // serial <-> bigserial/smallserial: the owned sequence follows
+            // the column's integer width.
+            if let (Some(old_base), Some(new_base)) = (from_serial, to_serial)
+                && old_base != new_base
+            {
                 stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL;",
-                    table_key,
-                    Self::quote_ident(&to.name)
+                    "ALTER SEQUENCE {} AS {new_base};",
+                    Self::serial_sequence_name(to)
                 ));
-            } else {
-                stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL;",
-                    table_key,
-                    Self::quote_ident(&to.name)
-                ));
+            }
+
+            if recreate_default && let Some(default) = &to.default {
+                stmts.push(alter(&format!("SET DEFAULT {default}")));
             }
         }
 
-        if diff.contains_key("default") {
-            if let Some(default) = &to.default {
-                stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {};",
-                    table_key,
-                    Self::quote_ident(&to.name),
-                    default
-                ));
+        if diff.contains_key("notNull") {
+            stmts.push(alter(if to.not_null {
+                "SET NOT NULL"
             } else {
-                stmts.push(format!(
-                    "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT;",
-                    table_key,
-                    Self::quote_ident(&to.name)
-                ));
+                "DROP NOT NULL"
+            }));
+        }
+
+        if diff.contains_key("default") && !recreate_default {
+            if let Some(default) = &to.default {
+                stmts.push(alter(&format!("SET DEFAULT {default}")));
+            } else if !(type_changed && Self::serial_base_type(&from.sql_type).is_some()) {
+                // (A serial column's default went with its sequence above.)
+                stmts.push(alter("DROP DEFAULT"));
             }
         }
 
         if diff.contains_key("generated") && to.generated.is_none() {
-            stmts.push(format!(
-                "ALTER TABLE {} ALTER COLUMN {} DROP EXPRESSION;",
-                table_key,
-                Self::quote_ident(&to.name)
-            ));
+            stmts.push(alter("DROP EXPRESSION"));
         }
 
         if diff.contains_key("identity")
@@ -1843,34 +2594,23 @@ impl Generator {
                 // None -> Some: ADD GENERATED ... AS IDENTITY.
                 (Some(id), None) => {
                     if let Some(identity_sql) = Self::identity_sql(to, id) {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN {} ADD{};",
-                            table_key,
-                            Self::quote_ident(&to.name),
-                            identity_sql
-                        ));
+                        stmts.push(alter(&format!("ADD{identity_sql}")));
                     }
                 }
                 // Some -> Some: ALTER COLUMN ... SET GENERATED / SET <option>.
                 // `ADD GENERATED` on an existing identity column is invalid.
-                (Some(id), Some(old)) => {
-                    if let Some(set_sql) = Self::identity_set_options_sql(id, old) {
-                        stmts.push(format!(
-                            "ALTER TABLE {} ALTER COLUMN {} {};",
-                            table_key,
-                            Self::quote_ident(&to.name),
-                            set_sql
-                        ));
+                (Some(_), Some(_)) => {
+                    // Compare with unset options filled in: an option left
+                    // at its default is not a change.
+                    let normalized = super::collection::normalize_identity_options;
+                    if let (Some(new), Some(old)) = (normalized(to), normalized(from))
+                        && let Some(set_sql) = Self::identity_set_options_sql(&new, &old)
+                    {
+                        stmts.push(alter(&set_sql));
                     }
                 }
                 // Some -> None: DROP IDENTITY.
-                (None, _) => {
-                    stmts.push(format!(
-                        "ALTER TABLE {} ALTER COLUMN {} DROP IDENTITY;",
-                        table_key,
-                        Self::quote_ident(&to.name)
-                    ));
-                }
+                (None, _) => stmts.push(alter("DROP IDENTITY")),
             }
         }
 
@@ -1883,11 +2623,7 @@ impl Generator {
             ));
         }
 
-        if stmts.is_empty() {
-            format!("-- No column changes for {}.{}", to.table, to.name)
-        } else {
-            stmts.join("\n")
-        }
+        stmts
     }
 
     fn create_role_sql(role: &super::ddl::Role) -> String {
@@ -1962,7 +2698,9 @@ impl Generator {
 // Topological Sort for Table Dependencies
 // =============================================================================
 
-/// Topological sort tables for CREATE: referenced tables come first
+/// Topological sort tables for CREATE: referenced tables come first. Ties
+/// keep the order of `table_keys` (the schema's declaration order), so the
+/// output is deterministic.
 fn topological_sort_tables_for_create(
     table_keys: &[String],
     diff: &[EntityDiff],
@@ -1974,16 +2712,10 @@ fn topological_sort_tables_for_create(
         };
     }
 
-    // Build a set of table keys for quick lookup
     let table_set: HashSet<&String> = table_keys.iter().collect();
 
-    // Build dependency graph: table -> tables it depends on (via FKs)
-    let mut dependencies: HashMap<String, HashSet<String>> = HashMap::new();
-    for table_key in table_keys {
-        dependencies.insert(table_key.clone(), HashSet::new());
-    }
-
-    // Find FK dependencies from created FKs
+    // table -> tables it references (which must be created first)
+    let mut dependencies: HashMap<&str, HashSet<String>> = HashMap::new();
     for d in diff
         .iter()
         .filter(|d| d.kind == EntityKind::ForeignKey && d.diff_type == DiffType::Create)
@@ -1991,48 +2723,43 @@ fn topological_sort_tables_for_create(
         if let Some(PostgresEntity::ForeignKey(fk)) = &d.right {
             let from_table = format!("{}.{}", fk.schema, fk.table);
             let to_table = format!("{}.{}", fk.schema_to, fk.table_to);
-
-            // from_table depends on to_table (to_table must be created first)
-            if table_set.contains(&from_table)
-                && table_set.contains(&to_table)
-                && let Some(deps) = dependencies.get_mut(&from_table)
+            if from_table != to_table
+                && let (Some(from), true) =
+                    (table_set.get(&from_table), table_set.contains(&to_table))
             {
-                deps.insert(to_table);
+                dependencies
+                    .entry(from.as_str())
+                    .or_default()
+                    .insert(to_table);
             }
         }
     }
 
-    // Tables with no dependencies come first, then tables that depend on them, etc.
     let mut result = Vec::new();
-    let mut remaining: HashSet<String> = table_keys.iter().cloned().collect();
+    let mut remaining: Vec<&String> = table_keys.iter().collect();
     let mut satisfied: HashSet<String> = HashSet::new();
     let mut cycle_tables = HashSet::new();
 
     while !remaining.is_empty() {
-        // Find tables whose dependencies are all satisfied
-        let ready: Vec<String> = remaining
-            .iter()
-            .filter(|t| {
-                dependencies
-                    .get(*t)
-                    .is_none_or(|deps| deps.iter().all(|d| satisfied.contains(d)))
-            })
-            .cloned()
-            .collect();
+        let (ready, blocked): (Vec<&String>, Vec<&String>) = remaining.iter().partition(|t| {
+            dependencies
+                .get(t.as_str())
+                .is_none_or(|deps| deps.iter().all(|d| satisfied.contains(d)))
+        });
 
         if ready.is_empty() {
             // Circular dependency: create remaining tables without their cycle FKs,
             // then add those constraints after all tables exist.
-            cycle_tables = remaining.clone();
-            result.extend(remaining);
+            cycle_tables = blocked.iter().map(|t| (*t).clone()).collect();
+            result.extend(blocked.into_iter().cloned());
             break;
         }
 
         for t in ready {
-            remaining.remove(&t);
             satisfied.insert(t.clone());
-            result.push(t);
+            result.push(t.clone());
         }
+        remaining = blocked;
     }
 
     CreateTableOrder {
@@ -2043,7 +2770,20 @@ fn topological_sort_tables_for_create(
 
 /// Topological sort tables for DROP: tables with FKs come first (reverse of create)
 fn topological_sort_tables_for_drop(table_keys: &[String], diff: &[EntityDiff]) -> Vec<String> {
-    // For drops, reverse the create order: tables that reference others drop first
-    let create_order = topological_sort_tables_for_create(table_keys, diff);
+    // Dropped tables' FKs only appear as drop diffs; treat them as the
+    // dependencies.
+    let as_created: Vec<EntityDiff> = diff
+        .iter()
+        .filter(|d| d.kind == EntityKind::ForeignKey && d.diff_type == DiffType::Drop)
+        .map(|d| EntityDiff {
+            diff_type: DiffType::Create,
+            kind: d.kind,
+            name: d.name.clone(),
+            changes: HashMap::new(),
+            left: None,
+            right: d.left.clone(),
+        })
+        .collect();
+    let create_order = topological_sort_tables_for_create(table_keys, &as_created);
     create_order.ordered.into_iter().rev().collect()
 }

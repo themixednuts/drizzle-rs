@@ -876,3 +876,352 @@ async fn tokio_postgres_repair_finishes_an_interrupted_concurrent_migration() {
         .expect("second migrate");
     assert!(outcome.is_up_to_date());
 }
+
+// =============================================================================
+// Runner interop and robustness
+// =============================================================================
+
+/// drizzle-orm's v0 -> v1 tracking upgrade (`up-migrations/pg.ts`) adds
+/// `name`/`applied_at` and writes `applied_at = NULL` on every existing row.
+/// Those rows are applied: drizzle-orm only looks at `name`.
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_migrate_accepts_rows_upgraded_by_drizzle_orm() {
+    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
+        "upstream_upgraded_sync_test",
+    );
+    let schema_name = db.schema_name().to_string();
+    let first = Migration::new(
+        "20240101000000_init",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);"),
+    );
+    let second = Migration::new(
+        "20240102000000_next",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_b (id INTEGER);"),
+    );
+    db.conn_mut()
+        .batch_execute(&format!(
+            "CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);
+             CREATE TABLE \"{schema_name}\".\"__drizzle_migrations\" (
+                 id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint);
+             INSERT INTO \"{schema_name}\".\"__drizzle_migrations\" (hash, created_at)
+                 VALUES ('{}', 1704067200000);
+             ALTER TABLE \"{schema_name}\".\"__drizzle_migrations\"
+                 ADD COLUMN IF NOT EXISTS name text;
+             ALTER TABLE \"{schema_name}\".\"__drizzle_migrations\"
+                 ADD COLUMN IF NOT EXISTS applied_at timestamp with time zone DEFAULT now();
+             UPDATE \"{schema_name}\".\"__drizzle_migrations\"
+                 SET name = '20240101000000_init', applied_at = NULL WHERE id = 1;",
+            first.hash()
+        ))
+        .expect("reproduce drizzle-orm's upgraded tracking table");
+
+    let outcome = db
+        .migrate(
+            &[first.clone(), second.clone()],
+            Tracking::POSTGRES.schema(schema_name.clone()),
+        )
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(outcome.applied_tags(), ["20240102000000_next"]);
+
+    let outcome = db
+        .migrate(&[first, second], Tracking::POSTGRES.schema(schema_name))
+        .expect("second migrate");
+    assert!(outcome.is_up_to_date());
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[tokio::test]
+async fn tokio_postgres_migrate_accepts_rows_upgraded_by_drizzle_orm() {
+    let mut db = crate::common::helpers::tokio_postgres_setup::setup_empty_named(
+        "upstream_upgraded_tokio_test",
+    )
+    .await;
+    let schema_name = db.schema_name().to_string();
+    let first = Migration::new(
+        "20240101000000_init",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);"),
+    );
+    let second = Migration::new(
+        "20240102000000_next",
+        &format!("CREATE TABLE \"{schema_name}\".upstream_b (id INTEGER);"),
+    );
+    db.conn()
+        .batch_execute(&format!(
+            "CREATE TABLE \"{schema_name}\".upstream_a (id INTEGER);
+             CREATE TABLE \"{schema_name}\".\"__drizzle_migrations\" (
+                 id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint,
+                 name text, applied_at timestamp with time zone DEFAULT now());
+             INSERT INTO \"{schema_name}\".\"__drizzle_migrations\" (hash, created_at, name, applied_at)
+                 VALUES ('{}', 1704067200000, '20240101000000_init', NULL);",
+            first.hash()
+        ))
+        .await
+        .expect("reproduce drizzle-orm's upgraded tracking table");
+
+    let outcome = db
+        .migrate(&[first, second], Tracking::POSTGRES.schema(schema_name))
+        .await
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(outcome.applied_tags(), ["20240102000000_next"]);
+}
+
+#[cfg(feature = "postgres-sync")]
+fn pg_test_url() -> String {
+    std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "host=localhost user=postgres password=postgres dbname=drizzle_test".to_string()
+    })
+}
+
+/// A pre-transactional legacy upgrade could die after adding `name` but
+/// before adding `applied_at`; the next run must finish the upgrade.
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_migrate_finishes_a_half_upgraded_tracking_table() {
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("half_upgraded_sync_test");
+    let schema_name = db.schema_name().to_string();
+    crate::common::helpers::postgres_sync_setup::create_legacy_tracking_table(
+        db.conn_mut(),
+        &schema_name,
+        "__drizzle_migrations",
+    );
+    db.conn_mut()
+        .batch_execute(&format!(
+            "INSERT INTO \"{schema_name}\".\"__drizzle_migrations\" (hash, created_at)
+                 VALUES ('half_hash', 1680271923456);
+             ALTER TABLE \"{schema_name}\".\"__drizzle_migrations\" ADD COLUMN \"name\" TEXT;"
+        ))
+        .expect("reproduce the half-upgraded table");
+
+    let migration = Migration::with_hash(
+        "20230331141203_half",
+        "half_hash",
+        1_680_271_923_000,
+        vec![format!(
+            "CREATE TABLE \"{schema_name}\".half_upgraded (id INTEGER)"
+        )],
+    );
+    let outcome = db
+        .migrate(
+            std::slice::from_ref(&migration),
+            Tracking::POSTGRES.schema(schema_name.clone()),
+        )
+        .expect("a half-upgraded tracking table is completed");
+    assert!(outcome.is_up_to_date(), "{outcome:?}");
+
+    let columns = crate::common::helpers::postgres_sync_setup::legacy_tracking_columns(
+        db.conn_mut(),
+        &schema_name,
+        "__drizzle_migrations",
+    );
+    assert_eq!(columns, ["id", "hash", "created_at", "name", "applied_at"]);
+    let row = db
+        .conn_mut()
+        .query_one(
+            &format!(
+                "SELECT name, applied_at IS NOT NULL FROM \"{schema_name}\".\"__drizzle_migrations\""
+            ),
+            &[],
+        )
+        .expect("upgraded row");
+    assert_eq!(row.get::<_, String>(0), "20230331141203_half");
+    assert!(row.get::<_, bool>(1));
+}
+
+/// The legacy upgrade's statements commit together: when one fails, none of
+/// them stick.
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_legacy_tracking_upgrade_is_atomic() {
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("atomic_upgrade_sync_test");
+    let schema_name = db.schema_name().to_string();
+    crate::common::helpers::postgres_sync_setup::create_legacy_tracking_table(
+        db.conn_mut(),
+        &schema_name,
+        "__drizzle_migrations",
+    );
+    // A trigger that rejects the backfill UPDATE makes the batch fail after
+    // both ALTERs ran.
+    db.conn_mut()
+        .batch_execute(&format!(
+            "INSERT INTO \"{schema_name}\".\"__drizzle_migrations\" (hash, created_at)
+                 VALUES ('atomic_hash', 1680271923000);
+             CREATE FUNCTION \"{schema_name}\".reject_update() RETURNS trigger
+                 LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'backfill rejected'; END $$;
+             CREATE TRIGGER reject_update BEFORE UPDATE ON \"{schema_name}\".\"__drizzle_migrations\"
+                 FOR EACH ROW EXECUTE FUNCTION \"{schema_name}\".reject_update();"
+        ))
+        .expect("arm the failing backfill");
+
+    let migration = Migration::with_hash(
+        "20230331141203_atomic",
+        "atomic_hash",
+        1_680_271_923_000,
+        vec![],
+    );
+    let error = db
+        .migrate(
+            std::slice::from_ref(&migration),
+            Tracking::POSTGRES.schema(schema_name.clone()),
+        )
+        .expect_err("the rejected backfill fails the upgrade");
+    assert!(error.to_string().contains("backfill rejected"), "{error}");
+
+    let columns = crate::common::helpers::postgres_sync_setup::legacy_tracking_columns(
+        db.conn_mut(),
+        &schema_name,
+        "__drizzle_migrations",
+    );
+    assert_eq!(
+        columns,
+        ["id", "hash", "created_at"],
+        "a failed upgrade must not leave half the columns behind"
+    );
+}
+
+/// Concurrent first runs used to race on `CREATE SCHEMA IF NOT EXISTS`
+/// before taking the advisory lock.
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_concurrent_first_migrate_creates_tracking_schema_once() {
+    let db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
+        "concurrent_first_sync_test",
+    );
+    let schema_name = db.schema_name().to_string();
+    let tracking_schema = format!("{schema_name}_tracking");
+    let url = pg_test_url();
+    let mut admin = postgres::Client::connect(&url, postgres::NoTls).expect("admin connection");
+
+    for round in 0..5 {
+        admin
+            .batch_execute(&format!(
+                "DROP SCHEMA IF EXISTS \"{tracking_schema}\" CASCADE"
+            ))
+            .expect("reset tracking schema");
+        let migration = Migration::new(
+            "20240101000000_concurrent_first",
+            &format!("CREATE TABLE \"{schema_name}\".concurrent_first_{round} (id INTEGER);"),
+        );
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(6));
+        let handles = (0..6)
+            .map(|_| {
+                let url = url.clone();
+                let barrier = barrier.clone();
+                let migration = migration.clone();
+                let tracking_schema = tracking_schema.clone();
+                std::thread::spawn(move || {
+                    let client = postgres::Client::connect(&url, postgres::NoTls).expect("connect");
+                    let (mut db, ()) = drizzle::postgres::sync::Drizzle::new(client);
+                    barrier.wait();
+                    db.migrate(&[migration], Tracking::POSTGRES.schema(tracking_schema))
+                        .map(|outcome| outcome.applied_count())
+                        .map_err(|error| error.to_string())
+                })
+            })
+            .collect::<Vec<_>>();
+        let results = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("migrate thread"))
+            .collect::<Vec<_>>();
+        let applied: usize = results
+            .iter()
+            .map(|result| *result.as_ref().unwrap_or_else(|error| panic!("{error}")))
+            .sum();
+        assert_eq!(applied, 1, "exactly one runner applies the migration");
+    }
+
+    admin
+        .batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS \"{tracking_schema}\" CASCADE"
+        ))
+        .expect("drop tracking schema");
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[tokio::test]
+async fn tokio_postgres_migrate_finishes_a_half_upgraded_tracking_table() {
+    let mut db =
+        crate::common::helpers::tokio_postgres_setup::setup_empty_named("half_upgraded_tokio_test")
+            .await;
+    let schema_name = db.schema_name().to_string();
+    db.conn()
+        .batch_execute(&format!(
+            "CREATE TABLE \"{schema_name}\".\"__drizzle_migrations\"
+                 (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT, name TEXT);
+             INSERT INTO \"{schema_name}\".\"__drizzle_migrations\" (hash, created_at)
+                 VALUES ('half_hash', 1680271923456);"
+        ))
+        .await
+        .expect("reproduce the half-upgraded table");
+
+    let migration = Migration::with_hash(
+        "20230331141203_half",
+        "half_hash",
+        1_680_271_923_000,
+        vec![format!(
+            "CREATE TABLE \"{schema_name}\".half_upgraded (id INTEGER)"
+        )],
+    );
+    let outcome = db
+        .migrate(
+            std::slice::from_ref(&migration),
+            Tracking::POSTGRES.schema(schema_name.clone()),
+        )
+        .await
+        .expect("a half-upgraded tracking table is completed");
+    assert!(outcome.is_up_to_date(), "{outcome:?}");
+
+    let row = db
+        .conn()
+        .query_one(
+            &format!(
+                "SELECT name, applied_at IS NOT NULL FROM \"{schema_name}\".\"__drizzle_migrations\""
+            ),
+            &[],
+        )
+        .await
+        .expect("upgraded row");
+    assert_eq!(row.get::<_, String>(0), "20230331141203_half");
+    assert!(row.get::<_, bool>(1));
+}
+
+/// Statement errors carry the server's message, and a breakpoint chunk runs
+/// whole even when it holds several statements (as drizzle-orm runs it).
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_migrate_runs_whole_chunks_and_reports_server_errors() {
+    let mut db =
+        crate::common::helpers::postgres_sync_setup::setup_empty_named("chunk_errors_sync_test");
+    let schema_name = db.schema_name().to_string();
+    let tracking = Tracking::POSTGRES.schema(schema_name.clone());
+
+    let chunked = Migration::new(
+        "20240101000000_chunked",
+        &format!(
+            "CREATE TABLE \"{schema_name}\".chunk_a (id INTEGER);\n\
+             CREATE TABLE \"{schema_name}\".chunk_b (id INTEGER);\n\
+             --> statement-breakpoint\n\
+             INSERT INTO \"{schema_name}\".chunk_b VALUES (E'1');"
+        ),
+    );
+    assert_eq!(chunked.statements().len(), 2);
+    db.migrate(std::slice::from_ref(&chunked), tracking.clone())
+        .expect("a multi-statement chunk runs whole");
+
+    let broken = Migration::new(
+        "20240102000000_broken",
+        &format!("INSERT INTO \"{schema_name}\".missing_table VALUES (1);"),
+    );
+    let error = db
+        .migrate(&[chunked, broken], tracking)
+        .expect_err("a failing statement fails the migration");
+    let text = error.to_string();
+    assert!(text.contains("20240102000000_broken"), "{text}");
+    assert!(text.contains("missing_table"), "{text}");
+    assert!(
+        text.contains("does not exist"),
+        "server message is kept: {text}"
+    );
+}

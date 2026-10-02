@@ -30,6 +30,11 @@ url = '{db_url}'
     fs::write(root.join("schema.rs"), "// test schema\n").expect("write schema");
 }
 
+/// drizzle-kit's `up` names each folder `<UTC YYYYMMDDHHMMSS of when>_<tag
+/// without its index>` (`migrateToFoldersV3` + `prepareSnapshotFolderName`).
+const FIRST_FOLDER: &str = "20231114221320_flimsy_shard";
+const SECOND_FOLDER: &str = "20231114221321_curved_rogue";
+
 const INITIAL_SQL: &str = "CREATE TABLE `users` (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`email` text NOT NULL\n);\n";
 const SECOND_SQL: &str = "CREATE TABLE `posts` (\n\t`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,\n\t`author_id` integer NOT NULL,\n\tFOREIGN KEY (`author_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade\n);\n--> statement-breakpoint\nCREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);\n";
 
@@ -153,34 +158,24 @@ fn up_converts_legacy_layout_to_folders() {
         .assert()
         .success();
 
-    // SQL moved verbatim into {tag}/migration.sql.
+    // SQL moved verbatim into {folder}/migration.sql, where {folder} is what
+    // drizzle-kit's `up` names it (and drizzle-orm records once applied).
+    assert!(!migrations_dir.join("0000_flimsy_shard").exists());
     assert_eq!(
-        fs::read_to_string(
-            migrations_dir
-                .join("0000_flimsy_shard")
-                .join("migration.sql")
-        )
-        .expect("read converted sql"),
+        fs::read_to_string(migrations_dir.join(FIRST_FOLDER).join("migration.sql"))
+            .expect("read converted sql"),
         INITIAL_SQL
     );
     assert_eq!(
-        fs::read_to_string(
-            migrations_dir
-                .join("0001_curved_rogue")
-                .join("migration.sql")
-        )
-        .expect("read converted sql"),
+        fs::read_to_string(migrations_dir.join(SECOND_FOLDER).join("migration.sql"))
+            .expect("read converted sql"),
         SECOND_SQL
     );
 
     // Snapshots converted to the current entity-array format, ids preserved.
     let snapshot = drizzle_migrations::sqlite::SQLiteSnapshot::from_json(
-        &fs::read_to_string(
-            migrations_dir
-                .join("0001_curved_rogue")
-                .join("snapshot.json"),
-        )
-        .expect("read converted snapshot"),
+        &fs::read_to_string(migrations_dir.join(SECOND_FOLDER).join("snapshot.json"))
+            .expect("read converted snapshot"),
     )
     .expect("converted snapshot parses as the current format");
     assert_eq!(
@@ -204,8 +199,11 @@ fn up_converts_legacy_layout_to_folders() {
         .discover()
         .expect("discovery accepts the converted layout");
     assert_eq!(migrations.len(), 2);
-    assert_eq!(migrations[0].name(), "0000_flimsy_shard");
-    assert_eq!(migrations[1].name(), "0001_curved_rogue");
+    assert_eq!(migrations[0].name(), FIRST_FOLDER);
+    assert_eq!(migrations[1].name(), SECOND_FOLDER);
+    // The folder prefix is the journal's `when`, at second precision.
+    assert_eq!(migrations[0].created_at(), 1_700_000_000_000);
+    assert_eq!(migrations[1].created_at(), 1_700_000_001_000);
 }
 
 #[test]
@@ -222,12 +220,9 @@ fn up_is_idempotent_after_conversion() {
         .assert()
         .success();
 
-    let snapshot_before = fs::read_to_string(
-        migrations_dir
-            .join("0000_flimsy_shard")
-            .join("snapshot.json"),
-    )
-    .expect("read snapshot");
+    let snapshot_before =
+        fs::read_to_string(migrations_dir.join(FIRST_FOLDER).join("snapshot.json"))
+            .expect("read snapshot");
 
     // Second run: nothing legacy left, snapshots already current.
     cargo_bin_cmd!("drizzle")
@@ -237,12 +232,9 @@ fn up_is_idempotent_after_conversion() {
         .success()
         .stdout(predicates::str::contains("already at the latest version"));
 
-    let snapshot_after = fs::read_to_string(
-        migrations_dir
-            .join("0000_flimsy_shard")
-            .join("snapshot.json"),
-    )
-    .expect("read snapshot");
+    let snapshot_after =
+        fs::read_to_string(migrations_dir.join(FIRST_FOLDER).join("snapshot.json"))
+            .expect("read snapshot");
     assert_eq!(snapshot_before, snapshot_after);
 }
 
@@ -271,6 +263,6 @@ fn up_leaves_legacy_files_alone_when_an_entry_is_broken() {
     assert!(migrations_dir.join("0000_flimsy_shard.sql").exists());
     assert!(migrations_dir.join("0001_curved_rogue.sql").exists());
     assert!(migrations_dir.join("meta").join("_journal.json").exists());
-    assert!(!migrations_dir.join("0000_flimsy_shard").exists());
-    assert!(!migrations_dir.join("0001_curved_rogue").exists());
+    assert!(!migrations_dir.join(FIRST_FOLDER).exists());
+    assert!(!migrations_dir.join(SECOND_FOLDER).exists());
 }

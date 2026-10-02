@@ -349,7 +349,8 @@ mod executed {
                     .column(Column::new("external_id", "UUID").not_null())
                     .column(Column::new("settings", "JSONB").not_null())
                     .column(
-                        Column::new("mood", "SeedMood")
+                        // Quoted, as the macro creates the type.
+                        Column::new("mood", "\"SeedMood\"")
                             .not_null()
                             .enum_values(["Calm", "Busy"]),
                     )

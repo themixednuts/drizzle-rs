@@ -1,7 +1,7 @@
 use super::context::MacroContext;
 use crate::common::ref_gen::{self, ColumnRefInput, ConstraintRefInput, ForeignKeyRefInput};
 use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
-use crate::mysql::field::{FieldInfo, MySQLDefault};
+use crate::mysql::field::FieldInfo;
 use crate::mysql::generators::{
     SQLTableConfig, generate_mysql_table, generate_sql_schema, generate_sql_table, generate_to_sql,
 };
@@ -200,9 +200,11 @@ pub(super) fn generate_table_impls(
                 f.default.as_ref().map_or_else(
                     || quote! { ::core::option::Option::None },
                     |default| {
-                        let default_str = match default {
-                            MySQLDefault::Literal(s) | MySQLDefault::Expression(s) => s.clone(),
-                        };
+                        let default_str = crate::mysql::field::canonical_default_sql(
+                            &f.column_type,
+                            &f.type_args,
+                            default,
+                        );
                         quote! { ::core::option::Option::Some(#default_str) }
                     },
                 )
@@ -268,7 +270,7 @@ pub(super) fn generate_table_impls(
         .filter_map(|f| {
             f.foreign_key.as_ref().map(|fk| {
                 let target_table = &fk.table;
-                let fk_name = format!("{}_{}_fkey", ctx.table_name, f.column_name);
+                let fk_name = ctx.column_foreign_key_name(f);
                 let target_schema = quote! {
                     match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
                         ::core::option::Option::Some(schema) => schema,
@@ -298,19 +300,10 @@ pub(super) fn generate_table_impls(
             })
         })
         .collect();
-    for cfk in &ctx.attrs.composite_foreign_keys {
+    for (fk_index, cfk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
         let target_table = &cfk.target_table;
-        let source_columns: Vec<String> = cfk
-            .source_columns
-            .iter()
-            .map(|src| {
-                ctx.field_infos
-                    .iter()
-                    .find(|f| &f.ident == src)
-                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
-            })
-            .collect();
-        let fk_name = format!("{}_{}_fkey", ctx.table_name, source_columns[0]);
+        let source_columns = ctx.composite_foreign_key_columns(cfk);
+        let fk_name = ctx.composite_foreign_key_name(fk_index);
         let target_schema = quote! {
             match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
                 ::core::option::Option::Some(schema) => schema,
@@ -346,7 +339,7 @@ pub(super) fn generate_table_impls(
         .filter_map(|field| {
             let expr = field.check_constraint.as_ref()?;
             Some(ConstraintRefInput {
-                name: Some(format!("{}_{}_check", ctx.table_name, field.column_name)),
+                name: Some(column_check_name(ctx, field)),
                 name_explicit: false,
                 kind: quote! { drizzle::core::SQLConstraintKind::Check },
                 columns: vec![field.column_name.clone()],
@@ -689,7 +682,7 @@ fn table_unique_column_data(
     (col_zsts, col_names, source_checks)
 }
 
-fn table_unique_column_names(ctx: &MacroContext, columns: &[Ident]) -> Vec<String> {
+pub(super) fn table_unique_column_names(ctx: &MacroContext, columns: &[Ident]) -> Vec<String> {
     columns
         .iter()
         .map(|src| {
@@ -701,13 +694,26 @@ fn table_unique_column_names(ctx: &MacroContext, columns: &[Ident]) -> Vec<Strin
         .collect()
 }
 
-fn table_unique_name(ctx: &MacroContext, columns: &[String], explicit: &Option<String>) -> String {
+pub(super) fn table_unique_name(
+    ctx: &MacroContext,
+    columns: &[String],
+    explicit: &Option<String>,
+) -> String {
     explicit
         .clone()
         .unwrap_or_else(|| format!("{}_{}_key", ctx.table_name, columns.join("_")))
 }
 
-fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -> String {
+/// Name of a column-level `CHECK`, shared by the snapshot and `CREATE TABLE`.
+pub(super) fn column_check_name(ctx: &MacroContext, field: &FieldInfo) -> String {
+    format!("{}_{}_check", ctx.table_name, field.column_name)
+}
+
+pub(super) fn table_check_name(
+    ctx: &MacroContext,
+    idx: usize,
+    explicit: &Option<String>,
+) -> String {
     explicit.clone().unwrap_or_else(|| {
         if ctx.attrs.check_constraints.len() == 1 {
             format!("{}_check", ctx.table_name)

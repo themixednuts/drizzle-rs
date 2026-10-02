@@ -4,15 +4,19 @@
 //!
 //! * **Legacy stable-kit layout** (flat `NNNN_name.sql` files plus
 //!   `meta/_journal.json` and `meta/NNNN_snapshot.json`): the whole
-//!   directory is converted to the v1-beta layout (`{tag}/migration.sql` +
-//!   `{tag}/snapshot.json`) with every snapshot structurally upgraded to the
-//!   current entity-array format. SQL files are moved verbatim.
+//!   directory is converted to the v1-beta layout (`{folder}/migration.sql`
+//!   and `{folder}/snapshot.json`) with every snapshot structurally upgraded
+//!   to the current entity-array format. SQL files are moved verbatim. Folders
+//!   are named like drizzle-kit names them: the UTC `YYYYMMDDHHMMSS` of the
+//!   journal entry's `when`, then the tag without its index
+//!   (`0000_flimsy_shard` becomes `20231114221320_flimsy_shard`).
 //! * **v1-beta layout** with old snapshot versions: each `snapshot.json` is
 //!   upgraded in place.
 
 use crate::config::{Config, Dialect as CliDialect};
 use crate::error::CliError;
 use crate::output;
+use drizzle_migrations::naming::legacy_migration_folder_name;
 use drizzle_migrations::upgrade::upgrade_to_latest;
 use drizzle_migrations::version::{is_supported_version, snapshot_version};
 use drizzle_types::Dialect;
@@ -113,6 +117,8 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &UpgradeOptions) -> Res
 /// has converted cleanly.
 struct ConvertedEntry {
     tag: String,
+    /// `<UTC YYYYMMDDHHMMSS of when>_<tag without its index>`.
+    folder: String,
     sql_path: PathBuf,
     sql: String,
     snapshot_json: String,
@@ -121,9 +127,11 @@ struct ConvertedEntry {
 /// Convert a legacy drizzle-kit migrations directory to the v1-beta layout.
 ///
 /// For each journal entry, the flat `{tag}.sql` file becomes
-/// `{tag}/migration.sql` (content moved verbatim) and the matching
-/// `meta/{idx}_snapshot.json` becomes `{tag}/snapshot.json`, structurally
-/// upgraded to the current entity-array format.
+/// `{folder}/migration.sql` (content moved verbatim) and the matching
+/// `meta/{idx}_snapshot.json` becomes `{folder}/snapshot.json`, structurally
+/// upgraded to the current entity-array format. `{folder}` is
+/// [`legacy_migration_folder_name`] of the tag and the entry's `when`, the
+/// name drizzle-kit's `up` gives it and drizzle-orm records once applied.
 ///
 /// The conversion is all-or-nothing: every entry is read, upgraded, and
 /// validated in memory first; the new folders are then written; the legacy
@@ -177,6 +185,24 @@ fn convert_legacy_layout(out_dir: &Path, dialect: Dialect) -> Result<usize, CliE
                     journal_path.display()
                 ))
             })?;
+        let when = entry
+            .get("when")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| {
+                CliError::Other(format!(
+                    "Journal entry '{tag}' without a 'when' timestamp in {}",
+                    journal_path.display()
+                ))
+            })?;
+        // drizzle-kit's `up` names the folder after `when`, not the tag, and
+        // drizzle-orm records that name; any other name re-runs everything.
+        let folder = legacy_migration_folder_name(tag, when);
+        if let Some(clash) = converted.iter().find(|done| done.folder == folder) {
+            return Err(CliError::Other(format!(
+                "Journal entries '{}' and '{tag}' both convert to folder '{folder}'",
+                clash.tag
+            )));
+        }
 
         let sql_path = out_dir.join(format!("{tag}.sql"));
         let sql = fs::read_to_string(&sql_path).map_err(|e| {
@@ -215,6 +241,7 @@ fn convert_legacy_layout(out_dir: &Path, dialect: Dialect) -> Result<usize, CliE
 
         converted.push(ConvertedEntry {
             tag: tag.to_string(),
+            folder,
             sql_path,
             sql,
             snapshot_json,
@@ -224,7 +251,7 @@ fn convert_legacy_layout(out_dir: &Path, dialect: Dialect) -> Result<usize, CliE
     // Phase 2: write the new folders; the legacy files stay untouched until
     // every write has succeeded.
     for entry in &converted {
-        let folder = out_dir.join(&entry.tag);
+        let folder = out_dir.join(&entry.folder);
         fs::create_dir_all(&folder).map_err(|e| CliError::IoError(e.to_string()))?;
         fs::write(folder.join("migration.sql"), &entry.sql)
             .map_err(|e| CliError::IoError(e.to_string()))?;
@@ -234,7 +261,7 @@ fn convert_legacy_layout(out_dir: &Path, dialect: Dialect) -> Result<usize, CliE
             "{}",
             output::info(&format!(
                 "  {} -> {}/migration.sql + snapshot.json",
-                entry.tag, entry.tag
+                entry.tag, entry.folder
             ))
         );
     }

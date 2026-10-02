@@ -571,3 +571,54 @@ fn mysql_codegen_skips_untranslatable_defaults_with_a_warning() {
         .expect("email column survives the round trip");
     assert_eq!(email.default, None);
 }
+
+#[test]
+fn mysql_codegen_round_trips_introspected_default_spellings() {
+    // Defaults as introspection canonicalizes them. A pull followed by a
+    // generate must not change them, and string values must not gain a
+    // backslash on every pull/push cycle.
+    let mut ddl = MySQLDDL::new();
+    ddl.tables.push(app_table("defaults"));
+    let mut id = app_column("defaults", "id", "BIGINT");
+    id.not_null = true;
+    id.primary_key = true;
+    ddl.columns.push(id);
+    for (name, sql_type, default) in [
+        ("backslash", "VARCHAR(20)", r"'back\\slash'"),
+        ("quote", "VARCHAR(20)", "'it''s'"),
+        ("looks_like_sql", "VARCHAR(20)", "'now()'"),
+        ("body", "TEXT", "('hello')"),
+        ("payload", "BLOB", "(X'AB')"),
+        ("bytes", "VARBINARY(10)", "X'616263'"),
+        ("document", "JSON", "(json_array())"),
+        ("uid", "VARCHAR(36)", "(uuid())"),
+        ("created", "DATETIME", "CURRENT_TIMESTAMP"),
+    ] {
+        let mut column = app_column("defaults", name, sql_type);
+        column.default = Some(default.to_owned().into());
+        ddl.columns.push(column);
+    }
+    ddl.pks.push(app_primary_key("defaults", &["id"]));
+
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default()).expect("representable");
+    assert!(
+        generated.warnings.is_empty(),
+        "warnings: {:#?}\n{}",
+        generated.warnings,
+        generated.code
+    );
+    assert!(
+        generated.code.contains(r#"DEFAULT = "back\\slash""#),
+        "{}",
+        generated.code
+    );
+
+    let reparsed = parse_generated_ddl(&generated.code);
+    let diff = compute_migration(&ddl, &reparsed).expect("equivalent DDL must diff");
+    assert!(
+        diff.statements.is_empty(),
+        "round-trip changed MySQL defaults:\nsource:\n{}\nSQL: {:#?}",
+        generated.code,
+        diff.sql_statements
+    );
+}

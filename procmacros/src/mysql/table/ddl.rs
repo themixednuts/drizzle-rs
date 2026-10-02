@@ -58,8 +58,14 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
         push_entry(quote!(#const_format::concatcp!("PRIMARY KEY (", #names, ")")));
     }
 
+    // Every constraint is named exactly as the migration snapshot names it,
+    // so `create_statements()`, generate and push agree on the schema.
     for field in ctx.field_infos {
         if let Some(reference) = &field.foreign_key {
+            let constraint = format!(
+                "CONSTRAINT {} ",
+                quoted(&ctx.column_foreign_key_name(field))
+            );
             let source = quoted(&field.column_name);
             let target = &reference.table;
             let target_column = &reference.column;
@@ -72,7 +78,7 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
             );
             push_entry(quote! {
                 #const_format::concatcp!(
-                    "FOREIGN KEY (", #source, ") REFERENCES ",
+                    #constraint, "FOREIGN KEY (", #source, ") REFERENCES ",
                     <#target as drizzle::mysql::traits::MySQLTable<'static>>::DDL_QUALIFIED_NAME,
                     " (",
                     <#target_column_type as drizzle::mysql::traits::MySQLColumn<'static>>::DDL_NAME,
@@ -82,7 +88,11 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
         }
     }
 
-    for foreign_key in &ctx.attrs.composite_foreign_keys {
+    for (foreign_key_index, foreign_key) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
+        let constraint = format!(
+            "CONSTRAINT {} ",
+            quoted(&ctx.composite_foreign_key_name(foreign_key_index))
+        );
         let source = foreign_key
             .source_columns
             .iter()
@@ -122,7 +132,7 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
         );
         push_entry(quote! {
             #const_format::concatcp!(
-                "FOREIGN KEY (", #source, ") REFERENCES ",
+                #constraint, "FOREIGN KEY (", #source, ") REFERENCES ",
                 <#target as drizzle::mysql::traits::MySQLTable<'static>>::DDL_QUALIFIED_NAME,
                 " (", #(#target_parts),*, ")", #actions
             )
@@ -130,32 +140,30 @@ pub fn generate_schema_sql_const(ctx: &MacroContext<'_>) -> TokenStream {
     }
 
     for unique in &ctx.attrs.unique_constraints {
-        let columns = unique
-            .columns
+        let column_names = super::traits::table_unique_column_names(ctx, &unique.columns);
+        let name = super::traits::table_unique_name(ctx, &column_names, &unique.name);
+        let columns = column_names
             .iter()
-            .map(|ident| {
-                ctx.field_infos
-                    .iter()
-                    .find(|field| field.ident == *ident)
-                    .map_or_else(
-                        || quoted(&ident.to_string()),
-                        |field| quoted(&field.column_name),
-                    )
-            })
+            .map(|column| quoted(column))
             .collect::<Vec<_>>()
             .join(", ");
-        let entry = unique.name.as_ref().map_or_else(
-            || format!("UNIQUE ({columns})"),
-            |name| format!("CONSTRAINT {} UNIQUE ({columns})", quoted(name)),
-        );
+        let entry = format!("CONSTRAINT {} UNIQUE ({columns})", quoted(&name));
         push_entry(quote!(#entry));
     }
 
-    for check in &ctx.attrs.check_constraints {
-        let entry = check.name.as_ref().map_or_else(
-            || format!("CHECK ({})", check.expr),
-            |name| format!("CONSTRAINT {} CHECK ({})", quoted(name), check.expr),
-        );
+    // A column-level CHECK may reference other columns, which MySQL only
+    // accepts as a table constraint (error 3813 otherwise).
+    for field in ctx.field_infos {
+        if let Some(check) = &field.check_constraint {
+            let name = super::traits::column_check_name(ctx, field);
+            let entry = format!("CONSTRAINT {} CHECK ({check})", quoted(&name));
+            push_entry(quote!(#entry));
+        }
+    }
+
+    for (index, check) in ctx.attrs.check_constraints.iter().enumerate() {
+        let name = super::traits::table_check_name(ctx, index, &check.name);
+        let entry = format!("CONSTRAINT {} CHECK ({})", quoted(&name), check.expr);
         push_entry(quote!(#entry));
     }
 

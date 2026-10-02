@@ -710,7 +710,8 @@ fn apply_sqlite_rename_hints(
 
         statements.push(format!(
             "ALTER TABLE `{}` RENAME TO `{}`;",
-            hint.from, hint.to
+            hint.from.replace('`', "``"),
+            hint.to.replace('`', "``")
         ));
         apply_sqlite_table_rename(prev, &hint.from, &hint.to);
     }
@@ -755,7 +756,9 @@ fn apply_sqlite_rename_hints(
 
         statements.push(format!(
             "ALTER TABLE `{}` RENAME COLUMN `{}` TO `{}`;",
-            hint.table, hint.from, hint.to
+            hint.table.replace('`', "``"),
+            hint.from.replace('`', "``"),
+            hint.to.replace('`', "``")
         ));
         apply_sqlite_column_rename(prev, &hint.table, &hint.from, &hint.to);
     }
@@ -787,10 +790,7 @@ fn apply_sqlite_rename_hints(
         }
 
         let current = current.expect("validated current SQLite view");
-        statements.push(format!(
-            "DROP VIEW IF EXISTS `{}`;",
-            hint.from.replace('`', "``")
-        ));
+        statements.push(format!("DROP VIEW `{}`;", hint.from.replace('`', "``")));
         statements.push(current.create_view_sql());
         if let Some(previous) = prev
             .views
@@ -1412,7 +1412,7 @@ mod tests {
                 Snapshot::Sqlite(sqlite_previous),
                 Snapshot::Sqlite(sqlite_current),
                 vec![
-                    "DROP VIEW IF EXISTS `old_view`;".to_string(),
+                    "DROP VIEW `old_view`;".to_string(),
                     "CREATE VIEW `new_view` AS SELECT 1;".to_string(),
                 ],
             ),

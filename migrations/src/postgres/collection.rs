@@ -373,10 +373,22 @@ pub struct EntityDiff {
     pub right: Option<PostgresEntity>,
 }
 
+/// Schemas that take part in the diff: `public` always exists in
+/// `PostgreSQL`, so it is never created or dropped (drizzle-kit filters it
+/// the same way). Older snapshots may still carry a `public` entity.
+fn diffable_schemas(ddl: &PostgresDDL) -> Vec<Schema> {
+    ddl.schemas
+        .list()
+        .iter()
+        .filter(|schema| schema.name != "public")
+        .cloned()
+        .collect()
+}
+
 fn diff_top_level_entities(left: &PostgresDDL, right: &PostgresDDL, diffs: &mut Vec<EntityDiff>) {
     diff_entity_type(
-        left.schemas.list(),
-        right.schemas.list(),
+        &diffable_schemas(left),
+        &diffable_schemas(right),
         |e| e.name.to_string(),
         |e| PostgresEntity::Schema(e.clone()),
         EntityKind::Schema,
@@ -626,6 +638,7 @@ fn normalize_type_schema_for_compare(column: &mut Column) {
 fn normalize_identity_for_compare(column: &mut Column) {
     use super::grammar::IdentityDefaults;
 
+    normalize_identity_schema(column);
     let sql_type = normalize_type_for_compare(&column.sql_type);
     if let Some(identity) = column.identity.as_mut() {
         if identity.increment.is_none() {
@@ -649,16 +662,83 @@ fn normalize_identity_for_compare(column: &mut Column) {
     }
 }
 
+/// The column's identity with unset sequence options filled with their
+/// `PostgreSQL` defaults, for comparison.
+pub(crate) fn normalize_identity_options(column: &Column) -> Option<super::ddl::Identity> {
+    let mut column = column.clone();
+    normalize_identity_for_compare(&mut column);
+    column.identity
+}
+
+/// An unset identity sequence schema is the column's own schema.
+fn normalize_identity_schema(column: &mut Column) {
+    let schema = column.schema.clone();
+    if let Some(identity) = column.identity.as_mut()
+        && identity.schema.is_none()
+    {
+        identity.schema = Some(schema);
+    }
+}
+
+/// An SQL expression with whitespace collapsed and redundant outer
+/// parentheses removed, for comparison.
+pub(crate) fn normalize_expression(value: &str) -> String {
+    let mut value = collapse_sql_whitespace(value);
+    while let Some(stripped) = strip_outer_parens(&value) {
+        if stripped == value {
+            break;
+        }
+        value = stripped.to_string();
+    }
+    value
+}
+
 /// Normalize a column default for comparison: strip trailing `::type` casts
 /// that `PostgreSQL` appends when it stores the expression, so
 /// `'active'::text` compares equal to `'active'` and `'{}'::jsonb` to
 /// `'{}'`. Non-cast defaults compare exactly.
 pub(crate) fn normalize_default_for_compare(default: &str) -> String {
     let mut value = default.trim();
-    while let Some(stripped) = strip_trailing_cast(value) {
-        value = stripped;
+    loop {
+        if let Some(stripped) = strip_trailing_cast(value) {
+            value = stripped;
+            continue;
+        }
+        // `(-1)` / `('a'::text)`: drop wrapping parentheses.
+        if let Some(stripped) = strip_outer_parens(value)
+            && stripped != value
+        {
+            value = stripped;
+            continue;
+        }
+        break;
+    }
+    // PostgreSQL stores `DEFAULT -1` as `'-1'::integer`: a quoted numeric
+    // literal is the number itself.
+    if let Some(inner) = value
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+        && is_numeric_literal(inner)
+    {
+        return inner.to_string();
+    }
+    // Keywords are case-insensitive (`TRUE` / `true`, `NULL` / `null`).
+    if ["true", "false", "null"]
+        .iter()
+        .any(|keyword| value.eq_ignore_ascii_case(keyword))
+    {
+        return value.to_ascii_lowercase();
     }
     value.to_string()
+}
+
+fn is_numeric_literal(value: &str) -> bool {
+    let digits = value.strip_prefix(['-', '+']).unwrap_or(value);
+    !digits.is_empty()
+        && digits.chars().any(|c| c.is_ascii_digit())
+        && digits
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '-' | '+'))
 }
 
 /// Strip one trailing `::type` cast if — and only if — the `::` sits outside
@@ -685,7 +765,8 @@ fn strip_trailing_cast(value: &str) -> Option<&str> {
     let suffix = &value[cast_pos + 2..];
     let is_type_name = !suffix.is_empty()
         && suffix.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | '(' | ')' | ',' | '[' | ']' | '"')
+            c.is_ascii_alphanumeric()
+                || matches!(c, '_' | ' ' | '(' | ')' | ',' | '[' | ']' | '"' | '.')
         });
     if is_type_name {
         Some(value[..cast_pos].trim_end())
@@ -759,24 +840,33 @@ fn views_equivalent(left: &View, right: &View) -> bool {
     left == right
 }
 
-/// Compare indexes with NULLS ordering normalized to `PostgreSQL`'s
-/// defaults: `DESC` implies `NULLS FIRST`, `ASC` implies `NULLS LAST`. A
-/// schema-side `col DESC` (with `nulls_first` unset/false) must compare
-/// equal to the introspected column, which records the effective
-/// `nulls_first = true`.
-fn indexes_equivalent(left: &Index, right: &Index) -> bool {
+/// Compare indexes ignoring what does not change the index itself: whether
+/// it is (re)built `CONCURRENTLY` (drizzle-kit never recreates for that),
+/// whether its name was spelled out, the default `btree` method, and
+/// formatting/redundant parentheses in the predicate and key expressions
+/// (`(a IS NOT NULL)` as `PostgreSQL` prints it vs `a IS NOT NULL`).
+/// `nulls_first` is the effective NULLS order (`DESC` defaults to `NULLS
+/// FIRST`), as introspection reads it.
+pub(crate) fn indexes_equivalent(left: &Index, right: &Index) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     for index in [&mut left, &mut right] {
-        for column in &mut index.columns {
-            if !column.asc && !column.nulls_first {
-                // DESC without explicit NULLS LAST defaults to NULLS FIRST;
-                // both spellings behave identically, so compare them equal.
-                column.nulls_first = true;
-            }
-        }
+        index.concurrently = false;
+        index.name_explicit = false;
         if index.method.is_none() {
             index.method = Some(Cow::Borrowed("btree"));
+        }
+        if index.r#with.as_deref().is_some_and(|w| w.trim().is_empty()) {
+            index.r#with = None;
+        }
+        index.where_clause = index
+            .where_clause
+            .as_deref()
+            .map(|clause| Cow::Owned(normalize_expression(clause)));
+        for column in &mut index.columns {
+            if column.is_expression {
+                column.value = Cow::Owned(normalize_expression(&column.value));
+            }
         }
     }
     left == right
@@ -810,7 +900,7 @@ fn sequences_equivalent(left: &Sequence, right: &Sequence) -> bool {
     left == right
 }
 
-fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
+pub(crate) fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     left.on_delete = normalize_fk_action(left.on_delete.as_deref());
@@ -824,7 +914,7 @@ fn foreign_keys_equivalent(left: &ForeignKey, right: &ForeignKey) -> bool {
     left == right
 }
 
-fn pks_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
+pub(crate) fn pks_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     // See foreign_keys_equivalent: name_explicit is provenance, not DDL.
@@ -833,7 +923,7 @@ fn pks_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
     left == right
 }
 
-fn uniques_equivalent(left: &UniqueConstraint, right: &UniqueConstraint) -> bool {
+pub(crate) fn uniques_equivalent(left: &UniqueConstraint, right: &UniqueConstraint) -> bool {
     let mut left = left.clone();
     let mut right = right.clone();
     // See foreign_keys_equivalent: name_explicit is provenance, not DDL.
@@ -873,10 +963,17 @@ fn normalize_policy(policy: &mut Policy) {
             .unwrap_or("ALL")
             .to_ascii_uppercase(),
     ));
+    // A policy without TO applies to PUBLIC.
+    if policy.to.as_ref().is_none_or(Vec::is_empty) {
+        policy.to = Some(vec![Cow::Borrowed("PUBLIC")]);
+    }
     if let Some(roles) = policy.to.as_mut() {
         for role in roles {
-            if role.eq_ignore_ascii_case("public") {
-                *role = Cow::Borrowed("PUBLIC");
+            if ["public", "current_user", "current_role", "session_user"]
+                .iter()
+                .any(|keyword| role.eq_ignore_ascii_case(keyword))
+            {
+                *role = Cow::Owned(role.to_ascii_uppercase());
             }
         }
     }
@@ -886,6 +983,14 @@ fn collapse_sql_whitespace(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Canonical spelling of a column type for comparison.
+///
+/// Built-in aliases fold together (`int4`/`INTEGER`, `float8`/`double
+/// precision`, `timestamptz(3)`/`timestamp(3) with time zone`), keeping the
+/// type modifier (`varchar(255)`, `timestamp(3)`, `numeric(10,2)`) and array
+/// dimensions. Only an exact built-in name is folded: an enum or domain whose
+/// name merely starts like a built-in (`time_unit`, `text_align`) compares by
+/// its own name.
 pub(crate) fn normalize_type_for_compare(sql_type: &str) -> String {
     let mut ty = collapse_sql_whitespace(&sql_type.trim().to_ascii_lowercase());
     let mut dimensions = String::new();
@@ -900,42 +1005,56 @@ pub(crate) fn normalize_type_for_compare(sql_type: &str) -> String {
         ty = stripped.to_string();
     }
 
-    let params = ty
-        .find('(')
-        .map(|idx| ty[idx..].to_string())
-        .unwrap_or_default();
-
-    let canonical = match ty.as_str() {
-        "int" | "int4" | "integer" => "integer".to_string(),
-        "int2" | "smallint" => "smallint".to_string(),
-        "int8" | "bigint" => "bigint".to_string(),
-        "bool" | "boolean" => "boolean".to_string(),
-        "timestamptz" | "timestamp with time zone" => "timestamp with time zone".to_string(),
-        "timestamp" | "timestamp without time zone" => "timestamp".to_string(),
-        "timetz" | "time with time zone" => "time with time zone".to_string(),
-        "time" | "time without time zone" => "time".to_string(),
-        _ if ty.starts_with("varchar") || ty.starts_with("character varying") => {
-            format!("character varying{params}")
-        }
-        // `character varying` was handled above, so any remaining
-        // char-family spelling (char, character, bpchar) is fixed-width.
-        _ if ty.starts_with("bpchar") || ty.starts_with("character") || ty.starts_with("char") => {
-            format!("character{params}")
-        }
-        _ => match super::grammar::PgTypeCategory::from_sql_type(&ty) {
-            super::grammar::PgTypeCategory::SmallInt => "smallint".to_string(),
-            super::grammar::PgTypeCategory::Integer => "integer".to_string(),
-            super::grammar::PgTypeCategory::BigInt => "bigint".to_string(),
-            super::grammar::PgTypeCategory::Boolean => "boolean".to_string(),
-            super::grammar::PgTypeCategory::Text => "text".to_string(),
-            super::grammar::PgTypeCategory::Varchar => format!("character varying{params}"),
-            super::grammar::PgTypeCategory::Numeric => format!("numeric{params}"),
-            super::grammar::PgTypeCategory::TimestampTz => "timestamp with time zone".to_string(),
-            super::grammar::PgTypeCategory::Timestamp => "timestamp".to_string(),
-            super::grammar::PgTypeCategory::TimeTz => "time with time zone".to_string(),
-            super::grammar::PgTypeCategory::Time => "time".to_string(),
-            _ => ty,
+    // Split `name(params) qualifier` into its parts.
+    let (name, params) = match ty.find('(') {
+        Some(open) => match ty[open..].find(')') {
+            Some(close_rel) => {
+                let close = open + close_rel;
+                let params: String = ty[open..=close]
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                let qualifier = ty[close + 1..].trim();
+                let base = ty[..open].trim();
+                let name = if qualifier.is_empty() {
+                    base.to_string()
+                } else {
+                    format!("{base} {qualifier}")
+                };
+                (name, params)
+            }
+            None => (ty.clone(), String::new()),
         },
+        None => (ty.clone(), String::new()),
+    };
+
+    let canonical = match name.as_str() {
+        "int" | "int4" | "integer" => format!("integer{params}"),
+        "int2" | "smallint" => format!("smallint{params}"),
+        "int8" | "bigint" => format!("bigint{params}"),
+        "serial" | "serial4" => "serial".to_string(),
+        "bigserial" | "serial8" => "bigserial".to_string(),
+        "smallserial" | "serial2" => "smallserial".to_string(),
+        "bool" | "boolean" => "boolean".to_string(),
+        "float4" | "real" => "real".to_string(),
+        "float8" | "float" | "double precision" => "double precision".to_string(),
+        "numeric" | "decimal" => {
+            // numeric(19) == numeric(19,0)
+            let params = params
+                .strip_suffix(",0)")
+                .map_or_else(|| params.clone(), |p| format!("{p})"));
+            format!("numeric{params}")
+        }
+        "varchar" | "character varying" => format!("character varying{params}"),
+        "char" | "character" | "bpchar" => format!("character{params}"),
+        "varbit" | "bit varying" => format!("bit varying{params}"),
+        "timestamptz" | "timestamp with time zone" => {
+            format!("timestamp{params} with time zone")
+        }
+        "timestamp" | "timestamp without time zone" => format!("timestamp{params}"),
+        "timetz" | "time with time zone" => format!("time{params} with time zone"),
+        "time" | "time without time zone" => format!("time{params}"),
+        _ => ty,
     };
 
     format!("{canonical}{dimensions}")

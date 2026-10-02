@@ -1432,21 +1432,62 @@ pub fn generate_timestamp_prefix() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    let secs = now.as_secs();
+    // Clamp in the (astronomically distant) overflow case so we never wrap
+    // into a negative year.
+    timestamp_prefix_from_millis(i64::try_from(now.as_millis()).unwrap_or(i64::MAX))
+}
 
-    // Convert to datetime components (UTC)
-    let days = secs / 86400;
-    let time_of_day = secs % 86400;
+/// Formats Unix milliseconds as a UTC `YYYYMMDDHHMMSS` folder prefix
+/// (drizzle-kit's `prepareSnapshotFolderName`).
+///
+/// drizzle-kit reads the year from local time and every other field in
+/// UTC; the two only disagree within the local UTC offset of New Year.
+/// This uses UTC throughout.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::naming::timestamp_prefix_from_millis;
+///
+/// assert_eq!(timestamp_prefix_from_millis(1_700_000_000_123), "20231114221320");
+/// ```
+#[must_use]
+pub fn timestamp_prefix_from_millis(millis: i64) -> String {
+    let secs = millis.div_euclid(1000);
+    let days = secs.div_euclid(86_400);
+    let time_of_day = secs.rem_euclid(86_400);
 
-    // Calculate year/month/day from days since epoch.
-    // Clamp to `i64::MAX` in the (astronomically distant) overflow case so
-    // we never wrap a sentinel timestamp into a negative year.
-    let (year, month, day) = days_to_ymd(i64::try_from(days).unwrap_or(i64::MAX));
+    let (year, month, day) = days_to_ymd(days);
     let hours = time_of_day / 3600;
     let minutes = (time_of_day % 3600) / 60;
     let seconds = time_of_day % 60;
 
     format!("{year:04}{month:02}{day:02}{hours:02}{minutes:02}{seconds:02}")
+}
+
+/// Returns the folder name drizzle-kit's `up` command gives a legacy journal
+/// entry: the UTC `YYYYMMDDHHMMSS` of its `when`, then the tag without its
+/// index prefix (`0000_flimsy_shard` → `20231114221320_flimsy_shard`).
+///
+/// drizzle-orm records these folder names in the tracking table, so a
+/// converted folder must carry exactly this name for both tools to agree on
+/// what has been applied.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::naming::legacy_migration_folder_name;
+///
+/// assert_eq!(
+///     legacy_migration_folder_name("0000_flimsy_shard", 1_700_000_000_123),
+///     "20231114221320_flimsy_shard"
+/// );
+/// ```
+#[must_use]
+pub fn legacy_migration_folder_name(tag: &str, when_millis: i64) -> String {
+    // drizzle-kit: `const [prefix, ...rest] = tag.split('_'); rest.join('_')`
+    let name = tag.split_once('_').map_or("", |(_, rest)| rest);
+    format!("{}_{name}", timestamp_prefix_from_millis(when_millis))
 }
 
 /// Returns a Supabase-style prefix.
@@ -1562,6 +1603,31 @@ pub fn generate_migration_tag_with_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_folder_names_match_drizzle_kit_up() {
+        // migrateToFoldersV3: prepareSnapshotFolderName(entry.when) + '_' +
+        // tag.split('_').slice(1).join('_').
+        assert_eq!(
+            legacy_migration_folder_name("0000_flimsy_shard", 1_700_000_000_000),
+            "20231114221320_flimsy_shard"
+        );
+        assert_eq!(
+            legacy_migration_folder_name("0012_add_users_table", 1_704_067_199_999),
+            "20231231235959_add_users_table"
+        );
+        // A tag without `_` keeps an empty name, as drizzle-kit does.
+        assert_eq!(legacy_migration_folder_name("0000", 0), "19700101000000_");
+        assert_eq!(timestamp_prefix_from_millis(-1), "19691231235959");
+        // The prefix round-trips through the runtime's created_at parsing.
+        assert_eq!(
+            crate::migrator::parse_timestamp_from_tag(&legacy_migration_folder_name(
+                "0001_x",
+                1_700_000_001_234
+            )),
+            1_700_000_001_000
+        );
+    }
 
     #[test]
     fn test_generate_timestamp_prefix() {

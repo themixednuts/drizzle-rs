@@ -124,6 +124,7 @@ pub mod collection;
 pub mod config;
 pub mod dir;
 pub mod generate;
+pub mod history;
 pub mod journal;
 pub mod migrator;
 pub mod mysql;

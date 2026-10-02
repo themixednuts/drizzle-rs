@@ -139,9 +139,14 @@ fn quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
+/// `PUBLIC` and the role-name functions are keywords; anything else is a
+/// quoted role name.
 fn role_sql(role: &str) -> String {
-    if role.eq_ignore_ascii_case("public") {
-        "PUBLIC".to_string()
+    if ["public", "current_user", "current_role", "session_user"]
+        .iter()
+        .any(|keyword| role.eq_ignore_ascii_case(keyword))
+    {
+        role.to_ascii_uppercase()
     } else {
         quote_ident(role)
     }
@@ -373,4 +378,18 @@ pub fn postgres_policy_attr_macro(
         // Snapshot DDL channel (policies carry no const DDL metadata).
         impl #postgres_item_ddl for #struct_ident {}
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::role_sql;
+
+    #[test]
+    fn role_keywords_are_not_quoted() {
+        assert_eq!(role_sql("public"), "PUBLIC");
+        assert_eq!(role_sql("current_user"), "CURRENT_USER");
+        assert_eq!(role_sql("Session_User"), "SESSION_USER");
+        assert_eq!(role_sql("current_role"), "CURRENT_ROLE");
+        assert_eq!(role_sql("app_user"), "\"app_user\"");
+    }
 }

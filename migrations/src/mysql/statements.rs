@@ -220,6 +220,11 @@ pub struct TableDefinition {
     pub primary_key: Option<PrimaryKeyDefinition>,
     pub uniques: Vec<UniqueDefinition>,
     pub checks: Vec<CheckDefinition>,
+    /// Indexes declared inside `CREATE TABLE`. An `AUTO_INCREMENT` column
+    /// keyed only by a secondary index needs it there: MySQL rejects the
+    /// table before a later `CREATE INDEX` could run (error 1075).
+    #[serde(default)]
+    pub indexes: Vec<IndexDefinition>,
     pub engine: Option<String>,
     pub charset: Option<String>,
     pub collation: Option<String>,
@@ -370,6 +375,15 @@ pub enum MySQLStatement {
         from: String,
         to: String,
     },
+    /// Several column and key operations on one table applied by a single
+    /// `ALTER TABLE` with comma-separated clauses. MySQL validates the table
+    /// only after all of them, which key changes around an `AUTO_INCREMENT`
+    /// column need (separate statements fail with errors 1075 and 1068).
+    AlterTable {
+        database: Option<String>,
+        table: String,
+        operations: Vec<MySQLStatement>,
+    },
 }
 
 /// Failure to render a typed operation.
@@ -394,7 +408,7 @@ pub enum RenderError {
     },
 }
 
-fn render_column_type(column_type: &ColumnType) -> Result<String, RenderError> {
+pub(crate) fn render_column_type(column_type: &ColumnType) -> Result<String, RenderError> {
     match column_type {
         ColumnType::Sql { sql } if sql.trim().is_empty() => Err(RenderError::EmptySql {
             field: "column type",
@@ -450,11 +464,8 @@ fn render_column(column: &ColumnDefinition) -> Result<String, RenderError> {
             },
         });
     }
-    let mut sql = format!(
-        "{} {}",
-        quote_identifier(&column.name),
-        render_column_type(&column.column_type)?
-    );
+    let column_type = render_column_type(&column.column_type)?;
+    let mut sql = format!("{} {}", quote_identifier(&column.name), column_type);
     if let Some(charset) = &column.charset {
         sql.push_str(" CHARACTER SET ");
         sql.push_str(bare_option("character set", charset)?);
@@ -483,8 +494,14 @@ fn render_column(column: &ColumnDefinition) -> Result<String, RenderError> {
         " NULL"
     });
     if let Some(default) = &column.default {
+        // Snapshots written before defaults were canonicalized can hold a
+        // bare literal for a TEXT/BLOB/JSON column or an unparenthesized
+        // function call; MySQL rejects both (errors 1101 and 1064).
         sql.push_str(" DEFAULT ");
-        sql.push_str(default);
+        sql.push_str(&drizzle_types::mysql::canonical_default(
+            &column_type,
+            default,
+        ));
     }
     if let Some(on_update) = &column.on_update {
         sql.push_str(" ON UPDATE ");
@@ -637,6 +654,13 @@ fn render_create_table(table: &TableDefinition) -> Result<String, RenderError> {
     );
     definitions.extend(
         table
+            .indexes
+            .iter()
+            .map(render_inline_index)
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    definitions.extend(
+        table
             .checks
             .iter()
             .map(render_check)
@@ -666,6 +690,31 @@ fn render_create_table(table: &TableDefinition) -> Result<String, RenderError> {
         sql.push_str(&quote_literal(comment));
     }
     sql.push(';');
+    Ok(sql)
+}
+
+fn render_inline_index(index: &IndexDefinition) -> Result<String, RenderError> {
+    let mut sql = format!(
+        "{}KEY {}",
+        if index.unique { "UNIQUE " } else { "" },
+        quote_identifier(&index.name)
+    );
+    if let Some(using) = index.using {
+        sql.push_str(match using {
+            IndexUsing::Btree => " USING BTREE",
+            IndexUsing::Hash => " USING HASH",
+        });
+    }
+    sql.push_str(" (");
+    sql.push_str(&render_index_columns("create table index", &index.columns)?);
+    sql.push(')');
+    if let Some(comment) = &index.comment {
+        sql.push_str(" COMMENT ");
+        sql.push_str(&quote_literal(comment));
+    }
+    if let Some(visible) = index.visible {
+        sql.push_str(if visible { " VISIBLE" } else { " INVISIBLE" });
+    }
     Ok(sql)
 }
 
@@ -778,6 +827,70 @@ fn render_view(view: &ViewDefinition, replace: bool) -> Result<String, RenderErr
     }
     sql.push(';');
     Ok(sql)
+}
+
+fn render_index_clause(index: &IndexDefinition) -> Result<String, RenderError> {
+    let mut sql = format!(
+        "ADD {}INDEX {}",
+        if index.unique { "UNIQUE " } else { "" },
+        quote_identifier(&index.name)
+    );
+    if let Some(using) = index.using {
+        sql.push_str(match using {
+            IndexUsing::Btree => " USING BTREE",
+            IndexUsing::Hash => " USING HASH",
+        });
+    }
+    sql.push_str(" (");
+    sql.push_str(&render_index_columns("alter table index", &index.columns)?);
+    sql.push(')');
+    if let Some(comment) = &index.comment {
+        sql.push_str(" COMMENT ");
+        sql.push_str(&quote_literal(comment));
+    }
+    if let Some(visible) = index.visible {
+        sql.push_str(if visible { " VISIBLE" } else { " INVISIBLE" });
+    }
+    Ok(sql)
+}
+
+/// Renders the `ALTER TABLE` clauses of one operation inside an
+/// [`MySQLStatement::AlterTable`] batch.
+fn render_alter_clauses(operation: &MySQLStatement) -> Result<Vec<String>, RenderError> {
+    Ok(match operation {
+        MySQLStatement::AddColumn { column, .. } => {
+            vec![format!("ADD COLUMN {}", render_column(column)?)]
+        }
+        MySQLStatement::ModifyColumn { column, .. } => {
+            vec![format!("MODIFY COLUMN {}", render_column(column)?)]
+        }
+        MySQLStatement::DropColumn { column, .. } => {
+            vec![format!("DROP COLUMN {}", quote_identifier(column))]
+        }
+        MySQLStatement::RecreateColumn { column, .. } => vec![
+            format!("DROP COLUMN {}", quote_identifier(&column.name)),
+            format!("ADD COLUMN {}", render_column(column)?),
+        ],
+        MySQLStatement::DropPrimaryKey { .. } => vec!["DROP PRIMARY KEY".to_string()],
+        MySQLStatement::AddPrimaryKey { primary_key } => {
+            vec![format!("ADD {}", render_primary_key(primary_key)?)]
+        }
+        MySQLStatement::DropIndex { name, .. } | MySQLStatement::DropUnique { name, .. } => {
+            vec![format!("DROP INDEX {}", quote_identifier(name))]
+        }
+        MySQLStatement::AddUnique { unique } => vec![format!("ADD {}", render_unique(unique)?)],
+        MySQLStatement::CreateIndex { index }
+            if index.algorithm.is_none() && index.lock.is_none() =>
+        {
+            vec![render_index_clause(index)?]
+        }
+        other => {
+            return Err(RenderError::InvalidOption {
+                field: "batched ALTER TABLE operation",
+                value: format!("{other:?}"),
+            });
+        }
+    })
 }
 
 /// Renders one typed operation into one or more independently committed DDL statements.
@@ -956,6 +1069,28 @@ pub fn render_statement(statement: &MySQLStatement) -> Result<Vec<String>, Rende
             qualified_name(database.as_deref(), from),
             qualified_name(database.as_deref(), to)
         )],
+        MySQLStatement::AlterTable {
+            database,
+            table,
+            operations,
+        } => {
+            let clauses = operations
+                .iter()
+                .map(render_alter_clauses)
+                .collect::<Result<Vec<_>, _>>()?
+                .concat();
+            if clauses.is_empty() {
+                return Err(RenderError::EmptyList {
+                    operation: "alter table",
+                    item: "operation",
+                });
+            }
+            vec![format!(
+                "ALTER TABLE {} {};",
+                qualified_name(database.as_deref(), table),
+                clauses.join(", ")
+            )]
+        }
     };
     Ok(sql)
 }
@@ -1043,6 +1178,29 @@ mod tests {
     }
 
     #[test]
+    fn renders_expression_only_and_function_defaults_in_parentheses() {
+        let render = |sql: &str, default: &str| {
+            let mut definition = column("value");
+            definition.column_type = ColumnType::Sql {
+                sql: sql.to_string(),
+            };
+            definition.default = Some(default.to_string());
+            render_column(&definition).unwrap()
+        };
+
+        // Legacy snapshots stored these unwrapped; MySQL rejects them with
+        // errors 1101 (literal on TEXT/BLOB/JSON) and 1064 (bare call).
+        assert!(render("text", "'hello'").ends_with("DEFAULT ('hello')"));
+        assert!(render("json", "'[]'").ends_with("DEFAULT ('[]')"));
+        assert!(render("geometry", "'x'").ends_with("DEFAULT ('x')"));
+        assert!(render("varchar(36)", "UUID()").ends_with("DEFAULT (UUID())"));
+        assert!(render("varchar(36)", "(UUID())").ends_with("DEFAULT (UUID())"));
+        assert!(render("varchar(10)", "'hello'").ends_with("DEFAULT 'hello'"));
+        assert!(render("timestamp", "CURRENT_TIMESTAMP").ends_with("DEFAULT CURRENT_TIMESTAMP"));
+        assert!(render("int", "-1").ends_with("DEFAULT -1"));
+    }
+
+    #[test]
     fn doubles_backticks_in_every_identifier_segment() {
         let statement = MySQLStatement::RenameTable {
             database: Some("app`db".to_string()),
@@ -1113,6 +1271,7 @@ mod tests {
                 expression: "`id` > 0".to_string(),
                 enforced: Some(true),
             }],
+            indexes: Vec::new(),
             engine: Some("InnoDB".to_string()),
             charset: Some("utf8mb4".to_string()),
             collation: Some("utf8mb4_0900_ai_ci".to_string()),

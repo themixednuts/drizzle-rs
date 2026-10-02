@@ -8,6 +8,7 @@ use crate::sqlite::ddl::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 /// The line that separates statements in `migration.sql` (drizzle-kit's
 /// marker).
@@ -112,7 +113,7 @@ pub enum JsonStatement {
     DropIndex(DropIndexStatement),
     /// `CREATE VIEW`.
     CreateView(CreateViewStatement),
-    /// `DROP VIEW IF EXISTS`.
+    /// `DROP VIEW`.
     DropView(DropViewStatement),
     /// Drop and re-create the view under its new name.
     RenameView(RenameViewStatement),
@@ -420,7 +421,7 @@ fn convert_add_column(st: &AddColumnStatement) -> String {
                 .map(|c| quote_ident(c))
                 .collect::<Vec<_>>()
                 .join(",");
-            if fk.name_explicit {
+            let mut reference = if fk.name_explicit {
                 format!(
                     " CONSTRAINT {} REFERENCES {}({})",
                     quote_ident(&fk.name),
@@ -429,7 +430,15 @@ fn convert_add_column(st: &AddColumnStatement) -> String {
                 )
             } else {
                 format!(" REFERENCES {}({})", quote_ident(&fk.table_to), to_cols)
+            };
+            // Same rule as `CREATE TABLE`: `NO ACTION` is the default.
+            if let Some(action) = fk.on_update.as_deref().filter(|a| *a != "NO ACTION") {
+                let _ = write!(reference, " ON UPDATE {action}");
             }
+            if let Some(action) = fk.on_delete.as_deref().filter(|a| *a != "NO ACTION") {
+                let _ = write!(reference, " ON DELETE {action}");
+            }
+            reference
         })
         .unwrap_or_default();
 
@@ -470,6 +479,11 @@ fn convert_recreate_column(st: &RecreateColumnStatement) -> Vec<String> {
         fk: st.fk.clone(),
     });
     vec![drop, add]
+}
+
+/// `'text'` with embedded quotes doubled.
+fn quote_literal(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
 }
 
 fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
@@ -569,6 +583,28 @@ fn convert_recreate_table(st: &RecreateTableStatement) -> Vec<String> {
         quote_ident(name)
     ));
 
+    // An AUTOINCREMENT table's high-water mark lives in sqlite_sequence;
+    // the copy only raises the new table's to the largest copied id, so ids
+    // of rows deleted before the rebuild would be handed out again. Carry
+    // the old mark over (it moves with the table on RENAME).
+    if st
+        .to
+        .columns
+        .iter()
+        .any(|column| column.autoincrement == Some(true))
+    {
+        let old_name = quote_literal(name);
+        let new_name = quote_literal(&new_table_name);
+        statements.push(format!(
+            "UPDATE sqlite_sequence SET seq = (SELECT seq FROM sqlite_sequence WHERE name = {old_name}) \
+             WHERE name = {new_name} AND EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = {old_name});"
+        ));
+        statements.push(format!(
+            "INSERT INTO sqlite_sequence (name, seq) SELECT {new_name}, seq FROM sqlite_sequence \
+             WHERE name = {old_name} AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = {new_name});"
+        ));
+    }
+
     // 4. Drop old table
     statements.push(format!("DROP TABLE {};", quote_ident(name)));
 
@@ -649,7 +685,7 @@ fn convert_rename_view(st: &RenameViewStatement) -> Vec<String> {
     // SQLite doesn't support RENAME VIEW, so we drop and recreate.
     // Two separate statements: executors run one statement per string.
     vec![
-        format!("DROP VIEW IF EXISTS {};", quote_ident(&st.from.name)),
+        format!("DROP VIEW {};", quote_ident(&st.from.name)),
         st.to.create_view_sql(),
     ]
 }
@@ -989,6 +1025,10 @@ fn append_index_stmts(statements: &mut Vec<String>, diff: &SchemaDiff) {
 /// 2. Table creates (dependency order - referenced tables first)
 /// 3. Column additions for existing tables
 /// 4. Index operations
+///
+/// It covers only those changes: column alterations and drops, constraints
+/// and views are left out. To turn two snapshots into a complete migration,
+/// use [`diff`](crate::diff).
 pub struct Generator {
     /// Whether to include statement breakpoints
     pub breakpoints: bool,
@@ -1043,6 +1083,73 @@ impl Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rebuild keeps an AUTOINCREMENT table's high-water mark, so ids of
+    /// deleted rows are not handed out again (also when every row was
+    /// deleted).
+    #[test]
+    fn rebuild_keeps_the_autoincrement_high_water_mark() {
+        let table = |strict: bool| {
+            let mut id = Column::new("t", "id", "integer").autoincrement();
+            id.primary_key = Some(true);
+            TableFull {
+                name: "t".into(),
+                columns: vec![id, Column::new("t", "v", "text")],
+                pk: None,
+                fks: vec![],
+                uniques: vec![],
+                checks: vec![],
+                strict,
+                without_rowid: false,
+            }
+        };
+        let rebuild = convert_recreate_table(&RecreateTableStatement {
+            from: table(false),
+            to: table(true),
+            data: None,
+        });
+        for (inserted, deleted, expected_next) in [(3, "id = 3", 4), (2, "1 = 1", 3)] {
+            let db = rusqlite::Connection::open_in_memory().unwrap();
+            db.execute_batch(
+                "CREATE TABLE `t` (`id` INTEGER PRIMARY KEY AUTOINCREMENT, `v` TEXT);",
+            )
+            .unwrap();
+            for _ in 0..inserted {
+                db.execute("INSERT INTO t (v) VALUES ('x')", []).unwrap();
+            }
+            db.execute(&format!("DELETE FROM t WHERE {deleted}"), [])
+                .unwrap();
+            for statement in &rebuild {
+                db.execute_batch(statement).unwrap();
+            }
+            db.execute("INSERT INTO t (v) VALUES ('next')", []).unwrap();
+            let next: i64 = db
+                .query_row("SELECT id FROM t WHERE v = 'next'", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(next, expected_next, "{rebuild:#?}");
+        }
+    }
+
+    #[test]
+    fn add_column_keeps_foreign_key_actions() {
+        let mut fk = ForeignKey::new(
+            "posts",
+            "posts_uid_fk",
+            vec!["uid".into()],
+            "users",
+            vec!["id".into()],
+        );
+        fk.on_delete = Some("CASCADE".into());
+        fk.on_update = Some("SET NULL".into());
+        let sql = convert_add_column(&AddColumnStatement {
+            column: Column::new("posts", "uid", "integer"),
+            fk: Some(fk),
+        });
+        assert_eq!(
+            sql,
+            "ALTER TABLE `posts` ADD `uid` INTEGER REFERENCES `users`(`id`) ON UPDATE SET NULL ON DELETE CASCADE;"
+        );
+    }
     use crate::sqlite::ddl::{Column, IndexColumn};
 
     #[test]
@@ -1140,7 +1247,7 @@ mod tests {
         assert_eq!(
             statements,
             vec![
-                "DROP VIEW IF EXISTS `old_view`;".to_string(),
+                "DROP VIEW `old_view`;".to_string(),
                 "CREATE VIEW `new_view` AS SELECT 1;".to_string(),
             ]
         );

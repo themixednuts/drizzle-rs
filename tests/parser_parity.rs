@@ -637,12 +637,58 @@ mod mysql_parity {
         pub label: String,
     }
 
+    /// Long derived foreign-key names are hash-shortened (MySQL identifiers
+    /// are at most 64 characters), and defaults use the canonical spelling.
+    #[MySQLTable(
+        DATABASE = "parity_db",
+        NAME = "mysql_parity_organization_membership_invitations",
+        DEFAULT_CHARSET = "utf8mb4",
+        COLLATE = "utf8mb4_0900_ai_ci"
+    )]
+    pub struct OrganizationMembershipInvitations {
+        #[column(PRIMARY, AUTO_INCREMENT)]
+        pub id: u64,
+        #[column(REFERENCES = Tenants::id)]
+        pub inviting_organization_parent_tenant_id: u64,
+        #[column(TEXT, DEFAULT = "hello")]
+        pub greeting: String,
+        #[column(VARCHAR(36), DEFAULT = UUID())]
+        pub token: String,
+    }
+
+    #[MySQLTable(DATABASE = "parity_db", NAME = "mysql_parity_codes")]
+    pub struct Codes {
+        #[column(PRIMARY)]
+        pub tenant: u64,
+        #[column(PRIMARY)]
+        pub code: u64,
+    }
+
+    /// Two table-level foreign keys starting with the same column must not
+    /// derive the same name.
+    #[MySQLTable(
+        DATABASE = "parity_db",
+        NAME = "mysql_parity_code_pairs",
+        FOREIGN_KEY(columns(tenant, first_code), references(Codes, tenant, code)),
+        FOREIGN_KEY(columns(tenant, second_code), references(Codes, tenant, code))
+    )]
+    pub struct CodePairs {
+        #[column(PRIMARY)]
+        pub id: u64,
+        pub tenant: u64,
+        pub first_code: u64,
+        pub second_code: u64,
+    }
+
     #[derive(MySQLSchema)]
     pub struct MySqlParitySchema {
         pub tenants: Tenants,
         pub accounts: Accounts,
         pub accounts_label_index: AccountsLabelIndex,
         pub active_account_labels: ActiveAccountLabels,
+        pub invitations: OrganizationMembershipInvitations,
+        pub codes: Codes,
+        pub code_pairs: CodePairs,
     }
 
     #[test]
@@ -752,6 +798,42 @@ mod mysql_parity {
                     && foreign_key.on_delete == Some(ReferentialAction::Cascade)
                     && foreign_key.on_update == Some(ReferentialAction::Restrict)
         )));
+        let foreign_key_names = ddl
+            .iter()
+            .filter_map(|entity| match entity {
+                MySQLEntity::ForeignKey(foreign_key) => Some(foreign_key.name.as_ref()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(
+            foreign_key_names.iter().all(|name| name.len() <= 64),
+            "{foreign_key_names:?}"
+        );
+        assert!(
+            foreign_key_names.contains(
+                drizzle_types::mysql::names::foreign_key_name(
+                    "mysql_parity_organization_membership_invitations",
+                    &["inviting_organization_parent_tenant_id"],
+                )
+                .as_str()
+            )
+        );
+        assert!(foreign_key_names.contains("mysql_parity_code_pairs_tenant_first_code_fkey"));
+        assert!(foreign_key_names.contains("mysql_parity_code_pairs_tenant_second_code_fkey"));
+        let default = |table: &str, name: &str| {
+            ddl.iter().find_map(|entity| match entity {
+                MySQLEntity::Column(column)
+                    if column.table.as_ref() == table && column.name.as_ref() == name =>
+                {
+                    column.default.as_deref()
+                }
+                _ => None,
+            })
+        };
+        let invitations = "mysql_parity_organization_membership_invitations";
+        assert_eq!(default(invitations, "greeting"), Some("('hello')"));
+        assert_eq!(default(invitations, "token"), Some("(UUID())"));
+
         assert!(ddl.iter().any(|entity| matches!(
             entity,
             MySQLEntity::Index(index)

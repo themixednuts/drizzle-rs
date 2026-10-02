@@ -828,6 +828,63 @@ fn rusqlite_push_is_idempotent() {
 }
 
 #[cfg(feature = "rusqlite")]
+#[SQLiteTable(NAME = "push_parents")]
+struct PushParent {
+    #[column(PRIMARY)]
+    id: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[SQLiteTable(
+    NAME = "push_children",
+    UNIQUE(a, b),
+    UNIQUE(b, c, name = "push_children_named_uq"),
+    CHECK(expr = "a < b")
+)]
+struct PushChild {
+    #[column(PRIMARY)]
+    id: i64,
+    a: i64,
+    b: i64,
+    c: i64,
+    #[column(check = "age >= 0")]
+    age: i64,
+    #[column(collate = "NOCASE")]
+    name: String,
+    #[column(generated(stored, "a * 2"))]
+    doubled: i64,
+    #[column(references = PushParent::id, on_delete = cascade)]
+    parent: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[derive(SQLiteSchema)]
+struct PushConstraintSchema {
+    parent: PushParent,
+    child: PushChild,
+}
+
+/// Introspection reads back CHECK constraints, collations, generated
+/// columns and constraint names, so a second push has nothing to do.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_push_converges_on_constraints_collations_and_generated_columns() {
+    use drizzle_migrations::Schema as _;
+
+    let (db, schema) =
+        crate::common::helpers::rusqlite_setup::setup_empty_db(PushConstraintSchema::default());
+    db.push(&schema).expect("first push");
+
+    let live = db.introspect().expect("introspect");
+    let plan = drizzle_migrations::diff(&live, &schema.to_snapshot()).expect("diff");
+    assert!(
+        plan.statements.is_empty(),
+        "second push should be a no-op: {:#?}",
+        plan.statements
+    );
+}
+
+#[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_push_table_is_usable() {
     let (db, schema) =
@@ -1036,6 +1093,40 @@ fn rusqlite_migrate_refuses_to_rerun_an_interrupted_migration() {
     );
 
     let _ = std::fs::remove_file(path);
+}
+
+/// drizzle-orm's v0 -> v1 tracking upgrade (`up-migrations/sqlite.ts`)
+/// backfills `name` and writes `applied_at = NULL`. Those rows are applied,
+/// not interrupted.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_migrate_accepts_rows_upgraded_by_drizzle_orm() {
+    let first = Migration::new(
+        "20240101000000_init",
+        "CREATE TABLE upstream_a (id INTEGER);",
+    );
+    let second = Migration::new(
+        "20240102000000_next",
+        "CREATE TABLE upstream_b (id INTEGER);",
+    );
+    let connection = rusqlite::Connection::open_in_memory().expect("open DB");
+    connection
+        .execute_batch(&format!(
+            "CREATE TABLE upstream_a (id INTEGER);
+             CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric);
+             INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('{}', 1704067200000);
+             ALTER TABLE __drizzle_migrations ADD COLUMN name text;
+             ALTER TABLE __drizzle_migrations ADD COLUMN applied_at TEXT;
+             UPDATE __drizzle_migrations SET name = '20240101000000_init', applied_at = NULL WHERE id = 1;",
+            first.hash()
+        ))
+        .expect("reproduce drizzle-orm's upgraded tracking table");
+
+    let (database, ()) = drizzle::sqlite::rusqlite::Drizzle::<()>::new(connection);
+    let outcome = database
+        .migrate(&[first, second], Tracking::SQLITE)
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(outcome.applied_tags(), ["20240102000000_next"]);
 }
 
 #[cfg(feature = "rusqlite")]

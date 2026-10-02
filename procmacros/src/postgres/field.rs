@@ -1748,6 +1748,20 @@ impl FieldInfo {
         }
     }
 
+    /// The column type as `CREATE TABLE` spells it: like
+    /// [`sql_type_expr`](Self::sql_type_expr), except a native enum is quoted
+    /// and schema-qualified (`"app"."Mood"`) so its case survives and it
+    /// resolves outside the search path.
+    pub(crate) fn ddl_type_expr(&self) -> TokenStream {
+        if self.uses_postgres_column_codec() {
+            let base_type = &self.base_type;
+            let drizzle_postgres_column = crate::paths::postgres::drizzle_postgres_column();
+            quote!(<#base_type as #drizzle_postgres_column>::DDL_TYPE)
+        } else {
+            self.sql_type_expr()
+        }
+    }
+
     /// Drizzle SQL type marker used by expression generation.
     pub(crate) fn sql_type_marker(&self) -> TokenStream {
         let base = if self.uses_postgres_column_codec() {
@@ -1773,7 +1787,7 @@ impl FieldInfo {
         }
 
         let const_format = crate::common::paths::const_format();
-        let sql_type = self.sql_type_expr();
+        let sql_type = self.ddl_type_expr();
         let prefix = format!("\"{}\" ", self.column_name);
         let placeholder = format!(
             "\"{}\" {}",

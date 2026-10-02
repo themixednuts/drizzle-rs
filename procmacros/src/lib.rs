@@ -1031,7 +1031,7 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// let statements: Vec<String> = Schema::new().create_statements()?.collect();
-/// assert_eq!(statements[0], "CREATE TYPE Status AS ENUM ('Open', 'Closed')");
+/// assert_eq!(statements[0], r#"CREATE TYPE "Status" AS ENUM ('Open', 'Closed')"#);
 /// assert!(statements[1].starts_with(r#"CREATE TABLE "tickets""#));
 /// # Ok(())
 /// # }
@@ -1203,7 +1203,7 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// | Enum shape | Storage | Stored value |
 /// |---|---|---|
-/// | No integer `#[repr]` | native enum type, `CREATE TYPE Name AS ENUM (...)` | the variant name |
+/// | No integer `#[repr]` | native enum type, `CREATE TYPE "Name" AS ENUM (...)` | the variant name |
 /// | Integer `#[repr]` (`#[repr(i32)]`, `#[repr(i16)]`, ...) | `integer` | the discriminant |
 ///
 /// Mark the column with `#[column(enum)]` in a [`PostgresTable`]. A native
@@ -1217,10 +1217,11 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// |---|---|
 /// | `#[postgres_enum(schema = "app")]` | Create the native type in this schema instead of `public`. Not allowed with an integer `#[repr]`. |
 ///
-/// The SQL type name is the enum's name, unquoted (`CREATE TYPE Mood ...`),
-/// so `PostgreSQL` stores it lowercased (`mood`). Columns refer to it the
-/// same unquoted way. With an integer `#[repr]`, every discriminant must fit
-/// in an `i32`.
+/// The SQL type name is the enum's name, quoted (`CREATE TYPE "Mood" ...`),
+/// so `PostgreSQL` keeps its case, and schema-qualified outside `public`
+/// (`"app"."Mood"`) — the same spelling migrations generate. Columns refer
+/// to it the same way. With an integer `#[repr]`, every discriminant must
+/// fit in an `i32`.
 ///
 /// # Generated impls
 ///
@@ -1271,7 +1272,7 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// assert_eq!(Mood::Sad.to_string(), "Sad");
 /// assert_eq!(i64::from(Priority::High), 10);
-/// assert!(Entries::ddl_sql().contains(r#""mood" Mood NOT NULL"#));
+/// assert!(Entries::ddl_sql().contains(r#""mood" "Mood" NOT NULL"#));
 /// assert!(Entries::ddl_sql().contains(r#""priority" integer NOT NULL"#));
 /// # }
 /// # #[cfg(not(feature = "postgres"))]

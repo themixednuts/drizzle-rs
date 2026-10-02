@@ -534,29 +534,74 @@ fn strip_outer_parens(expr: &str) -> &str {
     expr
 }
 
-/// Normalizes a DEFAULT literal for comparison: strips one paren layer, then
-/// one layer of matching quotes (`'x'` ≡ `"x"` ≡ `x`, with doubled-quote
-/// unescaping), then canonicalizes numeric literals (`0.0` ≡ `0`).
-fn normalize_default_literal(default: &str) -> String {
+/// Normalizes a DEFAULT for comparison, by what SQLite stores for it in a
+/// column of `sql_type`.
+///
+/// One layer of parentheses and the quoting style (`'x'` ≡ `"x"`) do not
+/// matter. Under numeric affinity a number reads the same quoted or not and
+/// in any spelling (`'7'` ≡ `7` ≡ `7.0`); under text affinity `'007'` and
+/// `'7'` stay different. A quoted string never equals a bare keyword or
+/// expression: `'CURRENT_TIMESTAMP'` is the text, `CURRENT_TIMESTAMP` the
+/// time.
+fn normalize_default_literal(default: &str, sql_type: &str) -> String {
     let s = strip_outer_parens(default);
     let bytes = s.as_bytes();
-    let unquoted = if bytes.len() >= 2 && bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'' {
-        s[1..s.len() - 1].replace("''", "'")
+    let quoted = if bytes.len() >= 2 && bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\'' {
+        Some(s[1..s.len() - 1].replace("''", "'"))
     } else if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
-        s[1..s.len() - 1].replace("\"\"", "\"")
+        Some(s[1..s.len() - 1].replace("\"\"", "\""))
     } else {
-        s.to_string()
+        None
     };
 
-    if let Ok(int) = unquoted.parse::<i128>() {
-        return int.to_string();
+    let ty = sql_type.to_ascii_uppercase();
+    let numeric_affinity = ["INT", "REAL", "FLOA", "DOUB", "NUM", "DEC", "BOOL"]
+        .iter()
+        .any(|marker| ty.contains(marker));
+    if numeric_affinity {
+        let text = quoted.as_deref().unwrap_or(s);
+        if let Ok(int) = text.parse::<i128>() {
+            return format!("num:{int}");
+        }
+        if let Ok(float) = text.parse::<f64>()
+            && float.is_finite()
+        {
+            // `7.0` is stored as the integer 7.
+            return if float.fract() == 0.0 && float.abs() < 9.0e15 {
+                format!("num:{}", float as i64)
+            } else {
+                format!("num:{float}")
+            };
+        }
+        if quoted.is_none() {
+            match s.to_ascii_lowercase().as_str() {
+                "true" => return "num:1".to_string(),
+                "false" => return "num:0".to_string(),
+                _ => {}
+            }
+        }
     }
-    if let Ok(float) = unquoted.parse::<f64>()
-        && float.is_finite()
-    {
-        return float.to_string();
+    // SQLite reads a bare identifier as a string (`DEFAULT hello` stores
+    // 'hello'), except the keywords below.
+    let bare_identifier = s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && ![
+            "CURRENT_TIMESTAMP",
+            "CURRENT_DATE",
+            "CURRENT_TIME",
+            "NULL",
+            "TRUE",
+            "FALSE",
+        ]
+        .iter()
+        .any(|keyword| s.eq_ignore_ascii_case(keyword));
+    match quoted {
+        Some(text) => format!("str:{text}"),
+        None if bare_identifier => format!("str:{s}"),
+        // Text affinity stores a bare number as its text.
+        None if !numeric_affinity && s.parse::<f64>().is_ok() => format!("str:{s}"),
+        None => format!("expr:{s}"),
     }
-    unquoted
 }
 
 /// Collects `(table, column)` pairs that render as inline `INTEGER PRIMARY
@@ -630,7 +675,7 @@ fn columns_equivalent(
         }
         // (c) default literal quoting/numeric normalization
         if let Some(default) = c.default.as_ref() {
-            c.default = Some(Cow::Owned(normalize_default_literal(default)));
+            c.default = Some(Cow::Owned(normalize_default_literal(default, &c.sql_type)));
         }
         // Generated expressions: macro producers store `(expr)`, introspection
         // stores bare `expr` — strip one paren layer from both sides.
@@ -710,6 +755,29 @@ fn primary_keys_equivalent(left: &PrimaryKey, right: &PrimaryKey) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_comparison_follows_column_affinity() {
+        let same = |a: &str, b: &str, ty: &str| {
+            normalize_default_literal(a, ty) == normalize_default_literal(b, ty)
+        };
+        // Spelling-only differences.
+        assert!(same("'x'", "\"x\"", "TEXT"));
+        assert!(same("('x')", "'x'", "TEXT"));
+        assert!(same("7", "'7'", "INTEGER"));
+        assert!(same("0.0", "0", "REAL"));
+        assert!(same("true", "1", "INTEGER"));
+        assert!(same("(CURRENT_TIMESTAMP)", "CURRENT_TIMESTAMP", "TEXT"));
+        // Real changes.
+        assert!(!same("'007'", "'7'", "TEXT"));
+        assert!(!same("'1.0'", "'1'", "TEXT"));
+        assert!(!same("'CURRENT_TIMESTAMP'", "CURRENT_TIMESTAMP", "TEXT"));
+        assert!(!same("'abc'", "(upper('abc'))", "TEXT"));
+        // A bare identifier is read as a string; a bare number in a TEXT
+        // column is stored as its text.
+        assert!(same("hello", "'hello'", "TEXT"));
+        assert!(!same("0.0", "0", "TEXT"));
+    }
 
     #[test]
     fn test_ddl_collection_push() {
@@ -811,8 +879,7 @@ mod tests {
         for (left_default, right_default) in [
             ("'hello'", "hello"),
             ("\"hello\"", "'hello'"),
-            ("'it''s'", "it's"),
-            ("0.0", "0"),
+            ("'it''s'", "\"it's\""),
             ("(42)", "42"),
         ] {
             let mut left = SQLiteDDL::new();

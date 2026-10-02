@@ -22,7 +22,7 @@ use super::statements::{
     GeneratedKind, IndexAlgorithm, IndexColumnDefinition, IndexDefinition, IndexLock, IndexUsing,
     MySQLStatement, PrimaryKeyDefinition, ReferentialAction, RenderError, SortOrder,
     TableDefinition, UniqueDefinition, ViewAlgorithm, ViewCheckOption, ViewDefinition,
-    ViewSecurity, render_statements,
+    ViewSecurity, render_column_type, render_statements,
 };
 
 /// Explicit table rename within the selected database.
@@ -207,6 +207,10 @@ pub enum MySQLWarning {
         table: String,
         column: String,
     },
+    AddNotNullColumn {
+        table: String,
+        column: String,
+    },
     RemoveOrReorderInlineValues {
         table: String,
         column: String,
@@ -249,6 +253,10 @@ impl std::fmt::Display for MySQLWarning {
             Self::TightenNullability { table, column } => write!(
                 formatter,
                 "making {table}.{column} NOT NULL can fail when rows contain NULL"
+            ),
+            Self::AddNotNullColumn { table, column } => write!(
+                formatter,
+                "adding NOT NULL column {table}.{column} without a DEFAULT fills existing rows with its type's implicit default"
             ),
             Self::RemoveOrReorderInlineValues { table, column } => write!(
                 formatter,
@@ -664,6 +672,30 @@ fn reconcile_catalog_defaults(
         {
             table.collation = desired_table.collation.clone();
         }
+        // The same effective character set and collation, spelled
+        // differently (`CHARSET latin1` vs `latin1_swedish_ci`).
+        let live_charset = table.charset.as_deref().or(defaults.charset.as_deref());
+        let desired_charset = desired_table
+            .charset
+            .as_deref()
+            .or(defaults.charset.as_deref());
+        let live_collation = super::charset::effective_collation(
+            table.charset.as_deref(),
+            table.collation.as_deref(),
+            defaults.collation.as_deref(),
+        );
+        let desired_collation = super::charset::effective_collation(
+            desired_table.charset.as_deref(),
+            desired_table.collation.as_deref(),
+            defaults.collation.as_deref(),
+        );
+        if same_option(live_charset, desired_charset)
+            && live_collation.is_some()
+            && live_collation == desired_collation
+        {
+            table.charset = desired_table.charset.clone();
+            table.collation = desired_table.collation.clone();
+        }
     }
 
     for column in current.columns.list_mut() {
@@ -681,15 +713,41 @@ fn reconcile_catalog_defaults(
             continue;
         };
         let inherited_charset = table.charset.as_deref().or(defaults.charset.as_deref());
-        let inherited_collation = table.collation.as_deref().or(defaults.collation.as_deref());
+        let inherited_collation = super::charset::effective_collation(
+            table.charset.as_deref(),
+            table.collation.as_deref(),
+            defaults.collation.as_deref(),
+        );
         if column.charset.is_none()
             && same_option(desired_column.charset.as_deref(), inherited_charset)
         {
             column.charset = desired_column.charset.clone();
         }
         if column.collation.is_none()
-            && same_option(desired_column.collation.as_deref(), inherited_collation)
+            && same_option(
+                desired_column.collation.as_deref(),
+                inherited_collation.as_deref(),
+            )
         {
+            column.collation = desired_column.collation.clone();
+        }
+        let live_charset = column.charset.as_deref().or(inherited_charset);
+        let desired_charset = desired_column.charset.as_deref().or(inherited_charset);
+        let live_collation = super::charset::effective_collation(
+            column.charset.as_deref(),
+            column.collation.as_deref(),
+            inherited_collation.as_deref(),
+        );
+        let desired_collation = super::charset::effective_collation(
+            desired_column.charset.as_deref(),
+            desired_column.collation.as_deref(),
+            inherited_collation.as_deref(),
+        );
+        if same_option(live_charset, desired_charset)
+            && live_collation.is_some()
+            && live_collation == desired_collation
+        {
+            column.charset = desired_column.charset.clone();
             column.collation = desired_column.collation.clone();
         }
     }
@@ -793,6 +851,305 @@ fn reconcile_column_type_spellings(current: &mut MySQLDDL, desired: &MySQLDDL) {
         };
         if equivalent {
             current_column.sql_type = desired_column.sql_type.clone();
+        }
+    }
+}
+
+fn canonical_column_default(column: &model::Column) -> Option<String> {
+    let default = column.default.as_deref()?;
+    let column_type = render_column_type(&column_type(column)).unwrap_or_default();
+    Some(drizzle_types::mysql::canonical_default(
+        &column_type,
+        default,
+    ))
+}
+
+/// Treats defaults that render to the same canonical `DEFAULT` clause as
+/// unchanged, so snapshots written before defaults were canonicalized (a bare
+/// `'hello'` on a TEXT column, an unparenthesized `UUID()`) do not churn.
+fn reconcile_default_spellings(current: &mut MySQLDDL, desired: &MySQLDDL) {
+    for current_column in current.columns.list_mut() {
+        let Some(desired_column) = desired.columns.one(
+            current_column.database.as_deref(),
+            current_column.table.as_ref(),
+            current_column.name.as_ref(),
+        ) else {
+            continue;
+        };
+        if current_column.default != desired_column.default
+            && canonical_column_default(current_column) == canonical_column_default(desired_column)
+        {
+            current_column.default = desired_column.default.clone();
+        }
+    }
+}
+
+/// `ON DELETE`/`ON UPDATE` omitted means `NO ACTION`. The catalog also
+/// reports `RESTRICT`, which InnoDB enforces identically, for constraints
+/// declared without an action, so a push treats all three alike.
+fn reconcile_foreign_key_actions(current: &mut MySQLDDL, desired: &MySQLDDL, push: bool) {
+    let equivalent = |left: Option<model::ReferentialAction>,
+                      right: Option<model::ReferentialAction>| {
+        let normalize = |action: Option<model::ReferentialAction>| match action {
+            None | Some(model::ReferentialAction::NoAction) => None,
+            Some(model::ReferentialAction::Restrict) if push => None,
+            other => other,
+        };
+        normalize(left) == normalize(right)
+    };
+    for foreign_key in current.fks.list_mut() {
+        let Some(desired) =
+            desired.fks.list().iter().find(|desired| {
+                desired.table == foreign_key.table && desired.name == foreign_key.name
+            })
+        else {
+            continue;
+        };
+        if equivalent(foreign_key.on_delete, desired.on_delete) {
+            foreign_key.on_delete = desired.on_delete;
+        }
+        if equivalent(foreign_key.on_update, desired.on_update) {
+            foreign_key.on_update = desired.on_update;
+        }
+    }
+}
+
+/// A literal default value, for comparing differently spelled literals.
+#[derive(Debug, PartialEq)]
+enum LiteralValue {
+    Number(String),
+    Bytes(Vec<u8>),
+}
+
+fn literal_value(sql: &str) -> Option<LiteralValue> {
+    let sql = sql.trim();
+    if sql.eq_ignore_ascii_case("true") {
+        return Some(LiteralValue::Number("1".to_string()));
+    }
+    if sql.eq_ignore_ascii_case("false") {
+        return Some(LiteralValue::Number("0".to_string()));
+    }
+    if let Some(bits) = sql
+        .strip_prefix("b'")
+        .or_else(|| sql.strip_prefix("B'"))
+        .and_then(|bits| bits.strip_suffix('\''))
+    {
+        return u128::from_str_radix(bits, 2)
+            .ok()
+            .map(|value| LiteralValue::Number(value.to_string()));
+    }
+    let hex = sql
+        .strip_prefix("X'")
+        .or_else(|| sql.strip_prefix("x'"))
+        .and_then(|digits| digits.strip_suffix('\''))
+        .or_else(|| sql.strip_prefix("0x"));
+    if let Some(digits) = hex {
+        if digits.len() % 2 != 0 {
+            return None;
+        }
+        return (0..digits.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&digits[index..index + 2], 16).ok())
+            .collect::<Option<Vec<_>>>()
+            .map(LiteralValue::Bytes);
+    }
+    if let Some(inner) = sql
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+    {
+        let mut value = Vec::new();
+        let mut characters = inner.chars();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' => value.push(characters.next()?),
+                '\'' => {
+                    characters.next().filter(|next| *next == '\'')?;
+                    value.push('\'');
+                }
+                other => value.push(other),
+            }
+        }
+        return Some(LiteralValue::Bytes(
+            value.into_iter().collect::<String>().into_bytes(),
+        ));
+    }
+    let number: f64 = sql.parse().ok()?;
+    Some(LiteralValue::Number(number.to_string()))
+}
+
+/// SQL text compared without case, whitespace, identifier quotes and one
+/// pair of enclosing parentheses (string literals are kept as written).
+fn comparable_sql(sql: &str) -> String {
+    let mut sql = sql.trim();
+    if drizzle_types::mysql::default::is_parenthesized(sql) {
+        sql = &sql[1..sql.len() - 1];
+    }
+    let mut output = String::with_capacity(sql.len());
+    let mut characters = sql.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\'' | '"' => {
+                output.push(character);
+                while let Some(next) = characters.next() {
+                    output.push(next);
+                    if next == '\\' {
+                        if let Some(escaped) = characters.next() {
+                            output.push(escaped);
+                        }
+                    } else if next == character {
+                        if characters.peek() == Some(&character) {
+                            output.push(character);
+                            characters.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+            '`' => {}
+            character if character.is_whitespace() => {}
+            character => output.extend(character.to_lowercase()),
+        }
+    }
+    output
+}
+
+fn current_timestamp_precision(sql: &str) -> Option<String> {
+    let sql = comparable_sql(sql);
+    let precision = sql
+        .strip_prefix("current_timestamp")
+        .or_else(|| sql.strip_prefix("now"))
+        .or_else(|| sql.strip_prefix("localtimestamp"))
+        .or_else(|| sql.strip_prefix("localtime"))?;
+    let precision = match precision.strip_prefix('(') {
+        Some(rest) => rest.strip_suffix(')')?,
+        None if precision.is_empty() => "",
+        None => return None,
+    };
+    precision
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| precision.trim_start_matches('0').to_string())
+}
+
+/// Whether two `DEFAULT` spellings mean the same default: `TRUE` and `1`,
+/// `X'61'` and `'a'`, `('hello')` and `'hello'`, `NOW()` and
+/// `CURRENT_TIMESTAMP` (drizzle-kit's commutative default check).
+fn defaults_equivalent(sql_type: &str, left: &str, right: &str) -> bool {
+    let left = drizzle_types::mysql::canonical_default(sql_type, left);
+    let right = drizzle_types::mysql::canonical_default(sql_type, right);
+    if left == right {
+        return true;
+    }
+    let unwrap = |sql: &str| {
+        let sql = sql.trim();
+        if drizzle_types::mysql::default::is_parenthesized(sql) {
+            sql[1..sql.len() - 1].trim().to_string()
+        } else {
+            sql.to_string()
+        }
+    };
+    let (left_inner, right_inner) = (unwrap(&left), unwrap(&right));
+    if let (Some(left), Some(right)) = (literal_value(&left_inner), literal_value(&right_inner)) {
+        return left == right;
+    }
+    if let (Some(left), Some(right)) = (
+        current_timestamp_precision(&left),
+        current_timestamp_precision(&right),
+    ) {
+        return left == right;
+    }
+    comparable_sql(&left) == comparable_sql(&right)
+}
+
+/// Push compares a live catalog with a schema. MySQL rewrites expressions
+/// when it stores them, so like drizzle-kit, push compares those by name or
+/// by meaning instead of by text: CHECK constraints are only created and
+/// dropped by name, generated-column and view definitions are not
+/// compared, and defaults, index expressions and access methods are
+/// compared by meaning.
+fn reconcile_catalog_representations(current: &mut MySQLDDL, desired: &MySQLDDL) {
+    for column in current.columns.list_mut() {
+        let Some(desired_column) = desired.columns.one(
+            column.database.as_deref(),
+            column.table.as_ref(),
+            column.name.as_ref(),
+        ) else {
+            continue;
+        };
+        if let (Some(live), Some(wanted)) = (&column.default, &desired_column.default)
+            && live != wanted
+            && defaults_equivalent(&desired_column.sql_type, live, wanted)
+        {
+            column.default = desired_column.default.clone();
+        }
+        if let (Some(live), Some(wanted)) = (&mut column.generated, &desired_column.generated)
+            && live.generation_type == wanted.generation_type
+        {
+            live.expression = wanted.expression.clone();
+        }
+        if let (Some(live), Some(wanted)) = (&column.on_update, &desired_column.on_update)
+            && live != wanted
+            && current_timestamp_precision(live).is_some()
+            && current_timestamp_precision(live) == current_timestamp_precision(wanted)
+        {
+            column.on_update = desired_column.on_update.clone();
+        }
+    }
+    for check in current.checks.list_mut() {
+        if let Some(wanted) = desired
+            .checks
+            .list()
+            .iter()
+            .find(|wanted| wanted.table == check.table && wanted.name == check.name)
+        {
+            check.expression = wanted.expression.clone();
+            // The catalog reports the default ENFORCED explicitly.
+            if check.enforced.unwrap_or(true) == wanted.enforced.unwrap_or(true) {
+                check.enforced = wanted.enforced;
+            }
+        }
+    }
+    for index in current.indexes.list_mut() {
+        let Some(wanted) = desired
+            .indexes
+            .list()
+            .iter()
+            .find(|wanted| wanted.table == index.table && wanted.name == index.name)
+        else {
+            continue;
+        };
+        // InnoDB silently builds a BTREE for `USING HASH`.
+        if matches!(
+            (index.using, wanted.using),
+            (
+                None | Some(model::IndexMethod::Btree),
+                Some(model::IndexMethod::Hash)
+            )
+        ) {
+            index.using = wanted.using;
+        }
+        if index.columns.len() == wanted.columns.len() {
+            for (live, wanted) in index.columns.iter_mut().zip(&wanted.columns) {
+                if live.is_expression
+                    && wanted.is_expression
+                    && comparable_sql(&live.expression) == comparable_sql(&wanted.expression)
+                {
+                    live.expression = wanted.expression.clone();
+                }
+            }
+        }
+    }
+    for view in current.views.list_mut() {
+        if let Some(wanted) = desired
+            .views
+            .list()
+            .iter()
+            .find(|wanted| wanted.name == view.name)
+            && view.definition.is_some()
+            && wanted.definition.is_some()
+        {
+            view.definition = wanted.definition.clone();
         }
     }
 }
@@ -1237,6 +1594,58 @@ fn column_definition(column: &model::Column) -> ColumnDefinition {
     }
 }
 
+/// Whether a character column takes its character set and collation from
+/// its table.
+fn inherits_character_options(column: &model::Column) -> bool {
+    column.charset.is_none()
+        && column.collation.is_none()
+        && (column.inline_type.is_some()
+            || matches!(
+                drizzle_types::mysql::MySQLTypeCategory::classify(&column.sql_type),
+                drizzle_types::mysql::MySQLTypeCategory::Char
+                    | drizzle_types::mysql::MySQLTypeCategory::Varchar
+                    | drizzle_types::mysql::MySQLTypeCategory::TinyText
+                    | drizzle_types::mysql::MySQLTypeCategory::Text
+                    | drizzle_types::mysql::MySQLTypeCategory::MediumText
+                    | drizzle_types::mysql::MySQLTypeCategory::LongText
+                    | drizzle_types::mysql::MySQLTypeCategory::Enum
+                    | drizzle_types::mysql::MySQLTypeCategory::Set
+            ))
+}
+
+fn apply_inherited_character_options(
+    definition: &mut ColumnDefinition,
+    (charset, collation): &(Option<String>, Option<String>),
+) {
+    definition.charset.clone_from(charset);
+    definition.collation.clone_from(collation);
+}
+
+/// Whether two versions of a column need `MODIFY COLUMN` (or a recreate).
+/// Key membership is excluded: primary keys, unique constraints and the
+/// column-level UNIQUE index are separate key steps.
+fn columns_differ_structurally(old: &model::Column, new: &model::Column) -> bool {
+    let mut old = old.clone();
+    let mut new = new.clone();
+    old.unique = false;
+    new.unique = false;
+    old.primary_key = false;
+    new.primary_key = false;
+    old != new
+}
+
+/// Whether `column` carries MySQL's column-level unique index (named after
+/// the column) rather than a named single-column unique constraint.
+fn column_unique_index(ddl: &MySQLDDL, column: &model::Column) -> bool {
+    column.unique
+        && !column.primary_key
+        && !ddl.uniques.list().iter().any(|unique| {
+            unique.table == column.table
+                && unique.columns.len() == 1
+                && unique.columns[0] == column.name
+        })
+}
+
 fn column_definition_for_ddl(column: &model::Column, ddl: &MySQLDDL) -> ColumnDefinition {
     let mut definition = column_definition(column);
     if ddl.pks.list().iter().any(|primary_key| {
@@ -1414,6 +1823,39 @@ fn views_equivalent(left: &model::View, right: &model::View) -> bool {
     left == right
 }
 
+/// Indexes of a new table that must be declared inside `CREATE TABLE`:
+/// those leading with an `AUTO_INCREMENT` column that neither the primary key
+/// nor a unique key leads with. InnoDB requires such a column to start some
+/// index when the table is created.
+fn inline_index_names(table: &model::Table, ddl: &MySQLDDL) -> BTreeSet<String> {
+    let keyed_first = |column: &model::Column| {
+        column.unique
+            || ddl.pks.list().iter().any(|primary_key| {
+                primary_key.table == table.name && primary_key.columns.first() == Some(&column.name)
+            })
+            || ddl.uniques.list().iter().any(|unique| {
+                unique.table == table.name && unique.columns.first() == Some(&column.name)
+            })
+    };
+    ddl.indexes
+        .list()
+        .iter()
+        .filter(|index| index.table == table.name)
+        .filter(|index| {
+            index.columns.first().is_some_and(|first| {
+                !first.is_expression
+                    && ddl.columns.list().iter().any(|column| {
+                        column.table == table.name
+                            && column.name == first.expression
+                            && column.autoincrement
+                            && !keyed_first(column)
+                    })
+            })
+        })
+        .map(|index| index.name.to_string())
+        .collect()
+}
+
 fn table_definition(table: &model::Table, ddl: &MySQLDDL) -> TableDefinition {
     let columns: Vec<_> = ddl
         .columns
@@ -1444,6 +1886,14 @@ fn table_definition(table: &model::Table, ddl: &MySQLDDL) -> TableDefinition {
         .map(check_definition)
         .collect();
     checks.sort_by(|left, right| left.name.cmp(&right.name));
+    let inline = inline_index_names(table, ddl);
+    let indexes = ddl
+        .indexes
+        .list()
+        .iter()
+        .filter(|index| index.table == table.name && inline.contains(index.name.as_ref()))
+        .map(index_definition)
+        .collect();
     TableDefinition {
         database: database(&table.database),
         name: table.name.to_string(),
@@ -1452,6 +1902,7 @@ fn table_definition(table: &model::Table, ddl: &MySQLDDL) -> TableDefinition {
         primary_key,
         uniques,
         checks,
+        indexes,
         engine: table.engine.as_deref().map(str::to_string),
         charset: table.charset.as_deref().map(str::to_string),
         collation: table.collation.as_deref().map(str::to_string),
@@ -1582,6 +2033,207 @@ fn collect_column_warnings(
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DependencyOrder {
+    /// Generated columns before the columns they read (dropping).
+    DependentsFirst,
+    /// Columns before the generated columns that read them (adding).
+    DependenciesFirst,
+}
+
+/// Orders columns so a generated column and the columns its expression
+/// reads are dropped or added in an order MySQL accepts (error 3108 when a
+/// referenced column is dropped first, 1054 when it is added later). The
+/// input order is kept otherwise; a dependency cycle keeps the input order.
+fn order_by_generated_dependencies(
+    columns: Vec<&model::Column>,
+    order: DependencyOrder,
+) -> Vec<&model::Column> {
+    let depends_on = |dependent: &model::Column, dependency: &model::Column| {
+        dependent.table == dependency.table
+            && dependent.name != dependency.name
+            && dependent.generated.as_ref().is_some_and(|generated| {
+                identifier_tokens(&generated.expression).contains(dependency.name.as_ref())
+            })
+    };
+    let mut remaining = columns;
+    let mut ordered = Vec::with_capacity(remaining.len());
+    while !remaining.is_empty() {
+        let ready = remaining.iter().position(|column| {
+            !remaining.iter().any(|other| match order {
+                DependencyOrder::DependentsFirst => depends_on(other, column),
+                DependencyOrder::DependenciesFirst => depends_on(column, other),
+            })
+        });
+        ordered.push(remaining.remove(ready.unwrap_or(0)));
+    }
+    ordered
+}
+
+/// The table an operation that may join an `ALTER TABLE` batch acts on.
+fn batchable_table(statement: &MySQLStatement) -> Option<&str> {
+    match statement {
+        MySQLStatement::AddColumn { table, .. }
+        | MySQLStatement::ModifyColumn { table, .. }
+        | MySQLStatement::DropColumn { table, .. }
+        | MySQLStatement::DropPrimaryKey { table, .. }
+        | MySQLStatement::DropIndex { table, .. }
+        | MySQLStatement::DropUnique { table, .. } => Some(table),
+        MySQLStatement::AddPrimaryKey { primary_key } => Some(&primary_key.table),
+        MySQLStatement::AddUnique { unique } => Some(&unique.table),
+        MySQLStatement::CreateIndex { index }
+            if index.algorithm.is_none() && index.lock.is_none() =>
+        {
+            Some(&index.table)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `statement` changes a primary key or touches an `AUTO_INCREMENT`
+/// column (as a column change or as a key part).
+fn touches_auto_increment_key(
+    statement: &MySQLStatement,
+    auto_increment: &BTreeSet<(String, String)>,
+    prev_indexes: &BTreeMap<(String, String), &model::Index>,
+) -> bool {
+    let is_auto = |table: &str, column: &str| {
+        auto_increment.contains(&(table.to_string(), column.to_string()))
+    };
+    let index_parts_auto = |table: &str, columns: &[IndexColumnDefinition]| {
+        columns.iter().any(|column| {
+            matches!(column, IndexColumnDefinition::Column { name, .. } if is_auto(table, name))
+        })
+    };
+    match statement {
+        MySQLStatement::DropPrimaryKey { .. } | MySQLStatement::AddPrimaryKey { .. } => true,
+        MySQLStatement::AddColumn { table, column, .. }
+        | MySQLStatement::ModifyColumn { table, column, .. } => is_auto(table, &column.name),
+        MySQLStatement::DropColumn { table, column, .. } => is_auto(table, column),
+        MySQLStatement::DropIndex { table, name, .. }
+        | MySQLStatement::DropUnique { table, name, .. } => {
+            prev_indexes
+                .get(&(table.clone(), name.clone()))
+                .is_some_and(|index| {
+                    index.columns.iter().any(|column| {
+                        !column.is_expression && is_auto(table, column.expression.as_ref())
+                    })
+                })
+                || is_auto(table, name)
+        }
+        MySQLStatement::AddUnique { unique } => index_parts_auto(&unique.table, &unique.columns),
+        MySQLStatement::CreateIndex { index } => index_parts_auto(&index.table, &index.columns),
+        _ => false,
+    }
+}
+
+/// Merges the column and key operations of a table whose primary key or
+/// `AUTO_INCREMENT` key changes into one `ALTER TABLE`, placed where the last
+/// of them was. Separately, `DROP PRIMARY KEY` fails while an
+/// `AUTO_INCREMENT` column depends on it (1075), an `AUTO_INCREMENT` column
+/// cannot be added or modified before its key exists (1075), and a new
+/// primary key cannot be added before the old one is gone (1068).
+fn batch_auto_increment_key_changes(
+    statements: Vec<MySQLStatement>,
+    prev: &MySQLDDL,
+    cur: &MySQLDDL,
+) -> Vec<MySQLStatement> {
+    let auto_increment: BTreeSet<_> = prev
+        .columns
+        .list()
+        .iter()
+        .chain(cur.columns.list())
+        .filter(|column| column.autoincrement)
+        .map(|column| (column.table.to_string(), column.name.to_string()))
+        .collect();
+    if auto_increment.is_empty() {
+        return statements;
+    }
+    let prev_indexes = index_map(prev);
+    let batched_tables: BTreeSet<String> = statements
+        .iter()
+        .filter(|statement| touches_auto_increment_key(statement, &auto_increment, &prev_indexes))
+        .filter_map(|statement| batchable_table(statement).map(str::to_string))
+        .filter(|table| {
+            auto_increment
+                .iter()
+                .any(|(auto_table, _)| auto_table == table)
+        })
+        .collect();
+    // Members: the key changes themselves, AUTO_INCREMENT column changes,
+    // and adds/modifies of the new primary key's columns (ADD PRIMARY KEY
+    // needs them). Other column changes keep their place, which matters for
+    // the drops and re-adds around a rename.
+    let new_key_columns: BTreeSet<(String, String)> = cur
+        .pks
+        .list()
+        .iter()
+        .flat_map(|primary_key| {
+            primary_key
+                .columns
+                .iter()
+                .map(|column| (primary_key.table.to_string(), column.to_string()))
+        })
+        .collect();
+    let is_member = |statement: &MySQLStatement| {
+        touches_auto_increment_key(statement, &auto_increment, &prev_indexes)
+            || matches!(
+                statement,
+                MySQLStatement::AddColumn { table, column, .. }
+                    | MySQLStatement::ModifyColumn { table, column, .. }
+                    if new_key_columns.contains(&(table.clone(), column.name.clone()))
+            )
+    };
+    let mut members: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (position, statement) in statements.iter().enumerate() {
+        if let Some(table) = batchable_table(statement)
+            .filter(|table| batched_tables.contains(*table) && is_member(statement))
+        {
+            members.entry(table.to_string()).or_default().push(position);
+        }
+    }
+    members.retain(|_, positions| positions.len() > 1);
+    if members.is_empty() {
+        return statements;
+    }
+    let last_member: BTreeMap<usize, String> = members
+        .iter()
+        .map(|(table, positions)| (*positions.last().expect("non-empty"), table.clone()))
+        .collect();
+    let mut batches: BTreeMap<String, Vec<MySQLStatement>> = BTreeMap::new();
+    let mut output = Vec::with_capacity(statements.len());
+    let member_positions: BTreeSet<usize> = members.values().flatten().copied().collect();
+    for (position, statement) in statements.into_iter().enumerate() {
+        let table = batchable_table(&statement).map(str::to_string);
+        match table.filter(|_| member_positions.contains(&position)) {
+            Some(table) => {
+                let database = match &statement {
+                    MySQLStatement::AddPrimaryKey { primary_key } => primary_key.database.clone(),
+                    MySQLStatement::AddUnique { unique } => unique.database.clone(),
+                    MySQLStatement::CreateIndex { index } => index.database.clone(),
+                    MySQLStatement::AddColumn { database, .. }
+                    | MySQLStatement::ModifyColumn { database, .. }
+                    | MySQLStatement::DropColumn { database, .. }
+                    | MySQLStatement::DropPrimaryKey { database, .. }
+                    | MySQLStatement::DropIndex { database, .. }
+                    | MySQLStatement::DropUnique { database, .. } => database.clone(),
+                    _ => None,
+                };
+                batches.entry(table.clone()).or_default().push(statement);
+                if last_member.get(&position) == Some(&table) {
+                    output.push(MySQLStatement::AlterTable {
+                        database,
+                        table: table.clone(),
+                        operations: batches.remove(&table).unwrap_or_default(),
+                    });
+                }
+            }
+            None => output.push(statement),
+        }
+    }
+    output
+}
+
 fn depends_on_recreated_column(
     table: &str,
     columns: impl IntoIterator<Item = String>,
@@ -1603,6 +2255,73 @@ fn foreign_key_touches_columns(
         || foreign_key.foreign_columns.iter().any(|column| {
             columns.contains(&(foreign_key.foreign_table.to_string(), column.to_string()))
         })
+}
+
+/// Whether `ddl` has a key (other than an index named `except`) whose
+/// leading columns are `columns`, which lets InnoDB enforce a foreign key on
+/// them without creating an index of its own.
+fn has_supporting_key(
+    ddl: &MySQLDDL,
+    table: &str,
+    columns: &[Cow<'static, str>],
+    except: &str,
+) -> bool {
+    let columns: Vec<&str> = columns.iter().map(AsRef::as_ref).collect();
+    ddl.pks.list().iter().any(|primary_key| {
+        primary_key.table == table
+            && named_columns_have_prefix(primary_key.columns.iter(), columns.iter().copied())
+    }) || ddl.uniques.list().iter().any(|unique| {
+        unique.table == table
+            && named_columns_have_prefix(unique.columns.iter(), columns.iter().copied())
+    }) || ddl.indexes.list().iter().any(|index| {
+        index.table == table
+            && index.name != except
+            && index_supports_columns(index, columns.iter().copied())
+    }) || (columns.len() == 1
+        && ddl.columns.list().iter().any(|column| {
+            column.table == table
+                && column.name == columns[0]
+                && (column.unique || column.primary_key)
+        }))
+}
+
+/// Whether dropping `foreign_key` must also drop the index InnoDB created
+/// for it. That index carries the constraint's name and outlives the
+/// constraint (drizzle-kit's `dropAutoIndex`). It exists only when no other
+/// key could enforce the constraint, and it stays when the new schema keeps
+/// an index or a foreign key of that name, or another remaining foreign key
+/// needs it.
+fn drops_auto_created_index(
+    foreign_key: &model::ForeignKey,
+    prev: &MySQLDDL,
+    cur: &MySQLDDL,
+    dropped_tables: &BTreeSet<String>,
+) -> bool {
+    let table = foreign_key.table.as_ref();
+    let name = foreign_key.name.as_ref();
+    if dropped_tables.contains(table)
+        || cur
+            .fks
+            .list()
+            .iter()
+            .any(|other| other.table == table && other.name == name)
+        || cur
+            .indexes
+            .list()
+            .iter()
+            .any(|index| index.table == table && index.name == name)
+        || has_supporting_key(prev, table, &foreign_key.columns, name)
+    {
+        return false;
+    }
+    !cur.fks.list().iter().any(|other| {
+        other.table == table
+            && named_columns_have_prefix(
+                foreign_key.columns.iter(),
+                other.columns.iter().map(AsRef::as_ref),
+            )
+            && !has_supporting_key(cur, table, &other.columns, name)
+    })
 }
 
 fn foreign_key_uses_index(foreign_key: &model::ForeignKey, index: &model::Index) -> bool {
@@ -1650,99 +2369,6 @@ fn generated_dependents_of_renames(
             dependents.insert(key);
         }
     }
-}
-
-fn rewrite_identifier(sql: &str, from: &str, to: &str) -> String {
-    let characters: Vec<_> = sql.chars().collect();
-    let mut rewritten = String::with_capacity(sql.len());
-    let mut position = 0;
-    while position < characters.len() {
-        let character = characters[position];
-        if character == '\'' || character == '"' {
-            let quote = character;
-            rewritten.push(character);
-            position += 1;
-            while position < characters.len() {
-                let character = characters[position];
-                rewritten.push(character);
-                position += 1;
-                if character == '\\' && position < characters.len() {
-                    rewritten.push(characters[position]);
-                    position += 1;
-                } else if character == quote {
-                    if position < characters.len() && characters[position] == quote {
-                        rewritten.push(characters[position]);
-                        position += 1;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        } else if character == '`' {
-            let start = position;
-            position += 1;
-            let identifier_start = position;
-            while position < characters.len() && characters[position] != '`' {
-                position += 1;
-            }
-            let identifier: String = characters[identifier_start..position].iter().collect();
-            if identifier == from {
-                rewritten.push('`');
-                rewritten.push_str(&to.replace('`', "``"));
-                rewritten.push('`');
-            } else {
-                rewritten.extend(&characters[start..position.min(characters.len() - 1) + 1]);
-            }
-            if position < characters.len() {
-                position += 1;
-            }
-        } else if character.is_ascii_alphanumeric() || character == '_' || character == '$' {
-            let start = position;
-            position += 1;
-            while position < characters.len()
-                && (characters[position].is_ascii_alphanumeric()
-                    || characters[position] == '_'
-                    || characters[position] == '$')
-            {
-                position += 1;
-            }
-            let identifier: String = characters[start..position].iter().collect();
-            rewritten.push_str(if identifier == from { to } else { &identifier });
-        } else {
-            rewritten.push(character);
-            position += 1;
-        }
-    }
-    rewritten
-}
-
-fn rewrite_column_definition(
-    mut definition: ColumnDefinition,
-    table: &str,
-    renames: &[(String, String, String)],
-) -> ColumnDefinition {
-    if let Some(generated) = &mut definition.generated {
-        for (_, from, to) in renames
-            .iter()
-            .filter(|(rename_table, _, _)| rename_table == table)
-        {
-            generated.expression = rewrite_identifier(&generated.expression, from, to);
-        }
-    }
-    definition
-}
-
-fn rewrite_check_definition(
-    mut definition: CheckDefinition,
-    renames: &[(String, String, String)],
-) -> CheckDefinition {
-    for (_, from, to) in renames
-        .iter()
-        .filter(|(table, _, _)| table == &definition.table)
-    {
-        definition.expression = rewrite_identifier(&definition.expression, from, to);
-    }
-    definition
 }
 
 fn flush_identifier(tokens: &mut BTreeSet<String>, token: &mut String) {
@@ -1938,6 +2564,11 @@ pub fn compute_migration_with(
     reconcile_unique_index_representations(&mut prev, &cur);
     reconcile_primary_key_nullability(&mut prev, &cur);
     reconcile_column_type_spellings(&mut prev, &cur);
+    reconcile_default_spellings(&mut prev, &cur);
+    reconcile_foreign_key_actions(&mut prev, &cur, options.catalog_defaults.is_some());
+    if options.catalog_defaults.is_some() {
+        reconcile_catalog_representations(&mut prev, &cur);
+    }
     if let Some(defaults) = &options.catalog_defaults {
         reconcile_catalog_defaults(&mut prev, &cur, defaults);
     }
@@ -1993,7 +2624,7 @@ pub fn compute_migration_with(
         .filter_map(|(key, old)| {
             cur_columns
                 .get(key)
-                .filter(|new| *old != **new)
+                .filter(|new| columns_differ_structurally(old, new))
                 .map(|new| (key.clone(), *old, *new))
         })
         .collect();
@@ -2024,6 +2655,22 @@ pub fn compute_migration_with(
             column: column.clone(),
         });
     }
+
+    // A column-level UNIQUE is MySQL's index named after the column. It is
+    // added and dropped as an index step, never through MODIFY COLUMN (which
+    // would add another index each time and could never remove one).
+    let column_unique_changes: Vec<_> = prev_columns
+        .iter()
+        .filter_map(|(key, old)| {
+            let new = cur_columns.get(key)?;
+            if recreated_columns.contains(key) {
+                return None;
+            }
+            let old_unique = column_unique_index(&prev, old);
+            let new_unique = column_unique_index(&cur, new);
+            (old_unique != new_unique).then(|| (key.clone(), *old, *new, new_unique))
+        })
+        .collect();
 
     let dropped_columns: BTreeSet<_> = prev_columns
         .keys()
@@ -2084,6 +2731,12 @@ pub fn compute_migration_with(
                 .keys()
                 .filter(|key| !cur_uniques.contains_key(*key))
                 .map(|key| key.0.clone()),
+        )
+        .chain(
+            column_unique_changes
+                .iter()
+                .filter(|(_, _, _, added)| !added)
+                .map(|(key, _, _, _)| key.0.clone()),
         )
         .collect();
 
@@ -2199,6 +2852,13 @@ pub fn compute_migration_with(
                 kind: "foreign key",
                 name: key.1.clone(),
             });
+            if drops_auto_created_index(foreign_key, &prev, &cur, &dropped_tables) {
+                statements.push(MySQLStatement::DropIndex {
+                    database: database(&foreign_key.database),
+                    table: foreign_key.table.to_string(),
+                    name: foreign_key.name.to_string(),
+                });
+            }
         }
     }
 
@@ -2265,6 +2925,21 @@ pub fn compute_migration_with(
             name: key.1.clone(),
         });
     }
+    for (key, old, _, _) in column_unique_changes
+        .iter()
+        .filter(|(_, _, _, added)| !added)
+    {
+        statements.push(MySQLStatement::DropUnique {
+            database: database(&old.database),
+            table: key.0.clone(),
+            name: key.1.clone(),
+        });
+        warnings.insert(MySQLWarning::DropConstraint {
+            table: key.0.clone(),
+            kind: "unique constraint",
+            name: key.1.clone(),
+        });
+    }
 
     let drop_pks: BTreeSet<_> = prev_pks
         .iter()
@@ -2303,15 +2978,20 @@ pub fn compute_migration_with(
     }
     statements.extend(column_rename_statements);
 
-    for (table, column) in &dropped_columns {
-        if rename_generated_dependents.contains(&(table.clone(), column.clone())) {
-            continue;
-        }
-        let old = prev_columns[&(table.clone(), column.clone())];
+    let dropped_in_order = order_by_generated_dependencies(
+        dropped_columns
+            .iter()
+            .filter(|key| !rename_generated_dependents.contains(key))
+            .map(|key| prev_columns[key])
+            .collect(),
+        DependencyOrder::DependentsFirst,
+    );
+    for old in dropped_in_order {
+        let (table, column) = (old.table.to_string(), old.name.to_string());
         statements.push(MySQLStatement::DropColumn {
             database: database(&old.database),
-            table: table.clone(),
-            column: column.clone(),
+            table,
+            column,
         });
     }
     for table in &dropped_tables {
@@ -2338,6 +3018,8 @@ pub fn compute_migration_with(
         });
     }
 
+    let mut inherited_character_options: BTreeMap<String, (Option<String>, Option<String>)> =
+        BTreeMap::new();
     for (name, old) in &prev_tables {
         let Some(new) = cur_tables.get(name) else {
             continue;
@@ -2372,11 +3054,53 @@ pub fn compute_migration_with(
                 option: "collation without also resetting character set",
             });
         }
-        if old.charset != new.charset || old.collation != new.collation {
+        let catalog = options.catalog_defaults.as_ref();
+        // `DEFAULT CHARACTER SET = DEFAULT` is not MySQL syntax: going back to
+        // the database default needs the database default's name.
+        let (charset, collation) = if old.charset.is_some() && new.charset.is_none() {
+            let Some(charset) = catalog.and_then(|defaults| defaults.charset.clone()) else {
+                return Err(DiffError::CannotUnsetTableOption {
+                    table: name.clone(),
+                    option: "character set",
+                });
+            };
+            let collation = new
+                .collation
+                .as_deref()
+                .map(str::to_string)
+                .or_else(|| catalog.and_then(|defaults| defaults.collation.clone()));
+            (Some(charset), collation)
+        } else {
+            (
+                (old.charset != new.charset)
+                    .then(|| new.charset.as_deref().map(str::to_string))
+                    .flatten(),
+                (old.collation != new.collation)
+                    .then(|| new.collation.as_deref().map(str::to_string))
+                    .flatten(),
+            )
+        };
+        let character_options_changed =
+            old.charset != new.charset || old.collation != new.collation;
+        if character_options_changed {
             warnings.insert(MySQLWarning::ChangeCharsetOrCollation {
                 table: name.clone(),
                 column: None,
             });
+            // Changing a table default does not convert existing columns.
+            // Columns that inherit it get the new character set explicitly,
+            // or the live table would keep the old one.
+            inherited_character_options.insert(
+                name.clone(),
+                (
+                    charset
+                        .clone()
+                        .or_else(|| new.charset.as_deref().map(str::to_string)),
+                    collation
+                        .clone()
+                        .or_else(|| new.collation.as_deref().map(str::to_string)),
+                ),
+            );
         }
         statements.push(MySQLStatement::AlterTableOptions {
             database: database(&new.database),
@@ -2384,38 +3108,70 @@ pub fn compute_migration_with(
             engine: (old.engine != new.engine)
                 .then(|| new.engine.as_deref().map(str::to_string))
                 .flatten(),
-            charset: (old.charset != new.charset).then(|| {
-                new.charset
-                    .as_deref()
-                    .map_or_else(|| "DEFAULT".to_string(), str::to_string)
-            }),
-            collation: (old.collation != new.collation)
-                .then(|| new.collation.as_deref().map(str::to_string))
-                .flatten(),
+            charset,
+            collation,
             comment: (old.comment != new.comment).then(|| {
                 new.comment
                     .as_deref()
                     .map_or_else(String::new, str::to_string)
             }),
         });
+        if character_options_changed {
+            for column in cur.columns.list().iter().filter(|column| {
+                column.table == name.as_str()
+                    && inherits_character_options(column)
+                    && prev_columns.contains_key(&(name.clone(), column.name.to_string()))
+                    && !altered_columns
+                        .iter()
+                        .any(|(key, _, _)| key.0 == *name && key.1 == column.name.as_ref())
+                    && !rename_generated_dependents
+                        .contains(&(name.clone(), column.name.to_string()))
+            }) {
+                let mut definition = column_definition_for_ddl(column, &cur);
+                definition.unique = false;
+                definition.primary_key = false;
+                apply_inherited_character_options(
+                    &mut definition,
+                    &inherited_character_options[name],
+                );
+                warnings.insert(MySQLWarning::ChangeCharsetOrCollation {
+                    table: name.clone(),
+                    column: Some(column.name.to_string()),
+                });
+                statements.push(MySQLStatement::ModifyColumn {
+                    database: database(&column.database),
+                    table: name.clone(),
+                    column: definition,
+                });
+            }
+        }
     }
 
-    for column in cur.columns.list() {
+    let added_in_order = order_by_generated_dependencies(
+        cur.columns
+            .list()
+            .iter()
+            .filter(|column| {
+                !created_tables.contains(column.table.as_ref())
+                    && !prev_columns
+                        .contains_key(&(column.table.to_string(), column.name.to_string()))
+            })
+            .collect(),
+        DependencyOrder::DependenciesFirst,
+    );
+    for column in added_in_order {
         let key = (column.table.to_string(), column.name.to_string());
-        if created_tables.contains(&key.0) || prev_columns.contains_key(&key) {
-            continue;
-        }
         statements.push(MySQLStatement::AddColumn {
             database: database(&column.database),
             table: key.0.clone(),
-            column: rewrite_column_definition(
-                column_definition_for_ddl(column, &cur),
-                &key.0,
-                &renamed_columns,
-            ),
+            column: column_definition_for_ddl(column, &cur),
         });
-        if column.not_null && column.default.is_none() && column.generated.is_none() {
-            warnings.insert(MySQLWarning::TightenNullability {
+        if column.not_null
+            && column.default.is_none()
+            && column.generated.is_none()
+            && !column.autoincrement
+        {
+            warnings.insert(MySQLWarning::AddNotNullColumn {
                 table: key.0.clone(),
                 column: key.1.clone(),
             });
@@ -2427,11 +3183,7 @@ pub fn compute_migration_with(
         statements.push(MySQLStatement::AddColumn {
             database: database(&column.database),
             table: column.table.to_string(),
-            column: rewrite_column_definition(
-                column_definition_for_ddl(column, &cur),
-                column.table.as_ref(),
-                &renamed_columns,
-            ),
+            column: column_definition_for_ddl(column, &cur),
         });
     }
     for new in cur.columns.list() {
@@ -2448,11 +3200,7 @@ pub fn compute_migration_with(
         if rename_generated_dependents.contains(&key) {
             continue;
         }
-        let definition = rewrite_column_definition(
-            column_definition_for_ddl(new, &cur),
-            &key.0,
-            &renamed_columns,
-        );
+        let mut definition = column_definition_for_ddl(new, &cur);
         let statement = if recreated_columns.contains(&key) {
             MySQLStatement::RecreateColumn {
                 database: database(&new.database),
@@ -2460,6 +3208,15 @@ pub fn compute_migration_with(
                 column: definition,
             }
         } else {
+            // Keys are separate steps: an inline UNIQUE or PRIMARY KEY in
+            // MODIFY COLUMN adds a duplicate index or a second primary key.
+            definition.unique = false;
+            definition.primary_key = false;
+            if inherits_character_options(new)
+                && let Some(options) = inherited_character_options.get(&key.0)
+            {
+                apply_inherited_character_options(&mut definition, options);
+            }
             MySQLStatement::ModifyColumn {
                 database: database(&new.database),
                 table: key.0.clone(),
@@ -2489,7 +3246,35 @@ pub fn compute_migration_with(
             });
         }
     }
+    for (key, _, new, _) in column_unique_changes
+        .iter()
+        .filter(|(_, _, _, added)| *added)
+    {
+        statements.push(MySQLStatement::AddUnique {
+            unique: UniqueDefinition {
+                database: database(&new.database),
+                table: key.0.clone(),
+                name: key.1.clone(),
+                columns: vec![IndexColumnDefinition::Column {
+                    name: key.1.clone(),
+                    length: None,
+                    order: None,
+                }],
+            },
+        });
+    }
+    let inline_created_indexes: BTreeSet<_> = created_tables
+        .iter()
+        .flat_map(|table| {
+            inline_index_names(cur_tables[table], &cur)
+                .into_iter()
+                .map(move |name| (table.clone(), name))
+        })
+        .collect();
     for (key, index) in &cur_indexes {
+        if inline_created_indexes.contains(key) {
+            continue;
+        }
         if !prev_indexes.contains_key(key) || drop_indexes.contains(key) {
             statements.push(MySQLStatement::CreateIndex {
                 index: index_definition(index),
@@ -2502,7 +3287,7 @@ pub fn compute_migration_with(
         }
         if !prev_checks.contains_key(key) || drop_checks.contains(key) {
             statements.push(MySQLStatement::AddCheck {
-                check: rewrite_check_definition(check_definition(check), &renamed_columns),
+                check: check_definition(check),
             });
         }
     }
@@ -2536,6 +3321,7 @@ pub fn compute_migration_with(
         }
     }
 
+    let statements = batch_auto_increment_key_changes(statements, &prev, &cur);
     let sql_statements = render_statements(&statements)?;
     let typed_warnings: Vec<_> = warnings.into_iter().collect();
     let warnings = typed_warnings.iter().map(ToString::to_string).collect();
@@ -3376,6 +4162,7 @@ mod tests {
 
         let mut renamed = prev.clone();
         renamed.columns.list_mut()[0].name = "amount".into();
+        renamed.checks.list_mut()[0].expression = "`amount` > 0".into();
         let options = DiffOptions {
             renames: RenameHints::new().column("items", "value", "amount"),
             strict_renames: true,
@@ -3691,6 +4478,10 @@ mod tests {
         });
         let mut cur = prev.clone();
         cur.columns.list_mut()[0].name = "new_value".into();
+        cur.columns.list_mut()[1].generated = Some(model::Generated {
+            expression: "`new_value` + 1".into(),
+            generation_type: model::GeneratedType::Stored,
+        });
         let options = DiffOptions {
             renames: RenameHints::new().column("metrics", "old_value", "new_value"),
             strict_renames: true,
@@ -3720,5 +4511,513 @@ mod tests {
             .unwrap();
 
         assert!(drop_dependent < rename && rename < add_dependent);
+    }
+
+    #[test]
+    fn rename_hints_never_rewrite_current_definitions() {
+        // The current schema renames qty -> amount and introduces a new
+        // column that happens to be called qty. Current CHECK and generated
+        // definitions already use current names and must be emitted as-is.
+        let mut prev = table_with_columns("orders", &["qty"]);
+        prev.checks.push(model::CheckConstraint::new(
+            "orders",
+            "orders_chk",
+            "qty > 0",
+        ));
+        let mut cur = table_with_columns("orders", &["amount", "qty", "qty_next"]);
+        cur.columns.list_mut()[2].generated = Some(model::Generated {
+            expression: "qty + 1".into(),
+            generation_type: model::GeneratedType::Stored,
+        });
+        cur.checks.push(model::CheckConstraint::new(
+            "orders",
+            "orders_chk",
+            "amount > 0 AND qty < 100",
+        ));
+        let options = DiffOptions {
+            renames: RenameHints::new().column("orders", "qty", "amount"),
+            strict_renames: true,
+            ..DiffOptions::default()
+        };
+
+        let sql = compute_migration_with(&prev, &cur, &options)
+            .unwrap()
+            .sql_statements
+            .join("\n");
+        assert!(sql.contains("RENAME COLUMN `qty` TO `amount`"), "{sql}");
+        assert!(sql.contains("GENERATED ALWAYS AS (qty + 1)"), "{sql}");
+        assert!(sql.contains("CHECK (amount > 0 AND qty < 100)"), "{sql}");
+        assert!(!sql.contains("amount + 1"), "{sql}");
+        assert!(!sql.contains("amount < 100"), "{sql}");
+    }
+
+    #[test]
+    fn legacy_unparenthesized_defaults_do_not_churn() {
+        let mut prev = table_with_columns("docs", &["id"]);
+        let mut body = model::Column::new("docs", "body", "text");
+        body.default = Some("'hello'".into());
+        prev.columns.push(body);
+        let mut uid = model::Column::new("docs", "uid", "varchar(36)");
+        uid.default = Some("UUID()".into());
+        prev.columns.push(uid);
+
+        let mut cur = prev.clone();
+        cur.columns.list_mut()[1].default = Some("('hello')".into());
+        cur.columns.list_mut()[2].default = Some("(UUID())".into());
+
+        assert!(
+            compute_migration(&prev, &cur)
+                .unwrap()
+                .statements
+                .is_empty()
+        );
+
+        // A real default change still renders an accepted clause.
+        cur.columns.list_mut()[1].default = Some("('bye')".into());
+        let sql = compute_migration(&prev, &cur).unwrap().sql_statements;
+        assert_eq!(
+            sql,
+            ["ALTER TABLE `docs` MODIFY COLUMN `body` text NULL DEFAULT ('bye');"]
+        );
+    }
+
+    #[test]
+    fn column_unique_changes_are_index_steps_not_modify_clauses() {
+        let mut prev = table_with_columns("users", &["id", "email"]);
+        prev.pks.push(primary_key("users", &["id"]));
+        let mut cur = prev.clone();
+        cur.columns.list_mut()[1].unique = true;
+
+        let added = compute_migration(&prev, &cur).unwrap().sql_statements;
+        assert_eq!(
+            added,
+            ["ALTER TABLE `users` ADD CONSTRAINT `email` UNIQUE (`email`);"]
+        );
+
+        let removed = compute_migration(&cur, &prev).unwrap().sql_statements;
+        assert_eq!(removed, ["ALTER TABLE `users` DROP INDEX `email`;"]);
+
+        // A type change on a unique column must not add another index.
+        let mut retyped = cur.clone();
+        retyped.columns.list_mut()[1].sql_type = "int".into();
+        let modified = compute_migration(&cur, &retyped).unwrap().sql_statements;
+        assert_eq!(
+            modified,
+            ["ALTER TABLE `users` MODIFY COLUMN `email` int NOT NULL;"]
+        );
+    }
+
+    #[test]
+    fn adding_columns_does_not_claim_a_nullability_change() {
+        let prev = table_with_columns("users", &["id"]);
+        let mut cur = prev.clone();
+        let mut serial = model::Column::new("users", "seq", "bigint");
+        serial.not_null = true;
+        serial.autoincrement = true;
+        serial.unique = true;
+        cur.columns.push(serial);
+        let mut required = model::Column::new("users", "required", "int");
+        required.not_null = true;
+        cur.columns.push(required);
+
+        let migration = compute_migration(&prev, &cur).unwrap();
+        assert_eq!(
+            migration.typed_warnings,
+            [MySQLWarning::AddNotNullColumn {
+                table: "users".to_string(),
+                column: "required".to_string(),
+            }]
+        );
+        assert!(
+            migration
+                .warnings
+                .iter()
+                .all(|warning| !warning.contains("can fail when rows contain NULL"))
+        );
+    }
+
+    #[test]
+    fn auto_increment_column_keyed_by_secondary_index_declares_it_inline() {
+        // PRIMARY KEY (tenant, id) does not lead with the AUTO_INCREMENT
+        // column, so InnoDB needs the `id` index inside CREATE TABLE.
+        let mut cur = table_with_columns("tickets", &["tenant", "id", "note"]);
+        cur.columns.list_mut()[1].autoincrement = true;
+        cur.pks.push(primary_key("tickets", &["tenant", "id"]));
+        cur.indexes.push(model::Index::new(
+            "tickets",
+            "tickets_id_idx",
+            vec![model::IndexColumn::column("id")],
+        ));
+        cur.indexes.push(model::Index::new(
+            "tickets",
+            "tickets_note_idx",
+            vec![model::IndexColumn::column("note")],
+        ));
+
+        let sql = compute_migration(&MySQLDDL::new(), &cur)
+            .unwrap()
+            .sql_statements;
+        assert_eq!(sql.len(), 2, "{sql:#?}");
+        assert!(
+            sql[0].contains("PRIMARY KEY (`tenant`, `id`),\n\tKEY `tickets_id_idx` (`id`)"),
+            "{}",
+            sql[0]
+        );
+        assert_eq!(
+            sql[1],
+            "CREATE INDEX `tickets_note_idx` ON `tickets` (`note`);"
+        );
+    }
+
+    #[test]
+    fn generated_column_dependencies_order_column_drops_and_adds() {
+        let generated = |table: &str, name: &str, expression: &str| {
+            let mut column = model::Column::new(table.to_string(), name.to_string(), "int");
+            column.generated = Some(model::Generated {
+                expression: expression.to_string().into(),
+                generation_type: model::GeneratedType::Stored,
+            });
+            column
+        };
+        let base = table_with_columns("metrics", &["id"]);
+        let mut with_generated = base.clone();
+        with_generated
+            .columns
+            .push(generated("metrics", "a_double", "z_base * 2"));
+        with_generated
+            .columns
+            .push(model::Column::new("metrics", "z_base", "int"));
+        with_generated
+            .columns
+            .push(generated("metrics", "b_triple", "`z_base` * 3"));
+
+        // Dependents are dropped before the column they read (3108 otherwise).
+        let drops = compute_migration(&with_generated, &base)
+            .unwrap()
+            .sql_statements;
+        let position = |sql: &[String], column: &str| {
+            sql.iter()
+                .position(|statement| statement.contains(&format!("COLUMN `{column}`")))
+                .unwrap()
+        };
+        assert!(position(&drops, "a_double") < position(&drops, "z_base"));
+        assert!(position(&drops, "b_triple") < position(&drops, "z_base"));
+
+        // The column a generated column reads is added first (1054 otherwise).
+        let adds = compute_migration(&base, &with_generated)
+            .unwrap()
+            .sql_statements;
+        assert!(position(&adds, "z_base") < position(&adds, "a_double"));
+        assert!(position(&adds, "z_base") < position(&adds, "b_triple"));
+    }
+
+    #[test]
+    fn auto_increment_key_changes_are_one_alter_table() {
+        let auto_table = |pk: &[&str], auto: bool| {
+            let mut ddl = table_with_columns("tickets", &["id", "tenant"]);
+            ddl.columns.list_mut()[0].autoincrement = auto;
+            for column in ddl.columns.list_mut() {
+                column.primary_key = pk.contains(&column.name.as_ref());
+            }
+            ddl.pks.push(primary_key("tickets", pk));
+            ddl
+        };
+
+        // Widening the key of an AUTO_INCREMENT column: a lone DROP PRIMARY
+        // KEY fails with error 1075.
+        let widened = compute_migration(
+            &auto_table(&["id"], true),
+            &auto_table(&["id", "tenant"], true),
+        )
+        .unwrap()
+        .sql_statements;
+        assert_eq!(
+            widened,
+            ["ALTER TABLE `tickets` DROP PRIMARY KEY, ADD PRIMARY KEY (`id`, `tenant`);"]
+        );
+
+        // Moving the key off an AUTO_INCREMENT column that stops being one.
+        let moved = compute_migration(&auto_table(&["id"], true), &auto_table(&["tenant"], false))
+            .unwrap()
+            .sql_statements;
+        assert_eq!(
+            moved,
+            [
+                "ALTER TABLE `tickets` DROP PRIMARY KEY, MODIFY COLUMN `id` bigint NOT NULL, ADD PRIMARY KEY (`tenant`);"
+            ]
+        );
+
+        // Introducing a new AUTO_INCREMENT primary key column.
+        let mut before = table_with_columns("tickets", &["tenant"]);
+        before.columns.list_mut()[0].primary_key = true;
+        before.pks.push(primary_key("tickets", &["tenant"]));
+        let mut after = table_with_columns("tickets", &["tenant", "id"]);
+        after.columns.list_mut()[1].autoincrement = true;
+        after.columns.list_mut()[1].primary_key = true;
+        after.pks.push(primary_key("tickets", &["id"]));
+        let added = compute_migration(&before, &after).unwrap().sql_statements;
+        assert_eq!(
+            added,
+            [
+                "ALTER TABLE `tickets` DROP PRIMARY KEY, ADD COLUMN `id` bigint NOT NULL AUTO_INCREMENT, ADD PRIMARY KEY (`id`);"
+            ]
+        );
+    }
+
+    #[test]
+    fn dropping_a_foreign_key_drops_the_index_innodb_created_for_it() {
+        let mut with_fk = table_with_columns("parents", &["id"]);
+        with_fk.columns.list_mut()[0].primary_key = true;
+        with_fk.pks.push(primary_key("parents", &["id"]));
+        with_fk.tables.push(model::Table::new("children"));
+        for name in ["id", "parent_id"] {
+            let mut column = model::Column::new("children", name, "bigint");
+            column.not_null = true;
+            with_fk.columns.push(column);
+        }
+        with_fk.pks.push(primary_key("children", &["id"]));
+        with_fk.fks.push(model::ForeignKey::new(
+            "children",
+            "children_parent_id_fkey",
+            ["parent_id"],
+            "parents",
+            ["id"],
+        ));
+        let mut without_fk = with_fk.clone();
+        without_fk.fks.list_mut().clear();
+
+        assert_eq!(
+            compute_migration(&with_fk, &without_fk)
+                .unwrap()
+                .sql_statements,
+            [
+                "ALTER TABLE `children` DROP FOREIGN KEY `children_parent_id_fkey`;",
+                "ALTER TABLE `children` DROP INDEX `children_parent_id_fkey`;",
+            ]
+        );
+
+        // With another key on the column InnoDB never created an index.
+        let index = model::Index::new(
+            "children",
+            "children_parent_idx",
+            vec![model::IndexColumn::column("parent_id")],
+        );
+        with_fk.indexes.push(index.clone());
+        without_fk.indexes.push(index);
+        assert_eq!(
+            compute_migration(&with_fk, &without_fk)
+                .unwrap()
+                .sql_statements,
+            ["ALTER TABLE `children` DROP FOREIGN KEY `children_parent_id_fkey`;"]
+        );
+    }
+
+    fn charset_table(charset: Option<&str>) -> MySQLDDL {
+        let mut ddl = MySQLDDL::new();
+        let mut table = model::Table::new("notes");
+        table.charset = charset.map(|charset| charset.to_string().into());
+        ddl.tables.push(table);
+        let mut id = model::Column::new("notes", "id", "int");
+        id.not_null = true;
+        ddl.columns.push(id);
+        let mut body = model::Column::new("notes", "body", "varchar(20)");
+        body.not_null = true;
+        ddl.columns.push(body);
+        let mut pinned = model::Column::new("notes", "pinned", "varchar(20)");
+        pinned.charset = Some("ascii".into());
+        ddl.columns.push(pinned);
+        ddl
+    }
+
+    #[test]
+    fn removing_a_table_charset_needs_the_database_default() {
+        let error = compute_migration(&charset_table(Some("latin1")), &charset_table(None))
+            .expect_err("DEFAULT CHARACTER SET=DEFAULT is not MySQL syntax");
+        assert!(matches!(
+            error,
+            DiffError::CannotUnsetTableOption {
+                option: "character set",
+                ..
+            }
+        ));
+
+        let options = DiffOptions {
+            catalog_defaults: Some(
+                MySQLCatalogDefaults::new()
+                    .charset("utf8mb4")
+                    .collation("utf8mb4_0900_ai_ci"),
+            ),
+            ..DiffOptions::default()
+        };
+        let sql = compute_migration_with(
+            &charset_table(Some("latin1")),
+            &charset_table(None),
+            &options,
+        )
+        .unwrap()
+        .sql_statements;
+        assert_eq!(
+            sql,
+            [
+                "ALTER TABLE `notes` DEFAULT CHARACTER SET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;",
+                "ALTER TABLE `notes` MODIFY COLUMN `body` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL;",
+            ]
+        );
+    }
+
+    #[test]
+    fn changing_a_table_charset_converts_inheriting_columns() {
+        let sql = compute_migration(
+            &charset_table(Some("latin1")),
+            &charset_table(Some("utf8mb4")),
+        )
+        .unwrap()
+        .sql_statements;
+        // `pinned` declares its own character set and keeps it; `id` has none.
+        assert_eq!(
+            sql,
+            [
+                "ALTER TABLE `notes` DEFAULT CHARACTER SET=utf8mb4;",
+                "ALTER TABLE `notes` MODIFY COLUMN `body` varchar(20) CHARACTER SET utf8mb4 NOT NULL;",
+            ]
+        );
+    }
+
+    #[test]
+    fn push_compares_effective_character_sets() {
+        // A table and column declaring only CHARACTER SET are reported with
+        // that character set's default collation.
+        let mut live = charset_table(Some("latin1"));
+        live.tables.list_mut()[0].collation = Some("latin1_swedish_ci".into());
+        live.columns.list_mut()[2].collation = Some("ascii_general_ci".into());
+        let desired = charset_table(Some("latin1"));
+        let options = DiffOptions {
+            catalog_defaults: Some(
+                MySQLCatalogDefaults::new()
+                    .engine("InnoDB")
+                    .charset("utf8mb4")
+                    .collation("utf8mb4_0900_ai_ci"),
+            ),
+            ..DiffOptions::default()
+        };
+        assert!(
+            compute_migration_with(&live, &desired, &options)
+                .unwrap()
+                .statements
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn push_compares_catalog_rewritten_definitions_by_meaning() {
+        let mut desired = table_with_columns("items", &["id", "low", "high"]);
+        desired.columns.list_mut()[0].primary_key = true;
+        desired.pks.push(primary_key("items", &["id"]));
+        let mut column = |name: &str, sql_type: &str, default: &str| {
+            let mut column = model::Column::new("items", name.to_string(), sql_type.to_string());
+            column.default = Some(default.to_string().into());
+            desired.columns.push(column);
+        };
+        column("flag", "BOOLEAN", "TRUE");
+        column("ratio", "decimal(10,2)", "1.5");
+        column("body", "TEXT", "('hello')");
+        column("created", "TIMESTAMP", "NOW()");
+        column("bytes", "VARBINARY(10)", "'abc'");
+        column("bits", "bit(3)", "5");
+        let mut doubled = model::Column::new("items", "doubled", "bigint");
+        doubled.generated = Some(model::Generated {
+            expression: "low * 2".into(),
+            generation_type: model::GeneratedType::Stored,
+        });
+        desired.columns.push(doubled);
+        desired.checks.push(model::CheckConstraint::new(
+            "items",
+            "items_chk",
+            "low < high",
+        ));
+        let mut hashed = model::Index::new(
+            "items",
+            "items_low_idx",
+            vec![model::IndexColumn::expression("lower(low)")],
+        );
+        hashed.using = Some(model::IndexMethod::Hash);
+        desired.indexes.push(hashed);
+        desired.tables.push(model::Table::new("parents"));
+        desired
+            .columns
+            .push(model::Column::new("parents", "id", "bigint"));
+        desired.pks.push(primary_key("parents", &["id"]));
+        desired.fks.push(model::ForeignKey::new(
+            "items",
+            "items_high_fkey",
+            ["high"],
+            "parents",
+            ["id"],
+        ));
+        desired
+            .views
+            .push(model::View::new("lows", "SELECT low FROM items"));
+
+        // The same schema as MySQL reports it back.
+        let mut live = desired.clone();
+        let defaults = [
+            ("flag", "1"),
+            ("ratio", "1.50"),
+            ("body", "('hello')"),
+            ("created", "CURRENT_TIMESTAMP"),
+            ("bytes", "X'616263'"),
+            ("bits", "b'101'"),
+        ];
+        for (name, default) in defaults {
+            live.columns
+                .list_mut()
+                .iter_mut()
+                .find(|column| column.name == name)
+                .expect(name)
+                .default = Some(default.into());
+        }
+        live.columns
+            .list_mut()
+            .iter_mut()
+            .find(|column| column.name == "doubled")
+            .and_then(|column| column.generated.as_mut())
+            .expect("generated")
+            .expression = "(`low` * 2)".into();
+        live.checks.list_mut()[0].expression = "(`low` < `high`)".into();
+        live.checks.list_mut()[0].enforced = Some(true);
+        live.indexes.list_mut()[0].using = Some(model::IndexMethod::Btree);
+        live.indexes.list_mut()[0].columns[0].expression = "lower(`low`)".into();
+        live.fks.list_mut()[0].on_delete = Some(model::ReferentialAction::NoAction);
+        live.fks.list_mut()[0].on_update = Some(model::ReferentialAction::Restrict);
+        live.views.list_mut()[0].definition =
+            Some("select `items`.`low` AS `low` from `items`".into());
+
+        let push = DiffOptions {
+            catalog_defaults: Some(MySQLCatalogDefaults::new().engine("InnoDB")),
+            ..DiffOptions::default()
+        };
+        let plan = compute_migration_with(&live, &desired, &push).unwrap();
+        assert!(plan.statements.is_empty(), "{:#?}", plan.sql_statements);
+
+        // Real changes are still planned.
+        let mut changed = desired.clone();
+        changed.checks.list_mut()[0].name = "items_range_chk".into();
+        changed
+            .columns
+            .list_mut()
+            .iter_mut()
+            .find(|column| column.name == "flag")
+            .expect("flag")
+            .default = Some("FALSE".into());
+        let sql = compute_migration_with(&live, &changed, &push)
+            .unwrap()
+            .sql_statements
+            .join("\n");
+        assert!(sql.contains("DROP CHECK `items_chk`"), "{sql}");
+        assert!(sql.contains("ADD CONSTRAINT `items_range_chk`"), "{sql}");
+        assert!(
+            sql.contains("MODIFY COLUMN `flag` BOOLEAN NULL DEFAULT FALSE"),
+            "{sql}"
+        );
     }
 }

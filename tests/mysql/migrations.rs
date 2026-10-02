@@ -428,6 +428,137 @@ fn runtime_migrations_keep_the_first_failure_dirty(db: &mut TestDb<RuntimeMigrat
         .expect("clean dirty migration state");
 }
 
+/// drizzle-orm's v0 -> v1 tracking upgrade (`up-migrations/mysql.ts`)
+/// backfills `name` and writes `applied_at = NULL`. Those rows are applied,
+/// not interrupted.
+#[drizzle::test]
+fn runtime_migrations_accept_rows_upgraded_by_drizzle_orm(db: &mut TestDb<RuntimeMigrationSchema>) {
+    let tracking = Tracking::MYSQL.table("__drizzle_runtime_upstream");
+    let first = Migration::new(
+        "20240101000000_mysql_upstream_init",
+        "CREATE TABLE `mysql_runtime_upstream_a` (id int)",
+    );
+    let second = Migration::new(
+        "20240102000000_mysql_upstream_next",
+        "CREATE TABLE `mysql_runtime_upstream_b` (id int)",
+    );
+    for sql in [
+        "DROP TABLE IF EXISTS `__drizzle_runtime_upstream`, `mysql_runtime_upstream_a`, `mysql_runtime_upstream_b`".to_string(),
+        "CREATE TABLE `mysql_runtime_upstream_a` (id int)".to_string(),
+        "CREATE TABLE `__drizzle_runtime_upstream` (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)".to_string(),
+        format!(
+            "INSERT INTO `__drizzle_runtime_upstream` (hash, created_at) VALUES ('{}', 1704067200000)",
+            first.hash()
+        ),
+        "ALTER TABLE `__drizzle_runtime_upstream` ADD `name` text".to_string(),
+        "ALTER TABLE `__drizzle_runtime_upstream` ADD `applied_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP".to_string(),
+        "UPDATE `__drizzle_runtime_upstream` SET `name` = '20240101000000_mysql_upstream_init', `applied_at` = NULL WHERE id = 1".to_string(),
+    ] {
+        result!(db.execute(SQL::raw(sql))).expect("reproduce drizzle-orm's upgraded table");
+    }
+
+    let outcome = result!(db.migrate(&[first, second], tracking))
+        .expect("rows upgraded by drizzle-orm must count as applied");
+    assert_eq!(
+        outcome.applied_tags(),
+        ["20240102000000_mysql_upstream_next"]
+    );
+
+    result!(db.execute(SQL::raw(
+        "DROP TABLE IF EXISTS `__drizzle_runtime_upstream`, `mysql_runtime_upstream_a`, `mysql_runtime_upstream_b`"
+    )))
+    .expect("clean up");
+}
+
+// A hand-written migration (no breakpoints) with a stored procedure: the
+// MySQL splitter keeps nested `BEGIN ... END` blocks, `#` comments, and
+// backslash escapes intact, and the runner executes the procedure.
+#[cfg(feature = "mysql-sync")]
+const PROGRAM_CLEANUP: [&str; 2] = [
+    "DROP TABLE IF EXISTS `__drizzle_runtime_programs`, `mysql_runtime_program_log`",
+    "DROP PROCEDURE IF EXISTS `mysql_runtime_program`",
+];
+
+#[cfg(feature = "mysql-sync")]
+fn program_migration() -> Migration {
+    Migration::new(
+        "20240103000000_mysql_programs",
+        "# it's a hand-written migration; no breakpoints\n\
+         CREATE TABLE `mysql_runtime_program_log` (note text);\n\
+         INSERT INTO `mysql_runtime_program_log` VALUES ('a\\';b');\n\
+         CREATE PROCEDURE `mysql_runtime_program`()\n\
+         BEGIN\n\
+           DECLARE CONTINUE HANDLER FOR SQLEXCEPTION\n\
+           BEGIN\n\
+             SET @mysql_runtime_program_failed = 1;\n\
+           END;\n\
+           INSERT INTO `mysql_runtime_program_log` VALUES ('from; procedure');\n\
+         END;\n\
+         CALL `mysql_runtime_program`();",
+    )
+}
+
+#[cfg(feature = "mysql-sync")]
+const PROGRAM_ROWS: &str = "SELECT COUNT(*) FROM `mysql_runtime_program_log` \
+                            WHERE note IN ('a'';b', 'from; procedure')";
+
+#[cfg(feature = "mysql-sync")]
+#[test]
+fn runtime_migrations_run_hand_written_mysql_programs() {
+    let _guard = mysql_sync_setup::acquire_lock();
+    let mut admin = mysql::Conn::new(mysql_sync_setup::options()).expect("connect");
+    for sql in PROGRAM_CLEANUP {
+        admin.query_drop(sql).expect("clear prior state");
+    }
+
+    // Stored-program DDL only runs over the text protocol (the prepared
+    // protocol answers error 1295).
+    let connection = mysql::Conn::new(mysql_sync_setup::options()).expect("connect");
+    let (mut db, ()) = drizzle::mysql::mysql_sync::Drizzle::new(connection);
+    let outcome = db
+        .migrate(
+            &[program_migration()],
+            Tracking::MYSQL.table("__drizzle_runtime_programs"),
+        )
+        .expect("hand-written MySQL migration applies");
+    assert_eq!(outcome.applied_count(), 1);
+    let rows: Option<i64> = admin.query_first(PROGRAM_ROWS).expect("count rows");
+    assert_eq!(rows, Some(2));
+
+    for sql in PROGRAM_CLEANUP {
+        admin.query_drop(sql).expect("clean up");
+    }
+}
+
+#[cfg(all(feature = "mysql-sync", feature = "mysql-async"))]
+#[tokio::test]
+async fn runtime_migrations_run_hand_written_mysql_programs_async() {
+    let _guard = crate::common::helpers::mysql_async_setup::acquire_lock_async().await;
+    let mut admin = mysql::Conn::new(mysql_sync_setup::options()).expect("connect");
+    for sql in PROGRAM_CLEANUP {
+        admin.query_drop(sql).expect("clear prior state");
+    }
+
+    let connection = mysql_async::Conn::new(crate::common::helpers::mysql_async_setup::options())
+        .await
+        .expect("connect");
+    let (mut db, ()) = drizzle::mysql::mysql_async::Drizzle::new(connection);
+    let outcome = db
+        .migrate(
+            &[program_migration()],
+            Tracking::MYSQL.table("__drizzle_runtime_programs"),
+        )
+        .await
+        .expect("hand-written MySQL migration applies");
+    assert_eq!(outcome.applied_count(), 1);
+    let rows: Option<i64> = admin.query_first(PROGRAM_ROWS).expect("count rows");
+    assert_eq!(rows, Some(2));
+
+    for sql in PROGRAM_CLEANUP {
+        admin.query_drop(sql).expect("clean up");
+    }
+}
+
 #[drizzle::test]
 fn runtime_migrations_reject_disabled_autocommit_before_writing(
     db: &mut TestDb<RuntimeMigrationSchema>,

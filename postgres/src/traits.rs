@@ -117,6 +117,11 @@ pub trait DrizzlePostgresColumn: Sized {
     /// Column type used in DDL: `"text"`, `"integer"`, or the native enum type name.
     const SQL_TYPE: &'static str;
 
+    /// [`SQL_TYPE`](Self::SQL_TYPE) as `CREATE TABLE` writes it. Native
+    /// enums quote and schema-qualify their type (`"app"."Mood"`); other
+    /// types use `SQL_TYPE` unchanged.
+    const DDL_TYPE: &'static str = Self::SQL_TYPE;
+
     /// Whether this requires a `CREATE TYPE` (native PG enum).
     const NEEDS_CREATE_TYPE: bool = false;
 
@@ -179,6 +184,11 @@ pub trait DrizzlePostgresColumn: Sized {
 
     /// Column type used in DDL: `"text"`, `"integer"`, or the native enum type name.
     const SQL_TYPE: &'static str;
+
+    /// [`SQL_TYPE`](Self::SQL_TYPE) as `CREATE TABLE` writes it. Native
+    /// enums quote and schema-qualify their type (`"app"."Mood"`); other
+    /// types use `SQL_TYPE` unchanged.
+    const DDL_TYPE: &'static str = Self::SQL_TYPE;
 
     /// Whether this requires a `CREATE TYPE` (native PG enum).
     const NEEDS_CREATE_TYPE: bool = false;

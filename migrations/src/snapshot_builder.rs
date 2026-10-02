@@ -586,7 +586,9 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
             schema_entities.push(schema);
         }
     }
-    for schema in schema_entities {
+    // `public` always exists; drizzle-kit never models it as a schema
+    // entity (it would render `CREATE SCHEMA "public"`).
+    for schema in schema_entities.into_iter().filter(|s| s != "public") {
         snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema)));
     }
 
@@ -656,11 +658,14 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
             // declared `#[postgres_enum(schema = "...")]`, otherwise the
             // `DrizzlePostgresColumn::SCHEMA` default of `public` (the
             // parser cannot evaluate user trait impls, so custom non-enum
-            // types resolve to `public` like the trait default).
-            let type_schema = if matches!(
-                crate::postgres::grammar::PgTypeCategory::from_sql_type(&sql_type),
-                crate::postgres::grammar::PgTypeCategory::Custom
-            ) {
+            // types resolve to `public` like the trait default). A declared
+            // enum is an enum whatever its name looks like (`TimeUnit`,
+            // `LineItemStatus` start like built-in type names).
+            let type_schema = if enum_schemas.contains_key(sql_type.as_str())
+                || matches!(
+                    crate::postgres::grammar::PgTypeCategory::from_sql_type(&sql_type),
+                    crate::postgres::grammar::PgTypeCategory::Custom
+                ) {
                 Some(Cow::Owned(type_schema_of(&sql_type)))
             } else {
                 None
@@ -937,22 +942,26 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
 // MySQL
 // =============================================================================
 
-/// SQL default string for a `MySQL` column, matching
-/// `mysql::field::default_from_expr`. Generated and auto-increment columns
-/// have no SQL default.
+/// SQL default string for a `MySQL` column, matching the table macro's
+/// snapshot default (`drizzle_types::mysql::canonical_default` of the
+/// rendered literal or expression). Generated and auto-increment columns have
+/// no SQL default.
 fn mysql_default(spec: &ColumnSpec) -> Option<String> {
     if spec.generated.is_some() || spec.autoincrement {
         return None;
     }
-    match spec.default.as_ref()? {
-        ParsedDefault::Int(token) | ParsedDefault::Float(token) => Some(token.clone()),
-        ParsedDefault::Bool(value) => Some(if *value { "TRUE" } else { "FALSE" }.to_string()),
-        ParsedDefault::Str(value) => Some(format!(
-            "'{}'",
-            value.replace('\\', "\\\\").replace('\'', "''")
-        )),
-        ParsedDefault::Sql(sql) => Some(sql.clone()),
-    }
+    let sql = match spec.default.as_ref()? {
+        ParsedDefault::Int(token) | ParsedDefault::Float(token) => token.clone(),
+        ParsedDefault::Bool(value) => if *value { "TRUE" } else { "FALSE" }.to_string(),
+        ParsedDefault::Str(value) => {
+            format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
+        }
+        ParsedDefault::Sql(sql) => sql.clone(),
+    };
+    Some(drizzle_types::mysql::canonical_default(
+        spec.mysql_type.as_deref().unwrap_or_default(),
+        &sql,
+    ))
 }
 
 fn mysql_referential_action(action: Option<&str>) -> Option<crate::mysql::ReferentialAction> {
@@ -1156,7 +1165,10 @@ fn build_mysql_snapshot(result: &ParseResult) -> MySQLSnapshot {
                 snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey {
                     database: database.clone().map(Cow::Owned),
                     table: Cow::Owned(table_name.clone()),
-                    name: Cow::Owned(format!("{table_name}_{column_name}_fkey")),
+                    name: Cow::Owned(drizzle_types::mysql::names::foreign_key_name(
+                        &table_name,
+                        &[column_name.as_str()],
+                    )),
                     columns: vec![Cow::Owned(column_name.clone())],
                     foreign_database,
                     foreign_table: Cow::Owned(maps.table(&reference.table)),
@@ -1178,19 +1190,41 @@ fn build_mysql_snapshot(result: &ParseResult) -> MySQLSnapshot {
             }));
         }
 
-        for foreign_key in &table.spec.composite_fks {
-            let columns: Vec<String> = foreign_key
-                .source_columns
-                .iter()
-                .map(|column| maps.field(&table.name, column))
-                .collect();
+        let composite_columns: Vec<Vec<String>> = table
+            .spec
+            .composite_fks
+            .iter()
+            .map(|foreign_key| {
+                foreign_key
+                    .source_columns
+                    .iter()
+                    .map(|column| maps.field(&table.name, column))
+                    .collect()
+            })
+            .collect();
+        for (fk_index, foreign_key) in table.spec.composite_fks.iter().enumerate() {
+            let columns = composite_columns[fk_index].clone();
             let foreign_database = table_databases
                 .get(foreign_key.target_table.as_str())
                 .and_then(|database| *database)
                 .map(|database| Cow::Owned(database.to_string()));
-            let name = format!(
-                "{table_name}_{}_fkey",
-                columns.first().cloned().unwrap_or_default()
+            // Same rule as the table macro: name after the first column unless
+            // another foreign key on this table would get the same name.
+            let first = columns.first();
+            let collides = table.fields.iter().any(|field| {
+                field.spec.references.is_some()
+                    && Some(&maps.field(&table.name, &field.name)) == first
+            }) || composite_columns
+                .iter()
+                .enumerate()
+                .any(|(other, other_columns)| other != fk_index && other_columns.first() == first);
+            let name_columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+            let name = drizzle_types::mysql::names::foreign_key_name(
+                &table_name,
+                drizzle_types::mysql::names::composite_foreign_key_name_columns(
+                    &name_columns,
+                    collides,
+                ),
             );
             snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey {
                 database: database.clone().map(Cow::Owned),
@@ -2105,6 +2139,58 @@ pub struct Sessions {
             })
             .expect("pk");
         assert_eq!(pk.name.as_ref(), "users_pkey");
+    }
+
+    #[test]
+    fn test_postgres_enum_named_like_builtin_type_is_an_enum() {
+        // `TimeUnit` / `LineItemStatus` start like the built-in `time` /
+        // `line` types; a declared enum must still get its type schema so
+        // the column type renders quoted and qualified.
+        use crate::postgres::ddl::PostgresEntity;
+
+        let code = r#"
+#[derive(PostgresEnum, Default, Clone)]
+pub enum TimeUnit {
+    #[default]
+    Seconds,
+    Minutes,
+}
+
+#[derive(PostgresEnum, Default, Clone)]
+#[postgres_enum(schema = "billing")]
+pub enum LineItemStatus {
+    #[default]
+    Open,
+    Closed,
+}
+
+#[PostgresTable]
+pub struct Timers {
+    #[column(primary)]
+    pub id: i32,
+    #[column(enum)]
+    pub unit: TimeUnit,
+    #[column(enum)]
+    pub status: LineItemStatus,
+}
+"#;
+
+        let snap = postgres_snapshot(code);
+        let column = |name: &str| {
+            snap.ddl
+                .iter()
+                .find_map(|e| match e {
+                    PostgresEntity::Column(c) if c.name.as_ref() == name => Some(c.clone()),
+                    _ => None,
+                })
+                .expect("column")
+        };
+        let unit = column("unit");
+        assert_eq!(unit.type_schema.as_deref(), Some("public"));
+        assert_eq!(unit.type_sql(), "\"TimeUnit\"");
+        let status = column("status");
+        assert_eq!(status.type_schema.as_deref(), Some("billing"));
+        assert_eq!(status.type_sql(), "\"billing\".\"LineItemStatus\"");
     }
 
     #[test]

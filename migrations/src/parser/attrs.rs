@@ -576,8 +576,11 @@ fn reference_from_expr(expr: &Expr) -> Option<ParsedReference> {
 fn default_from_expr(expr: &Expr, dialect: Dialect) -> syn::Result<ParsedDefault> {
     if let Expr::Lit(expr_lit) = expr {
         match &expr_lit.lit {
-            Lit::Int(i) => return Ok(ParsedDefault::Int(i.to_string())),
-            Lit::Float(f) => return Ok(ParsedDefault::Float(f.to_string())),
+            // `base10_digits` drops `_` separators and type suffixes and
+            // converts hex/octal/binary to decimal, matching the table
+            // macros; the source spelling (`1_000`, `0x10`, `5i64`) is not SQL.
+            Lit::Int(i) => return Ok(ParsedDefault::Int(i.base10_digits().to_string())),
+            Lit::Float(f) => return Ok(ParsedDefault::Float(f.base10_digits().to_string())),
             Lit::Bool(b) => return Ok(ParsedDefault::Bool(b.value())),
             Lit::Str(s) => return Ok(ParsedDefault::Str(s.value())),
             _ => {}

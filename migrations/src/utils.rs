@@ -86,13 +86,19 @@ pub fn escape_for_rust_literal(input: &str) -> String {
 /// distinguish them from unquoted SQL keywords and function calls. PostgreSQL
 /// casts are removed because the column type already supplies that context.
 pub(crate) fn default_expression(sql: &str) -> Option<String> {
+    default_expression_with(sql, false)
+}
+
+/// [`default_expression`] for a dialect whose string literals also use
+/// backslash escapes (MySQL: `'back\\slash'` is the value `back\slash`).
+pub(crate) fn default_expression_with(sql: &str, backslash_escapes: bool) -> Option<String> {
     let sql = sql.trim();
     let mut rust = String::with_capacity(sql.len());
     let mut rest = sql;
 
     while let Some(ch) = rest.chars().next() {
         if ch == '\'' {
-            let (value, tail) = sql_string_literal(rest)?;
+            let (value, tail) = sql_string_literal(rest, backslash_escapes)?;
             rust.push_str(&format!("{value:?}"));
             rest = tail;
         } else if let Some(tail) = rest.strip_prefix("::") {
@@ -118,10 +124,27 @@ pub(crate) fn unsupported_default_comment(indent: &str, sql: &str) -> String {
 
 /// Split a leading SQL string literal (`'it''s'`) into its unescaped value and
 /// the remaining input. Returns `None` when the literal is unterminated.
-fn sql_string_literal(input: &str) -> Option<(String, &str)> {
+fn sql_string_literal(input: &str, backslash_escapes: bool) -> Option<(String, &str)> {
     let mut value = String::new();
     let mut rest = input.strip_prefix('\'')?;
     loop {
+        if backslash_escapes {
+            let end = rest.find(['\'', '\\'])?;
+            if rest[end..].starts_with('\\') {
+                value.push_str(&rest[..end]);
+                let mut escaped = rest[end + 1..].chars();
+                let character = escaped.next()?;
+                value.push(match character {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '0' => '\0',
+                    other => other,
+                });
+                rest = escaped.as_str();
+                continue;
+            }
+        }
         let end = rest.find('\'')?;
         value.push_str(&rest[..end]);
         rest = &rest[end + 1..];

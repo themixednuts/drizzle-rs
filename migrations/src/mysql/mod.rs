@@ -1,5 +1,6 @@
 //! MySQL v6 snapshots, deterministic diffs, and MySQL 8 migration SQL.
 
+mod charset;
 pub mod codegen;
 pub mod collection;
 pub mod ddl;

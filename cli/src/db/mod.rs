@@ -187,6 +187,11 @@ pub fn plan_push(
     let mut current = introspected.snapshot;
     exclude_tracking_table(&mut current, connection.dialect, migrations_table)?;
     apply_snapshot_filters(&mut current, connection.dialect, filters)?;
+    // PostgreSQL rewrites stored expressions into its own form; compare them
+    // the way drizzle-kit's push does, or every push would recreate them.
+    if let (Snapshot::Postgres(live), Snapshot::Postgres(wanted)) = (&mut current, desired) {
+        live.align_push_insensitive_fields(wanted);
+    }
     let mut options = drizzle_migrations::DiffOptions::new();
     if let Some(defaults) = introspected.mysql_catalog_defaults {
         options = options.mysql_catalog_defaults(defaults);
@@ -565,6 +570,7 @@ fn load_migration_set(
 
     // Load migrations from filesystem
     let migrations = drizzle_migrations::MigrationDir::new(migrations_dir)
+        .dialect(dialect.to_base())
         .discover()
         .map_err(|e| CliError::Other(format!("Failed to load migrations: {e}")))?;
     Ok(Migrations::with_tracking(
@@ -1439,7 +1445,9 @@ fn read_postgres_tracking_state_sync(
     if columns.is_empty() {
         return Ok(TrackingState::Missing);
     }
-    if columns.iter().any(|column| column == "name") {
+    // Both columns, checked separately: an interrupted pre-transactional
+    // upgrade could leave `name` without `applied_at`.
+    if has_current_tracking_columns(&columns) {
         return Ok(TrackingState::Current);
     }
 
@@ -1481,33 +1489,79 @@ fn ensure_postgres_tracking_table_sync(
 
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let (has_name, has_applied_at) = postgres_tracking_columns_sync(client, set)?;
 
+    // One simple-query batch is one implicit transaction: the column
+    // additions and backfills land together or not at all.
     client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"name\" TEXT",
-                set.table_ident_sql()
-            ),
-            &[],
+        .batch_execute(
+            &set.tracking_upgrade_sql(has_name, has_applied_at, &matched)
+                .join(";\n"),
         )
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
-                set.table_ident_sql()
-            ),
-            &[],
-        )
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    for row in matched {
-        client
-            .execute(&set.backfill_migration_metadata_sql(&row), &[])
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    }
+        .map_err(|e| {
+            CliError::MigrationError(format!(
+                "Failed to upgrade the migrations table: {}",
+                postgres_error_text(&e)
+            ))
+        })?;
 
     Ok(())
+}
+
+/// Whether the tracking table has the `name` and `applied_at` columns.
+#[cfg(feature = "postgres-sync")]
+fn postgres_tracking_columns_sync(
+    client: &mut postgres::Client,
+    set: &Migrations,
+) -> Result<(bool, bool), CliError> {
+    let schema = set.schema_name().unwrap_or("public");
+    let columns = client
+        .query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+            &[&schema, &set.table_name()],
+        )
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+        .iter()
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, postgres::Error>>()
+        .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    Ok((
+        columns.iter().any(|column| column == "name"),
+        columns.iter().any(|column| column == "applied_at"),
+    ))
+}
+
+/// `true` when a tracking table already has both v1 columns.
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn has_current_tracking_columns(columns: &[String]) -> bool {
+    columns.iter().any(|column| column == "name")
+        && columns.iter().any(|column| column == "applied_at")
+}
+
+/// A PostgreSQL error with the server's message: the client error alone
+/// only displays `db error`.
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn postgres_error_text(error: &(dyn std::error::Error + 'static)) -> String {
+    match error.source() {
+        Some(source) => format!("{error}: {source}"),
+        None => error.to_string(),
+    }
+}
+
+/// Error for a failed migration statement, naming the migration, the
+/// statement, and the server's message.
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn migration_statement_error(
+    migration: &drizzle_migrations::Migration,
+    statement: &str,
+    error: &(dyn std::error::Error + 'static),
+) -> CliError {
+    CliError::MigrationError(format!(
+        "Migration '{}' failed: {}\n  statement: {}",
+        migration.tag(),
+        postgres_error_text(error),
+        statement.trim()
+    ))
 }
 
 /// Reads the tracking table's state without changing it.
@@ -1532,7 +1586,9 @@ async fn read_postgres_tracking_state_async(
     if columns.is_empty() {
         return Ok(TrackingState::Missing);
     }
-    if columns.iter().any(|column| column == "name") {
+    // Both columns, checked separately: an interrupted pre-transactional
+    // upgrade could leave `name` without `applied_at`.
+    if has_current_tracking_columns(&columns) {
         return Ok(TrackingState::Current);
     }
 
@@ -1577,34 +1633,35 @@ async fn ensure_postgres_tracking_table_async(
 
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"name\" TEXT",
-                set.table_ident_sql()
-            ),
-            &[],
+    let schema = set.schema_name().unwrap_or("public");
+    let columns = client
+        .query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+            &[&schema, &set.table_name()],
         )
         .await
+        .map_err(|e| CliError::MigrationError(e.to_string()))?
+        .iter()
+        .map(|row| row.try_get::<_, String>(0))
+        .collect::<Result<Vec<_>, tokio_postgres::Error>>()
         .map_err(|e| CliError::MigrationError(e.to_string()))?;
+    let has_name = columns.iter().any(|column| column == "name");
+    let has_applied_at = columns.iter().any(|column| column == "applied_at");
+
+    // One simple-query batch is one implicit transaction: the column
+    // additions and backfills land together or not at all.
     client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
-                set.table_ident_sql()
-            ),
-            &[],
+        .batch_execute(
+            &set.tracking_upgrade_sql(has_name, has_applied_at, &matched)
+                .join(";\n"),
         )
         .await
-        .map_err(|e| CliError::MigrationError(e.to_string()))?;
-
-    for row in matched {
-        client
-            .execute(&set.backfill_migration_metadata_sql(&row), &[])
-            .await
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    }
+        .map_err(|e| {
+            CliError::MigrationError(format!(
+                "Failed to upgrade the migrations table: {}",
+                postgres_error_text(&e)
+            ))
+        })?;
 
     Ok(())
 }
@@ -2255,13 +2312,8 @@ fn run_postgres_sync_migrations(
 ) -> Result<MigrationResult, CliError> {
     let mut client = connect_postgres_sync(creds)?;
 
-    // Create schema if needed
-    if let Some(schema_sql) = set.create_schema_sql() {
-        client
-            .execute(&schema_sql, &[])
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    }
-
+    // Take the lock before creating the schema: concurrent first runs
+    // otherwise race on `CREATE SCHEMA/TABLE IF NOT EXISTS`.
     let lock_key = set.postgres_advisory_lock_key();
     client
         .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
@@ -2283,6 +2335,11 @@ fn run_postgres_sync_migrations_locked(
     set: &Migrations,
     repair: bool,
 ) -> Result<MigrationResult, CliError> {
+    if let Some(schema_sql) = set.create_schema_sql() {
+        client
+            .execute(&schema_sql, &[])
+            .map_err(|e| CliError::MigrationError(postgres_error_text(&e)))?;
+    }
     ensure_postgres_tracking_table_sync(client, set)?;
     let repaired = repair_dirty_migrations_postgres_sync(client, set, repair)?;
     let rows = client
@@ -2319,16 +2376,13 @@ fn run_postgres_sync_migrations_locked(
                 if statement.trim().is_empty() {
                     continue;
                 }
-                if let Err(error) = client.execute(statement, &[]) {
+                if let Err(error) = client.batch_execute(statement) {
                     // Nothing applied yet - drop the marker instead of
                     // demanding a pointless repair.
                     if executed == 0 {
                         let _ = client.execute(&set.clear_migration_started_sql(migration), &[]);
                     }
-                    return Err(CliError::MigrationError(format!(
-                        "Migration '{}' failed: {error}",
-                        migration.hash()
-                    )));
+                    return Err(migration_statement_error(migration, statement, &error));
                 }
                 executed += 1;
             }
@@ -2345,12 +2399,10 @@ fn run_postgres_sync_migrations_locked(
         for migration in &pending {
             for statement in migration.statements() {
                 if !statement.trim().is_empty() {
-                    transaction.execute(statement, &[]).map_err(|error| {
-                        CliError::MigrationError(format!(
-                            "Migration '{}' failed: {error}",
-                            migration.hash()
-                        ))
-                    })?;
+                    // Simple-query protocol: a breakpoint chunk runs whole.
+                    transaction
+                        .batch_execute(statement)
+                        .map_err(|error| migration_statement_error(migration, statement, &error))?;
                 }
             }
             transaction
@@ -2558,14 +2610,8 @@ async fn run_postgres_async_inner(
 ) -> Result<MigrationResult, CliError> {
     let mut client = connect_postgres_async(creds).await?;
 
-    // Create schema if needed
-    if let Some(schema_sql) = set.create_schema_sql() {
-        client
-            .execute(&schema_sql, &[])
-            .await
-            .map_err(|e| CliError::MigrationError(e.to_string()))?;
-    }
-
+    // Take the lock before creating the schema: concurrent first runs
+    // otherwise race on `CREATE SCHEMA/TABLE IF NOT EXISTS`.
     let lock_key = set.postgres_advisory_lock_key();
     client
         .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
@@ -2589,6 +2635,12 @@ async fn run_postgres_async_migrations_locked(
     set: &Migrations,
     repair: bool,
 ) -> Result<MigrationResult, CliError> {
+    if let Some(schema_sql) = set.create_schema_sql() {
+        client
+            .execute(&schema_sql, &[])
+            .await
+            .map_err(|e| CliError::MigrationError(postgres_error_text(&e)))?;
+    }
     ensure_postgres_tracking_table_async(client, set).await?;
     let repaired = repair_dirty_migrations_postgres_async(client, set, repair).await?;
     let rows = client
@@ -2627,7 +2679,7 @@ async fn run_postgres_async_migrations_locked(
                 if statement.trim().is_empty() {
                     continue;
                 }
-                if let Err(error) = client.execute(statement, &[]).await {
+                if let Err(error) = client.batch_execute(statement).await {
                     // Nothing applied yet - drop the marker instead of
                     // demanding a pointless repair.
                     if executed == 0 {
@@ -2635,10 +2687,7 @@ async fn run_postgres_async_migrations_locked(
                             .execute(&set.clear_migration_started_sql(migration), &[])
                             .await;
                     }
-                    return Err(CliError::MigrationError(format!(
-                        "Migration '{}' failed: {error}",
-                        migration.hash()
-                    )));
+                    return Err(migration_statement_error(migration, statement, &error));
                 }
                 executed += 1;
             }
@@ -2657,12 +2706,11 @@ async fn run_postgres_async_migrations_locked(
         for migration in &pending {
             for statement in migration.statements() {
                 if !statement.trim().is_empty() {
-                    transaction.execute(statement, &[]).await.map_err(|error| {
-                        CliError::MigrationError(format!(
-                            "Migration '{}' failed: {error}",
-                            migration.hash()
-                        ))
-                    })?;
+                    // Simple-query protocol: a breakpoint chunk runs whole.
+                    transaction
+                        .batch_execute(statement)
+                        .await
+                        .map_err(|error| migration_statement_error(migration, statement, &error))?;
                 }
             }
             transaction
@@ -6546,6 +6594,125 @@ pub struct Schema {
         let _ = verify_client.batch_execute(&format!(
             "DROP TABLE IF EXISTS \"{applied_table}\" CASCADE; \
              DROP TABLE IF EXISTS \"{pending_table}\" CASCADE; \
+             DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+        ));
+    }
+
+    /// An interrupted pre-transactional upgrade left `name` without
+    /// `applied_at`; the next run finishes it instead of failing on the
+    /// missing column. Statement errors also carry the server message.
+    #[cfg(feature = "postgres-sync")]
+    #[test]
+    fn postgres_sync_migrate_finishes_half_upgraded_tracking_table() {
+        use drizzle_migrations::{Migration, Migrations};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let mut client = connect_postgres_sync(&creds).expect("connect postgres");
+        let migration_schema = unique_pg_name("cli_sync_half_upgraded");
+        client
+            .batch_execute(&format!(
+                "DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE; \
+                 CREATE SCHEMA \"{migration_schema}\"; \
+                 CREATE TABLE \"{migration_schema}\".\"__drizzle_migrations\" \
+                     (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT, name TEXT); \
+                 INSERT INTO \"{migration_schema}\".\"__drizzle_migrations\" (hash, created_at) \
+                     VALUES ('half_hash', 1680271923456);"
+            ))
+            .expect("reproduce the half-upgraded table");
+        drop(client);
+
+        let applied = Migration::with_hash(
+            "20230331141203_cli_half",
+            "half_hash",
+            1_680_271_923_000,
+            vec![],
+        );
+        let broken = Migration::new(
+            "20230401000000_cli_broken",
+            &format!("INSERT INTO \"{migration_schema}\".missing_table VALUES (1);"),
+        );
+        let tracking = drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone());
+
+        let set =
+            Migrations::with_tracking(vec![applied.clone()], Dialect::PostgreSQL, tracking.clone());
+        let result = run_postgres_sync_migrations(&set, &creds, false)
+            .expect("a half-upgraded tracking table is completed");
+        assert_eq!(result.applied_count, 0);
+
+        let set = Migrations::with_tracking(vec![applied, broken], Dialect::PostgreSQL, tracking);
+        let error = run_postgres_sync_migrations(&set, &creds, false)
+            .expect_err("the broken migration fails")
+            .to_string();
+        assert!(error.contains("20230401000000_cli_broken"), "{error}");
+        assert!(
+            error.contains("does not exist"),
+            "server message is kept: {error}"
+        );
+
+        let mut verify_client = connect_postgres_sync(&creds).expect("reconnect");
+        let row = verify_client
+            .query_one(
+                &format!(
+                    "SELECT name, applied_at IS NOT NULL FROM \"{migration_schema}\".\"__drizzle_migrations\""
+                ),
+                &[],
+            )
+            .expect("upgraded row");
+        assert_eq!(row.get::<_, String>(0), "20230331141203_cli_half");
+        assert!(row.get::<_, bool>(1));
+        let _ = verify_client.batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+        ));
+    }
+
+    /// Concurrent first runs take the advisory lock before creating the
+    /// tracking schema, so none of them races on `CREATE SCHEMA`.
+    #[cfg(feature = "postgres-sync")]
+    #[test]
+    fn postgres_sync_concurrent_first_migrate_creates_tracking_schema_once() {
+        use drizzle_migrations::{Migration, Migrations};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let migration_schema = unique_pg_name("cli_sync_concurrent_first");
+        let table = unique_pg_name("cli_sync_concurrent_table");
+        let set = Migrations::with_tracking(
+            vec![Migration::new(
+                "20240101000000_cli_concurrent",
+                &format!("CREATE TABLE \"{table}\" (id integer);"),
+            )],
+            Dialect::PostgreSQL,
+            drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
+        );
+
+        let barrier = std::sync::Barrier::new(6);
+        let applied: usize = std::thread::scope(|scope| {
+            let handles = (0..6)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        run_postgres_sync_migrations(&set, &creds, false)
+                            .map(|result| result.applied_count)
+                            .map_err(|error| error.to_string())
+                    })
+                })
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .expect("thread")
+                        .unwrap_or_else(|error| panic!("{error}"))
+                })
+                .sum()
+        });
+        assert_eq!(applied, 1);
+
+        let mut verify_client = connect_postgres_sync(&creds).expect("reconnect");
+        let _ = verify_client.batch_execute(&format!(
+            "DROP TABLE IF EXISTS \"{table}\" CASCADE; \
              DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
         ));
     }

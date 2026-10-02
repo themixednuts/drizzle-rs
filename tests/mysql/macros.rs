@@ -239,6 +239,27 @@ struct ExpressionDefaults {
     normalized_label: String,
 }
 
+#[MySQLTable]
+struct NamedConstraintParents {
+    #[column(PRIMARY)]
+    id: u64,
+}
+
+#[MySQLTable(UNIQUE(columns(a, b)), CHECK(expr = "a <> b"))]
+struct NamedConstraintChildren {
+    #[column(PRIMARY)]
+    id: u64,
+    #[column(VARCHAR(32))]
+    a: String,
+    #[column(VARCHAR(32))]
+    b: String,
+    #[column(CHECK = "low < high")]
+    low: i32,
+    high: i32,
+    #[column(REFERENCES = NamedConstraintParents::id)]
+    parent_id: u64,
+}
+
 #[MySQLTable(DATABASE = "odd`db", NAME = "par`ents")]
 struct EscapedParent {
     #[column(NAME = "i`d", PRIMARY)]
@@ -850,6 +871,53 @@ fn text_blob_and_json_defaults_are_rendered_as_mysql_expressions() {
     assert!(sql.contains("`payload` BLOB NOT NULL DEFAULT (X'6279746573')"));
     assert!(sql.contains("`metadata` JSON NOT NULL DEFAULT ('{}')"));
     assert!(sql.contains("`normalized_label` VARCHAR(255) NOT NULL DEFAULT (lower('DRAFT'))"));
+}
+
+#[test]
+fn snapshot_defaults_use_the_rendered_mysql_expressions() {
+    // The runtime push snapshot must carry the same DEFAULT text the
+    // CREATE TABLE path renders; a bare literal on TEXT/BLOB/JSON or an
+    // unparenthesized call is rejected by MySQL (errors 1101 and 1064).
+    let defaults = <ExpressionDefaults as DrizzleTable>::TABLE_REF
+        .columns
+        .iter()
+        .filter_map(|column| match column.dialect {
+            ColumnDialect::MySQL { default, .. } => default.map(|default| (column.name, default)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        defaults,
+        [
+            ("label", "('draft')"),
+            ("payload", "(X'6279746573')"),
+            ("metadata", "('{}')"),
+            ("normalized_label", "(lower('DRAFT'))"),
+        ]
+    );
+}
+
+#[test]
+fn create_table_sql_names_constraints_like_the_snapshot() {
+    let sql = NamedConstraintChildren::create_table_sql();
+    // A column CHECK naming another column is only valid as a table
+    // constraint (MySQL error 3813), and every constraint carries the name
+    // generate and push use, so db.create() agrees with both.
+    assert!(!sql.contains("NOT NULL CHECK"), "{sql}");
+    for expected in [
+        "CONSTRAINT `named_constraint_children_low_check` CHECK (low < high)",
+        "CONSTRAINT `named_constraint_children_check` CHECK (a <> b)",
+        "CONSTRAINT `named_constraint_children_a_b_key` UNIQUE (`a`, `b`)",
+        "CONSTRAINT `named_constraint_children_parent_id_fkey` FOREIGN KEY (`parent_id`)",
+    ] {
+        assert!(sql.contains(expected), "{expected} in {sql}");
+    }
+
+    let table = <NamedConstraintChildren as DrizzleTable>::TABLE_REF;
+    assert_eq!(
+        table.foreign_keys[0].name,
+        "named_constraint_children_parent_id_fkey"
+    );
 }
 
 #[test]

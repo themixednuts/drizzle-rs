@@ -662,6 +662,13 @@ impl<Schema> Drizzle<Schema> {
     /// applied. Migrations that already ran are skipped. An advisory lock
     /// (`pg_advisory_lock`) keeps concurrent `migrate` calls from overlapping.
     ///
+    /// This differs from drizzle-orm, whose PostgreSQL `migrate` (like
+    /// `drizzle migrate`) runs all pending migrations in one transaction, so
+    /// a failure there leaves none of them applied.
+    ///
+    /// Each `--> statement-breakpoint` chunk of a migration file runs whole,
+    /// through the simple query protocol, as drizzle-orm runs it.
+    ///
     /// Load the migrations with [`include_migrations!`](crate::include_migrations)
     /// or [`MigrationDir`](drizzle_migrations::MigrationDir).
     ///
@@ -732,15 +739,18 @@ impl<Schema> Drizzle<Schema> {
             tracking,
         );
 
-        if let Some(schema_sql) = set.create_schema_sql() {
-            self.client.execute(&schema_sql, &[]).await?;
-        }
+        // Take the lock before creating anything: concurrent first runs
+        // otherwise race on `CREATE SCHEMA/TABLE IF NOT EXISTS`, which is not
+        // safe against concurrent creation in PostgreSQL.
         let lock_key = set.postgres_advisory_lock_key();
         self.client
             .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])
             .await?;
 
         let result = async {
+            if let Some(schema_sql) = set.create_schema_sql() {
+                self.client.execute(&schema_sql, &[]).await?;
+            }
             ensure_postgres_migration_table(&self.client, &set).await?;
             let mut applied = repair_dirty_migrations(&self.client, &set, repair).await?;
 
@@ -772,7 +782,7 @@ impl<Schema> Drizzle<Schema> {
                         if statement.trim().is_empty() {
                             continue;
                         }
-                        if let Err(error) = self.client.execute(statement, &[]).await {
+                        if let Err(error) = self.client.batch_execute(statement).await {
                             // Nothing can have been applied yet, so drop the
                             // marker rather than demand a pointless repair.
                             if executed == 0 {
@@ -781,7 +791,7 @@ impl<Schema> Drizzle<Schema> {
                                     .execute(&set.clear_migration_started_sql(migration), &[])
                                     .await;
                             }
-                            return Err(error.into());
+                            return Err(migration_statement_err(migration, statement, &error));
                         }
                         executed += 1;
                     }
@@ -798,7 +808,11 @@ impl<Schema> Drizzle<Schema> {
                     let tx = client.transaction().await?;
                     for statement in migration.statements() {
                         if !statement.trim().is_empty() {
-                            tx.execute(statement, &[]).await?;
+                            // Simple-query protocol: a breakpoint chunk runs
+                            // whole, even when it holds several statements.
+                            tx.batch_execute(statement).await.map_err(|error| {
+                                migration_statement_err(migration, statement, &error)
+                            })?;
                         }
                     }
                     tx.execute(&set.record_migration_sql(migration), &[])
@@ -842,14 +856,18 @@ async fn ensure_postgres_migration_table(
         .iter()
         .map(|row| row.try_get::<_, String>(0))
         .collect::<Result<Vec<_>, tokio_postgres::Error>>()?;
-    if column_names.iter().any(|column| column == "name") {
+    // Check each column: an earlier, non-transactional upgrade may have
+    // added `name` and died before adding `applied_at`.
+    let has_name = column_names.iter().any(|column| column == "name");
+    let has_applied_at = column_names.iter().any(|column| column == "applied_at");
+    if has_name && has_applied_at {
         return Ok(());
     }
 
     let rows = client
         .query(
             &format!(
-                "SELECT id, hash, created_at FROM {} ORDER BY id ASC",
+                "SELECT id::bigint, hash, created_at FROM {} ORDER BY id ASC",
                 set.table_ident_sql()
             ),
             &[],
@@ -869,30 +887,15 @@ async fn ensure_postgres_migration_table(
     let matched = drizzle_migrations::match_applied_migration_metadata(set.all(), &applied)
         .map_err(|e| drizzle_core::error::DrizzleError::Other(e.to_string().into()))?;
 
+    // One simple-query batch runs as a single implicit transaction, so the
+    // column additions and backfills land together or not at all.
+    let upgrade = set
+        .tracking_upgrade_sql(has_name, has_applied_at, &matched)
+        .join(";\n");
     client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"name\" TEXT",
-                set.table_ident_sql()
-            ),
-            &[],
-        )
-        .await?;
-    client
-        .execute(
-            &format!(
-                "ALTER TABLE {} ADD COLUMN \"applied_at\" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
-                set.table_ident_sql()
-            ),
-            &[],
-        )
-        .await?;
-
-    for row in matched {
-        client
-            .execute(&set.backfill_migration_metadata_sql(&row), &[])
-            .await?;
-    }
+        .batch_execute(&upgrade)
+        .await
+        .map_err(|e| pg_async_err("failed to upgrade the migrations tracking table", &e))?;
 
     Ok(())
 }
@@ -1015,6 +1018,23 @@ async fn repair_dirty_migrations(
     }
 
     Ok(repaired)
+}
+
+/// Error for a failed migration statement, carrying the server's message
+/// (the bare `tokio_postgres::Error` only displays `db error`).
+fn migration_statement_err(
+    migration: &drizzle_migrations::Migration,
+    statement: &str,
+    error: &tokio_postgres::Error,
+) -> DrizzleError {
+    pg_async_err(
+        &format!(
+            "migration `{}` failed\n  statement: {}\n  error",
+            migration.tag(),
+            statement.trim()
+        ),
+        error,
+    )
 }
 
 fn pg_async_err(msg: &str, e: &tokio_postgres::Error) -> DrizzleError {

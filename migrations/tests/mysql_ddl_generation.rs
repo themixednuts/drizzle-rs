@@ -235,3 +235,49 @@ struct AppSchema {
     assert!(sql.contains("USING BTREE"));
     assert!(path.join("snapshot.json").is_file());
 }
+
+#[test]
+fn parsed_text_json_and_function_defaults_are_parenthesized() {
+    let result = drizzle_migrations::parser::SchemaParser::parse(
+        r#"
+#[MySQLTable(NAME = "defaults")]
+struct Defaults {
+    #[column(PRIMARY)]
+    id: u64,
+    #[column(TEXT, DEFAULT = "hello")]
+    body: String,
+    #[column(JSON, DEFAULT = "[]")]
+    payload: String,
+    #[column(VARCHAR(36), DEFAULT = UUID())]
+    uid: String,
+    #[column(VARCHAR(10), DEFAULT = "it's")]
+    plain: String,
+    #[column(DEFAULT = -1)]
+    negative: i32,
+}
+"#,
+    );
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    let snapshot = Snapshot::from_parse_result(&result, Dialect::MySQL, None);
+    let sql = drizzle_migrations::diff(&Snapshot::empty(Dialect::MySQL), &snapshot)
+        .unwrap()
+        .statements
+        .join("\n");
+    assert!(
+        sql.contains("`body` TEXT NOT NULL DEFAULT ('hello')"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("`payload` JSON NOT NULL DEFAULT ('[]')"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("`uid` VARCHAR(36) NOT NULL DEFAULT (UUID())"),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("`plain` VARCHAR(10) NOT NULL DEFAULT 'it''s'"),
+        "{sql}"
+    );
+    assert!(sql.contains("`negative` INT NOT NULL DEFAULT -1"), "{sql}");
+}

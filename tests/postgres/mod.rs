@@ -18,7 +18,10 @@ pub mod group_by;
 pub mod index;
 pub mod insert;
 pub mod joins;
+#[cfg(feature = "postgres-sync")]
+pub mod migration_apply;
 pub mod migrations;
+pub mod push_roundtrip;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod schema;
