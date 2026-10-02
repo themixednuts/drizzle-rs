@@ -351,14 +351,14 @@ url = '{db_url}'
 
 use drizzle::sqlite::prelude::*;
 
-#[SQLiteTable(name = \"audit_logs\")]
+#[SQLiteTable]
 pub struct AuditLogs {
     #[column(primary)]
     pub id: i64,
     pub user_name: String,
 }
 
-#[SQLiteTable(name = \"audit_meta\")]
+#[SQLiteTable]
 pub struct AuditMeta {
     #[column(primary)]
     pub id: i64,
@@ -434,14 +434,14 @@ pub struct Schema {
 
 use drizzle::sqlite::prelude::*;
 
-#[SQLiteTable(name = \"audit_logs\")]
+#[SQLiteTable]
 pub struct AuditLogs {
     #[column(primary)]
     pub id: i64,
     pub userName: String,
 }
 
-#[SQLiteTable(name = \"audit_meta\")]
+#[SQLiteTable]
 pub struct AuditMeta {
     #[column(primary)]
     pub id: i64,
@@ -539,6 +539,10 @@ url = '{db_url}'
             "public",
             "--extensionsFilters",
             "postgis",
+            // The database's tables are dropped and `users` is new; say so,
+            // since a run without a terminal does not ask.
+            "--hints",
+            r#"[{"type":"create","kind":"table","entity":["public","users"]}]"#,
         ])
         .assert()
         .success()

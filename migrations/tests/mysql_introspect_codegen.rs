@@ -234,7 +234,15 @@ fn mysql_codegen_round_trips_macro_representable_ddl() {
             .code
             .contains("#[MySQLIndex(using = \"hash\", algorithm = \"inplace\", lock = \"none\")]")
     );
-    assert!(generated.code.contains("struct ActiveAccounts {}"));
+    // View fields are read from the definition (MySQL snapshots carry no
+    // view columns), so the struct compiles.
+    assert!(
+        generated
+            .code
+            .contains("pub struct ActiveAccounts {\n    #[column(NAME = \"id\", BIGINT_UNSIGNED)]\n    pub id: u64,\n}"),
+        "{}",
+        generated.code
+    );
     assert!(generated.code.contains("#[derive(MySQLSchema)]"));
 
     let reparsed = parse_generated_ddl(&generated.code);

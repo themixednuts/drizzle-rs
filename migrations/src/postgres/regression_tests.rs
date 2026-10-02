@@ -611,8 +611,11 @@ fn concurrent_index_recreate_drops_without_concurrently() {
     );
 }
 
+/// Like drizzle-kit (`preserveEntityNames`), a derived-name constraint whose
+/// definition did not change keeps the name the database has: no rename,
+/// drop, or create.
 #[test]
-fn rename_keeps_default_named_constraints_by_renaming_them() {
+fn rename_keeps_default_named_constraints_under_their_old_names() {
     let mut prev = PostgresDDL::new();
     users(&mut prev);
     posts(&mut prev, "users");
@@ -624,10 +627,13 @@ fn rename_keeps_default_named_constraints_by_renaming_them() {
     posts(&mut cur, "accounts");
     assert_eq!(
         sql(&prev, &cur),
-        [
-            "ALTER TABLE \"users\" RENAME TO \"accounts\";",
-            "ALTER TABLE \"accounts\" RENAME CONSTRAINT \"users_pkey\" TO \"accounts_pkey\";",
-        ]
+        ["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
+    );
+    let preserved = compute_migration(&prev, &cur).preserved_names;
+    assert_eq!(preserved.len(), 1, "{preserved:?}");
+    assert_eq!(
+        (preserved[0].derived.as_str(), preserved[0].kept.as_str()),
+        ("accounts_pkey", "users_pkey")
     );
 
     let mut prev = PostgresDDL::new();
@@ -654,11 +660,18 @@ fn rename_keeps_default_named_constraints_by_renaming_them() {
     ));
     assert_eq!(
         sql(&prev, &cur),
-        [
-            "ALTER TABLE \"users\" RENAME COLUMN \"email\" TO \"mail\";",
-            "ALTER TABLE \"users\" RENAME CONSTRAINT \"users_email_key\" TO \"users_mail_key\";",
-            "ALTER INDEX \"users_email_idx\" RENAME TO \"users_mail_idx\";",
-        ]
+        ["ALTER TABLE \"users\" RENAME COLUMN \"email\" TO \"mail\";"]
+    );
+
+    // An explicitly named constraint keeps no old name: its new name is
+    // the user's choice.
+    cur.uniques.list_mut()[0].name_explicit = true;
+    assert!(
+        sql(&prev, &cur)
+            .iter()
+            .any(|s| s.contains("users_mail_key")),
+        "{:?}",
+        sql(&prev, &cur)
     );
 }
 
@@ -738,4 +751,56 @@ fn index_nulls_order_is_rendered_and_compared() {
             "CREATE INDEX \"users_score_idx\" ON \"users\"(\"score\" DESC);",
         ]
     );
+}
+
+/// The CLI path: renames come from hints with inference off. Default-named
+/// constraints keep their old names, and the written snapshot records them
+/// so later migrations address the constraint the database has.
+#[test]
+fn hinted_rename_keeps_default_named_constraints_under_their_old_names() {
+    use crate::{DiffOptions, Snapshot, diff_with};
+
+    let snapshot = |ddl: &PostgresDDL| {
+        let mut snapshot = super::PostgresSnapshot::new();
+        for entity in ddl.to_entities() {
+            snapshot.add_entity(entity);
+        }
+        Snapshot::Postgres(snapshot)
+    };
+    let mut prev = PostgresDDL::new();
+    users(&mut prev);
+    posts(&mut prev, "users");
+    let mut cur = PostgresDDL::new();
+    table(&mut cur, "accounts");
+    column(&mut cur, "accounts", "id", "integer");
+    col(&mut cur, "accounts", "id").not_null = true;
+    pk(&mut cur, "accounts", &["id"]);
+    posts(&mut cur, "accounts");
+
+    let options = DiffOptions::new()
+        .infer_renames(false)
+        .rename_table("users", "accounts");
+    let plan = diff_with(&snapshot(&prev), &snapshot(&cur), &options).expect("diff");
+    assert_eq!(
+        plan.statements,
+        ["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
+    );
+    let Snapshot::Postgres(written) = &plan.snapshot else {
+        panic!("dialect");
+    };
+    let pk_names: Vec<&str> = written
+        .ddl
+        .iter()
+        .filter_map(|entity| match entity {
+            super::ddl::PostgresEntity::PrimaryKey(pk) if pk.table == "accounts" => {
+                Some(pk.name.as_ref())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pk_names, ["users_pkey"]);
+
+    // The next migration starts from that snapshot and plans nothing.
+    let next = diff_with(&plan.snapshot, &snapshot(&cur), &DiffOptions::new()).expect("diff");
+    assert!(next.statements.is_empty(), "{:?}", next.statements);
 }

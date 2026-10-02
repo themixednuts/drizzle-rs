@@ -720,7 +720,9 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
                 let mut fk = ForeignKey::from_strings(
                     schema_name.clone(),
                     table_name.clone(),
-                    format!("{table_name}_{col_name}_fkey"),
+                    spec.fk_name
+                        .clone()
+                        .unwrap_or_else(|| format!("{table_name}_{col_name}_fkey")),
                     vec![col_name.clone()],
                     schema_of(&reference.table),
                     maps.table(&reference.table),
@@ -738,6 +740,7 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
                 if spec.initially_deferred {
                     fk = fk.initially_deferred();
                 }
+                fk.name_explicit = spec.fk_name.is_some();
                 snapshot.add_entity(PostgresEntity::ForeignKey(fk));
             }
         }
@@ -747,12 +750,18 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
         // the spec-correct shape and matches the macro's compile-time
         // metadata.)
         if !pk_columns.is_empty() {
-            snapshot.add_entity(PostgresEntity::PrimaryKey(PrimaryKey::from_strings(
+            let mut pk = PrimaryKey::from_strings(
                 schema_name.clone(),
                 table_name.clone(),
-                format!("{table_name}_pkey"),
+                table
+                    .spec
+                    .primary_key_name
+                    .clone()
+                    .unwrap_or_else(|| format!("{table_name}_pkey")),
                 pk_columns,
-            )));
+            );
+            pk.name_explicit = table.spec.primary_key_name.is_some();
+            snapshot.add_entity(PostgresEntity::PrimaryKey(pk));
         }
 
         // Composite FOREIGN_KEY(...) attributes: `{table}_{first_col}_fkey`
@@ -764,10 +773,12 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
                 .iter()
                 .map(|field| maps.field(&table.name, field))
                 .collect();
-            let fk_name = format!(
-                "{table_name}_{}_fkey",
-                source_columns.first().cloned().unwrap_or_default()
-            );
+            let fk_name = cfk.name.clone().unwrap_or_else(|| {
+                format!(
+                    "{table_name}_{}_fkey",
+                    source_columns.first().cloned().unwrap_or_default()
+                )
+            });
             let mut fk = ForeignKey::from_strings(
                 schema_name.clone(),
                 table_name.clone(),
@@ -792,6 +803,7 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
             if cfk.initially_deferred {
                 fk = fk.initially_deferred();
             }
+            fk.name_explicit = cfk.name.is_some();
             snapshot.add_entity(PostgresEntity::ForeignKey(fk));
         }
 
@@ -1208,24 +1220,26 @@ fn build_mysql_snapshot(result: &ParseResult) -> MySQLSnapshot {
                 .get(foreign_key.target_table.as_str())
                 .and_then(|database| *database)
                 .map(|database| Cow::Owned(database.to_string()));
-            // Same rule as the table macro: name after the first column unless
-            // another foreign key on this table would get the same name.
-            let first = columns.first();
-            let collides = table.fields.iter().any(|field| {
-                field.spec.references.is_some()
-                    && Some(&maps.field(&table.name, &field.name)) == first
-            }) || composite_columns
-                .iter()
-                .enumerate()
-                .any(|(other, other_columns)| other != fk_index && other_columns.first() == first);
-            let name_columns: Vec<&str> = columns.iter().map(String::as_str).collect();
-            let name = drizzle_types::mysql::names::foreign_key_name(
-                &table_name,
-                drizzle_types::mysql::names::composite_foreign_key_name_columns(
-                    &name_columns,
-                    collides,
-                ),
-            );
+            // An explicit name wins.
+            let name = foreign_key.name.clone().unwrap_or_else(|| {
+                // Same rule as the table macro: name after the first column unless
+                // another foreign key on this table would get the same name.
+                let first = columns.first();
+                let collides = table.fields.iter().any(|field| {
+                    field.spec.references.is_some()
+                        && Some(&maps.field(&table.name, &field.name)) == first
+                }) || composite_columns.iter().enumerate().any(
+                    |(other, other_columns)| other != fk_index && other_columns.first() == first,
+                );
+                let name_columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+                drizzle_types::mysql::names::foreign_key_name(
+                    &table_name,
+                    drizzle_types::mysql::names::composite_foreign_key_name_columns(
+                        &name_columns,
+                        collides,
+                    ),
+                )
+            });
             snapshot.add_entity(MySQLEntity::ForeignKey(ForeignKey {
                 database: database.clone().map(Cow::Owned),
                 table: Cow::Owned(table_name.clone()),

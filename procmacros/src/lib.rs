@@ -1334,7 +1334,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// | `rls` | Enable row-level security (see [`PostgresPolicy`]). |
 /// | `unique(a, b)` or `unique(columns(a, b), name = "...", nulls_not_distinct, deferrable, initially_deferred)` | Table-level `UNIQUE` constraint over the named fields. |
 /// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
-/// | `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "...", on_update = "...", deferrable, initially_deferred)` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), name = "...", on_delete = "...", on_update = "...", deferrable, initially_deferred)` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. `name` defaults to `{table}_{a}_fkey`. |
+/// | `primary_key(name = "...")` | Name the primary key formed by the `primary` fields (default `{table}_pkey`). |
 ///
 /// # Column attributes
 ///
@@ -1353,6 +1354,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// | `default = value` | SQL `DEFAULT` clause. A string literal becomes a SQL string, `true`/`false` become `TRUE`/`FALSE`, and a path or call such as `now()` is written as SQL. Not allowed on identity or generated columns. |
 /// | `default_fn = path` | Rust function called to fill the field when an insert model is created. Cannot be combined with `default`. |
 /// | `references = Table::column` | Foreign key to another table's column. |
+/// | `fk_name = "..."` | Name of that foreign key constraint (default `{table}_{column}_fkey`). Needs `references`. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
 /// | `deferrable`, `initially_deferred` | Make the column's foreign key deferrable. Needs `references`. |
 /// | `relation = "name"` | Name of the reverse relation accessor (see [Relations](#relations)). Needs `references`. |
@@ -1807,7 +1809,7 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 /// | `comment = "..."` | Table `COMMENT`. Without it, the struct's doc comment is used. |
 /// | `unique(a, b)` or `unique(columns(a, b), name = "...")` | Table-level `UNIQUE` constraint over the named fields. |
 /// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
-/// | `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "CASCADE", on_update = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), name = "...", on_delete = "CASCADE", on_update = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. `name` defaults to `{table}_{a}_fkey`. |
 ///
 /// `engine`, `charset` and `collate` take ASCII letters, digits and `_` only.
 ///

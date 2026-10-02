@@ -159,11 +159,70 @@ pub struct MigrationDiff {
     pub renames: Vec<String>,
     /// Warning messages
     pub warnings: Vec<String>,
+    /// Implicitly named constraints and indexes that keep the name they
+    /// already have in the database instead of the newly derived one (see
+    /// [`PreservedName`]). The snapshot written for this migration should
+    /// record the kept names.
+    pub preserved_names: Vec<PreservedName>,
+}
+
+/// The kind of entity a [`PreservedName`] is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PreservedKind {
+    /// Unique constraint.
+    Unique,
+    /// Check constraint.
+    Check,
+    /// Index.
+    Index,
+    /// Primary key.
+    PrimaryKey,
+    /// Foreign key.
+    ForeignKey,
+}
+
+/// A constraint or index whose name was derived rather than chosen, kept
+/// under the name the database already has.
+///
+/// After a rename (or any change to what a default name is derived from),
+/// the schema derives a new name (`accounts_pkey`) for a constraint that is
+/// otherwise unchanged (`users_pkey`). Like drizzle-kit, the migration keeps
+/// the existing name rather than renaming or recreating the constraint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreservedName {
+    /// Entity kind.
+    pub kind: PreservedKind,
+    /// Schema.
+    pub schema: String,
+    /// Table.
+    pub table: String,
+    /// The name the current schema derives.
+    pub derived: String,
+    /// The name kept, as the database has it.
+    pub kept: String,
 }
 
 /// Computes the migration (diff plus SQL) between two PostgreSQL DDL states.
+///
+/// Schema, table, and column renames are inferred heuristically; use rename
+/// hints ([`DiffOptions`](crate::DiffOptions)) for the rest.
 #[must_use]
 pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff {
+    compute_migration_with_inference(prev, cur, true)
+}
+
+/// [`compute_migration`] with heuristic rename detection switched on or off.
+///
+/// With `infer_renames == false`, a dropped and a created schema, table, or
+/// column stay a drop plus a create even when they are otherwise identical;
+/// only renames already applied to `prev` (rename hints) survive.
+#[must_use]
+pub fn compute_migration_with_inference(
+    prev: &PostgresDDL,
+    cur: &PostgresDDL,
+    infer_renames: bool,
+) -> MigrationDiff {
     // Heuristic rename detection (non-interactive):
     // - detect exact schema/table renames before normal diffing
     // - detect simple column renames: one dropped + one created column in the same table
@@ -175,29 +234,33 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
     let mut rename_statements: Vec<JsonStatement> = Vec::new();
     let mut warnings = Vec::new();
 
-    detect_and_apply_schema_renames(
-        &mut prev_normalized,
-        cur,
-        &mut schema_renames,
-        &mut rename_statements,
-        &mut warnings,
-    );
-    detect_and_apply_table_renames(
-        &mut prev_normalized,
-        cur,
-        &mut table_renames,
-        &mut rename_statements,
-        &mut warnings,
-    );
+    if infer_renames {
+        detect_and_apply_schema_renames(
+            &mut prev_normalized,
+            cur,
+            &mut schema_renames,
+            &mut rename_statements,
+            &mut warnings,
+        );
+        detect_and_apply_table_renames(
+            &mut prev_normalized,
+            cur,
+            &mut table_renames,
+            &mut rename_statements,
+            &mut warnings,
+        );
 
-    detect_and_apply_column_renames(
-        &mut prev_normalized,
-        cur,
-        &mut column_renames,
-        &mut rename_statements,
-    );
+        detect_and_apply_column_renames(
+            &mut prev_normalized,
+            cur,
+            &mut column_renames,
+            &mut rename_statements,
+        );
+    }
 
-    rename_default_named_constraints(&mut prev_normalized, cur, &mut rename_statements);
+    let mut cur_preserved = cur.clone();
+    let preserved_names = preserve_entity_names(&prev_normalized, &mut cur_preserved);
+    let cur = &cur_preserved;
 
     let schema_diff = diff_collections(&prev_normalized, cur);
     let generator = Generator::new();
@@ -219,6 +282,7 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
         sql_statements,
         renames: prepare_migration_renames(&schema_renames, &table_renames, &column_renames),
         warnings,
+        preserved_names,
     }
 }
 
@@ -663,121 +727,181 @@ fn detect_and_apply_column_renames(
 /// Keeps default-named keys, foreign keys and indexes across a table or
 /// column rename (drizzle-kit `preserveEntityNames`).
 ///
-/// After a rename, a constraint whose name was derived (`users_pkey`) is
-/// still the same constraint, but the current schema derives a new name for
-/// it (`accounts_pkey`). Dropping and re-adding it fails when other objects
-/// depend on it (an FK on a primary key) and needlessly rebuilds indexes,
-/// so when exactly one current entity of the same kind is otherwise
-/// identical, the old one is renamed in place instead.
-fn rename_default_named_constraints(
-    prev: &mut PostgresDDL,
-    cur: &PostgresDDL,
-    rename_statements: &mut Vec<JsonStatement>,
-) {
+/// Keeps the database's name for implicitly named constraints and indexes
+/// whose definition did not change (drizzle-kit's `preserveEntityNames`).
+///
+/// For each entity in `prev` whose name was derived, if exactly one entity of
+/// the same kind in `cur` also has a derived name and is otherwise identical,
+/// that entity takes the old name: no rename, drop, or create is planned for
+/// it. Check constraints have no `name_explicit` flag; one is treated as
+/// derived when its name ends in `_check` or `_check<n>`, as the macros
+/// derive them.
+pub(crate) fn preserve_entity_names(
+    prev: &PostgresDDL,
+    cur: &mut PostgresDDL,
+) -> Vec<PreservedName> {
     use crate::postgres::collection::{
         foreign_keys_equivalent, indexes_equivalent, pks_equivalent, uniques_equivalent,
     };
 
-    /// Index into `cur` of the single non-explicit entity matching `old`
-    /// under another name, if there is exactly one.
-    fn single_match<T>(
+    /// Keeps `old`'s name on the single derived-name entity of `cur` that
+    /// matches it, if there is exactly one and the name is free.
+    fn keep<T: Clone>(
         old: &T,
-        cur: &[T],
+        cur: &mut [T],
         name: impl Fn(&T) -> &str,
-        explicit: impl Fn(&T) -> bool,
+        set_name: impl Fn(&mut T, &str),
+        derived: impl Fn(&T) -> bool,
+        name_taken: impl Fn(&T, &T) -> bool,
         same_but_name: impl Fn(&T, &T) -> bool,
-    ) -> Option<usize> {
-        if explicit(old) || cur.iter().any(|c| name(c) == name(old)) {
+    ) -> Option<String> {
+        if !derived(old) || cur.iter().any(|c| name_taken(old, c)) {
             return None;
         }
         let mut matches = cur
             .iter()
             .enumerate()
-            .filter(|(_, c)| !explicit(c) && same_but_name(old, c));
+            .filter(|(_, c)| derived(c) && same_but_name(old, c));
         let (index, _) = matches.next()?;
-        matches.next().is_none().then_some(index)
+        if matches.next().is_some() {
+            return None;
+        }
+        let derived_name = name(&cur[index]).to_string();
+        set_name(&mut cur[index], name(old));
+        Some(derived_name)
     }
 
-    let renamed =
-        |schema: &str, table: &str, from: &str, to: &str| JsonStatement::RenameConstraint {
+    /// `entity` under `name`, for comparing everything but the name.
+    fn with_name<T: Clone>(entity: &T, set_name: impl Fn(&mut T, &str), name: &str) -> T {
+        let mut copy = entity.clone();
+        set_name(&mut copy, name);
+        copy
+    }
+
+    fn derived_check_name(name: &str) -> bool {
+        let trimmed = name.trim_end_matches(|c: char| c.is_ascii_digit());
+        trimmed.ends_with("_check")
+    }
+
+    let mut preserved = Vec::new();
+    let mut record = |kind, schema: &str, table: &str, derived: String, kept: &str| {
+        preserved.push(PreservedName {
+            kind,
             schema: schema.to_string(),
             table: table.to_string(),
-            from: from.to_string(),
-            to: to.to_string(),
-        };
+            derived,
+            kept: kept.to_string(),
+        });
+    };
 
-    for pk in prev.pks.list_mut() {
-        if let Some(i) = single_match(
-            pk,
-            cur.pks.list(),
-            |p| &p.name,
-            |p| p.name_explicit,
-            |old, new| {
-                let mut old = old.clone();
-                old.name.clone_from(&new.name);
-                pks_equivalent(&old, new)
-            },
-        ) {
-            let to = cur.pks.list()[i].name.clone();
-            rename_statements.push(renamed(&pk.schema, &pk.table, &pk.name, &to));
-            pk.name = to;
-        }
-    }
-    for unique in prev.uniques.list_mut() {
-        if let Some(i) = single_match(
-            unique,
-            cur.uniques.list(),
+    for old in prev.uniques.list() {
+        let set =
+            |u: &mut crate::postgres::ddl::UniqueConstraint, n: &str| u.name = n.to_string().into();
+        if let Some(derived) = keep(
+            old,
+            cur.uniques.list_mut(),
             |u| &u.name,
-            |u| u.name_explicit,
-            |old, new| {
-                let mut old = old.clone();
-                old.name.clone_from(&new.name);
-                uniques_equivalent(&old, new)
-            },
+            set,
+            |u| !u.name_explicit,
+            |o, c| c.schema == o.schema && c.name == o.name,
+            |o, c| uniques_equivalent(&with_name(c, set, &o.name), o),
         ) {
-            let to = cur.uniques.list()[i].name.clone();
-            rename_statements.push(renamed(&unique.schema, &unique.table, &unique.name, &to));
-            unique.name = to;
+            record(
+                PreservedKind::Unique,
+                &old.schema,
+                &old.table,
+                derived,
+                &old.name,
+            );
         }
     }
-    for fk in prev.fks.list_mut() {
-        if let Some(i) = single_match(
-            fk,
-            cur.fks.list(),
+    for old in prev.checks.list() {
+        let set =
+            |c: &mut crate::postgres::ddl::CheckConstraint, n: &str| c.name = n.to_string().into();
+        if let Some(derived) = keep(
+            old,
+            cur.checks.list_mut(),
+            |c| &c.name,
+            set,
+            |c| derived_check_name(&c.name),
+            |o, c| c.schema == o.schema && c.table == o.table && c.name == o.name,
+            |o, c| {
+                c.schema == o.schema
+                    && c.table == o.table
+                    && crate::postgres::collection::normalize_expression(&c.value)
+                        == crate::postgres::collection::normalize_expression(&o.value)
+            },
+        ) {
+            record(
+                PreservedKind::Check,
+                &old.schema,
+                &old.table,
+                derived,
+                &old.name,
+            );
+        }
+    }
+    for old in prev.indexes.list() {
+        let set = |i: &mut crate::postgres::ddl::Index, n: &str| i.name = n.to_string().into();
+        if let Some(derived) = keep(
+            old,
+            cur.indexes.list_mut(),
+            |i| &i.name,
+            set,
+            |i| !i.name_explicit,
+            |o, c| c.schema == o.schema && c.name == o.name,
+            |o, c| indexes_equivalent(&with_name(c, set, &o.name), o),
+        ) {
+            record(
+                PreservedKind::Index,
+                &old.schema,
+                &old.table,
+                derived,
+                &old.name,
+            );
+        }
+    }
+    for old in prev.pks.list() {
+        let set = |p: &mut crate::postgres::ddl::PrimaryKey, n: &str| p.name = n.to_string().into();
+        if let Some(derived) = keep(
+            old,
+            cur.pks.list_mut(),
+            |p| &p.name,
+            set,
+            |p| !p.name_explicit,
+            |o, c| c.schema == o.schema && c.name == o.name,
+            |o, c| pks_equivalent(&with_name(c, set, &o.name), o),
+        ) {
+            record(
+                PreservedKind::PrimaryKey,
+                &old.schema,
+                &old.table,
+                derived,
+                &old.name,
+            );
+        }
+    }
+    for old in prev.fks.list() {
+        let set = |f: &mut crate::postgres::ddl::ForeignKey, n: &str| f.name = n.to_string().into();
+        if let Some(derived) = keep(
+            old,
+            cur.fks.list_mut(),
             |f| &f.name,
-            |f| f.name_explicit,
-            |old, new| {
-                let mut old = old.clone();
-                old.name.clone_from(&new.name);
-                foreign_keys_equivalent(&old, new)
-            },
+            set,
+            |f| !f.name_explicit,
+            |o, c| c.schema == o.schema && c.table == o.table && c.name == o.name,
+            |o, c| foreign_keys_equivalent(&with_name(c, set, &o.name), o),
         ) {
-            let to = cur.fks.list()[i].name.clone();
-            rename_statements.push(renamed(&fk.schema, &fk.table, &fk.name, &to));
-            fk.name = to;
+            record(
+                PreservedKind::ForeignKey,
+                &old.schema,
+                &old.table,
+                derived,
+                &old.name,
+            );
         }
     }
-    for index in prev.indexes.list_mut() {
-        if let Some(i) = single_match(
-            index,
-            cur.indexes.list(),
-            |x| &x.name,
-            |x| x.name_explicit,
-            |old, new| {
-                let mut old = old.clone();
-                old.name.clone_from(&new.name);
-                indexes_equivalent(&old, new)
-            },
-        ) {
-            let to = cur.indexes.list()[i].name.clone();
-            rename_statements.push(JsonStatement::RenameIndex {
-                schema: index.schema.to_string(),
-                from: index.name.to_string(),
-                to: to.to_string(),
-            });
-            index.name = to;
-        }
-    }
+    preserved
 }
 
 fn rewrite_cow(value: &mut Cow<'static, str>, from: &str, to: &str) {

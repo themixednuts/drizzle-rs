@@ -315,8 +315,12 @@ impl Column {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 pub struct IndexColumn {
-    #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(alias = "value", deserialize_with = "cow_from_string")
+    )]
     /// The column name, or the SQL expression when `is_expression` is set.
+    /// drizzle-kit writes it as `value`.
     pub expression: Cow<'static, str>,
     /// Whether `expression` is a SQL expression rather than a column name.
     #[cfg_attr(feature = "serde", serde(default))]
@@ -686,7 +690,11 @@ pub struct CheckConstraint {
     pub table: Cow<'static, str>,
     #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
     pub name: Cow<'static, str>,
-    #[cfg_attr(feature = "serde", serde(deserialize_with = "cow_from_string"))]
+    /// The check expression. drizzle-kit writes it as `value`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(alias = "value", deserialize_with = "cow_from_string")
+    )]
     pub expression: Cow<'static, str>,
     #[cfg_attr(
         feature = "serde",

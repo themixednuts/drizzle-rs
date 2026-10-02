@@ -285,6 +285,20 @@ fn is_non_constant_default(default: &str) -> bool {
 /// ([`DiffOptions`](crate::DiffOptions)) for renames it cannot infer.
 #[must_use]
 pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
+    compute_migration_with_inference(prev, cur, true)
+}
+
+/// [`compute_migration`] with heuristic rename detection switched on or off.
+///
+/// With `infer_renames == false`, a dropped and a created table or column
+/// stay a drop plus a create even when they are otherwise identical; only
+/// renames already applied to `prev` (rename hints) survive.
+#[must_use]
+pub fn compute_migration_with_inference(
+    prev: &SQLiteDDL,
+    cur: &SQLiteDDL,
+    infer_renames: bool,
+) -> MigrationDiff {
     // Heuristic rename detection (non-interactive):
     // - detect exact table renames (same schema, identical entities)
     // - detect exact column renames (same table, identical column properties)
@@ -294,14 +308,16 @@ pub fn compute_migration(prev: &SQLiteDDL, cur: &SQLiteDDL) -> MigrationDiff {
     let mut column_renames: Vec<ColumnRename> = Vec::new();
     let mut warnings = Vec::new();
 
-    detect_and_apply_renames(
-        &mut prev_normalized,
-        cur,
-        &mut rename_statements,
-        &mut table_renames,
-        &mut column_renames,
-        &mut warnings,
-    );
+    if infer_renames {
+        detect_and_apply_renames(
+            &mut prev_normalized,
+            cur,
+            &mut rename_statements,
+            &mut table_renames,
+            &mut column_renames,
+            &mut warnings,
+        );
+    }
 
     let schema_diff = diff_collections(&prev_normalized, cur);
     let mut statements = Vec::new();

@@ -39,6 +39,9 @@ pub struct PushOptions {
 
     #[command(flatten)]
     pub connection: ConnectionOverrides,
+
+    #[command(flatten)]
+    pub hints: crate::commands::renames::HintArgs,
 }
 
 /// Runs `drizzle push`: introspects the database, diffs it against the
@@ -49,13 +52,19 @@ pub struct PushOptions {
 /// continues. A destructive plan asks for confirmation unless `--force` is
 /// set.
 ///
+/// Before planning, ambiguous renames are asked about on a terminal and
+/// otherwise answered from `--hints` / `--hints-file` (see
+/// [`renames`](crate::commands::renames)); `--force` does not skip them.
+///
 /// # Errors
 ///
 /// Returns [`CliError`] if `db_name` does not match the config, there are no
 /// credentials ([`CliError::MissingCredentials`]) or no driver for them, no
 /// schema files are found or they have parse errors, introspecting or
-/// planning fails, a statement fails, or the user declines a destructive
-/// plan ([`CliError::Aborted`]).
+/// planning fails, the hints are invalid ([`CliError::InvalidHints`]) or
+/// leave a rename question unanswered without a terminal
+/// ([`CliError::MissingHints`]), a statement fails, or the user aborts a
+/// prompt or declines a destructive plan ([`CliError::Aborted`]).
 pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
@@ -127,13 +136,18 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result
     };
     crate::db::apply_snapshot_filters(&mut desired_snapshot, effective_dialect, &filters)?;
 
-    // Compute push plan (DB snapshot -> desired snapshot)
-    let plan = crate::db::plan_push(
+    // Compute push plan (DB snapshot -> desired snapshot). Ambiguous renames
+    // are asked about (or read from hints) first; `--force` does not skip
+    // them, it only approves data loss.
+    let plan = crate::db::plan_push_with_renames(
         &connection,
         &desired_snapshot,
         db.breakpoints,
         &filters,
         db.migrations_table(),
+        &mut |current, desired, options| {
+            crate::commands::renames::resolve_for_command(current, desired, options, &opts.hints)
+        },
     )?;
 
     if !plan.warnings.is_empty() {

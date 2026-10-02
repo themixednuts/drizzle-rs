@@ -1,0 +1,599 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "71636543-1b8b-4c19-bfda-02280a4c3fa8",
+  "prevIds": [
+    "abdebaf8-2b9e-4b95-8dbc-6705c2c4d16a"
+  ],
+  "ddl": [
+    {
+      "name": "auditLog",
+      "entityType": "tables"
+    },
+    {
+      "name": "post_tag_votes",
+      "entityType": "tables"
+    },
+    {
+      "name": "post_tags",
+      "entityType": "tables"
+    },
+    {
+      "name": "posts",
+      "entityType": "tables"
+    },
+    {
+      "name": "tags",
+      "entityType": "tables"
+    },
+    {
+      "name": "users",
+      "entityType": "tables"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "userId",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "createdAt",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'event'",
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "post_id",
+      "entityType": "columns",
+      "table": "post_tag_votes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tag_id",
+      "entityType": "columns",
+      "table": "post_tag_votes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "voter_id",
+      "entityType": "columns",
+      "table": "post_tag_votes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "post_tag_votes"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "post_id",
+      "entityType": "columns",
+      "table": "post_tags"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tag_id",
+      "entityType": "columns",
+      "table": "post_tags"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "author_id",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "editor_id",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "slug",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "body",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "published_at",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "tags"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "tags"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": true,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "email",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'anon'",
+      "generated": null,
+      "name": "display_name",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "age",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "score",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "is_admin",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "(unixepoch())",
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "blob",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "avatar",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "meta",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'member'",
+      "generated": null,
+      "name": "role",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": {
+        "as": "(substr(email, instr(email, '@') + 1))",
+        "type": "virtual"
+      },
+      "name": "email_domain",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "columns": [
+        "userId"
+      ],
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "nameExplicit": false,
+      "name": "fk_auditLog_userId_users_id_fk",
+      "entityType": "fks",
+      "table": "auditLog"
+    },
+    {
+      "columns": [
+        "voter_id"
+      ],
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "nameExplicit": false,
+      "name": "fk_post_tag_votes_voter_id_users_id_fk",
+      "entityType": "fks",
+      "table": "post_tag_votes"
+    },
+    {
+      "columns": [
+        "post_id",
+        "tag_id"
+      ],
+      "tableTo": "post_tags",
+      "columnsTo": [
+        "post_id",
+        "tag_id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_post_tag_votes_post_id_tag_id_post_tags_post_id_tag_id_fk",
+      "entityType": "fks",
+      "table": "post_tag_votes"
+    },
+    {
+      "columns": [
+        "post_id"
+      ],
+      "tableTo": "posts",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_post_tags_post_id_posts_id_fk",
+      "entityType": "fks",
+      "table": "post_tags"
+    },
+    {
+      "columns": [
+        "tag_id"
+      ],
+      "tableTo": "tags",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": true,
+      "name": "post_tags_tag_fk",
+      "entityType": "fks",
+      "table": "post_tags"
+    },
+    {
+      "columns": [
+        "author_id"
+      ],
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "CASCADE",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_posts_author_id_users_id_fk",
+      "entityType": "fks",
+      "table": "posts"
+    },
+    {
+      "columns": [
+        "editor_id"
+      ],
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "nameExplicit": false,
+      "name": "fk_posts_editor_id_users_id_fk",
+      "entityType": "fks",
+      "table": "posts"
+    },
+    {
+      "columns": [
+        "post_id",
+        "tag_id",
+        "voter_id"
+      ],
+      "nameExplicit": false,
+      "name": "post_tag_votes_pk",
+      "entityType": "pks",
+      "table": "post_tag_votes"
+    },
+    {
+      "columns": [
+        "post_id",
+        "tag_id"
+      ],
+      "nameExplicit": false,
+      "name": "post_tags_pk",
+      "entityType": "pks",
+      "table": "post_tags"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "auditLog_pk",
+      "table": "auditLog",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "posts_pk",
+      "table": "posts",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "tags_pk",
+      "table": "tags",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "users_pk",
+      "table": "users",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "author_id",
+          "isExpression": false
+        },
+        {
+          "value": "title",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "posts_author_title_idx",
+      "entityType": "indexes",
+      "table": "posts"
+    },
+    {
+      "columns": [
+        {
+          "value": "published_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": "\"posts\".\"published_at\" is not null",
+      "origin": "manual",
+      "name": "posts_published_idx",
+      "entityType": "indexes",
+      "table": "posts"
+    },
+    {
+      "columns": [
+        {
+          "value": "display_name",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "users_display_name_idx",
+      "entityType": "indexes",
+      "table": "users"
+    },
+    {
+      "columns": [
+        "slug",
+        "author_id"
+      ],
+      "nameExplicit": true,
+      "name": "posts_slug_author_unique",
+      "entityType": "uniques",
+      "table": "posts"
+    },
+    {
+      "columns": [
+        "name"
+      ],
+      "nameExplicit": false,
+      "name": "tags_name_unique",
+      "entityType": "uniques",
+      "table": "tags"
+    },
+    {
+      "columns": [
+        "email"
+      ],
+      "nameExplicit": false,
+      "name": "users_email_unique",
+      "entityType": "uniques",
+      "table": "users"
+    },
+    {
+      "value": "\"age\" >= 0",
+      "name": "users_age_check",
+      "entityType": "checks",
+      "table": "users"
+    },
+    {
+      "definition": "select \"id\", \"title\" from \"posts\" where (\"posts\".\"published_at\" is not null)",
+      "isExisting": false,
+      "error": null,
+      "name": "published_posts",
+      "entityType": "views"
+    }
+  ],
+  "renames": []
+}

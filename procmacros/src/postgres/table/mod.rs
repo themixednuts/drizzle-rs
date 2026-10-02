@@ -47,6 +47,16 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         Ok(FieldInfo::from_field(field, false)?.is_primary())
     })?;
     let is_composite_pk = primary_key_count > 1;
+    if primary_key_count == 0
+        && let Some(name) = &attrs.primary_key_name
+    {
+        return Err(syn::Error::new_spanned(
+            struct_ident,
+            format!(
+                "PRIMARY_KEY(name = \"{name}\") names the primary key, but no field is marked #[column(primary)]"
+            ),
+        ));
+    }
 
     let field_infos = fields
         .iter()

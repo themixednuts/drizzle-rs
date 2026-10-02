@@ -69,6 +69,17 @@ pub enum CliError {
         hint: &'static str,
     },
 
+    /// A run without a terminal met rename-or-create decisions that no hint
+    /// answers. Holds the report listing them (as drizzle-kit prints it);
+    /// the binary prints it to stdout and exits with code 2.
+    #[error("{0}")]
+    MissingHints(String),
+
+    /// `--hints` / `--hints-file` could not be read or does not fit the
+    /// diff (for example a rename whose `from` is not a deleted entity).
+    #[error("Invalid hints: {0}")]
+    InvalidHints(String),
+
     /// Any other failure, with its message.
     #[error("{0}")]
     Other(String),

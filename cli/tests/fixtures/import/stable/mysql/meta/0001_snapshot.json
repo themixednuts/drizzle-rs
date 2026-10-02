@@ -1,0 +1,429 @@
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "3990bc68-0eeb-4e7a-aca1-e8bbf4cb9c77",
+  "prevId": "a5289d4a-64bb-4ae8-a4fb-6356ba5c325c",
+  "tables": {
+    "auditLog": {
+      "name": "auditLog",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'event'"
+        },
+        "payload": {
+          "name": "payload",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "auditLog_userId_users_id_fk": {
+          "name": "auditLog_userId_users_id_fk",
+          "tableFrom": "auditLog",
+          "tableTo": "users",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "auditLog_id": {
+          "name": "auditLog_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "post_tags": {
+      "name": "post_tags",
+      "columns": {
+        "post_id": {
+          "name": "post_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "post_tags_post_id_posts_id_fk": {
+          "name": "post_tags_post_id_posts_id_fk",
+          "tableFrom": "post_tags",
+          "tableTo": "posts",
+          "columnsFrom": [
+            "post_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "post_tags_tag_fk": {
+          "name": "post_tags_tag_fk",
+          "tableFrom": "post_tags",
+          "tableTo": "tags",
+          "columnsFrom": [
+            "tag_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "post_tags_post_id_tag_id_pk": {
+          "name": "post_tags_post_id_tag_id_pk",
+          "columns": [
+            "post_id",
+            "tag_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "posts": {
+      "name": "posts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slug": {
+          "name": "slug",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "posts_author_title_idx": {
+          "name": "posts_author_title_idx",
+          "columns": [
+            "author_id",
+            "title"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "posts_author_id_users_id_fk": {
+          "name": "posts_author_id_users_id_fk",
+          "tableFrom": "posts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "posts_id": {
+          "name": "posts_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "posts_slug_author_unique": {
+          "name": "posts_slug_author_unique",
+          "columns": [
+            "slug",
+            "author_id"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "tags": {
+      "name": "tags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "tags_id": {
+          "name": "tags_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "tags_name_unique": {
+          "name": "tags_name_unique",
+          "columns": [
+            "name"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'anon'"
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('admin','member')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'member'"
+        },
+        "balance": {
+          "name": "balance",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "rating": {
+          "name": "rating",
+          "type": "double",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "tinyint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "settings": {
+          "name": "settings",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "onUpdate": true
+        },
+        "last_seen": {
+          "name": "last_seen",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name_lower": {
+          "name": "name_lower",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "generated": {
+            "as": "lower(name)",
+            "type": "stored"
+          }
+        }
+      },
+      "indexes": {
+        "users_name_idx": {
+          "name": "users_name_idx",
+          "columns": [
+            "name"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "users_id": {
+          "name": "users_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "checkConstraint": {
+        "balance_non_negative": {
+          "name": "balance_non_negative",
+          "value": "`users`.`balance` >= 0"
+        }
+      }
+    }
+  },
+  "views": {
+    "active_users": {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "name": "active_users",
+      "isExisting": false,
+      "definition": "select `id`, `email` from `users` where `users`.`is_active` = true",
+      "algorithm": "undefined",
+      "sqlSecurity": "definer"
+    }
+  },
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}

@@ -177,31 +177,45 @@ fn print_missing_credentials_help(effective_dialect: Dialect) {
     println!("  {}", output::muted("url = { env = \"DATABASE_URL\" }"));
 }
 
+/// Lines reporting what a generated schema holds, plus the codegen warnings
+/// (objects the schema could not express, and similar notes). Shared with
+/// `drizzle import`.
+pub(crate) fn summary_lines(
+    table_count: usize,
+    index_count: usize,
+    view_count: usize,
+    warnings: &[String],
+) -> Vec<String> {
+    let mut lines = vec![format!(
+        "  {} {table_count} table(s), {index_count} index(es)",
+        output::success("Found"),
+    )];
+    if view_count > 0 {
+        lines.push(format!(
+            "  {} {view_count} view(s)",
+            output::success("Found")
+        ));
+    }
+    if !warnings.is_empty() {
+        lines.push(String::new());
+        lines.push(output::warning("Warnings:"));
+        for warning in warnings {
+            lines.push(format!("  {} {warning}", output::warning("-")));
+        }
+    }
+    lines
+}
+
 /// Print the final summary after introspection completes.
 fn print_introspection_summary(result: &crate::db::IntrospectResult, init_metadata: bool) {
     println!();
-    println!(
-        "  {} {} table(s), {} index(es)",
-        output::success("Found"),
+    for line in summary_lines(
         result.table_count,
-        result.index_count
-    );
-
-    if result.view_count > 0 {
-        println!(
-            "  {} {} view(s)",
-            output::success("Found"),
-            result.view_count
-        );
-    }
-
-    // Objects the generated schema could not express, and similar notes.
-    if !result.warnings.is_empty() {
-        println!();
-        println!("{}", output::warning("Warnings:"));
-        for warning in &result.warnings {
-            println!("  {} {}", output::warning("-"), warning);
-        }
+        result.index_count,
+        result.view_count,
+        &result.warnings,
+    ) {
+        println!("{line}");
     }
 
     println!();

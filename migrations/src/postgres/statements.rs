@@ -1310,6 +1310,9 @@ impl Generator {
         diff_index: &DiffIndex<'_>,
     ) -> Option<JsonStatement> {
         match right {
+            // `public` always exists. drizzle-rs snapshots list it and
+            // drizzle-kit snapshots leave it implicit, so it is never created.
+            PostgresEntity::Schema(s) if s.name == "public" => None,
             PostgresEntity::Schema(s) => Some(JsonStatement::CreateSchema {
                 name: s.name.to_string(),
             }),
@@ -1344,6 +1347,8 @@ impl Generator {
 
     fn drop_diff_to_statement(left: &PostgresEntity) -> Option<JsonStatement> {
         match left {
+            // Never dropped; see `create_diff_to_statement`.
+            PostgresEntity::Schema(s) if s.name == "public" => None,
             PostgresEntity::Schema(s) => Some(JsonStatement::DropSchema {
                 name: s.name.to_string(),
             }),

@@ -2536,6 +2536,21 @@ pub fn compute_migration(prev: &MySQLDDL, cur: &MySQLDDL) -> Result<MigrationDif
     compute_migration_with(prev, cur, &DiffOptions::default())
 }
 
+/// Returns `prev` with the rename hints in `options` applied, the way
+/// [`compute_migration_with`] applies them before diffing, plus a validated
+/// copy of `cur`. Used to ask rename questions on the renamed state.
+pub(crate) fn apply_rename_hints_for_questions(
+    prev: &MySQLDDL,
+    cur: &MySQLDDL,
+    options: &DiffOptions,
+) -> Result<(MySQLDDL, MySQLDDL), DiffError> {
+    let mut prev = MySQLDDL::try_from_entities(prev.to_entities())?;
+    let cur = MySQLDDL::try_from_entities(cur.to_entities())?;
+    let selected = selected_database(&prev, &cur)?;
+    apply_rename_hints(&mut prev, &cur, selected.as_deref(), options)?;
+    Ok((prev, cur))
+}
+
 /// Computes a deterministic, dependency-phased MySQL migration from `prev` to
 /// `cur`.
 ///
@@ -2716,9 +2731,15 @@ pub fn compute_migration_with(
         .map(|(key, _)| key.clone())
         .collect();
 
+    // A MySQL primary key is always named `PRIMARY`, so a recorded name
+    // (drizzle-kit writes one) is not a change.
     let altered_key_tables: BTreeSet<_> = prev_pks
         .iter()
-        .filter(|(table, old)| cur_pks.get(*table).is_none_or(|new| **old != *new))
+        .filter(|(table, old)| {
+            cur_pks
+                .get(*table)
+                .is_none_or(|new| primary_key_definition(old) != primary_key_definition(new))
+        })
         .map(|(table, _)| table.clone())
         .chain(prev_uniques.iter().filter_map(|(key, old)| {
             cur_uniques
@@ -2945,7 +2966,9 @@ pub fn compute_migration_with(
         .iter()
         .filter(|(table, old)| {
             !dropped_tables.contains(*table)
-                && (cur_pks.get(*table).is_none_or(|new| **old != *new)
+                && (cur_pks
+                    .get(*table)
+                    .is_none_or(|new| primary_key_definition(old) != primary_key_definition(new))
                     || depends_on_recreated_column(
                         table,
                         old.columns.iter().map(ToString::to_string),

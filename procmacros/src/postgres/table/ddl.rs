@@ -158,13 +158,24 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             .map(|c| format!("\"{c}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        lines.push(vec![DdlPiece::Literal(format!("\tPRIMARY KEY({cols})"))]);
+        let constraint = ctx
+            .attrs
+            .primary_key_name
+            .as_ref()
+            .map(|name| format!("CONSTRAINT \"{name}\" "))
+            .unwrap_or_default();
+        lines.push(vec![DdlPiece::Literal(format!(
+            "\t{constraint}PRIMARY KEY({cols})"
+        ))]);
     }
 
     // Single-column foreign keys
     for field in field_infos {
         if let Some(ref fk) = field.foreign_key {
-            let fk_name = format!("{}_{}_fkey", table_name, field.column_name);
+            let fk_name = fk
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("{}_{}_fkey", table_name, field.column_name));
             let ref_column_expr = ref_column_name_expr(&fk.table, &fk.column);
             let mut line = Vec::new();
             line.push(DdlPiece::Literal(format!(
@@ -216,7 +227,10 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let fk_name = format!("{}_{}_fkey", table_name, source_cols[0]);
+        let fk_name = fk
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, source_cols[0]));
         let src_str = source_cols
             .iter()
             .map(|c| format!("\"{c}\""))
@@ -609,7 +623,16 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
         .map(|f| &f.column_name)
         .collect();
 
-    let pk_name = format!("{table_name}_pkey");
+    let pk_name = ctx
+        .attrs
+        .primary_key_name
+        .clone()
+        .unwrap_or_else(|| format!("{table_name}_pkey"));
+    let pk_explicit = ctx
+        .attrs
+        .primary_key_name
+        .is_some()
+        .then(|| quote! { .explicit_name() });
     let pk_def = if pk_columns.is_empty() {
         quote! {
             /// Primary key definition (none)
@@ -625,7 +648,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
             /// Primary key definition
             pub const DDL_PRIMARY_KEY: ::std::option::Option<#primary_key_def> = {
                 const PK_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#pk_col_cows),*];
-                ::std::option::Option::Some(#primary_key_def::new(#schema_name, #table_name, #pk_name).columns(PK_COLS))
+                ::std::option::Option::Some(#primary_key_def::new(#schema_name, #table_name, #pk_name).columns(PK_COLS)#pk_explicit)
             };
         }
     };
@@ -638,10 +661,9 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
             field.foreign_key.as_ref().map(|fk_ref| {
                 let ref_table_ident = &fk_ref.table;
                 let ref_column_expr = ref_column_name_expr(&fk_ref.table, &fk_ref.column);
-                let fk_name = format!(
-                    "{}_{}_fkey",
-                    table_name, field.column_name
-                );
+                let fk_name = fk_ref.name.clone().unwrap_or_else(|| {
+                    format!("{}_{}_fkey", table_name, field.column_name)
+                });
                 let column_name = &field.column_name;
 
                 let mut modifiers = Vec::new();
@@ -658,6 +680,9 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
                 }
                 if fk_ref.initially_deferred {
                     modifiers.push(quote! { .initially_deferred() });
+                }
+                if fk_ref.name.is_some() {
+                    modifiers.push(quote! { .explicit_name() });
                 }
 
                 quote! {
@@ -692,7 +717,11 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
             .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let fk_name = format!("{}_{}_fkey", table_name, source_columns[0]);
+        let fk_name = fk
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, source_columns[0]));
+        let explicit_name = fk.name.is_some().then(|| quote! { .explicit_name() });
         let fk_cols: Vec<TokenStream> = source_columns
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
@@ -726,6 +755,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
                     .columns(FK_COLS)
                     .references(<#ref_table_ident>::DDL_TABLE.schema, <#ref_table_ident>::TABLE_NAME, FK_REF_COLS)
                     #(#modifiers)*
+                    #explicit_name
             }
         });
     }
@@ -979,6 +1009,7 @@ mod tests {
                 on_update: None,
                 deferrable: false,
                 initially_deferred: false,
+                name: None,
             }),
             relation_name: None,
             has_default: false,
@@ -1000,6 +1031,7 @@ mod tests {
             composite_foreign_keys: Vec::new(),
             unique_constraints: Vec::new(),
             check_constraints: Vec::new(),
+            primary_key_name: None,
             marker_exprs: Vec::new(),
         };
 
@@ -1193,6 +1225,7 @@ mod tests {
             composite_foreign_keys: Vec::new(),
             unique_constraints: Vec::new(),
             check_constraints: Vec::new(),
+            primary_key_name: None,
             marker_exprs: Vec::new(),
         };
 

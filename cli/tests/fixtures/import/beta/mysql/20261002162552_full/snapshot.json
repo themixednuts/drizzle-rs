@@ -1,0 +1,615 @@
+{
+  "version": "6",
+  "dialect": "mysql",
+  "id": "f85d040b-4b67-440f-9c23-c8ed13d4f4ea",
+  "prevIds": [
+    "91ac541d-10a2-4726-81ff-6bb3b7a3b45b"
+  ],
+  "ddl": [
+    {
+      "name": "auditLog",
+      "entityType": "tables"
+    },
+    {
+      "name": "post_tags",
+      "entityType": "tables"
+    },
+    {
+      "name": "posts",
+      "entityType": "tables"
+    },
+    {
+      "name": "tags",
+      "entityType": "tables"
+    },
+    {
+      "name": "users",
+      "entityType": "tables"
+    },
+    {
+      "type": "serial",
+      "notNull": true,
+      "autoIncrement": true,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "bigint unsigned",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "userId",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "timestamp",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "(now())",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "createdAt",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "varchar(32)",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "'event'",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "json",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "auditLog"
+    },
+    {
+      "type": "bigint unsigned",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "post_id",
+      "entityType": "columns",
+      "table": "post_tags"
+    },
+    {
+      "type": "int",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "tag_id",
+      "entityType": "columns",
+      "table": "post_tags"
+    },
+    {
+      "type": "bigint unsigned",
+      "notNull": true,
+      "autoIncrement": true,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "bigint unsigned",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "author_id",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "varchar(200)",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "varchar(200)",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "slug",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "body",
+      "entityType": "columns",
+      "table": "posts"
+    },
+    {
+      "type": "int",
+      "notNull": true,
+      "autoIncrement": true,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "tags"
+    },
+    {
+      "type": "varchar(64)",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "tags"
+    },
+    {
+      "type": "serial",
+      "notNull": true,
+      "autoIncrement": true,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "varchar(255)",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "email",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "varchar(100)",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "'anon'",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "enum('admin','member')",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "'member'",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "role",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "decimal(10,2)",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "(0.00)",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "balance",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "double",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "rating",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "tinyint",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "1",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "level",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "json",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "settings",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "boolean",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "true",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "is_active",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "timestamp",
+      "notNull": true,
+      "autoIncrement": false,
+      "default": "(now())",
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "timestamp",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": true,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "datetime",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": null,
+      "name": "last_seen",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "varchar(100)",
+      "notNull": false,
+      "autoIncrement": false,
+      "default": null,
+      "onUpdateNow": false,
+      "onUpdateNowFsp": null,
+      "charSet": null,
+      "collation": null,
+      "generated": {
+        "as": "lower(name)",
+        "type": "stored"
+      },
+      "name": "name_lower",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "columns": [
+        "post_id",
+        "tag_id"
+      ],
+      "name": "PRIMARY",
+      "table": "post_tags",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "name": "PRIMARY",
+      "table": "auditLog",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "name": "PRIMARY",
+      "table": "posts",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "name": "PRIMARY",
+      "table": "tags",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "name": "PRIMARY",
+      "table": "users",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "name",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "using": null,
+      "algorithm": null,
+      "lock": null,
+      "nameExplicit": false,
+      "name": "name_unique",
+      "table": "tags",
+      "entityType": "indexes"
+    },
+    {
+      "columns": [
+        {
+          "value": "email",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "using": null,
+      "algorithm": null,
+      "lock": null,
+      "nameExplicit": false,
+      "name": "email_unique",
+      "table": "users",
+      "entityType": "indexes"
+    },
+    {
+      "columns": [
+        {
+          "value": "slug",
+          "isExpression": false
+        },
+        {
+          "value": "author_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "using": null,
+      "algorithm": null,
+      "lock": null,
+      "nameExplicit": true,
+      "name": "posts_slug_author_unique",
+      "entityType": "indexes",
+      "table": "posts"
+    },
+    {
+      "columns": [
+        {
+          "value": "author_id",
+          "isExpression": false
+        },
+        {
+          "value": "title",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "using": null,
+      "algorithm": null,
+      "lock": null,
+      "nameExplicit": true,
+      "name": "posts_author_title_idx",
+      "entityType": "indexes",
+      "table": "posts"
+    },
+    {
+      "columns": [
+        {
+          "value": "name",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "using": null,
+      "algorithm": null,
+      "lock": null,
+      "nameExplicit": true,
+      "name": "users_name_idx",
+      "entityType": "indexes",
+      "table": "users"
+    },
+    {
+      "columns": [
+        "userId"
+      ],
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "nameExplicit": false,
+      "name": "auditLog_userId_users_id_fkey",
+      "entityType": "fks",
+      "table": "auditLog"
+    },
+    {
+      "columns": [
+        "post_id"
+      ],
+      "tableTo": "posts",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "post_tags_post_id_posts_id_fkey",
+      "entityType": "fks",
+      "table": "post_tags"
+    },
+    {
+      "columns": [
+        "tag_id"
+      ],
+      "tableTo": "tags",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": true,
+      "name": "post_tags_tag_fk",
+      "entityType": "fks",
+      "table": "post_tags"
+    },
+    {
+      "columns": [
+        "author_id"
+      ],
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "CASCADE",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "posts_author_id_users_id_fkey",
+      "entityType": "fks",
+      "table": "posts"
+    },
+    {
+      "value": "`users`.`balance` >= 0",
+      "name": "balance_non_negative",
+      "entityType": "checks",
+      "table": "users"
+    },
+    {
+      "definition": "select `id`, `email` from `users` where `users`.`is_active` = true",
+      "algorithm": "undefined",
+      "sqlSecurity": "definer",
+      "withCheckOption": null,
+      "name": "active_users",
+      "entityType": "views"
+    }
+  ],
+  "renames": []
+}

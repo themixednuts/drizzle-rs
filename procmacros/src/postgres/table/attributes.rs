@@ -17,8 +17,47 @@ pub struct TableAttributes {
     pub(crate) composite_foreign_keys: Vec<CompositeForeignKeyAttr>,
     pub(crate) unique_constraints: Vec<UniqueConstraintAttr>,
     pub(crate) check_constraints: Vec<CheckConstraintAttr>,
+    /// `primary_key(name = "...")`: the primary key constraint's name
+    /// (default `{table}_pkey`).
+    pub(crate) primary_key_name: Option<String>,
     /// Original marker paths for IDE hover documentation
     pub(crate) marker_exprs: Vec<ExprPath>,
+}
+
+/// Parses `primary_key(name = "...")`. The key's columns are the fields
+/// marked `#[column(primary)]`.
+fn parse_primary_key_name(tokens: proc_macro2::TokenStream) -> Result<String> {
+    let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(tokens)?;
+    let mut name = None;
+    for meta in metas {
+        match meta {
+            Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
+                if let syn::Expr::Lit(lit) = &nv.value
+                    && let syn::Lit::Str(s) = &lit.lit
+                    && !s.value().is_empty()
+                {
+                    name = Some(s.value());
+                } else {
+                    return Err(syn::Error::new(
+                        nv.span(),
+                        "name must be a non-empty string literal",
+                    ));
+                }
+            }
+            other => {
+                return Err(syn::Error::new(
+                    other.span(),
+                    "PRIMARY_KEY(...) takes only name = \"...\"; mark the key's fields with #[column(primary)]",
+                ));
+            }
+        }
+    }
+    name.ok_or_else(|| {
+        syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "PRIMARY_KEY(...) requires name = \"...\"",
+        )
+    })
 }
 
 #[derive(Clone)]
@@ -30,6 +69,8 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) on_update: Option<String>,
     pub(crate) deferrable: bool,
     pub(crate) initially_deferred: bool,
+    /// Explicit constraint name; `None` uses `{table}_{first_column}_fkey`.
+    pub(crate) name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -82,9 +123,23 @@ impl Parse for CompositeForeignKeyAttr {
         let mut on_update: Option<String> = None;
         let mut deferrable = false;
         let mut initially_deferred = false;
+        let mut name: Option<String> = None;
 
         for meta in metas {
             match meta {
+                Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
+                    if let syn::Expr::Lit(lit) = &nv.value
+                        && let syn::Lit::Str(s) = &lit.lit
+                        && !s.value().is_empty()
+                    {
+                        name = Some(s.value());
+                    } else {
+                        return Err(syn::Error::new(
+                            nv.span(),
+                            "name must be a non-empty string literal",
+                        ));
+                    }
+                }
                 Meta::List(list) if list.path.is_ident("columns") => {
                     let cols: Punctuated<Ident, Token![,]> =
                         Punctuated::<Ident, Token![,]>::parse_terminated
@@ -136,7 +191,7 @@ impl Parse for CompositeForeignKeyAttr {
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, on_update, deferrable, or initially_deferred",
+                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), name = \"...\", on_delete, on_update, deferrable, or initially_deferred",
                     ));
                 }
             }
@@ -173,6 +228,7 @@ impl Parse for CompositeForeignKeyAttr {
             on_update,
             deferrable,
             initially_deferred,
+            name,
         })
     }
 }
@@ -440,6 +496,20 @@ impl Parse for TableAttributes {
                             attrs.marker_exprs.push(make_uppercase_path(ident, "CHECK"));
                             continue;
                         }
+                        if ident_upper == "PRIMARY_KEY" {
+                            if attrs.primary_key_name.is_some() {
+                                return Err(syn::Error::new(
+                                    list.span(),
+                                    "PRIMARY_KEY(...) may appear only once",
+                                ));
+                            }
+                            attrs.primary_key_name =
+                                Some(parse_primary_key_name(list.tokens.clone())?);
+                            attrs
+                                .marker_exprs
+                                .push(make_uppercase_path(ident, "PRIMARY_KEY"));
+                            continue;
+                        }
                     }
                 }
             }
@@ -457,6 +527,7 @@ impl Parse for TableAttributes {
                  - FOREIGN_KEY(...): Composite FK (e.g., #[PostgresTable(FOREIGN_KEY(columns(a,b), references(Parent,id_a,id_b)))])\n\
                  - UNIQUE(...): Table-level unique constraint (e.g., #[PostgresTable(UNIQUE(columns(a,b)))])\n\
                  - CHECK(...): Table-level check constraint (e.g., #[PostgresTable(CHECK(expr = \"score >= 0\"))])\n\
+                 - PRIMARY_KEY(name = ...): Name the primary key (e.g., #[PostgresTable(PRIMARY_KEY(name = \"users_pk\"))])\n\
                  See: https://www.postgresql.org/docs/current/sql-createtable.html",
             ));
         }

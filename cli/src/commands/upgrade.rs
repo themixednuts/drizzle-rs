@@ -139,7 +139,7 @@ struct ConvertedEntry {
 /// succeeded. Any failure before that point leaves the directory untouched
 /// (or with extra folders next to the intact legacy files, which a rerun
 /// simply overwrites).
-fn convert_legacy_layout(out_dir: &Path, dialect: Dialect) -> Result<usize, CliError> {
+pub(crate) fn convert_legacy_layout(out_dir: &Path, dialect: Dialect) -> Result<usize, CliError> {
     let meta_dir = out_dir.join("meta");
     let journal_path = meta_dir.join("_journal.json");
 

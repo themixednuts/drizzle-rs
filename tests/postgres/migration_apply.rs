@@ -479,13 +479,23 @@ fn table_rename_keeps_the_primary_key_an_fk_depends_on() {
     pk(&mut cur, "public", "accounts", &["id"]);
     posts(&mut cur, "accounts");
     let statements = db.apply(&prev, &cur, "INSERT INTO users VALUES (1);");
+    // Like drizzle-kit, the implicitly named key keeps the name it has.
     assert_eq!(
         statements,
-        [
-            "ALTER TABLE \"users\" RENAME TO \"accounts\";",
-            "ALTER TABLE \"accounts\" RENAME CONSTRAINT \"users_pkey\" TO \"accounts_pkey\";",
-        ]
+        ["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
     );
+    let pk_name: String = db
+        .client
+        .query_one(
+            "SELECT c.conname::text FROM pg_constraint c \
+             JOIN pg_class t ON t.oid = c.conrelid \
+             JOIN pg_namespace n ON n.oid = t.relnamespace \
+             WHERE n.nspname = $1 AND t.relname = 'accounts' AND c.contype = 'p'",
+            &[&db.name],
+        )
+        .expect("primary key")
+        .get(0);
+    assert_eq!(pk_name, "users_pkey");
 
     // Column rename with a default-named unique.
     let mut db = TestSchema::new("rename_unique");

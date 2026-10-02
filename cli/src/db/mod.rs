@@ -183,6 +183,40 @@ pub fn plan_push(
     filters: &SnapshotFilters,
     migrations_table: &str,
 ) -> Result<PushPlan, CliError> {
+    plan_push_with_renames(
+        connection,
+        desired,
+        breakpoints,
+        filters,
+        migrations_table,
+        &mut |_, _, options| Ok(options),
+    )
+}
+
+/// [`plan_push`] that lets `resolve_renames` settle rename-or-create
+/// questions before diffing.
+///
+/// `resolve_renames` gets the live snapshot (after filtering), the desired
+/// snapshot, and the diff options, and returns the options to diff with,
+/// typically from
+/// [`renames::resolve_for_command`](crate::commands::renames::resolve_for_command).
+/// [`plan_push`] passes the options through, so the diff infers renames.
+///
+/// # Errors
+///
+/// Returns the errors of [`plan_push`] and of `resolve_renames`.
+pub fn plan_push_with_renames(
+    connection: &ResolvedConnection,
+    desired: &Snapshot,
+    breakpoints: bool,
+    filters: &SnapshotFilters,
+    migrations_table: &str,
+    resolve_renames: &mut dyn FnMut(
+        &Snapshot,
+        &Snapshot,
+        drizzle_migrations::DiffOptions,
+    ) -> Result<drizzle_migrations::DiffOptions, CliError>,
+) -> Result<PushPlan, CliError> {
     let introspected = introspect_database(connection)?;
     let mut current = introspected.snapshot;
     exclude_tracking_table(&mut current, connection.dialect, migrations_table)?;
@@ -196,6 +230,8 @@ pub fn plan_push(
     if let Some(defaults) = introspected.mysql_catalog_defaults {
         options = options.mysql_catalog_defaults(defaults);
     }
+    // Ask about renames on exactly the snapshots the diff compares.
+    let options = resolve_renames(&current, desired, options)?;
     let (sql_statements, warnings) = generate_push_sql(&current, desired, breakpoints, &options)?;
     let destructive = push_requires_confirmation(connection.dialect, &sql_statements, &warnings);
 
@@ -3776,99 +3812,24 @@ fn regenerate_schema_from_snapshot(
     dialect: Dialect,
     introspect_casing: Option<IntrospectCasing>,
 ) {
-    match (&result.snapshot, dialect) {
-        (Snapshot::Sqlite(snap), Dialect::Sqlite | Dialect::Turso) => {
-            use drizzle_migrations::sqlite::SQLiteDDL;
-            use drizzle_migrations::sqlite::codegen::{
-                CodegenOptions, FieldCasing, generate_rust_schema,
-            };
-
-            let field_casing = match introspect_casing {
-                Some(IntrospectCasing::Camel) => FieldCasing::Camel,
-                Some(IntrospectCasing::Preserve) => FieldCasing::Preserve,
-                None => FieldCasing::Snake,
-            };
-
-            let ddl = SQLiteDDL::from_entities(snap.ddl.clone());
-            let generated = generate_rust_schema(
-                &ddl,
-                &CodegenOptions {
-                    module_doc: Some("Schema introspected from filtered database objects".into()),
-                    include_schema: true,
-                    schema_name: "Schema".into(),
-                    use_pub: true,
-                    field_casing,
-                },
-            );
-
-            result.schema_code = generated.code;
-            result.table_count = generated.tables.len();
-            result.index_count = generated.indexes.len();
-            result.view_count = ddl.views.list().len();
-            result.warnings = generated.warnings;
-        }
-        (Snapshot::Postgres(snap), Dialect::Postgresql) => {
-            use drizzle_migrations::postgres::PostgresDDL;
-            use drizzle_migrations::postgres::codegen::{
-                CodegenOptions, FieldCasing, generate_rust_schema,
-            };
-
-            let field_casing = match introspect_casing {
-                Some(IntrospectCasing::Camel) => FieldCasing::Camel,
-                Some(IntrospectCasing::Preserve) => FieldCasing::Preserve,
-                None => FieldCasing::Snake,
-            };
-
-            let ddl = PostgresDDL::from_entities(snap.ddl.clone());
-            let generated = generate_rust_schema(
-                &ddl,
-                &CodegenOptions {
-                    module_doc: Some("Schema introspected from filtered database objects".into()),
-                    include_schema: true,
-                    schema_name: "Schema".into(),
-                    use_pub: true,
-                    field_casing,
-                },
-            );
-
-            result.schema_code = generated.code;
-            result.table_count = generated.tables.len();
-            result.index_count = generated.indexes.len();
-            result.view_count = generated.views.len();
-            result.warnings = generated.warnings;
-        }
-        (Snapshot::MySQL(snap), Dialect::Mysql) => {
-            use drizzle_migrations::mysql::MySQLDDL;
-            use drizzle_migrations::mysql::codegen::{
-                CodegenOptions, FieldCasing, generate_rust_schema,
-            };
-
-            let field_casing = match introspect_casing {
-                Some(IntrospectCasing::Camel) => FieldCasing::Camel,
-                Some(IntrospectCasing::Preserve) => FieldCasing::Preserve,
-                None => FieldCasing::Snake,
-            };
-            let ddl = MySQLDDL::from_entities(snap.ddl.clone());
-            let generated = generate_rust_schema(
-                &ddl,
-                &CodegenOptions {
-                    module_doc: Some("Schema introspected from filtered database objects".into()),
-                    include_schema: true,
-                    schema_name: "Schema".into(),
-                    use_pub: true,
-                    field_casing,
-                },
-            )
-            .expect("initial MySQL introspection already validated lossless code generation");
-
-            result.schema_code = generated.code;
-            result.table_count = generated.tables.len();
-            result.index_count = generated.indexes.len();
-            result.view_count = generated.views.len();
-            result.warnings = generated.warnings;
-        }
-        _ => {}
+    if result.snapshot.dialect() != dialect.to_base() {
+        return;
     }
+    let generated = crate::codegen::schema_code(
+        &result.snapshot,
+        &crate::codegen::SchemaCodeOptions {
+            casing: introspect_casing,
+            module_doc: "Schema introspected from filtered database objects",
+            schema_name: "Schema",
+        },
+    )
+    .expect("initial MySQL introspection already validated lossless code generation");
+
+    result.schema_code = generated.code;
+    result.table_count = generated.table_count;
+    result.index_count = generated.index_count;
+    result.view_count = generated.view_count;
+    result.warnings = generated.warnings;
 }
 
 /// Introspect a database and generate schema code
@@ -6276,7 +6237,7 @@ pub struct AuditLogs {
 
 use drizzle::sqlite::prelude::*;
 
-#[SQLiteTable(name = \"audit_logs\")]
+#[SQLiteTable]
 pub struct AuditLogs {
     #[column(primary)]
     pub id: i64,
@@ -6315,7 +6276,7 @@ pub struct Schema {
 
 use drizzle::sqlite::prelude::*;
 
-#[SQLiteTable(name = \"audit_logs\")]
+#[SQLiteTable]
 pub struct AuditLogs {
     #[column(primary)]
     pub id: i64,

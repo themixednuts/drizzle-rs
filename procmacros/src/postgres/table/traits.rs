@@ -274,7 +274,10 @@ pub(super) fn generate_table_impls(
         .filter_map(|f| {
             f.foreign_key.as_ref().map(|fk| {
                 let target_table = &fk.table;
-                let fk_name = format!("{}_{}_fkey", ctx.table_name, f.column_name);
+                let fk_name = fk
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("{}_{}_fkey", ctx.table_name, f.column_name));
                 let target_schema = quote! {
                     match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
                         ::core::option::Option::Some(schema) => schema,
@@ -291,7 +294,7 @@ pub(super) fn generate_table_impls(
                 );
                 ForeignKeyRefInput {
                     name: quote! { #fk_name },
-                    name_explicit: false,
+                    name_explicit: fk.name.is_some(),
                     source_columns: vec![f.column_name.clone()],
                     target_schema,
                     target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
@@ -316,7 +319,10 @@ pub(super) fn generate_table_impls(
                     .map_or_else(|| src.to_string(), |f| f.column_name.clone())
             })
             .collect();
-        let fk_name = format!("{}_{}_fkey", ctx.table_name, source_columns[0]);
+        let fk_name = cfk
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("{}_{}_fkey", ctx.table_name, source_columns[0]));
         let target_schema = quote! {
             match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
                 ::core::option::Option::Some(schema) => schema,
@@ -325,7 +331,7 @@ pub(super) fn generate_table_impls(
         };
         table_ref_fks.push(ForeignKeyRefInput {
             name: quote! { #fk_name },
-            name_explicit: false,
+            name_explicit: cfk.name.is_some(),
             source_columns,
             target_schema,
             target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
