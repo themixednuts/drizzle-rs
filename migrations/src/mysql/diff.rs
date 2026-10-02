@@ -1876,9 +1876,35 @@ fn batch_auto_increment_key_changes(
         .filter_map(|statement| batchable_table(statement).map(str::to_string))
         .filter(|table| auto_increment.iter().any(|(auto_table, _)| auto_table == table))
         .collect();
+    // Members: the key changes themselves, AUTO_INCREMENT column changes,
+    // and adds/modifies of the new primary key's columns (ADD PRIMARY KEY
+    // needs them). Other column changes keep their place, which matters for
+    // the drops and re-adds around a rename.
+    let new_key_columns: BTreeSet<(String, String)> = cur
+        .pks
+        .list()
+        .iter()
+        .flat_map(|primary_key| {
+            primary_key
+                .columns
+                .iter()
+                .map(|column| (primary_key.table.to_string(), column.to_string()))
+        })
+        .collect();
+    let is_member = |statement: &MySQLStatement| {
+        touches_auto_increment_key(statement, &auto_increment, &prev_indexes)
+            || matches!(
+                statement,
+                MySQLStatement::AddColumn { table, column, .. }
+                    | MySQLStatement::ModifyColumn { table, column, .. }
+                    if new_key_columns.contains(&(table.clone(), column.name.clone()))
+            )
+    };
     let mut members: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (position, statement) in statements.iter().enumerate() {
-        if let Some(table) = batchable_table(statement).filter(|table| batched_tables.contains(*table)) {
+        if let Some(table) = batchable_table(statement)
+            .filter(|table| batched_tables.contains(*table) && is_member(statement))
+        {
             members.entry(table.to_string()).or_default().push(position);
         }
     }
@@ -1892,9 +1918,10 @@ fn batch_auto_increment_key_changes(
         .collect();
     let mut batches: BTreeMap<String, Vec<MySQLStatement>> = BTreeMap::new();
     let mut output = Vec::with_capacity(statements.len());
+    let member_positions: BTreeSet<usize> = members.values().flatten().copied().collect();
     for (position, statement) in statements.into_iter().enumerate() {
         let table = batchable_table(&statement).map(str::to_string);
-        match table.filter(|table| members.contains_key(table)) {
+        match table.filter(|_| member_positions.contains(&position)) {
             Some(table) => {
                 let database = match &statement {
                     MySQLStatement::AddPrimaryKey { primary_key } => primary_key.database.clone(),
