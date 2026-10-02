@@ -3,7 +3,7 @@
 //! Every function here returns an aggregate expression ([`Agg`]). Query
 //! builders use that to reject a SELECT list that mixes aggregates and plain
 //! columns without a matching `GROUP BY`. Calling `.over(...)` on an aggregate
-//! turns it into a window function (see [`window`](super::window)).
+//! turns it into a window function (see [`window`](super::window())).
 //!
 //! # Type safety
 //!
@@ -51,12 +51,18 @@ use crate::scope::ScopeOnly;
 /// |---|---|---|---|
 /// | SQLite | `INTEGER` | `INTEGER` | `REAL` |
 /// | SQLite | `REAL` | `REAL` | `REAL` |
+/// | SQLite | `NUMERIC`, `ANY` | same as input | `REAL` |
 /// | PostgreSQL | `int2`, `int4` | `int8` | `float8` |
 /// | PostgreSQL | `int8` | `int8` | `float8` |
 /// | PostgreSQL | `float4`, `float8` | `float8` | `float8` |
 /// | PostgreSQL | `numeric` | `numeric` | `numeric` |
 /// | MySQL | integer types, `DECIMAL` | `DECIMAL` | `DECIMAL` |
 /// | MySQL | `FLOAT`, `DOUBLE` | `DOUBLE` | `DOUBLE` |
+///
+/// These are the declared types; the SQL is not cast. PostgreSQL itself
+/// returns `numeric` for `AVG` of an integer type and for `SUM` of `int8`,
+/// and `real` for `SUM` of `float4`, so wrap such a result in
+/// [`cast`](super::cast) before decoding it.
 #[diagnostic::on_unimplemented(
     message = "no aggregate policy for `{Self}` on this dialect",
     label = "aggregate result type is not defined for this SQL type/dialect"
@@ -456,7 +462,9 @@ where
 /// The argument must be numeric. The result type depends on the dialect (see
 /// [`AggregatePolicy`]): SQLite returns `REAL`, PostgreSQL `float8` (or
 /// `numeric` for `numeric` input), MySQL `DECIMAL` for integers. The result
-/// is nullable (`AVG` of no rows is NULL) and an aggregate.
+/// is nullable (`AVG` of no rows is NULL) and an aggregate. On PostgreSQL,
+/// `AVG` of an integer column actually returns `numeric`; cast it to `float8`
+/// to decode it as declared.
 ///
 /// # Examples
 ///

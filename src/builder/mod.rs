@@ -45,10 +45,10 @@ macro_rules! drizzle_prepare_impl {
             /// order (`name.bind(value)`). A binding has the placeholder
             /// column's type, so a value of the wrong type does not compile.
             ///
-            /// The plain builder path already reuses statements through each
-            /// driver's statement cache, so repetition alone is not a reason to
-            /// prepare. Reach for it to bind by name, or to move SQL rendering
-            /// out of a hot loop.
+            /// The PostgreSQL, libsql, and turso drivers already cache statements
+            /// on the plain builder path, so repetition alone is not a reason to
+            /// prepare there. Reach for it to bind by name, or to move SQL
+            /// rendering out of a hot loop.
             #[inline]
             pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))
@@ -90,9 +90,10 @@ macro_rules! drizzle_tx_prepare_impl {
             /// an explicit executor. On the SQLite drivers, pass `tx.inner()` to
             /// run it inside this transaction, so its writes commit and roll
             /// back with the transaction. The PostgreSQL prepared executors take
-            /// a `&Client`, so a statement built here runs on the connection
-            /// after the transaction ends; inside the transaction, use the
-            /// builder's own `.execute()`/`.all()`/`.get()` instead.
+            /// the client itself (`&mut Client` for `postgres-sync`, `&Client`
+            /// for `tokio-postgres`), so a statement built here runs on the
+            /// connection after the transaction ends; inside the transaction,
+            /// use the builder's own `.execute()`/`.all()`/`.get()` instead.
             #[inline]
             pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))

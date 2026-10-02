@@ -1,10 +1,13 @@
 //! Condition lists: tuples as conjunctions, plus the [`all`] and [`any`] combinators.
 //!
 //! A tuple of conditions *is* a condition. It renders as the parenthesized AND
-//! of its elements and has the same type as a chain of [`and`](super::and)
-//! calls, so `and(a, and(b, c))` can be written `(a, b, c)` anywhere a
-//! condition is accepted (for example in `.r#where(...)`). Bare tuples work up
-//! to 8 elements; use [`all`] or nested tuples for longer lists.
+//! of its elements (`(a AND b AND c)`) and has the same nullability, aggregate
+//! kind and sources as a chain of [`and`](super::and) calls, so
+//! `and(a, and(b, c))` can be written `(a, b, c)` anywhere a condition is
+//! accepted (for example in `.r#where(...)`). Its SQL type is
+//! [`Conjunction`](crate::types::Conjunction) rather than the dialect's
+//! boolean. Bare tuples work up to 8 elements; use [`all`] or nested tuples
+//! for longer lists.
 //!
 //! ```rust
 //! # use drizzle_core::dialect::{Dialect, DialectTypes, SQLiteDialect as D};

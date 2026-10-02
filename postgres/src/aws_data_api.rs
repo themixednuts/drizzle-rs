@@ -1,10 +1,13 @@
-//! AWS Aurora Serverless Data API driver support.
+//! Row decoding and parameter encoding for the AWS Aurora Data API
+//! (`aws-data-api` feature).
 //!
-//! Aurora Data API (`aws-sdk-rdsdata`) is an HTTP-based Postgres/MySQL driver
-//! that returns rows as pre-decoded [`Field`] enums rather than the wire format
-//! used by `postgres` / `tokio-postgres`. We therefore cannot reuse
-//! `postgres-types::FromSql` — this module provides a dedicated [`Row`] type
-//! and [`FromDrizzleRow`] leaf impls that match on `Field` variants directly.
+//! The Data API (`aws-sdk-rdsdata`) talks HTTP, not the `PostgreSQL` wire
+//! protocol, and returns rows as already-decoded [`Field`] values. So the
+//! `postgres-types` `FromSql` impls do not apply; this module has its own
+//! [`Row`] type and [`FromDrizzleRow`] impls that read `Field` variants
+//! directly. The `drizzle` crate's Data API driver uses it, and
+//! `#[PostgresTable]` generates row decoding against [`Row`] when the
+//! feature is on.
 //!
 //! # Wire model
 //!
@@ -17,10 +20,9 @@
 //!
 //! # Type hints
 //!
-//! For values that travel as `StringValue` but need server-side coercion
-//! (UUID, JSON, TIMESTAMP, DECIMAL, DATE, TIME) we emit a [`TypeHint`]. This
-//! keeps scalar parameters typed even though the Data API does not use the
-//! PostgreSQL wire protocol.
+//! Values that travel as `StringValue` but need a server-side type (UUID,
+//! JSON and JSONB, NUMERIC, DATE, TIME, TIMESTAMP) carry a [`TypeHint`], so
+//! the parameter keeps its type.
 
 #![cfg(feature = "aws-data-api")]
 
@@ -83,7 +85,7 @@ impl Row {
         self.metadata.get(offset).and_then(|m| m.name.as_deref())
     }
 
-    /// Typed accessor — delegates to `FromDrizzleRow`.
+    /// Reads the column at `offset` (zero-based) as `T`.
     ///
     /// # Errors
     ///
@@ -1525,8 +1527,11 @@ pub fn is_null_at(row: &Row, offset: usize) -> Result<bool, DrizzleError> {
 // SqlParameter encoding — PostgresValue → SqlParameter
 // =============================================================================
 
-/// Encode a [`PostgresValue`] as an AWS Data API [`SqlParameter`] with the
-/// correct [`Field`] variant and optional [`TypeHint`].
+/// Encodes a [`PostgresValue`] as a Data API [`SqlParameter`] named `name`,
+/// with the matching [`Field`] variant and, where needed, a [`TypeHint`].
+///
+/// Arrays become a flat `ArrayValue` typed by their first element; a mixed
+/// array is sent as strings.
 pub fn encode_param(name: impl Into<String>, value: &PostgresValue<'_>) -> SqlParameter {
     let (field, hint) = encode_field(value);
     let mut builder = SqlParameter::builder().name(name).value(field);

@@ -1,3 +1,7 @@
+//! The DELETE builder: [`DeleteBuilder`] and its states.
+//!
+//! Start a DELETE with [`QueryBuilder::delete`](super::QueryBuilder::delete).
+
 use crate::values::SQLiteValue;
 use core::marker::PhantomData;
 use drizzle_core::ToSQL;

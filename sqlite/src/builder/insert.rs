@@ -1,3 +1,8 @@
+//! The INSERT builder: [`InsertBuilder`], its states, and
+//! [`OnConflictBuilder`].
+//!
+//! Start an INSERT with [`QueryBuilder::insert`](super::QueryBuilder::insert).
+
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;
 use core::marker::PhantomData;
@@ -248,6 +253,10 @@ where
     /// [`select`](InsertBuilder::select). The column list must include every
     /// required column (one without a default), and the SELECT must produce
     /// matching types in the same order; both are checked at compile time.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the same column appears more than once.
     #[inline]
     pub fn columns<Columns>(
         self,
@@ -470,8 +479,10 @@ where
 impl<'a, S, T> InsertBuilder<'a, S, InsertValuesSet, T> {
     /// Starts an `ON CONFLICT (target)` clause.
     ///
-    /// The target can be a primary key column, a unique column, or a unique
-    /// index of this table; anything else does not compile. Finish the
+    /// The target can be a primary key or unique column, the primary key, a
+    /// unique constraint, or a unique index of this table; anything else does
+    /// not compile. For a partial unique index, its `WHERE` predicate is
+    /// repeated after the target so `SQLite` can match the index. Finish the
     /// clause with `do_nothing()` or `do_update(update_model)`. After
     /// `do_update` you may add a `where` and then
     /// [`returning`](InsertBuilder::returning).

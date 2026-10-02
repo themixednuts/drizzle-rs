@@ -1,3 +1,7 @@
+//! The UPDATE builder: [`UpdateBuilder`] and its states.
+//!
+//! Start an UPDATE with [`QueryBuilder::update`](super::QueryBuilder::update).
+
 use crate::common::SQLiteSchemaType;
 use crate::traits::SQLiteTable;
 use crate::values::SQLiteValue;

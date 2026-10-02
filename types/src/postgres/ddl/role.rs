@@ -1,6 +1,6 @@
-//! `PostgreSQL` Role DDL types
+//! `PostgreSQL` roles: [`RoleDef`] (const) and [`Role`] (runtime).
 //!
-//! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
+//! Mirrors drizzle-kit's [`ddl.ts`](https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts).
 
 use crate::alloc_prelude::*;
 
@@ -11,7 +11,7 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly role definition for compile-time schema definitions.
+/// A role definition that can be built in a `const`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RoleDef {
     /// Role name
@@ -39,7 +39,7 @@ pub struct RoleDef {
 }
 
 impl RoleDef {
-    /// Create a new role definition
+    /// Creates a role definition.
     #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self {
@@ -147,7 +147,7 @@ impl RoleDef {
         }
     }
 
-    /// Convert to runtime [`Role`] type
+    /// Converts to the runtime [`Role`].
     #[must_use]
     pub const fn into_role(self) -> Role {
         Role {
@@ -182,7 +182,7 @@ impl Default for RoleDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime role entity for serde serialization.
+/// A role, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -271,7 +271,7 @@ pub struct Role {
 }
 
 impl Role {
-    /// Create a new role (runtime)
+    /// Creates a role.
     #[must_use]
     pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -289,7 +289,7 @@ impl Role {
         }
     }
 
-    /// Get the role name
+    /// Returns the role name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

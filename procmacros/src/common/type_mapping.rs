@@ -147,11 +147,11 @@ pub fn generate_expr_impl(
 
 /// Generates arithmetic operator implementations for a numeric column type.
 ///
-/// This generates `Add`, `Sub`, `Mul`, `Div`, `Rem`, and `Neg` implementations
-/// so users can write `column + 5` directly instead of `lit(column) + 5`.
-///
-/// Returns wrapper types (`ColumnBinOp`, `ColumnNeg`) that implement `ToSQL<'a, V>`
-/// for any lifetime, allowing seamless use with query builders.
+/// Emits `ArithmeticRhs` for the column, so it can be the right-hand side of
+/// another column's operator, and `Add`, `Sub`, `Mul`, `Div`, `Rem` and `Neg`,
+/// so users can write `column + 5` directly. The binary operators accept any
+/// `ArithmeticRhs` operand and take their output type, including its
+/// nullability, from `BuildColumnArithmetic`; `Neg` returns `ColumnNeg`.
 pub fn generate_arithmetic_ops(
     struct_ident: &impl quote::ToTokens,
     value_type: TokenStream,

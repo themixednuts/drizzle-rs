@@ -47,6 +47,8 @@ pub mod expr;
 pub mod helpers;
 pub mod pragma;
 pub mod traits;
+/// SQL type markers for `SQLite` columns (`Integer`, `Text`, `Blob`, `Real`,
+/// `Numeric`, `Any`), re-exported from `drizzle-types`.
 pub mod types {
     pub use drizzle_types::sqlite::types::*;
 }

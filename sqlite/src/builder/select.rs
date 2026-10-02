@@ -1,3 +1,8 @@
+//! The SELECT builder: [`SelectBuilder`] and its states.
+//!
+//! Start a SELECT with [`QueryBuilder::select`](super::QueryBuilder::select).
+//! [`SelectBuilder`] documents the order in which clauses can be added.
+
 use crate::helpers::{self, JoinArg};
 use crate::values::SQLiteValue;
 use core::marker::PhantomData;
@@ -449,9 +454,13 @@ where
     ///
     /// The other join methods (`left_join`, `right_join`, `full_join`,
     /// `inner_join`, the `_outer` and `natural_` variants, and
-    /// [`cross_join`](Self::cross_join)) take the same arguments. With
-    /// `select(())`, a LEFT, RIGHT or FULL join makes the side that may be
-    /// missing an `Option` in the row type.
+    /// [`cross_join`](Self::cross_join)) take the same arguments. After a
+    /// LEFT, RIGHT or FULL join, selected columns of the side that may be
+    /// missing decode as `Option`; with `select(())`, that side's whole
+    /// model is an `Option` in the row.
+    ///
+    /// The condition may only read tables already in the query; this is
+    /// checked when the query is executed.
     ///
     /// # Examples
     ///

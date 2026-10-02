@@ -14,10 +14,10 @@ use drizzle_core::error::DrizzleError;
 /// error, and some exist only with the matching feature. Implement the ones
 /// that make sense for your type and return an error from the rest.
 ///
-/// This crate implements it for `bool`, `i16`, `i32`, `i64`, `f32`, `f64`,
-/// strings, byte vectors, `Option<T>` (NULL becomes `None`), the optional
-/// crates' types, and every [`PostgresEnum`](super::PostgresEnum), so
-/// `#[derive(PostgresEnum)]` types get it automatically.
+/// This crate implements it for `bool`, all primitive integer types, `f32`,
+/// `f64`, strings, byte vectors, `Option<T>` (NULL becomes `None`), the
+/// optional crates' types, and every [`PostgresEnum`](super::PostgresEnum), so
+/// native enums from `#[derive(PostgresEnum)]` get it automatically.
 /// [`PostgresValue::convert`] dispatches to the right method.
 pub trait FromPostgresValue: Sized {
     /// Converts from a boolean value.
@@ -473,7 +473,7 @@ impl FromPostgresValue for bool {
     }
 }
 
-/// Macro to implement `FromPostgresValue` for integer types
+// Implements `FromPostgresValue` for integer types.
 macro_rules! impl_from_postgres_value_int {
     ($($ty:ty),+ $(,)?) => {
         $(

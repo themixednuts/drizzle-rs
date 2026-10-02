@@ -8,18 +8,21 @@ use crate::traits::EntityKind;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 
-/// Complete schema diff between two `PostgreSQL` snapshots
+/// Entity-level differences between two PostgreSQL schemas.
 #[derive(Debug, Clone, Default)]
 pub struct SchemaDiff {
+    /// One entry per created, dropped, or altered entity.
     pub diffs: Vec<EntityDiff>,
 }
 
 impl SchemaDiff {
+    /// Returns `true` if anything differs.
     #[must_use]
     pub const fn has_changes(&self) -> bool {
         !self.diffs.is_empty()
     }
 
+    /// Returns `true` if nothing differs.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.diffs.is_empty()

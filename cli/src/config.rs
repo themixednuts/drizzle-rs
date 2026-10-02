@@ -624,25 +624,43 @@ impl std::fmt::Debug for MySQLCreds {
     }
 }
 
-/// PostgreSQL TLS policy (`ssl` in `dbCredentials`, default `Disable`).
+/// PostgreSQL TLS policy: the `ssl` value of host-style `dbCredentials`
+/// (default `Disable`), or the `sslmode` of a URL.
+///
+/// `ssl = true` means `Require`, `false` means `Disable`. Whenever TLS is
+/// used, the CLI's connector verifies the server certificate; only
+/// `VerifyCa` skips the host-name check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresSslMode {
+    /// No TLS (`disable`).
     #[default]
     Disable,
+    /// `allow`; connects like `Prefer`.
     Allow,
+    /// Use TLS if the server offers it (`prefer`).
     Prefer,
+    /// Require TLS (`require`).
     Require,
+    /// Require TLS; skip the host-name check (`verify-ca`).
     VerifyCa,
+    /// Require TLS (`verify-full`).
     VerifyFull,
 }
 
-/// MySQL TLS policy accepted by URL/host CLI configuration.
+/// MySQL TLS policy: the `ssl` value of host-style `dbCredentials` (default
+/// `Disable`).
+///
+/// `ssl = true` means `Required`, `false` means `Disable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MySQLSslMode {
+    /// No TLS.
     #[default]
     Disable,
+    /// Require TLS without verifying the certificate (`required`).
     Required,
+    /// Require TLS and verify the server certificate (`verify-ca`).
     VerifyCa,
+    /// Also verify the host name (`verify-identity`).
     VerifyIdentity,
 }
 
@@ -672,6 +690,8 @@ impl PostgresSslMode {
     }
 }
 
+/// Connection settings for the PostgreSQL drivers, built by
+/// [`PostgresCreds::connection_config`].
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 pub struct PostgresConnectionConfig {
     /// Connection settings for `tokio-postgres` / `postgres`.
@@ -913,11 +933,11 @@ pub struct DatabaseConfig {
     /// Database dialect (required)
     pub dialect: Dialect,
 
-    /// Path(s) to schema file(s) - supports glob patterns
+    /// Schema file paths or glob patterns, relative to the config file.
     #[serde(default)]
     pub schema: Schema,
 
-    /// Output directory for migrations (default: "./drizzle")
+    /// Migrations folder (default `./drizzle`), relative to the config file.
     #[serde(default = "default_out")]
     pub out: PathBuf,
 
@@ -949,7 +969,8 @@ pub struct DatabaseConfig {
     #[serde(default)]
     pub entities: Option<EntitiesFilter>,
 
-    /// Casing mode for generated code
+    /// Casing preference for generated names. Currently ignored when
+    /// building snapshots: table macros always snake_case inferred names.
     #[serde(default)]
     pub casing: Option<Casing>,
 
@@ -1188,14 +1209,16 @@ impl DatabaseConfig {
         }
     }
 
-    /// Returns typed credentials, reading any `{ env = "VAR" }` values, or
-    /// `None` when `dbCredentials` is absent.
+    /// Returns typed credentials, reading any `{ env = "VAR" }` values.
+    ///
+    /// Returns `None` when `dbCredentials` is absent or its shape does not
+    /// fit the dialect (loading a config already rejects most such
+    /// mismatches).
     ///
     /// # Errors
     ///
-    /// Returns [`Error`] if a referenced environment variable is missing or
-    /// invalid, or if the credentials block does not match the configured
-    /// dialect.
+    /// Returns [`Error`] if a referenced environment variable is unset or not
+    /// valid UTF-8, or an `ssl` value is not a recognized mode.
     pub fn credentials(&self) -> Result<Option<Credentials>, Error> {
         let Some(raw) = self.db_credentials.as_ref() else {
             return Ok(None);
@@ -1602,10 +1625,11 @@ impl Config {
         self.databases.keys().map(String::as_str)
     }
 
-    /// Returns the database config named `name`.
+    /// Returns the database named `name`, or the only one when `name` is
+    /// `None`.
     ///
-    /// If name is `None`, returns the default/only database.
-    /// For single-db configs, any name or `None` returns the single database.
+    /// A single-database config ignores `name` and always returns its
+    /// database.
     ///
     /// # Errors
     ///

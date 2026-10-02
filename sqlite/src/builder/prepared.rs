@@ -1,3 +1,5 @@
+//! `SQLite` statements rendered once, with their parameter slots.
+
 use crate::prelude::*;
 
 use drizzle_core::{

@@ -1110,8 +1110,9 @@ pub enum MigratorError {
     #[error("{0}")]
     InterruptedMigration(String),
 
-    /// Repair could not reconcile every statement of an interrupted migration.
-    /// Produced by [`crate::repair::Plan::into_executable`].
+    /// Repair could not reconcile an interrupted migration. Produced by
+    /// [`crate::repair::Plan::into_executable`] and
+    /// [`Migrations::resolve_dirty_migrations`].
     #[error("{0}")]
     UnrepairableMigration(String),
 }

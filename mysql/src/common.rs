@@ -2,17 +2,22 @@ use crate::prelude::{String, Vec};
 use drizzle_core::{SQLIndexInfo, SQLSchemaType, SQLViewInfo, TableRef};
 use drizzle_types::mysql::ddl::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
 
-/// MySQL-specific metadata attached to a generated view.
+/// `MySQL`-specific options of a generated view.
 pub trait MySQLViewInfo: SQLViewInfo + core::fmt::Debug {
-    /// The optional view evaluation algorithm.
+    /// The `ALGORITHM` option, if set.
     fn algorithm(&self) -> Option<ViewAlgorithm>;
-    /// The optional SQL security context.
+    /// The `SQL SECURITY` option, if set.
     fn sql_security(&self) -> Option<ViewSqlSecurity>;
-    /// The optional updatability check mode.
+    /// The `WITH .. CHECK OPTION` mode, if set.
     fn check_option(&self) -> Option<ViewCheckOption>;
 }
 
-/// Render a generated MySQL view's `CREATE VIEW` statement.
+/// Renders the `CREATE VIEW` statement for a generated view.
+///
+/// Writes `CREATE [ALGORITHM=..] [SQL SECURITY ..] VIEW name AS definition
+/// [WITH .. CHECK OPTION];`, with the name backtick-quoted and qualified by
+/// its database when it has one. Returns an empty string for a view marked
+/// `EXISTING`.
 #[must_use]
 pub fn create_view_sql(view: &dyn MySQLViewInfo) -> String {
     if view.is_existing() {
@@ -160,9 +165,17 @@ fn identifier_tokens(sql: &str) -> Vec<String> {
     tokens
 }
 
-/// Order managed schema views so every referenced view is created first.
+/// Renders `CREATE VIEW` statements for the managed views of a schema, each
+/// after the views it references.
 ///
-/// This is public only for code emitted by `drizzle-macros`.
+/// Views marked `EXISTING` are skipped. A view counts as referencing another
+/// when the other's name appears as an identifier in its definition. Public
+/// only for code emitted by `drizzle-macros`.
+///
+/// # Errors
+///
+/// Returns [`DrizzleError::Statement`](drizzle_core::error::DrizzleError::Statement)
+/// if the views reference each other in a cycle.
 #[doc(hidden)]
 pub fn order_schema_views(
     views: &[&'static dyn MySQLViewInfo],
@@ -209,7 +222,11 @@ fn push_identifier(sql: &mut String, identifier: &str) {
     sql.push('`');
 }
 
-/// The kind of object contributed by a generated MySQL schema item.
+/// The `MySQL` dialect marker for schema items.
+///
+/// Used as a type parameter (`SQLTable<'a, MySQLSchemaType, MySQLValue<'a>>`)
+/// to tie tables, indexes and views to `MySQL`. The variants name the kinds
+/// of schema object.
 #[derive(Debug, Clone)]
 pub enum MySQLSchemaType {
     /// A table definition.

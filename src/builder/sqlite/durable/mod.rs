@@ -13,8 +13,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! drizzle = { version = "*", features = ["durable", "uuid"] }
-//! worker = "*"
+//! drizzle = { version = "0.2", features = ["durable", "uuid"] }
+//! worker = "0.8"
 //! ```
 //!
 //! # Quick start
@@ -25,8 +25,7 @@
 //! completion before the runtime delivers the first request.
 //! [`examples/durable_object`] is this example as a compiled crate.
 //!
-//! ```rust
-//! # let _ = r####"
+//! ```ignore
 //! use drizzle::migrations::Tracking;
 //! use drizzle::sqlite::durable::{Drizzle, DurableStorage};
 //! use drizzle::sqlite::prelude::*;
@@ -74,7 +73,6 @@
 //!         Response::ok(format!("{} users", users.len()))
 //!     }
 //! }
-//! # "####;
 //! ```
 //!
 //! [`examples/durable_object`]: https://github.com/themixednuts/drizzle-rs/tree/main/examples/durable_object
@@ -128,10 +126,11 @@ crate::drizzle_prepare_impl!();
 use crate::builder::sqlite::common;
 #[cfg(feature = "query")]
 use crate::builder::sqlite::common::QueryRowFormat;
-/// The durable database handle: a Durable Object's [`DurableStorage`] plus the schema's table handles.
+/// The Durable Object database handle: a [`DurableStorage`] plus the schema's
+/// table handles.
 ///
-/// Create it with `Drizzle::new(conn)`, then build queries with
-/// `select`, `insert`, `update`, and `delete`.
+/// Create it with `Drizzle::new(DurableStorage::new(&mut state))`, then build
+/// queries with `select`, `insert`, `update`, and `delete`.
 pub type Drizzle<Schema = ()> = common::Drizzle<DurableStorage, Schema>;
 /// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
 /// `.all()`, `.get()`, or `.rows()`.
@@ -176,7 +175,16 @@ where
 }
 
 impl<Schema> common::Drizzle<DurableStorage, Schema> {
-    /// Executes a statement and returns the number of rows written.
+    /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, and
+    /// returns the number of rows it wrote (the cursor's `rowsWritten`).
+    ///
+    /// Prefer the builder's own `.execute()`, which keeps the builder's
+    /// compile-time checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// statement fails.
     pub fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -189,10 +197,19 @@ impl<Schema> common::Drizzle<DurableStorage, Schema> {
         Ok(cursor.rows_written() as u64)
     }
 
-    /// Runs the query and returns all matching rows deserialized into `R`.
+    /// Runs any SQL value and collects its rows into `C` (for example
+    /// `Vec<R>`).
     ///
-    /// `R` must implement [`serde::Deserialize`]. The `SQLiteFromRow` macro
-    /// derives a matching impl when the `serde` feature is enabled.
+    /// Rows arrive as objects keyed by column name, so `R` must implement
+    /// [`serde::Deserialize`] with field names matching the column names.
+    /// Generated `Select*` models implement it when the `query` feature is
+    /// on; derive it on your own row types. This skips the builder's
+    /// compile-time checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'de> serde::Deserialize<'de>,
@@ -208,7 +225,16 @@ impl<Schema> common::Drizzle<DurableStorage, Schema> {
         Ok(out)
     }
 
-    /// Runs the query and returns the first matching row.
+    /// Runs any SQL value and deserializes its first row into `R`.
+    ///
+    /// `R` has the same requirements as in [`all`](Self::all). Every row is
+    /// still read; add `LIMIT 1` when the query could match many.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and
+    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'de> serde::Deserialize<'de>,
@@ -223,18 +249,23 @@ impl<Schema> common::Drizzle<DurableStorage, Schema> {
             .ok_or(DrizzleError::NotFound)
     }
 
-    /// Executes a transaction with the given callback.
+    /// Runs `f` inside a transaction and returns its value.
     ///
-    /// Commits when the callback returns `Ok` and rolls back on `Err` or a
-    /// panic, then returns the callback's value (or propagates the error or
-    /// panic). The transaction runs through the storage's `transactionSync`,
-    /// because Durable Object SQL rejects `BEGIN`.
+    /// The transaction commits when `f` returns `Ok` and rolls back when it
+    /// returns `Err` or panics (the panic then continues). It runs through the
+    /// storage's `transactionSync`, because Durable Object SQL rejects
+    /// `BEGIN`.
     ///
     /// The callback receives a `&Transaction<Schema>` that supports the same
     /// query-builder surface as `Drizzle` (select / insert / update / delete /
     /// with) plus [`Transaction::savepoint`] for nested savepoints.
     ///
     /// [`Transaction::savepoint`]: crate::transaction::sqlite::durable::Transaction::savepoint
+    ///
+    /// # Errors
+    ///
+    /// Returns the error from `f`, or [`DrizzleError::TransactionError`] when
+    /// the runtime fails to commit.
     pub fn transaction<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         Schema: Copy,
@@ -259,7 +290,14 @@ impl<Schema> Drizzle<Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create schema objects in the DO's SQL storage.
+    /// Creates every table, index, and view in the schema.
+    ///
+    /// The statements run one by one, outside a transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the schema's statements cannot be generated or
+    /// one of them fails; earlier statements stay applied.
     pub fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         for stmt in schema.create_statements()? {
@@ -276,18 +314,17 @@ impl<Schema> common::Drizzle<DurableStorage, Schema>
 where
     Schema: Copy,
 {
-    /// Apply pending migrations from an embedded migration slice.
+    /// Applies the migrations that have not run yet.
     ///
-    /// Creates the migrations table if needed and runs pending migrations
-    /// inside a single transaction for atomicity.
+    /// Creates the tracking table if needed, then runs every pending
+    /// migration and records it in one transaction.
     ///
     /// # Call this from `DurableObject::new`, not `fetch`
     ///
     /// Each Durable Object has its own per-instance database, so migrations
     /// must run at runtime. The right place is the constructor:
     ///
-    /// ```rust
-    /// # let _ = r####"
+    /// ```ignore
     /// impl DurableObject for Counter {
     ///     fn new(mut state: State, _env: Env) -> Self {
     ///         let migrations = drizzle::include_migrations!("./drizzle");
@@ -301,7 +338,6 @@ where
     ///         // hot path — no migration work
     ///     }
     /// }
-    /// # "####;
     /// ```
     ///
     /// This runs once per instantiation (cold start or after eviction). The
@@ -310,6 +346,14 @@ where
     ///
     /// Calling `migrate` from `fetch` instead pays a tracking-table
     /// round-trip on every request and is almost always wrong.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::UnsupportedMigrationExecution`] when a pending
+    /// migration suspends foreign keys (`PRAGMA foreign_keys=OFF`, as table
+    /// rebuilds do), which this driver cannot run, and an error when the
+    /// tracking table holds an unfinished ("dirty") row or a statement fails
+    /// (the transaction is rolled back).
     pub fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],
@@ -545,7 +589,13 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Runs the query and returns the number of rows written.
+    /// Runs the statement and returns the number of rows it wrote (the
+    /// cursor's `rowsWritten`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// statement fails.
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
         let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;
         let _ = cursor
@@ -554,7 +604,19 @@ where
         Ok(cursor.rows_written() as u64)
     }
 
-    /// Runs the query and returns all matching rows deserialized into `R`.
+    /// Runs the query and deserializes every row into `R`.
+    ///
+    /// Rows arrive as objects keyed by column name, so `R` must implement
+    /// [`serde::Deserialize`] with field names matching the selected column
+    /// names. The scope and grouping checks apply as on the native drivers,
+    /// but `R` itself is not checked against the selection at compile time:
+    /// a mismatch, including a non-`Option` field for a `NULL` value, is a
+    /// runtime deserialization error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -567,7 +629,16 @@ where
             .map_err(|e| DrizzleError::Other(e.to_string().into()))
     }
 
-    /// Runs the query and returns the first matching row.
+    /// Runs the query and deserializes its first row into `R`.
+    ///
+    /// `R` has the same requirements as in [`all`](Self::all). Every row is
+    /// still read; add `.limit(1)` when the query could match many.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and
+    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -672,7 +743,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -707,7 +783,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -798,9 +881,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations, in the table's `PartialSelect*` shape.
     ///
-    /// Base columns are deserialized from a JSON `"__base"` column.
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -835,7 +921,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -860,7 +953,13 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, DurableStorage, T, Rels, drizzle_core::query::AllColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_many<const N: usize>(
         &self,
         conn: &DurableStorage,
@@ -894,9 +993,16 @@ impl<'a, T, Rels>
             .collect()
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_first<const N: usize>(
         &self,
         conn: &DurableStorage,
@@ -922,7 +1028,13 @@ impl<'a, T, Rels>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, DurableStorage, T, Rels, drizzle_core::query::PartialColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_many<const N: usize>(
         &self,
         conn: &DurableStorage,
@@ -956,9 +1068,16 @@ impl<'a, T, Rels>
             .collect()
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_first<const N: usize>(
         &self,
         conn: &DurableStorage,

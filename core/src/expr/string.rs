@@ -316,7 +316,7 @@ where
 /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// // Case-insensitive comparison on SQLite.
 /// let cond = eq(collate(users.name, "NOCASE"), "alice");
-/// assert_eq!(cond.sql(), r#"("users"."name" COLLATE "NOCASE") = ?"#);
+/// assert_eq!(cond.sql(), r#"("users"."name" COLLATE "NOCASE")= ?"#);
 /// ```
 pub fn collate<'a, V, E>(
     expr: E,
@@ -640,7 +640,7 @@ where
 /// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
 /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// let label = concat(concat(users.name, " <"), concat(users.email, ">"));
-/// assert_eq!(label.sql(), r#""users"."name" || ? || ("users"."email" || ?)"#);
+/// assert_eq!(label.sql(), r#""users"."name" || ? || "users"."email" || ?"#);
 /// ```
 ///
 /// # Type safety
@@ -1149,7 +1149,7 @@ where
 /// Whether a text value starts with `prefix` (`STARTS_WITH`), on PostgreSQL.
 ///
 /// Both arguments must be text. Like the comparison operators, the result is
-/// the dialect's boolean, typed as non-null.
+/// the dialect's boolean, NULL when either argument is.
 ///
 /// # Examples
 ///

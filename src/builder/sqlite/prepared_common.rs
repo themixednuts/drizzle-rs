@@ -6,9 +6,11 @@ macro_rules! sqlite_async_prepared_impl {
             ///
             /// # Errors
             ///
-            /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-            /// match the statement's placeholders (missing, duplicated, or extra),
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra),
             /// or the database error when the statement fails.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
             /// # Panics
             ///
@@ -33,10 +35,12 @@ macro_rules! sqlite_async_prepared_impl {
             ///
             /// # Errors
             ///
-            /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-            /// match the statement's placeholders (missing, duplicated, or extra),
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra),
             /// the database error when the query fails, or a decode error when a row
             /// does not fit `T`.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
             /// # Panics
             ///
@@ -75,10 +79,14 @@ macro_rules! sqlite_async_prepared_impl {
             ///
             /// # Errors
             ///
-            /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-            /// match the statement's placeholders (missing, duplicated, or extra),
-            /// `DrizzleError::NotFound` when no row matches, the database
-            /// error when the query fails, or a decode error when the row does not fit `T`.
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra),
+            /// [`DrizzleError::NotFound`] when no row matches, the database error when
+            /// the query fails, or a decode error when the row does not fit `T`.
+            ///
+            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
             /// # Panics
             ///
@@ -116,9 +124,11 @@ macro_rules! sqlite_async_prepared_impl {
             ///
             /// # Errors
             ///
-            /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-            /// match the statement's placeholders (missing, duplicated, or extra),
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra),
             /// or the database error when the statement fails.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
             /// # Panics
             ///
@@ -143,10 +153,12 @@ macro_rules! sqlite_async_prepared_impl {
             ///
             /// # Errors
             ///
-            /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-            /// match the statement's placeholders (missing, duplicated, or extra),
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra),
             /// the database error when the query fails, or a decode error when a row
             /// does not fit `T`.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
             /// # Panics
             ///
@@ -184,10 +196,14 @@ macro_rules! sqlite_async_prepared_impl {
             ///
             /// # Errors
             ///
-            /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-            /// match the statement's placeholders (missing, duplicated, or extra),
-            /// `DrizzleError::NotFound` when no row matches, the database
-            /// error when the query fails, or a decode error when the row does not fit `T`.
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra),
+            /// [`DrizzleError::NotFound`] when no row matches, the database error when
+            /// the query fails, or a decode error when the row does not fit `T`.
+            ///
+            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
             /// # Panics
             ///

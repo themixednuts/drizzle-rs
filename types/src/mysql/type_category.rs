@@ -1,12 +1,23 @@
-//! MySQL Rust and SQL type classification.
+//! Classification of Rust field types and MySQL type declarations.
 
 use super::MySQLType;
 
-/// Categorizes Rust types for MySQL schema inference.
+/// The kind of a Rust field type, as the MySQL macros see it.
 ///
-/// MySQL has separate signed and unsigned integer declarations, so this
-/// category preserves Rust integer signedness instead of collapsing all
-/// integral values into one marker.
+/// [`classify`](Self::classify) finds the category of a type written as a
+/// string, and [`sql_type`](Self::sql_type) gives its default column type
+/// (the `MySQL` table macro uses it for fields without an explicit type).
+/// Integer categories keep their signedness, since MySQL has separate
+/// `UNSIGNED` types.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::mysql::{MySQLType, TypeCategory};
+///
+/// assert_eq!(TypeCategory::classify("Option<u32>"), TypeCategory::U32);
+/// assert_eq!(TypeCategory::U32.sql_type(), Some(MySQLType::IntUnsigned));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -47,7 +58,9 @@ pub enum TypeCategory {
 }
 
 impl TypeCategory {
-    /// Classify a stringified Rust type.
+    /// Classifies a Rust type written as a string, such as `"Option<i64>"`
+    /// or `"chrono::NaiveDate"`. `Option<T>` classifies as `T`; spaces are
+    /// ignored. Unrecognized types return [`TypeCategory::Unknown`].
     #[cfg(feature = "std")]
     #[must_use]
     pub fn classify(type_str: &str) -> Self {
@@ -150,7 +163,12 @@ impl TypeCategory {
         }
     }
 
-    /// Return the MySQL declaration inferred for this Rust category.
+    /// Returns the default MySQL column type for this Rust type, or `None`
+    /// when there is none: `Enum`, `Set` and `Unknown`, `Uuid` without the
+    /// `uuid` feature, and `Json` without the `serde` feature.
+    ///
+    /// UUIDs map to `BINARY`, `String` to `TEXT`, and timezone-aware
+    /// date-times to `TIMESTAMP`.
     #[must_use]
     pub fn sql_type(self) -> Option<MySQLType> {
         match self {
@@ -187,11 +205,25 @@ impl TypeCategory {
     }
 }
 
-/// MySQL SQL type classification for parsing and introspection.
+/// The family of a MySQL type declaration, such as `INT UNSIGNED` or
+/// `VARCHAR(255)`, used when reading introspected or snapshot column types.
 ///
-/// This retains the signedness of integer declarations. Length, precision,
-/// scale, and inline `ENUM`/`SET` values remain part of the declaration
-/// metadata rather than this category.
+/// Integer categories keep their signedness. Arguments (length, precision,
+/// scale) and `ENUM`/`SET` values are dropped. Types that are not recognized
+/// are [`Custom`](Self::Custom).
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::mysql::MySQLTypeCategory;
+///
+/// assert_eq!(
+///     MySQLTypeCategory::classify("mediumint(8) unsigned"),
+///     MySQLTypeCategory::MediumIntUnsigned,
+/// );
+/// assert_eq!(MySQLTypeCategory::classify("DECIMAL(20, 8)"), MySQLTypeCategory::Decimal);
+/// assert_eq!(MySQLTypeCategory::classify("geometry"), MySQLTypeCategory::Custom);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -269,10 +301,10 @@ impl MySQLTypeCategory {
         })
     }
 
-    /// Classify a MySQL type declaration.
+    /// Classifies a MySQL type declaration, ignoring case and arguments.
     ///
-    /// `ZEROFILL` is treated as unsigned because MySQL implicitly adds the
-    /// `UNSIGNED` attribute to a `ZEROFILL` numeric declaration.
+    /// `REAL` classifies as `Double`. `ZEROFILL` counts as unsigned, because
+    /// MySQL adds `UNSIGNED` to a `ZEROFILL` column.
     #[must_use]
     pub fn classify(sql_type: &str) -> Self {
         let normalized = sql_type.trim();
@@ -370,7 +402,9 @@ impl MySQLTypeCategory {
         }
     }
 
-    /// Return the conventional Drizzle column-builder name for this category.
+    /// Returns the name of the matching drizzle-orm (TypeScript) column
+    /// builder, such as `"mysqlEnum"`. Signed and unsigned integers share a
+    /// name.
     #[must_use]
     pub const fn drizzle_import(self) -> &'static str {
         match self {

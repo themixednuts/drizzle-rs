@@ -41,7 +41,8 @@ use drizzle_core::prepared::prepare_render;
 
 crate::drizzle_tx_prepare_impl!();
 
-/// Transaction handle for a Durable Object's SQL storage.
+/// An open Durable Object transaction, passed to the closure given to
+/// `transaction`.
 ///
 /// Provides the same query-building surface as
 /// [`Drizzle`](crate::builder::sqlite::durable::Drizzle) plus
@@ -81,6 +82,11 @@ impl<Schema> Transaction<Schema> {
     /// it returns `Err` or panics, the savepoint is rolled back. The outer
     /// transaction is unaffected either way. Savepoints can be nested; the
     /// runtime's `transactionSync` gives each level its own savepoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error from `f`, or [`DrizzleError::TransactionError`] when
+    /// the runtime fails to release the savepoint.
     pub fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: FnOnce(&Self) -> drizzle_core::error::Result<R>,
@@ -90,8 +96,13 @@ impl<Schema> Transaction<Schema> {
 
     sqlite_transaction_constructors!();
 
-    /// Executes a query within the transaction and returns the number of rows
-    /// written.
+    /// Runs any SQL value inside the transaction and returns the number of rows
+    /// it wrote.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// statement fails.
     pub fn execute<'q, T>(&self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'q, SQLiteValue<'q>>,
@@ -104,7 +115,14 @@ impl<Schema> Transaction<Schema> {
         Ok(cursor.rows_written() as u64)
     }
 
-    /// Runs a query and returns all matching rows within the transaction.
+    /// Runs any SQL value inside the transaction and deserializes its rows
+    /// into `C` (for example `Vec<R>`). `R` must implement
+    /// `serde::Deserialize` with field names matching the column names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'de> serde::Deserialize<'de>,
@@ -120,7 +138,14 @@ impl<Schema> Transaction<Schema> {
         Ok(out)
     }
 
-    /// Runs a query and returns a single row within the transaction.
+    /// Runs any SQL value inside the transaction and deserializes its first
+    /// row into `R`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and
+    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'de> serde::Deserialize<'de>,
@@ -161,7 +186,13 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Runs the query and returns the number of rows written.
+    /// Runs the statement inside the transaction and returns the number of
+    /// rows it wrote.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// statement fails.
     pub fn execute(self) -> drizzle_core::error::Result<u64> {
         let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
         let _ = cursor
@@ -170,7 +201,17 @@ where
         Ok(cursor.rows_written() as u64)
     }
 
-    /// Runs the query and returns all matching rows deserialized into `R`.
+    /// Runs the query inside the transaction and deserializes every row into
+    /// `R`, which must implement `serde::Deserialize` with field names matching
+    /// the selected column names.
+    ///
+    /// Unlike the database handle's `.all()`, this does not check scope or
+    /// grouping at compile time, and `R` is not checked against the selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'de> serde::Deserialize<'de>,
@@ -181,7 +222,14 @@ where
             .map_err(|e| DrizzleError::Other(e.to_string().into()))
     }
 
-    /// Runs the query and returns the first matching row.
+    /// Runs the query inside the transaction and deserializes its first row
+    /// into `R`, with the same requirements as [`all`](Self::all).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and
+    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// deserialized into `R`.
     pub fn get<R>(self) -> drizzle_core::error::Result<R>
     where
         R: for<'de> serde::Deserialize<'de>,
@@ -205,9 +253,8 @@ use crate::builder::sqlite::common;
 
 #[cfg(feature = "query")]
 impl<Schema> Transaction<Schema> {
-    /// Creates a relational query builder scoped to this transaction.
-    ///
-    /// Rows read here observe the transaction's uncommitted state.
+    /// Starts a relational query inside this transaction, like the database
+    /// handle's `query`. It sees the transaction's uncommitted writes.
     pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
     where
         T: drizzle_core::query::QueryTable,
@@ -239,7 +286,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -277,7 +329,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -312,9 +371,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations, in the table's `PartialSelect*` shape.
     ///
-    /// Base columns are deserialized from a JSON `"__base"` column.
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -352,7 +414,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub fn find_first(
         self,
     ) -> drizzle_core::error::Result<

@@ -1,17 +1,19 @@
-//! `MySQL` support for drizzle-rs.
+//! `MySQL` dialect for drizzle-rs.
 //!
-//! This crate is the MySQL dialect boundary. It exposes SQL types,
-//! client-neutral values, and a typed SQL builder ([`builder::QueryBuilder`]).
-//! Feature-gated wire adapters layer execution on those contracts.
+//! This crate holds the `MySQL` parts of drizzle-rs: the typed query builder
+//! ([`builder::QueryBuilder`]), values ([`values::MySQLValue`]), row
+//! decoding ([`driver`]), transaction options ([`transaction`]), and the
+//! traits that `#[MySQLTable]` and friends implement. It does not connect to
+//! a server. Most applications use it through the `drizzle` crate
+//! (`drizzle::mysql`), whose `mysql` and `mysql_async` drivers run the
+//! queries.
 //!
-//! Wire adapters must set each connection's MySQL session time zone to UTC
-//! before executing typed queries. This is the adapter-owned invariant that
-//! makes `TIMESTAMP` values round-trip as UTC instants.
-//!
-//! Adapters must also reject or remove `NO_UNSIGNED_SUBTRACTION` and
-//! `REAL_AS_FLOAT` from `sql_mode`. The former changes unsigned subtraction to
-//! a signed result, while the latter changes `REAL` from double to float. The
-//! static type policy models MySQL's default behavior for both.
+//! A driver must set each connection's session time zone to UTC before
+//! running typed queries, so `TIMESTAMP` values round-trip as UTC instants.
+//! It must also remove `NO_UNSIGNED_SUBTRACTION` and `REAL_AS_FLOAT` from
+//! `sql_mode`: the first makes unsigned subtraction signed, the second makes
+//! `REAL` a single-precision float, and the static types assume `MySQL`'s
+//! default behavior for both. The `drizzle` drivers do both on connect.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
@@ -36,7 +38,8 @@ pub(crate) mod prelude {
 
 pub mod attrs;
 pub mod builder;
-/// Schema metadata shared by generated MySQL tables, indexes, and views.
+/// The `MySQL` schema marker and `CREATE VIEW` rendering for generated
+/// views.
 pub mod common;
 pub mod driver;
 pub mod helpers;
@@ -45,7 +48,8 @@ pub mod result;
 /// Traits implemented by generated MySQL schema types and custom columns.
 pub mod traits;
 pub mod transaction;
-/// MySQL SQL type markers.
+/// SQL type markers for `MySQL` columns (`Int`, `Varchar`, `Json`, ...),
+/// re-exported from `drizzle-types`.
 pub mod types {
     pub use drizzle_types::mysql::types::*;
 }

@@ -71,7 +71,8 @@ where
 
 /// Logical negation (`NOT`).
 ///
-/// Renders `NOT (expr)`. The operand must be boolean. The result keeps the operand's
+/// Renders `NOT (expr)`; a single raw word, identifier or number is not
+/// parenthesized. The operand must be boolean. The result keeps the operand's
 /// nullability and aggregate kind. `!expr` on an [`SQLExpr`] does the same.
 ///
 /// # Examples
@@ -244,7 +245,7 @@ where
 // Operator Trait Implementations
 // =============================================================================
 
-/// `!expr` renders `NOT expr`; see [`not`].
+/// `!expr` renders `NOT (expr)`; see [`not`].
 impl<'a, V, T, N, A, S> Not for SQLExpr<'a, V, T, N, A, S>
 where
     V: SQLParam + 'a,

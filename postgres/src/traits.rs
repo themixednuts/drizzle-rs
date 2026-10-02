@@ -1,3 +1,11 @@
+//! Traits for `PostgreSQL` tables, columns, enums and custom column types,
+//! and for decoding values and driver rows.
+//!
+//! The macros implement most of these: `#[PostgresTable]` implements
+//! [`PostgresTable`] and [`PostgresColumn`], and `#[derive(PostgresEnum)]`
+//! implements [`DrizzlePostgresColumn`] (and [`PostgresEnum`] for native enums).
+//! Implement [`FromPostgresValue`] yourself to decode a custom type.
+
 mod column;
 mod table;
 mod value;
@@ -14,8 +22,10 @@ use crate::values::{OwnedPostgresValue, PostgresValue};
 
 /// Object-safe view of a Rust enum stored as a `PostgreSQL` enum value.
 ///
-/// Implemented by `#[derive(PostgresEnum)]`. It lets a [`PostgresValue`] hold
-/// any enum value as `dyn PostgresEnum` and render it with its type name.
+/// `#[derive(PostgresEnum)]` implements it for enums stored as a native
+/// `PostgreSQL` enum type; integer-backed (`#[repr(...)]`) enums do not get it.
+/// It lets a [`PostgresValue`] hold any enum value as `dyn PostgresEnum` and
+/// bind it with its type name.
 #[allow(clippy::wrong_self_convention)]
 pub trait PostgresEnum: Send + Sync + Any {
     /// Returns the `PostgreSQL` enum type name, such as `"mood"`.

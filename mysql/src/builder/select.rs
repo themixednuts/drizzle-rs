@@ -160,8 +160,9 @@ impl drizzle_core::ClauseAllowed<drizzle_core::clause::Simple> for SelectHavingS
 /// set operations (`union`, `intersect`, `except` and their `_all` forms).
 /// Every state from `from` on, except a compound query, accepts a locking
 /// clause (`for_update`, `for_share`) and [`into_cte`](Self::into_cte).
-/// A finished query can be used as a subquery, named as a derived table
-/// with [`alias`](Self::alias), or compiled with [`prepare`](Self::prepare).
+/// A finished query can be named as a derived table with
+/// [`alias`](Self::alias) or compiled with [`prepare`](Self::prepare); one
+/// without a locking clause can also be a subquery or an `INSERT` source.
 ///
 /// # Compile-time checks
 ///
@@ -424,8 +425,9 @@ macro_rules! join_on_method {
         /// to join on its foreign key to the previous table. The source can be
         /// a table, a derived table (see [`alias`](Self::alias)), or a table
         /// with an index hint (see [`MySQLIndexHintExt`](crate::helpers::MySQLIndexHintExt)).
-        /// With `select(())`, a LEFT or RIGHT join makes the side that may be
-        /// missing an `Option` in the row type.
+        /// After a LEFT or RIGHT join, selected columns of the side that may
+        /// be missing decode as `Option`; with `select(())`, that side's
+        /// whole model is an `Option` in the row.
         ///
         /// # Examples
         ///
@@ -923,7 +925,8 @@ where
     ///
     /// Must be the last clause; only [`nowait`](Self::nowait) or
     /// [`skip_locked`](Self::skip_locked) can follow. Not available on a
-    /// compound query, and the result cannot be a set operand.
+    /// compound query, and the result cannot be a set operand, a subquery or
+    /// an `INSERT` source.
     ///
     /// # Examples
     ///

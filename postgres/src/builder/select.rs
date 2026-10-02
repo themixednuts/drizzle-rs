@@ -121,9 +121,11 @@ macro_rules! join_impl {
         paste! {
             /// Adds a join of the kind named by the method, with an `ON` condition.
             ///
-            /// Pass `(source, condition)`. For `LEFT`, `RIGHT` and `FULL`
-            /// joins, the outer-joined side's columns become nullable in the
-            /// result row type.
+            /// Pass `(source, condition)`, or a bare table to join on its
+            /// foreign key to the previous table. An outer join makes the
+            /// columns of its nullable side (the joined source for `LEFT`,
+            /// the earlier sources for `RIGHT`, both for `FULL`) decode as
+            /// `Option`.
             pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,
@@ -234,10 +236,12 @@ impl drizzle_core::ClauseAllowed<drizzle_core::clause::Source> for SelectForSet 
 /// A `PostgreSQL` `SELECT` being built: a [`QueryBuilder`](super::QueryBuilder)
 /// in one of the `Select*` states.
 ///
-/// `State` limits which clause can come next. `Table`, `Marker`, `Row` and
-/// `Grouped` track the sources in scope, the selected columns, the row type
-/// and the `GROUP BY` columns, so the compiler can reject columns that are
-/// not in scope or not grouped.
+/// `State` limits which clause can come next. `Table` is the source added
+/// last (a bare-table `.join(...)` derives its `ON` condition from it).
+/// `Marker` records the selection, the FROM/JOIN scope and the sources each
+/// clause reads; `Row` is the decoded row type; `Grouped` lists the
+/// `GROUP BY` columns. With these the compiler rejects columns that are not
+/// in scope or not grouped, at the method that runs the query.
 ///
 /// # Examples
 ///
@@ -441,7 +445,11 @@ where
 {
     /// Adds an inner `JOIN ... ON ...`.
     ///
-    /// Pass `(source, condition)`. Other join kinds have their own methods:
+    /// Pass `(source, condition)`, or a bare table to join on its foreign key
+    /// to the previous table. The tables the condition reads are checked
+    /// against the query's scope at compile time, where the query is run
+    /// (`.all()`, `.get()`, `.rows()`).
+    /// Other join kinds have their own methods:
     /// `left_join`, `right_join`, `full_join`, `inner_join`, their `_outer`
     /// forms, `natural_*` joins, `*_join_using`, and the `*_lateral` joins.
     ///
@@ -720,7 +728,9 @@ where
     /// Adds `LEFT JOIN LATERAL (subquery) AS alias ON condition`.
     ///
     /// Like [`inner_join_lateral`](Self::inner_join_lateral), but keeps
-    /// left rows with no match; the subquery's columns become nullable.
+    /// left rows with no match. With `select(())` the lateral source decodes
+    /// as an `Option` of its row; an explicit column list may only read
+    /// sources joined before the lateral join.
     #[inline]
     #[allow(clippy::type_complexity)]
     pub fn left_join_lateral<J, SelectionProof>(
@@ -820,7 +830,9 @@ where
     ///
     /// The condition must be boolean, such as `eq(...)`, `and(...)` or a
     /// `boolean` column. Every column it uses must come from a source in
-    /// `FROM` or a join; this is checked when the query is run.
+    /// `FROM` or a join. The compiler checks this where the query is run
+    /// (`.all()`, `.get()`, `.rows()`): a column of another table fails there
+    /// with "`X` is not in this query's FROM/JOIN scope".
     ///
     /// # Examples
     ///
@@ -1093,8 +1105,9 @@ where
 {
     /// Adds `ORDER BY`.
     ///
-    /// Pass a column (ascending by default), `asc(col)` / `desc(col)`, or an
-    /// array or tuple of them.
+    /// Pass a column (ascending by default), `asc(col)` / `desc(col)`, or a
+    /// tuple of them. An array also works when every term reads the same
+    /// table; terms over different tables go in a tuple.
     ///
     /// # Examples
     ///
@@ -1602,8 +1615,8 @@ where
 {
     /// Combines this query with `other` using `UNION`, which drops duplicate rows.
     ///
-    /// Both queries must select the same number of columns with compatible
-    /// types. The `union_all`, `intersect`, `intersect_all`, `except` and
+    /// Both queries must decode to the same row type, which the compiler
+    /// checks. The `union_all`, `intersect`, `intersect_all`, `except` and
     /// `except_all` methods work the same way.
     ///
     /// # Examples

@@ -110,9 +110,9 @@
 //! | Method      | Runs the query and returns                                      |
 //! |-------------|-----------------------------------------------------------------|
 //! | `.all()`    | every row, decoded into `Vec<R>`                                |
-//! | `.get()`    | the first row, or an error when there is none                   |
-//! | `.rows()`   | a cursor over the rows, decoded into the query's own row type   |
-//! | `.execute()`| the number of rows changed (for `INSERT`/`UPDATE`/`DELETE`)     |
+//! | `.get()`    | one row; an error when there is none (PostgreSQL: not exactly one) |
+//! | `.rows()`   | an iterator over the rows, decoded into the query's own row type |
+//! | `.execute()`| the number of rows changed (MySQL: a `MySQLMutationResult`)    |
 //!
 //! Comparison and boolean helpers such as `eq`, `gt`, `and`, and `count` live
 //! in [`core::expr`]. A tuple of conditions means `AND`. The ordering helpers
@@ -398,13 +398,14 @@ pub use drizzle_types::Casing;
 #[doc(hidden)]
 pub use const_format;
 
-/// Error types.
+/// The error type every driver returns: [`DrizzleError`](error::DrizzleError).
 pub mod error {
     #[doc(inline)]
     pub use drizzle_core::error::DrizzleError;
 }
 
-/// DDL types and schema definitions.
+/// Per-dialect SQL type descriptions and DDL objects (tables, columns,
+/// indexes, ...), as used by schema snapshots and migrations.
 pub mod ddl {
     #[doc(inline)]
     pub use drizzle_types::mysql;
@@ -414,14 +415,17 @@ pub mod ddl {
     pub use drizzle_types::sqlite;
 }
 
-/// Migration helpers and schema snapshots.
+/// Migrations and schema snapshots: [`Migration`](migrations::Migration),
+/// [`Tracking`](migrations::Tracking), and the types `migrate`, `push`, and
+/// `introspect` use.
 #[cfg(feature = "std")]
 pub mod migrations {
     #[doc(inline)]
     pub use drizzle_migrations::*;
 }
 
-/// Core traits, SQL types, and expressions shared across drivers.
+/// The dialect-independent parts: core traits, SQL type markers,
+/// expressions ([`expr`](core::expr)), and SQL building blocks.
 pub mod core {
     /// SQL building blocks.
     #[doc(inline)]
@@ -552,6 +556,12 @@ pub mod sqlite {
         helpers, pragma, traits, types, values,
     };
 
+    /// Blocking SQLite driver over a [`rusqlite::Connection`](::rusqlite::Connection).
+    ///
+    /// Create a handle with `Drizzle::new(conn)` ([`Drizzle`](rusqlite::Drizzle));
+    /// queries run with `.execute()`, `.all()`, `.get()`, and `.rows()`, and
+    /// `db.transaction(..)` hands its closure a
+    /// [`Transaction`](rusqlite::Transaction).
     #[cfg(feature = "rusqlite")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rusqlite")))]
     pub mod rusqlite {
@@ -563,6 +573,11 @@ pub mod sqlite {
         pub use ::rusqlite::{Error, Result, Row, types};
     }
 
+    /// Async SQLite driver over a [`libsql::Connection`](::libsql::Connection)
+    /// (local files, remote Turso databases, and embedded replicas).
+    ///
+    /// The same API as the rusqlite driver, with `.await` on every call that
+    /// runs SQL.
     #[cfg(feature = "libsql")]
     #[cfg_attr(docsrs, doc(cfg(feature = "libsql")))]
     pub mod libsql {
@@ -574,6 +589,11 @@ pub mod sqlite {
         pub use ::libsql::{Row, Value};
     }
 
+    /// Async SQLite driver over a [`turso::Connection`](::turso::Connection),
+    /// an SQLite-compatible database written in Rust.
+    ///
+    /// The same API as the rusqlite driver, with `.await` on every call that
+    /// runs SQL.
     #[cfg(feature = "turso")]
     #[cfg_attr(docsrs, doc(cfg(feature = "turso")))]
     pub mod turso {
@@ -668,6 +688,10 @@ pub mod postgres {
     #[doc(inline)]
     pub use drizzle_postgres::aws_data_api;
 
+    /// Blocking PostgreSQL driver over a [`postgres::Client`](::postgres::Client).
+    ///
+    /// Query methods take `&mut Drizzle`, because the client needs mutable
+    /// access to run statements.
     #[cfg(feature = "postgres-sync")]
     #[cfg_attr(docsrs, doc(cfg(feature = "postgres-sync")))]
     pub mod sync {
@@ -745,7 +769,24 @@ pub mod postgres {
     }
 }
 
-/// `MySQL` dialect, query builders, values, and adapters.
+/// `MySQL` table macros, query builders, values, and the `mysql-sync` and
+/// `mysql-async` adapters.
+///
+/// The supported server is Oracle MySQL 8.0.31 or newer; MariaDB and
+/// SingleStore are not covered. The adapters take their TLS settings from the
+/// `mysql` or `mysql_async` connection or pool the application passes in.
+///
+/// Both adapters set each connection's session time zone to UTC and remove
+/// `NO_UNSIGNED_SUBTRACTION` and `REAL_AS_FLOAT` from its SQL mode before
+/// typed queries, so temporal and numeric values decode into the Rust types
+/// the schema declares.
+///
+/// Upserts use `on_duplicate_key_update`. `RETURNING`, full joins,
+/// partial-index predicates, and PostgreSQL's `UPDATE ... FROM` do not exist
+/// here. An `OFFSET` without a `LIMIT` renders `LIMIT 9223372036854775807`,
+/// and string concatenation renders `CONCAT(...)`, never `||`.
+///
+/// # Examples
 ///
 /// ```
 /// use drizzle::ddl::mysql::{MySQLType, MySQLTypeCategory};
@@ -754,19 +795,7 @@ pub mod postgres {
 /// };
 /// ```
 ///
-/// First-class compatibility targets Oracle MySQL 8.0.31 and newer. MariaDB
-/// and SingleStore are not part of this compatibility contract. The concrete
-/// adapters inherit TLS configuration from the upstream `mysql` or
-/// `mysql_async` resource supplied by the application.
-///
-/// Both adapters set each connection's session time zone to UTC and remove
-/// `NO_UNSIGNED_SUBTRACTION` and `REAL_AS_FLOAT` before typed queries. This makes
-/// temporal decoding and numeric types agree with the static Rust types.
-///
-/// MySQL upserts use `InsertBuilder::on_duplicate_key_update`. SQL `RETURNING`,
-/// full joins, partial-index predicates, and PostgreSQL `UPDATE ... FROM` are
-/// intentionally absent. Offset-only queries render MySQL's maximum-limit
-/// sentinel, and typed string concatenation renders `CONCAT(...)`, never `||`.
+/// There is no `UPDATE ... FROM` state to name:
 ///
 /// ```compile_fail
 /// use drizzle::mysql::builder::UpdateFromSet;

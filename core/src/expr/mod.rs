@@ -259,6 +259,7 @@ pub struct MixedAgg;
 /// | AllAgg | AllAgg | AllAgg |
 /// | anything else | _ | MixedAgg |
 pub trait CombineAggStatus<Rhs> {
+    /// The combined status.
     type Output;
 }
 
@@ -295,6 +296,7 @@ impl CombineAggStatus<Self> for MixedAgg {
 /// Implemented for columns (always [`AllScalar`]), [`SQLExpr`], and the
 /// expression wrappers in this module.
 pub trait HasAggStatus {
+    /// [`AllScalar`], [`AllAgg`] or [`MixedAgg`].
     type Status;
 }
 

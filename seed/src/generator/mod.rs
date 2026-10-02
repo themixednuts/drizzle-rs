@@ -72,51 +72,53 @@ pub use rand::RngCore;
 pub enum GeneratorKind {
     /// Sequential integers starting at 1 (row index + 1).
     IntPrimaryKey,
-    /// Regular integer
+    /// Random integer from 0 to 10 000.
     Int,
-    /// Floating point
+    /// Random number from 0 up to 10 000, rounded to 2 decimals.
     Float,
-    /// Boolean
+    /// Random boolean.
     Bool,
-    /// Generic text string
+    /// 5 to 50 random lowercase letters.
     Text,
-    /// First name
+    /// First name from a built-in list.
     FirstName,
-    /// Last name
+    /// Last name from a built-in list.
     LastName,
-    /// Full name (first + last)
+    /// First and last name.
     FullName,
-    /// Email address
+    /// `first.last{row}@domain`; the row index keeps emails unique.
     Email,
-    /// Phone number
+    /// US-style phone number, `(555) 555-5555`.
     Phone,
-    /// City name
+    /// City name from a built-in list.
     City,
-    /// Country name
+    /// Country name from a built-in list.
     Country,
-    /// Street address
+    /// Street address, `123 Name Street`.
     Address,
-    /// Job title
+    /// Job title from a built-in list.
     JobTitle,
-    /// Company name
+    /// Company name: a last name and a suffix, such as `Smith Inc`.
     Company,
-    /// Lorem ipsum text
+    /// Ten words of lorem ipsum.
     LoremIpsum,
-    /// UUID v4
+    /// Random UUID v4 as text (`8-4-4-4-12` hex).
     Uuid,
-    /// JSON object
+    /// Small JSON object as text.
     Json,
-    /// Date (YYYY-MM-DD)
+    /// Date between 2000 and 2030 as `YYYY-MM-DD`; for an integer column
+    /// type, approximate Unix milliseconds instead.
     Date,
-    /// Timestamp (YYYY-MM-DD HH:MM:SS)
+    /// Timestamp between 2000 and 2030 as `YYYY-MM-DD HH:MM:SS`; for an
+    /// integer column type, approximate Unix milliseconds instead.
     Timestamp,
-    /// Time (HH:MM:SS)
+    /// Time of day, `HH:MM:SS`.
     Time,
-    /// Time with timezone (HH:MM:SS+00)
+    /// Time of day with a UTC offset, `HH:MM:SS+HH`.
     TimeTz,
-    /// Interval (e.g. "12 hours")
+    /// `PostgreSQL` interval of 1 to 72 hours, such as `"12 hours"`.
     Interval,
-    /// Binary blob
+    /// 32 random bytes.
     Blob,
     /// `PostgreSQL` INET
     PgInet,
@@ -140,11 +142,11 @@ pub enum GeneratorKind {
     PgPolygon,
     /// `PostgreSQL` CIRCLE
     PgCircle,
-    /// `PostgreSQL` BIT
+    /// `PostgreSQL` BIT: 8 random bits.
     PgBit,
-    /// `PostgreSQL` VARBIT
+    /// `PostgreSQL` VARBIT: 1 to 32 random bits.
     PgVarBit,
-    /// `PostgreSQL` arrays (generic empty array literal)
+    /// `PostgreSQL` array: always the empty array literal `{}`.
     PgArray,
 }
 

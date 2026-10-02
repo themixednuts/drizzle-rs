@@ -1,4 +1,9 @@
-//! Typed MySQL DDL collection and single-database-scope validation.
+//! [`MySQLDDL`], the typed MySQL schema model, and its validation.
+//!
+//! Also adds MySQL lookups to [`EntityCollection`]. Every entity carries an
+//! optional `database`; `None` means the connection's selected database. A
+//! valid model names at most one database, and once any entity names it,
+//! every entity must.
 
 use super::ddl::{
     CheckConstraint, Column, ForeignKey, Index, MySQLEntity, PrimaryKey, Table, UniqueConstraint,
@@ -9,6 +14,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 impl EntityCollection<Table> {
+    /// Finds the table `name` in `database` (`None` for unqualified).
     #[must_use]
     pub fn one(&self, database: Option<&str>, name: &str) -> Option<&Table> {
         self.entities
@@ -20,6 +26,7 @@ impl EntityCollection<Table> {
 macro_rules! table_children {
     ($ty:ty) => {
         impl EntityCollection<$ty> {
+            /// Finds the entity `name` on `table` in `database`.
             #[must_use]
             pub fn one(&self, database: Option<&str>, table: &str, name: &str) -> Option<&$ty> {
                 self.entities.iter().find(|entity| {
@@ -29,6 +36,7 @@ macro_rules! table_children {
                 })
             }
 
+            /// Returns every entity on `table` in `database`, in insertion order.
             #[must_use]
             pub fn for_table(&self, database: Option<&str>, table: &str) -> Vec<&$ty> {
                 self.entities
@@ -75,6 +83,7 @@ fn validate_children<'a, T>(
 }
 
 impl EntityCollection<PrimaryKey> {
+    /// Returns the primary key of `table` in `database`, if any.
     #[must_use]
     pub fn for_table(&self, database: Option<&str>, table: &str) -> Option<&PrimaryKey> {
         self.entities
@@ -84,6 +93,7 @@ impl EntityCollection<PrimaryKey> {
 }
 
 impl EntityCollection<View> {
+    /// Finds the view `name` in `database`.
     #[must_use]
     pub fn one(&self, database: Option<&str>, name: &str) -> Option<&View> {
         self.entities
@@ -92,20 +102,33 @@ impl EntityCollection<View> {
     }
 }
 
-/// Structured MySQL entities in deterministic category order.
+/// A MySQL schema as one entity collection per kind.
+///
+/// Build it with [`try_from_entities`](Self::try_from_entities) to get a
+/// validated model, or [`from_entities`](Self::from_entities) to skip
+/// validation.
 #[derive(Clone, Debug, Default)]
 pub struct MySQLDDL {
+    /// Tables.
     pub tables: EntityCollection<Table>,
+    /// Columns.
     pub columns: EntityCollection<Column>,
+    /// Indexes.
     pub indexes: EntityCollection<Index>,
+    /// Primary keys (at most one per table).
     pub pks: EntityCollection<PrimaryKey>,
+    /// Unique constraints.
     pub uniques: EntityCollection<UniqueConstraint>,
+    /// Foreign keys.
     pub fks: EntityCollection<ForeignKey>,
+    /// Check constraints.
     pub checks: EntityCollection<CheckConstraint>,
+    /// Views.
     pub views: EntityCollection<View>,
 }
 
-/// Invalid MySQL snapshot structure.
+/// Why a MySQL entity set is not a valid [`MySQLDDL`]. Each variant's
+/// message names the offending entity.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ValidationError {
     #[error("MySQL migration snapshot contains multiple database scopes: `{first}` and `{second}`")]
@@ -150,11 +173,13 @@ pub enum ValidationError {
 }
 
 impl MySQLDDL {
+    /// Creates an empty model.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sorts `entities` into their collections, without validation.
     #[must_use]
     pub fn from_entities(entities: Vec<MySQLEntity>) -> Self {
         let mut ddl = Self::new();
@@ -192,7 +217,16 @@ impl MySQLDDL {
         }
     }
 
-    /// Build and validate a complete MySQL entity graph.
+    /// Builds a validated model from `entities`.
+    ///
+    /// Unqualified entities are qualified with the one database any entity
+    /// names, and views without an algorithm or SQL security get MySQL's
+    /// defaults (`UNDEFINED`, `DEFINER`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ValidationError`] if the entities name more than one
+    /// database or fail [`validate`](Self::validate).
     pub fn try_from_entities(entities: Vec<MySQLEntity>) -> Result<Self, ValidationError> {
         let mut ddl = Self::from_entities(entities);
         ddl.resolve_database_scope()?;
@@ -246,6 +280,7 @@ impl MySQLDDL {
         Ok(())
     }
 
+    /// Adds `entity` to the matching collection.
     pub fn push_entity(&mut self, entity: MySQLEntity) {
         match entity {
             MySQLEntity::Table(entity) => self.tables.push(entity),
@@ -259,7 +294,8 @@ impl MySQLDDL {
         }
     }
 
-    /// Serialize entities in a stable dependency-oriented category order.
+    /// Returns every entity in the order snapshots store them: tables,
+    /// columns, primary keys, uniques, indexes, foreign keys, checks, views.
     #[must_use]
     pub fn to_entities(&self) -> Vec<MySQLEntity> {
         self.tables
@@ -289,6 +325,7 @@ impl MySQLDDL {
             .collect()
     }
 
+    /// Returns `true` if every collection is empty.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.tables.is_empty()
@@ -301,7 +338,13 @@ impl MySQLDDL {
             && self.views.is_empty()
     }
 
-    /// The one explicit database named by this snapshot, if any.
+    /// Returns the one database any entity (or foreign-key target) names, or
+    /// `None` if all are unqualified.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidationError::MultipleDatabases`] if two databases are
+    /// named.
     pub fn database_scope(&self) -> Result<Option<String>, ValidationError> {
         let mut scope: Option<String> = None;
         let mut observe = |database: Option<&str>| -> Result<(), ValidationError> {
@@ -329,6 +372,13 @@ impl MySQLDDL {
         Ok(scope)
     }
 
+    /// Checks that at most one database is named and that, if one is, every
+    /// entity names it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidationError::MultipleDatabases`] or
+    /// [`ValidationError::MixedDatabaseQualification`].
     pub fn validate_database_scope(&self) -> Result<(), ValidationError> {
         let scope = self.database_scope()?;
         if let Some(database) = scope {
@@ -348,7 +398,13 @@ impl MySQLDDL {
         Ok(())
     }
 
-    /// Validate identity, parentage, and one-database scope.
+    /// Checks database scope, unique names, that child entities belong to an
+    /// existing table and column, and that foreign keys, indexes, and views
+    /// are well formed.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ValidationError`] found.
     pub fn validate(&self) -> Result<(), ValidationError> {
         self.validate_database_scope()?;
         let table_keys: HashSet<_> = self
@@ -639,17 +695,25 @@ impl MySQLDDL {
     }
 }
 
-/// Entity sets attached to one table.
+/// Everything attached to one table; returned by
+/// [`MySQLDDL::table_entities`].
 pub struct TableEntities<'a> {
+    /// Columns.
     pub columns: Vec<&'a Column>,
+    /// Indexes.
     pub indexes: Vec<&'a Index>,
+    /// Primary key, if any.
     pub primary_key: Option<&'a PrimaryKey>,
+    /// Unique constraints.
     pub uniques: Vec<&'a UniqueConstraint>,
+    /// Foreign keys declared on the table.
     pub foreign_keys: Vec<&'a ForeignKey>,
+    /// Check constraints.
     pub checks: Vec<&'a CheckConstraint>,
 }
 
 impl MySQLDDL {
+    /// Returns the entities attached to `table` in `database`.
     #[must_use]
     pub fn table_entities<'a>(&'a self, database: Option<&str>, table: &str) -> TableEntities<'a> {
         TableEntities {

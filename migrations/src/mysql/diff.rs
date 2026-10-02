@@ -1,7 +1,14 @@
 //! Deterministic MySQL schema diffing.
 //!
-//! The planner emits dependency phases instead of relying on entity insertion
-//! order. It rejects database-scope changes and never invents database DDL.
+//! [`compute_migration_with`] compares two [`MySQLDDL`]s and returns typed
+//! statements, their SQL, and data-loss warnings. Statements are ordered in
+//! dependency phases (drops before creates, tables before the indexes and
+//! foreign keys that need them, views in dependency order) rather than entity
+//! insertion order. The planner never guesses renames, rejects changes to the
+//! selected database scope, and never emits `CREATE`/`DROP DATABASE`.
+//!
+//! Most callers go through [`crate::diff_with`], which forwards its rename
+//! hints and strict mode here.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,42 +28,58 @@ use super::statements::{
 /// Explicit table rename within the selected database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableRename {
+    /// Database qualifier; `None` for the selected database.
     pub database: Option<String>,
+    /// Current table name.
     pub from: String,
+    /// New table name.
     pub to: String,
 }
 
 /// Explicit column rename within the selected database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnRename {
+    /// Database qualifier; `None` for the selected database.
     pub database: Option<String>,
+    /// Table containing the column (its name after any table rename).
     pub table: String,
+    /// Current column name.
     pub from: String,
+    /// New column name.
     pub to: String,
 }
 
 /// Explicit view rename within the selected database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewRename {
+    /// Database qualifier; `None` for the selected database.
     pub database: Option<String>,
+    /// Current view name.
     pub from: String,
+    /// New view name.
     pub to: String,
 }
 
-/// MySQL-specific rename inputs. The planner never guesses a rename.
+/// Explicit renames for the MySQL planner, which never guesses one: without
+/// a hint, a rename becomes a drop plus a create.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RenameHints {
+    /// Table renames.
     pub tables: Vec<TableRename>,
+    /// Column renames.
     pub columns: Vec<ColumnRename>,
+    /// View renames.
     pub views: Vec<ViewRename>,
 }
 
 impl RenameHints {
+    /// Creates an empty set of hints.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Adds a table rename in the selected database.
     #[must_use]
     pub fn table(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.tables.push(TableRename {
@@ -67,6 +90,7 @@ impl RenameHints {
         self
     }
 
+    /// Adds a column rename on `table` in the selected database.
     #[must_use]
     pub fn column(
         mut self,
@@ -83,6 +107,7 @@ impl RenameHints {
         self
     }
 
+    /// Adds a view rename in the selected database.
     #[must_use]
     pub fn view(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         self.views.push(ViewRename {
@@ -94,11 +119,16 @@ impl RenameHints {
     }
 }
 
-/// Options for the standalone MySQL planner.
+/// Options for [`compute_migration_with`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DiffOptions {
+    /// Explicit renames, applied before diffing.
     pub renames: RenameHints,
+    /// When `true`, a hint that does not match the snapshots is an error
+    /// instead of being skipped.
     pub strict_renames: bool,
+    /// Live database defaults, for push planning against an introspected
+    /// database.
     pub catalog_defaults: Option<MySQLCatalogDefaults>,
 }
 
@@ -108,29 +138,36 @@ pub struct DiffOptions {
 /// which introspection intentionally omits when they are inherited.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MySQLCatalogDefaults {
+    /// Default storage engine (`@@default_storage_engine`).
     pub engine: Option<String>,
+    /// Database default character set.
     pub charset: Option<String>,
+    /// Database default collation.
     pub collation: Option<String>,
 }
 
 impl MySQLCatalogDefaults {
+    /// Creates defaults with every value unknown.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the default engine.
     #[must_use]
     pub fn engine(mut self, engine: impl Into<String>) -> Self {
         self.engine = Some(engine.into());
         self
     }
 
+    /// Sets the default character set.
     #[must_use]
     pub fn charset(mut self, charset: impl Into<String>) -> Self {
         self.charset = Some(charset.into());
         self
     }
 
+    /// Sets the default collation.
     #[must_use]
     pub fn collation(mut self, collation: impl Into<String>) -> Self {
         self.collation = Some(collation.into());
@@ -138,7 +175,13 @@ impl MySQLCatalogDefaults {
     }
 }
 
-/// A structural migration warning which does not require live row counts.
+/// A possible data-loss or integrity risk in a planned migration.
+///
+/// Decided from the schemas alone (no row counts). The [`Display`]
+/// impl gives the human-readable message that also appears in
+/// [`MigrationDiff::warnings`].
+///
+/// [`Display`]: std::fmt::Display
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MySQLWarning {
     DropTable {
@@ -237,17 +280,24 @@ impl std::fmt::Display for MySQLWarning {
     }
 }
 
-/// Successful MySQL migration plan.
+/// A planned MySQL migration.
 #[derive(Debug, Clone, Default)]
 pub struct MigrationDiff {
+    /// Typed operations, in execution order.
     pub statements: Vec<MySQLStatement>,
+    /// Rendered SQL; one operation may render to more than one statement.
     pub sql_statements: Vec<String>,
+    /// Applied rename hints as `table:from:to`, `column:table:from:to`, or
+    /// `view:from:to` strings.
     pub renames: Vec<String>,
+    /// Data-loss and integrity warnings.
     pub typed_warnings: Vec<MySQLWarning>,
+    /// [`typed_warnings`](Self::typed_warnings) as messages.
     pub warnings: Vec<String>,
 }
 
-/// MySQL schema planning failure.
+/// Why a MySQL migration could not be planned. Each variant's message
+/// describes the problem.
 #[derive(Debug, Error)]
 pub enum DiffError {
     #[error("MySQL snapshot contains more than one explicit database: {databases:?}")]
@@ -1851,12 +1901,25 @@ fn order_views(views: Vec<&model::View>) -> Result<Vec<&model::View>, DiffError>
     Ok(ordered)
 }
 
-/// Computes a MySQL migration without rename inference.
+/// Computes a MySQL migration with default [`DiffOptions`] (no rename hints).
+///
+/// # Errors
+///
+/// See [`compute_migration_with`].
 pub fn compute_migration(prev: &MySQLDDL, cur: &MySQLDDL) -> Result<MigrationDiff, DiffError> {
     compute_migration_with(prev, cur, &DiffOptions::default())
 }
 
-/// Computes a deterministic, dependency-phased MySQL migration.
+/// Computes a deterministic, dependency-phased MySQL migration from `prev` to
+/// `cur`.
+///
+/// # Errors
+///
+/// Returns a [`DiffError`] if either DDL fails validation, the two use
+/// different database scopes, a foreign key or generated column breaks a
+/// MySQL rule, a rename hint is invalid (or unmatched under
+/// `strict_renames`), a table option change cannot be expressed, views form
+/// a dependency cycle, or a statement cannot be rendered.
 pub fn compute_migration_with(
     prev: &MySQLDDL,
     cur: &MySQLDDL,

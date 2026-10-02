@@ -34,7 +34,8 @@ impl<'a, V: SQLParam, T> ValueWrapper<'a, V, T> {
 /// One column of a row in an `INSERT`: omitted, `NULL`, or a value or SQL expression.
 ///
 /// Generated `Insert*` models store their fields as this type. `T` is the
-/// column's Rust type, used to check what can be assigned.
+/// column's Rust type, used to check what can be assigned. Converting an
+/// `Option` maps `None` to [`Omit`](Self::Omit), not to `NULL`.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum PostgresInsertValue<'a, V: SQLParam, T> {

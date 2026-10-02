@@ -78,7 +78,9 @@ pub trait Compatible<Rhs: DataType = Self>: DataType {}
 ///   `Timestamptz` accepts `Timestamp`; `Timetz` accepts `Time`; `Jsonb`
 ///   accepts `Json`; `Cidr` accepts `Inet`.
 /// - **MySQL**: integers widen within range (an unsigned source fits a signed
-///   target only when its whole range does); `Float`, `Double` and `Decimal`
+///   target only when its whole range does), except that `MediumInt` and
+///   `MediumIntUnsigned` also accept `Int` and `IntUnsigned` (Rust has no
+///   24-bit integer; the server checks the range); `Float`, `Double` and `Decimal`
 ///   accept integers, `Double` accepts `Float`, and `Decimal` accepts both;
 ///   `Year` accepts `SmallIntUnsigned`; text types accept each other, `Enum`
 ///   and `Set`, and `Enum` and `Set` accept text; `Decimal`, `Json` and the
@@ -112,7 +114,6 @@ pub trait Compatible<Rhs: DataType = Self>: DataType {}
 ///
 /// assignable::<Int4, Int8>(); // an i64 does not fit in an integer column
 /// ```
-
 #[diagnostic::on_unimplemented(
     message = "SQL type `{Self}` is not assignable from `{Rhs}`",
     label = "this value type cannot be bound to the placeholder/column type",

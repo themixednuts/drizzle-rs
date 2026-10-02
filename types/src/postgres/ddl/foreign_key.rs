@@ -1,6 +1,7 @@
-//! `PostgreSQL` Foreign Key DDL types
+//! `PostgreSQL` foreign keys: [`ForeignKeyDef`] (const) and [`ForeignKey`]
+//! (runtime).
 //!
-//! See: <https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts>
+//! Mirrors drizzle-kit's [`ddl.ts`](https://github.com/drizzle-team/drizzle-orm/blob/beta/drizzle-kit/src/dialects/postgres/ddl.ts).
 
 use crate::alloc_prelude::*;
 
@@ -27,7 +28,7 @@ pub enum ReferentialAction {
 }
 
 impl ReferentialAction {
-    /// Get the SQL representation
+    /// Returns the SQL representation.
     #[must_use]
     pub const fn as_sql(&self) -> &'static str {
         match self {
@@ -39,7 +40,8 @@ impl ReferentialAction {
         }
     }
 
-    /// Parse from SQL string
+    /// Parses the SQL keywords, ignoring case. Returns `None` for anything
+    /// else.
     #[must_use]
     pub fn from_sql(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
@@ -57,7 +59,7 @@ impl ReferentialAction {
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly foreign key definition
+/// A foreign key definition that can be built in a `const`.
 ///
 /// # Examples
 ///
@@ -102,7 +104,7 @@ pub struct ForeignKeyDef {
 }
 
 impl ForeignKeyDef {
-    /// Create a new foreign key definition
+    /// Creates a foreign key definition.
     #[must_use]
     pub const fn new(schema: &'static str, table: &'static str, name: &'static str) -> Self {
         Self {
@@ -192,7 +194,7 @@ impl ForeignKeyDef {
         }
     }
 
-    /// Convert to runtime [`ForeignKey`] type
+    /// Converts to the runtime [`ForeignKey`].
     #[must_use]
     pub const fn into_foreign_key(self) -> ForeignKey {
         ForeignKey {
@@ -228,11 +230,7 @@ impl Default for ForeignKeyDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime foreign key constraint entity
-///
-/// Uses `Cow<'static, str>` for all string fields, which works with both:
-/// - Borrowed data from const definitions (`Cow::Borrowed`)
-/// - Owned data from deserialization/introspection (`Cow::Owned`)
+/// A foreign key, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForeignKey {
     /// Schema name
@@ -273,7 +271,7 @@ pub struct ForeignKey {
 }
 
 impl ForeignKey {
-    /// Create a new foreign key
+    /// Creates a foreign key.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -296,7 +294,7 @@ impl ForeignKey {
         }
     }
 
-    /// Create a new foreign key from owned strings (convenience for runtime construction)
+    /// Creates a foreign key from owned strings.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_strings(
@@ -353,35 +351,35 @@ impl ForeignKey {
         self
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the constraint name
+    /// Returns the constraint name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {
         &self.table
     }
 
-    /// Get the referenced table name
+    /// Returns the referenced table name.
     #[inline]
     #[must_use]
     pub fn table_to(&self) -> &str {
         &self.table_to
     }
 
-    /// Get the referenced schema name
+    /// Returns the referenced schema name.
     #[inline]
     #[must_use]
     pub fn schema_to(&self) -> &str {

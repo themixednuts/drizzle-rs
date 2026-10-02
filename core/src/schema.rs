@@ -1,3 +1,9 @@
+//! Schema metadata for database enums, and `ORDER BY` terms.
+//!
+//! [`asc`] and [`desc`] (re-exported at the crate root) build the [`Ordered`]
+//! terms that `order_by` and window [`order_by`](crate::expr::WindowSpec::order_by)
+//! take. [`SQLEnumInfo`] is implemented by `#[PostgresEnum]`.
+
 use crate::prelude::*;
 use crate::{ToSQL, sql::SQL, traits::SQLParam};
 use core::any::Any;
@@ -8,7 +14,7 @@ use std::collections::BTreeSet;
 /// Schema metadata for a database enum type, such as a PostgreSQL
 /// `CREATE TYPE ... AS ENUM`.
 ///
-/// The enum derive macros implement it; schemas use it to create the type.
+/// Implemented by `#[PostgresEnum]`.
 pub trait SQLEnumInfo: Any + Send + Sync {
     /// The type name in the database.
     fn name(&self) -> &'static str;
@@ -237,6 +243,7 @@ pub(crate) fn topological_order<'a>(
     Ok(result)
 }
 
+/// Renders `ASC` or `DESC`.
 impl<'a, V: SQLParam + 'a> ToSQL<'a, V> for OrderBy {
     fn to_sql(&self) -> SQL<'a, V> {
         let sql_str = match self {

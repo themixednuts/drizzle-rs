@@ -1,6 +1,4 @@
-//! `PostgreSQL` type category definitions
-//!
-//! Provides type classification for both Rust type mapping and SQL parsing.
+//! Classification of Rust field types and `PostgreSQL` type declarations.
 
 use super::PostgreSQLType;
 
@@ -8,11 +6,12 @@ use super::PostgreSQLType;
 // TypeCategory - Rust type classification for code generation
 // =============================================================================
 
-/// The kind of a Rust field type, as the `PostgreSQL` macros see it.
+/// The kind of a Rust field type, for choosing a default `PostgreSQL` column
+/// type.
 ///
-/// The table macro classifies each field's type with
-/// [`from_type_string`](Self::from_type_string) and uses the result to pick
-/// the default column type.
+/// [`from_type_string`](Self::from_type_string) finds the category of a type
+/// written as a string, and [`to_postgres_type`](Self::to_postgres_type)
+/// gives its default column type.
 ///
 /// # Examples
 ///
@@ -43,9 +42,9 @@ pub enum TypeCategory {
     CharArray,
     /// `uuid::Uuid` - UUID type
     Uuid,
-    /// `serde_json::Value` - JSON type
+    /// `serde_json::Value` -> JSONB
     Json,
-    /// Any type with enum flag
+    /// A native enum. Never returned by `from_type_string`.
     Enum,
     /// `i16`
     I16,
@@ -90,21 +89,20 @@ pub enum TypeCategory {
     /// `cidr::IpCidr` -> CIDR
     Cidr,
     // ========== MAC address (with-eui48-1) ==========
-    /// `eui48::MacAddress` -> MACADDR
+    /// `eui48::MacAddress` -> MACADDR (needs the `cidr` feature)
     MacAddr,
     // ========== Bit types (with-bit-vec-0_8) ==========
     /// `bit_vec::BitVec` -> BIT VARYING
     BitVec,
-    /// Not recognised; the macro reports a compile error unless the column
-    /// type is given explicitly.
+    /// Not recognized.
     Unknown,
 }
 
 impl TypeCategory {
-    /// Detect the category from a type string representation.
-    ///
-    /// Order matters: more specific types (`ArrayString`) must be checked
-    /// before more general types (String).
+    /// Classifies a Rust type written as a string, such as `"Option<i64>"`
+    /// or `"chrono::NaiveDate"`. `Option<T>` classifies as `T`; spaces are
+    /// ignored. Unrecognized types (including `i8` and unsigned integers)
+    /// return [`TypeCategory::Unknown`].
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_type_string(type_str: &str) -> Self {
@@ -240,9 +238,11 @@ impl TypeCategory {
         }
     }
 
-    /// Infer the `PostgreSQL` type from this category.
+    /// Returns the default `PostgreSQL` column type for this category.
     ///
-    /// Returns `None` for Unknown types (should trigger compile error).
+    /// Returns `None` for `Enum` and `Unknown`, and for categories whose
+    /// column type needs a disabled feature (`uuid`, `serde` for JSON,
+    /// `geo-types`, `cidr`, `bit-vec`). JSON maps to `JSONB`.
     #[must_use]
     pub const fn to_postgres_type(&self) -> Option<PostgreSQLType> {
         match self {
@@ -322,7 +322,9 @@ impl TypeCategory {
         }
     }
 
-    /// Check if a constraint is valid for this type category.
+    /// Returns whether the column attribute `constraint` suits this type:
+    /// `serial` needs `I32`, `smallserial` `I16` and `bigserial` `I64`. Every
+    /// other attribute is accepted.
     #[must_use]
     pub const fn is_valid_constraint(&self, constraint: &str) -> bool {
         if constraint.eq_ignore_ascii_case("serial") {
@@ -341,9 +343,10 @@ impl TypeCategory {
 // PgTypeCategory - SQL type categories for parsing
 // =============================================================================
 
-/// `PostgreSQL` SQL type category for parsing SQL type strings.
+/// The family of a `PostgreSQL` type declaration, such as `varchar(255)` or
+/// `timestamp with time zone`, ignoring arguments.
 ///
-/// This categorizes SQL type declarations for migration/introspection purposes.
+/// Unrecognized types are [`Custom`](Self::Custom).
 ///
 /// # Examples
 ///
@@ -569,7 +572,11 @@ impl PgTypeCategory {
         None
     }
 
-    /// Determine the type category for a SQL type string
+    /// Classifies a SQL type declaration by its leading type name, ignoring
+    /// case and arguments. A trailing `with time zone` selects `TimestampTz`
+    /// or `TimeTz`. PostGIS `geometry(point, ...)` is `Geometry`; other
+    /// PostGIS types and anything unrecognized are `Custom`. Never returns
+    /// `Enum`.
     #[must_use]
     pub fn from_sql_type(sql_type: &str) -> Self {
         let normalized = sql_type.trim();
@@ -583,7 +590,8 @@ impl PgTypeCategory {
             .unwrap_or(Self::Custom)
     }
 
-    /// Get the drizzle import name for this type
+    /// Returns the name of the matching drizzle-orm (TypeScript) column
+    /// builder, such as `"doublePrecision"` or `"pgEnum"`.
     #[must_use]
     pub const fn drizzle_import(&self) -> &'static str {
         match self {
@@ -623,7 +631,7 @@ impl PgTypeCategory {
         }
     }
 
-    /// Check if this is a serial type
+    /// Returns `true` for `Serial`, `SmallSerial` and `BigSerial`.
     #[must_use]
     pub const fn is_serial(&self) -> bool {
         matches!(self, Self::Serial | Self::SmallSerial | Self::BigSerial)

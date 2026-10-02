@@ -216,7 +216,15 @@ impl core::fmt::Debug for LibsqlStatementCache {
     }
 }
 
-/// Shared `SQLite` drizzle connection wrapper.
+/// A SQLite connection paired with its schema: the handle every query starts
+/// from.
+///
+/// Each driver names it for its own connection type, such as
+/// `drizzle::sqlite::rusqlite::Drizzle<Schema>`. Create one with
+/// [`Drizzle::new`], start queries with [`select`](Self::select),
+/// [`insert`](Self::insert), [`update`](Self::update), and
+/// [`delete`](Self::delete), and reach the raw connection with
+/// [`conn`](Self::conn).
 #[derive(Debug)]
 pub struct Drizzle<Conn, Schema = ()> {
     pub(crate) conn: Conn,
@@ -1609,6 +1617,13 @@ macro_rules! impl_select_methods {
     (@method limit) => {
         /// Returns at most `limit` rows (`LIMIT n`).
         ///
+        /// Pass an integer, which is written into the SQL, or an integer
+        /// placeholder, which is bound when the query runs.
+        ///
+        /// # Panics
+        ///
+        /// Panics when an integer `limit` is negative or does not fit in `usize`.
+        ///
         /// # Examples
         ///
         /// ```
@@ -1642,6 +1657,10 @@ macro_rules! impl_select_methods {
     (@method offset) => {
         /// Skips the first `offset` rows (`OFFSET n`).
         ///
+        /// # Panics
+        ///
+        /// Panics when an integer `offset` is negative or does not fit in `usize`.
+        ///
         /// # Examples
         ///
         /// ```
@@ -1674,10 +1693,11 @@ macro_rules! impl_select_methods {
     (@method join) => {
         /// Adds a `JOIN` (an inner join).
         ///
-        /// Pass a table to join on the foreign key between it and a table already in
-        /// the query, or a `(table, condition)` pair to give the `ON` condition. The
-        /// joined table's columns come into scope. See also `left_join`,
-        /// `right_join`, `full_join`, and their `natural_` and `_outer` forms.
+        /// Pass a table to join on its foreign key to the previous table (the
+        /// `FROM` table, or the table joined last), or a `(table, condition)` pair
+        /// to give the `ON` condition yourself. The joined table's columns come
+        /// into scope. See also `left_join`, `right_join`, `full_join`, and their
+        /// `natural_` and `_outer` forms.
         ///
         /// # Examples
         ///
@@ -2240,8 +2260,8 @@ impl<'a, 'b, Runner, Schema, Table>
     /// Names the columns an `INSERT ... SELECT` fills, before
     /// [`select`](Self::select).
     ///
-    /// The list must include every required column (no default, not
-    /// autoincrement); this is checked at compile time.
+    /// The list must include every required column (`NOT NULL` with no
+    /// default); this is checked by the following `select(..)`.
     #[inline]
     pub fn columns<Columns>(
         self,

@@ -47,11 +47,12 @@ macro_rules! drizzle_builder_join_impl {
             /// Adds the join this method names: `left_join` renders `LEFT JOIN`,
             /// `full_outer_join` renders `FULL OUTER JOIN`, and so on.
             ///
-            /// Pass a table to join on the foreign key between it and a table
-            /// already in the query, or a `(table, condition)` pair to give the
-            /// `ON` condition. After a `LEFT`, `RIGHT`, or `FULL` join, the
-            /// columns of a side that can be missing decode as `Option<T>`;
-            /// this is checked when the query runs.
+            /// Pass a table to join on its foreign key to the previous table
+            /// (the `FROM` table, or the table joined last), or a
+            /// `(table, condition)` pair to give the `ON` condition yourself.
+            /// After a `LEFT`, `RIGHT`, or `FULL` join, the columns of a side
+            /// that can be missing decode as `Option<T>`; this is checked when
+            /// the query runs.
             pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,
@@ -204,11 +205,12 @@ macro_rules! drizzle_pg_builder_join_impl {
             /// Adds the join this method names: `left_join` renders `LEFT JOIN`,
             /// `full_outer_join` renders `FULL OUTER JOIN`, and so on.
             ///
-            /// Pass a table to join on the foreign key between it and a table
-            /// already in the query, or a `(table, condition)` pair to give the
-            /// `ON` condition. After a `LEFT`, `RIGHT`, or `FULL` join, the
-            /// columns of a side that can be missing decode as `Option<T>`;
-            /// this is checked when the query runs.
+            /// Pass a table to join on its foreign key to the previous table
+            /// (the `FROM` table, or the table joined last), or a
+            /// `(table, condition)` pair to give the `ON` condition yourself.
+            /// After a `LEFT`, `RIGHT`, or `FULL` join, the columns of a side
+            /// that can be missing decode as `Option<T>`; this is checked when
+            /// the query runs.
             pub fn [<$type _join>]<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
                 self,
                 arg: J,

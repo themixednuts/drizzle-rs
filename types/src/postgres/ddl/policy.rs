@@ -1,8 +1,5 @@
-//! `PostgreSQL` Policy DDL types
-//!
-//! This module provides two complementary types:
-//! - [`PolicyDef`] - A const-friendly definition type for compile-time schema definitions
-//! - [`Policy`] - A runtime type for serde serialization/deserialization
+//! `PostgreSQL` row-level security policies: [`PolicyDef`] (const) and
+//! [`Policy`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -13,7 +10,28 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string, cow_option_v
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly policy definition for compile-time schema definitions.
+/// A row-level security policy that can be built in a `const`.
+///
+/// Clause values are SQL as written: `as_clause` is `PERMISSIVE` or
+/// `RESTRICTIVE`, `for_clause` is `ALL`, `SELECT`, `INSERT`, `UPDATE` or
+/// `DELETE`, and `using` / `with_check` are boolean expressions.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_types::postgres::ddl::PolicyDef;
+///
+/// const OWNER_ONLY: PolicyDef = PolicyDef::new("public", "posts", "owner_only")
+///     .for_clause("select")
+///     .to(&["authenticated"])
+///     .using("author_id = current_user_id()");
+///
+/// assert_eq!(
+///     OWNER_ONLY.into_policy().create_policy_sql(),
+///     "CREATE POLICY \"owner_only\" ON \"posts\" AS PERMISSIVE FOR SELECT \
+///      TO \"authenticated\" USING (author_id = current_user_id());"
+/// );
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PolicyDef {
     /// Schema name
@@ -22,11 +40,11 @@ pub struct PolicyDef {
     pub table: &'static str,
     /// Policy name
     pub name: &'static str,
-    /// AS clause (PERMISSIVE/RESTRICTIVE)
+    /// `AS` clause: `PERMISSIVE` (the default when `None`) or `RESTRICTIVE`
     pub as_clause: Option<&'static str>,
-    /// FOR clause (ALL/SELECT/INSERT/UPDATE/DELETE)
+    /// `FOR` clause: `ALL`, `SELECT`, `INSERT`, `UPDATE` or `DELETE`
     pub for_clause: Option<&'static str>,
-    /// TO roles (comma-separated)
+    /// `TO` role names; `public` means `PUBLIC`
     pub to: Option<&'static [&'static str]>,
     /// USING expression
     pub using: Option<&'static str>,
@@ -35,7 +53,7 @@ pub struct PolicyDef {
 }
 
 impl PolicyDef {
-    /// Create a new policy definition
+    /// Creates a policy with no clauses set.
     #[must_use]
     pub const fn new(schema: &'static str, table: &'static str, name: &'static str) -> Self {
         Self {
@@ -50,7 +68,7 @@ impl PolicyDef {
         }
     }
 
-    /// Set AS clause
+    /// Sets the `AS` clause.
     #[must_use]
     pub const fn as_clause(self, clause: &'static str) -> Self {
         Self {
@@ -59,7 +77,7 @@ impl PolicyDef {
         }
     }
 
-    /// Set FOR clause
+    /// Sets the `FOR` clause.
     #[must_use]
     pub const fn for_clause(self, clause: &'static str) -> Self {
         Self {
@@ -68,7 +86,7 @@ impl PolicyDef {
         }
     }
 
-    /// Set TO roles
+    /// Sets the `TO` role names.
     #[must_use]
     pub const fn to(self, roles: &'static [&'static str]) -> Self {
         Self {
@@ -77,7 +95,7 @@ impl PolicyDef {
         }
     }
 
-    /// Set USING expression
+    /// Sets the `USING` expression.
     #[must_use]
     pub const fn using(self, expr: &'static str) -> Self {
         Self {
@@ -86,7 +104,7 @@ impl PolicyDef {
         }
     }
 
-    /// Set WITH CHECK expression
+    /// Sets the `WITH CHECK` expression.
     #[must_use]
     pub const fn with_check(self, expr: &'static str) -> Self {
         Self {
@@ -95,7 +113,7 @@ impl PolicyDef {
         }
     }
 
-    /// Convert to runtime [`Policy`] type
+    /// Converts to the runtime [`Policy`].
     #[must_use]
     pub fn into_policy(self) -> Policy {
         Policy {
@@ -117,7 +135,7 @@ impl PolicyDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime policy entity for serde serialization.
+/// A policy, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -193,7 +211,7 @@ pub struct Policy {
 }
 
 impl Policy {
-    /// Create a new policy (runtime)
+    /// Creates a policy.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -212,21 +230,21 @@ impl Policy {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {
         &self.table
     }
 
-    /// Get the policy name
+    /// Returns the policy name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

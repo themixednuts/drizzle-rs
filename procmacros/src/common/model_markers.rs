@@ -1,11 +1,8 @@
 //! Shared `PhantomData` marker-type generation for Insert models.
 //!
-//! Both `SQLiteTable` and `PostgresTable` Insert models track which fields
-//! have been set at compile time via a `PhantomData<(F0Set | F0NotSet, F1Set
-//! | F1NotSet, ...)>` tuple. The three helpers below were duplicated
-//! byte-for-byte across `procmacros/src/{sqlite,postgres}/table/models/
-//! insert.rs`; they live here once so adding a new dialect doesn't require
-//! a third copy.
+//! Every dialect's Insert model tracks which fields have been set at compile
+//! time via a `PhantomData<(F0Set | F0NotSet, F1Set | F1NotSet, ...)>` tuple.
+//! The helpers below build those tuples for all of them.
 //!
 //! The marker ZSTs are `{table}::{FieldPascal}{Set|NotSet}`, defined in the
 //! table's column module (see [`super::column_types`]). They are

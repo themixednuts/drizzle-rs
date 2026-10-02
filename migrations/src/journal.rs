@@ -10,6 +10,21 @@ use drizzle_types::Dialect;
 use serde::{Deserialize, Serialize};
 
 /// A parsed `_journal.json`: format version, dialect, and entries.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::Journal;
+/// use drizzle_types::Dialect;
+///
+/// let mut journal = Journal::new(Dialect::SQLite);
+/// journal.add_entry("0000_init".to_string(), true);
+///
+/// let parsed = Journal::from_json(&journal.to_json()?)?;
+/// assert_eq!(parsed.entries[0].idx, 0);
+/// assert_eq!(parsed.entries[0].tag, "0000_init");
+/// # Ok::<(), drizzle_migrations::serde_json::Error>(())
+/// ```
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Journal {
     /// Journal format version

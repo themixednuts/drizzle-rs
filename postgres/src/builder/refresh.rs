@@ -1,5 +1,9 @@
 //! `REFRESH MATERIALIZED VIEW` statements for `PostgreSQL`.
 //!
+//! Build the statement with [`refresh_materialized_view`] or
+//! [`RefreshMaterializedView::new`] and run it with a driver's
+//! `execute(...)`, which accepts any `ToSQL` value.
+//!
 //! # Examples
 //!
 //! ```rust

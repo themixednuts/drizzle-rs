@@ -1,3 +1,8 @@
+//! Load migrations from a folder on disk with [`MigrationDir`].
+//!
+//! Used by build scripts, tests, and dev tools. Apps usually embed the same
+//! folder at compile time with `drizzle::include_migrations!` instead.
+
 use crate::migrator::{
     Migration, MigratorError, compute_hash, parse_timestamp_from_tag, split_statements,
 };

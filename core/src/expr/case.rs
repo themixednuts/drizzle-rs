@@ -2,7 +2,7 @@
 //!
 //! [`case`] starts a builder. The first `.when(condition, result)` fixes the
 //! result type; later branches and the `ELSE` value must have a compatible
-//! type. Finish with [`r#else`](CaseBuilder::r#else) or
+//! type. Finish with [`r#else`](CaseBuilder#method.else) or
 //! [`end`](CaseBuilder::end).
 
 use core::marker::PhantomData;
@@ -21,7 +21,7 @@ use crate::scope::ScopeOnly;
 /// Starts a searched `CASE` expression.
 ///
 /// Add at least one branch with [`when`](CaseInit::when), then finish with
-/// [`r#else`](CaseBuilder::r#else) or [`end`](CaseBuilder::end). The first
+/// [`r#else`](CaseBuilder#method.else) or [`end`](CaseBuilder::end). The first
 /// branch's result sets the type of the whole expression; later results must
 /// have a compatible type.
 ///

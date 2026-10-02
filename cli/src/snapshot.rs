@@ -1,15 +1,20 @@
-//! Snapshot conversion helpers reused from `drizzle-migrations`.
+//! Shared handling of schema-parser diagnostics for commands that build a
+//! snapshot from schema files (`generate`, `push`, `export`).
 
 use crate::error::CliError;
 use crate::output;
 use drizzle_migrations::parser::ParseResult;
 
-/// Print parser warnings and fail on parser errors.
+/// Prints parser warnings and fails on parser errors.
 ///
 /// The parser emits entities best-effort even for source it could not fully
 /// interpret; generating migrations from a half-understood schema turns
 /// parser confusion into destructive DDL, so hard errors must stop the
 /// command.
+///
+/// # Errors
+///
+/// Returns [`CliError::SchemaParse`] listing every error in `result`.
 pub fn surface_parse_diagnostics(result: &ParseResult) -> Result<(), CliError> {
     for warning in &result.warnings {
         println!("{}", output::warning(&format!("schema parse: {warning}")));

@@ -19,6 +19,10 @@ use super::super::prepared_common::sqlite_async_prepared_impl;
 /// prepared statement runs inside or outside a transaction.
 pub trait TursoExecutor {
     /// Runs `sql` with `params` and returns its rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when turso cannot prepare or run the statement.
     fn fetch(
         &self,
         sql: &str,
@@ -26,6 +30,10 @@ pub trait TursoExecutor {
     ) -> impl std::future::Future<Output = drizzle_core::error::Result<turso::Rows>>;
 
     /// Runs `sql` with `params` and returns the number of rows it changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when turso cannot prepare or run the statement.
     fn exec(
         &self,
         sql: &str,

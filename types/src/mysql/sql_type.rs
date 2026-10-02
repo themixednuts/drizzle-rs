@@ -104,10 +104,23 @@ pub enum MySQLType {
 }
 
 impl MySQLType {
-    /// Parse a macro attribute name as a non-parameterized MySQL type.
+    /// Parses a type name from a column attribute, ignoring case. Returns
+    /// `None` for an unknown name.
     ///
-    /// `ENUM` and `SET` require inline values, so construct them with
-    /// [`Self::enum_values`] or [`Self::set_values`] instead.
+    /// Unsigned types use an `_unsigned` suffix (`"int_unsigned"`), and
+    /// common aliases are accepted (`"integer"`, `"numeric"`, `"bool"`,
+    /// `"character_varying"`, ...). `ENUM` and `SET` need their values, so
+    /// build them with [`Self::enum_values`] or [`Self::set_values`] instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_types::mysql::MySQLType;
+    ///
+    /// assert_eq!(MySQLType::parse_attribute("int_unsigned"), Some(MySQLType::IntUnsigned));
+    /// assert_eq!(MySQLType::parse_attribute("Integer"), Some(MySQLType::Int));
+    /// assert_eq!(MySQLType::parse_attribute("enum"), None);
+    /// ```
     #[must_use]
     pub const fn parse_attribute(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("tinyint") {
@@ -207,7 +220,7 @@ impl MySQLType {
         }
     }
 
-    /// Build a MySQL inline `ENUM` declaration from its allowed values.
+    /// Creates an inline `ENUM` type from its allowed values, in order.
     #[must_use]
     pub fn enum_values<I, S>(values: I) -> Self
     where
@@ -217,7 +230,7 @@ impl MySQLType {
         Self::Enum(values.into_iter().map(Into::into).collect())
     }
 
-    /// Build a MySQL inline `SET` declaration from its allowed values.
+    /// Creates an inline `SET` type from its allowed values.
     #[must_use]
     pub fn set_values<I, S>(values: I) -> Self
     where
@@ -227,7 +240,8 @@ impl MySQLType {
         Self::Set(values.into_iter().map(Into::into).collect())
     }
 
-    /// Return the inline values for an `ENUM` or `SET` declaration.
+    /// Returns the values of an `ENUM` or `SET` type, or `None` for any other
+    /// type.
     #[must_use]
     pub fn inline_values(&self) -> Option<&[Cow<'static, str>]> {
         match self {
@@ -236,10 +250,20 @@ impl MySQLType {
         }
     }
 
-    /// Return this declaration's SQL type keyword.
+    /// Returns the SQL type keyword, such as `"INT UNSIGNED"`, without any
+    /// arguments.
     ///
-    /// For `ENUM` and `SET`, use [`Self::inline_values`] to render their
-    /// declaration values in a DDL renderer.
+    /// `ENUM` and `SET` return just `"ENUM"` / `"SET"`; their values come
+    /// from [`Self::inline_values`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drizzle_types::mysql::MySQLType;
+    ///
+    /// assert_eq!(MySQLType::BigintUnsigned.sql(), "BIGINT UNSIGNED");
+    /// assert_eq!(MySQLType::enum_values(["a", "b"]).sql(), "ENUM");
+    /// ```
     #[must_use]
     pub const fn sql(&self) -> &'static str {
         match self {
@@ -286,7 +310,7 @@ impl MySQLType {
         }
     }
 
-    /// Return whether this declaration carries MySQL's `UNSIGNED` modifier.
+    /// Returns `true` for the `... UNSIGNED` variants.
     #[must_use]
     pub const fn is_unsigned(&self) -> bool {
         matches!(
@@ -303,7 +327,9 @@ impl MySQLType {
         )
     }
 
-    /// Validate optional numeric, length, width, or temporal arguments.
+    /// Checks the type's arguments (length, width, precision/scale or
+    /// fractional-seconds precision), as in `VARCHAR(255)` or
+    /// `DECIMAL(10, 2)`. Returns an error message when they are invalid.
     #[must_use]
     #[doc(hidden)]
     pub fn validate_args(&self, args: &[u16]) -> Option<&'static str> {
@@ -415,8 +441,7 @@ impl MySQLType {
         }
     }
 
-    /// Return whether this is an integer declaration eligible for
-    /// `AUTO_INCREMENT`.
+    /// Returns `true` for the integer types, which can be `AUTO_INCREMENT`.
     #[must_use]
     pub const fn supports_auto_increment(&self) -> bool {
         matches!(
@@ -434,20 +459,19 @@ impl MySQLType {
         )
     }
 
-    /// Return whether this declaration can be the declared type of a MySQL
-    /// generated column.
-    ///
-    /// MySQL's generated-column restrictions concern the expression and its
-    /// other column attributes rather than one of these native type families.
+    /// Returns whether a column of this type can be a generated column.
+    /// Always `true`: MySQL restricts the expression, not the column type.
     #[must_use]
     pub const fn supports_generated_columns(&self) -> bool {
         true
     }
 
-    /// Return whether a column attribute is compatible with this type alone.
+    /// Returns whether the column attribute `flag` (such as `"unique"` or
+    /// `"auto_increment"`) is allowed on a column of this type. Unknown flags
+    /// return `false`.
     ///
-    /// Constraints involving multiple attributes, such as the prohibition on
-    /// an `AUTO_INCREMENT` generated column, belong to a column DDL model.
+    /// This checks the type alone. Rules that involve two attributes, such
+    /// as no `AUTO_INCREMENT` on a generated column, are checked elsewhere.
     #[must_use]
     pub fn is_valid_flag(&self, flag: &str) -> bool {
         match flag {

@@ -1,4 +1,5 @@
-//! `SQLite` Unique Constraint DDL types
+//! `SQLite` unique constraints: [`UniqueConstraintDef`] (const) and
+//! [`UniqueConstraint`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -6,9 +7,11 @@ use crate::alloc_prelude::*;
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly unique constraint definition
+/// A unique constraint that can be built in a `const`.
 ///
-/// Used for multi-column unique constraints (single-column UNIQUEs are on the column).
+/// [`TableSql`](super::TableSql) writes a single-column constraint without an
+/// explicit name as `UNIQUE` on the column, and any other as a table
+/// constraint.
 ///
 /// # Examples
 ///
@@ -28,12 +31,13 @@ pub struct UniqueConstraintDef {
     pub name: &'static str,
     /// Columns in the unique constraint
     pub columns: &'static [Cow<'static, str>],
-    /// Whether the constraint name was explicitly specified
+    /// Whether the user gave the constraint name (rather than it being generated)
     pub name_explicit: bool,
 }
 
 impl UniqueConstraintDef {
-    /// Create a new unique constraint definition
+    /// Creates a unique constraint with no columns; set them with
+    /// [`columns`](Self::columns()).
     #[must_use]
     pub const fn new(table: &'static str, name: &'static str) -> Self {
         Self {
@@ -44,7 +48,7 @@ impl UniqueConstraintDef {
         }
     }
 
-    /// Set the columns in the unique constraint
+    /// Sets the constrained columns.
     #[must_use]
     pub const fn columns(self, cols: &'static [Cow<'static, str>]) -> Self {
         Self {
@@ -53,7 +57,7 @@ impl UniqueConstraintDef {
         }
     }
 
-    /// Mark the name as explicitly specified
+    /// Marks the name as given by the user.
     #[must_use]
     pub const fn explicit_name(self) -> Self {
         Self {
@@ -62,7 +66,7 @@ impl UniqueConstraintDef {
         }
     }
 
-    /// Convert to runtime [`UniqueConstraint`] type
+    /// Converts to the runtime [`UniqueConstraint`].
     #[must_use]
     pub const fn into_unique_constraint(self) -> UniqueConstraint {
         UniqueConstraint {
@@ -84,11 +88,7 @@ impl Default for UniqueConstraintDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime unique constraint entity
-///
-/// Uses `Cow<'static, str>` for all string fields, which works with both:
-/// - Borrowed data from const definitions (`Cow::Borrowed`)
-/// - Owned data from deserialization/introspection (`Cow::Owned`)
+/// A unique constraint, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UniqueConstraint {
     /// Parent table name
@@ -100,12 +100,12 @@ pub struct UniqueConstraint {
     /// Columns in the unique constraint
     pub columns: Cow<'static, [Cow<'static, str>]>,
 
-    /// Whether the constraint name was explicitly specified
+    /// Whether the user gave the constraint name (rather than it being generated)
     pub name_explicit: bool,
 }
 
 impl UniqueConstraint {
-    /// Create a new unique constraint
+    /// Creates a unique constraint.
     #[must_use]
     pub fn new(
         table: impl Into<Cow<'static, str>>,
@@ -120,7 +120,7 @@ impl UniqueConstraint {
         }
     }
 
-    /// Create a new unique constraint from owned strings (convenience for runtime construction)
+    /// Creates a unique constraint from owned strings.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_strings(table: String, name: String, columns: Vec<String>) -> Self {
@@ -132,14 +132,14 @@ impl UniqueConstraint {
         }
     }
 
-    /// Get the constraint name
+    /// Returns the constraint name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

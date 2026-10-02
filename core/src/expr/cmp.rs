@@ -12,7 +12,12 @@
 //! - [`is_null`], [`is_not_null`], [`is_true`] and [`is_false`] accept any
 //!   expression.
 //!
-//! Every comparison returns the dialect's boolean type, typed as non-null.
+//! Every comparison returns the dialect's boolean type. Its `Nullable` is
+//! always [`NonNull`], but its [sources](ExprSources) record each operand's
+//! nullability, so a comparison with a nullable or outer-joined operand
+//! decodes as nullable when selected (`NULL = 1` is NULL in SQL). The
+//! `IS ...` tests ([`is_null`], [`is_distinct_from`], [`is_true`], ...) are
+//! never NULL.
 
 use crate::dialect::{Dialect, DialectTypes};
 use crate::sql::{SQL, Token};
@@ -87,10 +92,13 @@ where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
 {
+    /// SQL type of the operand.
     type SQLType: DataType;
+    /// Whether the operand can be NULL.
     type Nullable: Nullability;
+    /// Whether the operand is an aggregate.
     type Aggregate: AggregateKind;
-    /// See [`ExprSources::Sources`].
+    /// Tables the operand reads; see [`ExprSources::Sources`].
     type Sources;
 
     /// Renders the operand.
@@ -121,8 +129,8 @@ where
 /// Equality comparison (`=`).
 ///
 /// Renders `left = right`. Both sides must have compatible SQL types. The
-/// result is the dialect's boolean, typed as non-null, and is an aggregate if
-/// either side is.
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
 ///
 /// # Examples
 ///
@@ -184,8 +192,8 @@ where
 /// Inequality comparison (`<>`).
 ///
 /// Renders `left <> right`. Both sides must have compatible SQL types. The
-/// result is the dialect's boolean, typed as non-null, and is an aggregate if
-/// either side is.
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
 ///
 /// # Examples
 ///
@@ -253,8 +261,8 @@ where
 /// Greater-than comparison (`>`).
 ///
 /// Renders `left > right`. Both sides must have compatible SQL types. The
-/// result is the dialect's boolean, typed as non-null, and is an aggregate if
-/// either side is.
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
 ///
 /// # Examples
 ///
@@ -296,8 +304,8 @@ where
 /// Greater-than-or-equal comparison (`>=`).
 ///
 /// Renders `left >= right`. Both sides must have compatible SQL types. The
-/// result is the dialect's boolean, typed as non-null, and is an aggregate if
-/// either side is.
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
 ///
 /// # Examples
 ///
@@ -339,8 +347,8 @@ where
 /// Less-than comparison (`<`).
 ///
 /// Renders `left < right`. Both sides must have compatible SQL types. The
-/// result is the dialect's boolean, typed as non-null, and is an aggregate if
-/// either side is.
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
 ///
 /// # Examples
 ///
@@ -382,8 +390,8 @@ where
 /// Less-than-or-equal comparison (`<=`).
 ///
 /// Renders `left <= right`. Both sides must have compatible SQL types. The
-/// result is the dialect's boolean, typed as non-null, and is an aggregate if
-/// either side is.
+/// result is the dialect's boolean. It is NULL when either side is, and an
+/// aggregate when either side is.
 ///
 /// # Examples
 ///
@@ -430,8 +438,9 @@ where
 ///
 /// Renders `left LIKE pattern`. Both sides must be text. In the pattern, `%`
 /// matches any run of characters and `_` matches one character. The result is
-/// the dialect's boolean, typed as non-null. Case sensitivity follows the
-/// database: SQLite ignores ASCII case by default, PostgreSQL does not.
+/// the dialect's boolean, NULL when either side is. Case sensitivity follows
+/// the database: SQLite and MySQL (with its default collations) ignore case,
+/// PostgreSQL does not.
 ///
 /// # Examples
 ///
@@ -551,8 +560,8 @@ where
 /// Range check (`BETWEEN`), inclusive on both ends.
 ///
 /// Renders `(expr BETWEEN low AND high)`. Both bounds must have a SQL type
-/// compatible with `expr`. The result is the dialect's boolean, typed as
-/// non-null.
+/// compatible with `expr`. The result is the dialect's boolean, NULL when
+/// any operand is.
 ///
 /// # Examples
 ///
@@ -1251,7 +1260,8 @@ pub trait ExprExt<'a, V: SQLParam>: Expr<'a, V> + Sized {
         crate::expr::in_array(self, values)
     }
 
-    /// Non-membership in a list of values (`NOT IN (...)`); see [`not_in_array`](super::not_in_array).
+    /// Non-membership in a list of values (`NOT IN (...)`); see
+    /// [`not_in_array`](super::not_in_array).
     #[allow(clippy::type_complexity)]
     fn not_in_array<I, R>(
         self,

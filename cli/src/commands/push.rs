@@ -41,14 +41,21 @@ pub struct PushOptions {
     pub connection: ConnectionOverrides,
 }
 
-/// Run the push command.
+/// Runs `drizzle push`: introspects the database, diffs it against the
+/// schema files (after applying the configured filters), and executes the
+/// difference directly, without writing migration files.
+///
+/// `--explain` prints the planned SQL and stops; `--verbose` prints it and
+/// continues. A destructive plan asks for confirmation unless `--force` is
+/// set.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the database cannot be resolved, credentials are
-/// missing or invalid, the schema files fail to parse, connecting or applying
-/// the diff to the database fails, or the user declines a destructive
-/// operation when `--force` is not set ([`CliError::Aborted`]).
+/// Returns [`CliError`] if `db_name` does not match the config, there are no
+/// credentials ([`CliError::MissingCredentials`]) or no driver for them, no
+/// schema files are found or they have parse errors, introspecting or
+/// planning fails, a statement fails, or the user declines a destructive
+/// plan ([`CliError::Aborted`]).
 pub fn run(config: &Config, db_name: Option<&str>, opts: &PushOptions) -> Result<(), CliError> {
     let db = config.database(db_name)?;
 
@@ -217,8 +224,6 @@ fn print_missing_credentials_help(effective_dialect: Dialect) {
             );
         }
         drizzle_types::Dialect::MySQL => {
-            // drizzle-cli doesn't currently support MySQL end-to-end, but the base
-            // dialect type includes it, so keep the match exhaustive.
             println!(
                 "  {}",
                 output::muted("url = \"mysql://user:pass@localhost:3306/db\"")

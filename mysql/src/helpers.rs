@@ -18,7 +18,7 @@ pub(crate) use helpers::{
     r#where,
 };
 
-/// A typed boolean expression accepted after a MySQL JOIN ... ON clause.
+/// A boolean expression accepted as a `JOIN ... ON` condition.
 #[doc(hidden)]
 pub trait JoinCondition<'a>:
     join_condition_private::Sealed<'a> + ToSQL<'a, MySQLValue<'a>>
@@ -43,7 +43,8 @@ where
 {
 }
 
-/// A table-like source accepted by an explicit JOIN tuple.
+/// A source that can follow `JOIN`: a `MySQL` table, a derived table
+/// (subquery with an alias), or a table with an index hint.
 #[doc(hidden)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
@@ -586,7 +587,21 @@ impl<'a> ToSQL<'a, MySQLValue<'a>> for OutputAlias {
 /// Give the output its name with `alias(expr, "name")` in the first
 /// query. The name is not checked against the query, so a typo is only
 /// caught by `MySQL`. See the set-operation `order_by` on
-/// [`SelectBuilder`](crate::builder::SelectBuilder) for an example.
+/// [`SelectBuilder`](crate::builder::SelectBuilder) for a full query.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::ToSQL;
+/// use drizzle_mysql::helpers::{asc, desc, output_alias};
+/// use drizzle_mysql::values::MySQLValue;
+///
+/// let term: drizzle_core::SQL<'_, MySQLValue<'_>> = desc(output_alias("label")).to_sql();
+/// assert_eq!(term.sql(), "`label` DESC");
+///
+/// let term: drizzle_core::SQL<'_, MySQLValue<'_>> = asc(output_alias("total")).to_sql();
+/// assert_eq!(term.sql(), "`total` ASC");
+/// ```
 #[must_use]
 pub const fn output_alias(name: &'static str) -> OutputAlias {
     OutputAlias(name)

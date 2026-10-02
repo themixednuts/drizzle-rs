@@ -9,9 +9,12 @@
 //!   `PostgreSQL`) — tweaks within the legacy object format (tables/enums as
 //!   nested dictionaries).
 //! * **Structural upgrades** (`v6 → v7` for `SQLite`, `v7 → v8` for
-//!   `PostgreSQL`) — rebuild the document in the current entity-array format
+//!   `PostgreSQL`, `v5 → v6` for `MySQL`) — rebuild the document in the
+//!   current entity-array format
 //!   (`{version, dialect, id, prevIds, ddl: [...], renames}`) used by
 //!   [`crate::snapshot::Snapshot`].
+//!
+//! The CLI runs these through `drizzle up`.
 
 use std::borrow::Cow;
 
@@ -1510,6 +1513,18 @@ fn effective_version(json: &Value, dialect: Dialect) -> String {
 /// document that is already current, or has an unknown version, is
 /// returned unchanged. The version is read from the document's shape as
 /// well as its `version` field, so mis-stamped legacy files still upgrade.
+///
+/// # Examples
+///
+/// ```rust
+/// use drizzle_migrations::serde_json::json;
+/// use drizzle_migrations::upgrade_to_latest;
+/// use drizzle_types::Dialect;
+///
+/// // Already in the current entity-array format: returned unchanged.
+/// let current = json!({ "version": "7", "dialect": "sqlite", "ddl": [] });
+/// assert_eq!(upgrade_to_latest(current.clone(), Dialect::SQLite), current);
+/// ```
 #[must_use]
 pub fn upgrade_to_latest(json: Value, dialect: Dialect) -> Value {
     let mut version = effective_version(&json, dialect);

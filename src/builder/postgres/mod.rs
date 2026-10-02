@@ -2,7 +2,11 @@
 
 macro_rules! postgres_builder_constructors {
     () => {
-        /// Creates a SELECT query builder.
+        /// Starts a `SELECT` query.
+        ///
+        /// `query` is what to select: `()` for every column of the `FROM` table, a
+        /// column, a tuple of columns and expressions, or a `FromRow` type's
+        /// `::Select` marker. Follow it with `.from(..)`.
         pub fn select<'a, 'b, T>(
             &'a self,
             query: T,
@@ -18,7 +22,7 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a SELECT DISTINCT query builder.
+        /// Starts a `SELECT DISTINCT` query, which drops duplicate rows.
         pub fn select_distinct<'a, 'b, T>(
             &'a self,
             query: T,
@@ -34,7 +38,9 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a SELECT DISTINCT ON query builder.
+        /// Starts a `SELECT DISTINCT ON (on) ...` query, which keeps the first row
+        /// of each set of rows that agree on `on` (pair it with an `ORDER BY` that
+        /// starts with the same expressions).
         pub fn select_distinct_on<'a, 'b, On, Columns>(
             &'a self,
             on: On,
@@ -52,7 +58,10 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates an INSERT query builder.
+        /// Starts an `INSERT` into `table`.
+        ///
+        /// Follow it with `.values(..)` and `Insert*` models, or with `.select(..)`
+        /// to insert a query's rows.
         pub fn insert<'a, 'b, Table>(
             &'a self,
             table: Table,
@@ -68,7 +77,10 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates an UPDATE query builder.
+        /// Starts an `UPDATE` of `table`.
+        ///
+        /// Follow it with `.set(..)` and an `Update*` model. Without `.r#where(..)`,
+        /// every row is updated.
         pub fn update<'a, 'b, Table>(
             &'a self,
             table: Table,
@@ -84,7 +96,8 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a DELETE query builder.
+        /// Starts a `DELETE` from `table`. Without `.r#where(..)`, every row is
+        /// deleted.
         pub fn delete<'a, 'b, Table>(
             &'a self,
             table: Table,
@@ -100,7 +113,10 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a query with CTE (Common Table Expression).
+        /// Starts a query with a common table expression: `WITH name AS (...)`.
+        ///
+        /// Make the CTE with `.into_cte::<Tag>()` on a select query, then pass it
+        /// here and select from it.
         pub fn with<'a, 'b, C>(
             &'a self,
             cte: &C,
@@ -117,7 +133,11 @@ macro_rules! postgres_builder_constructors {
         }
     };
     (mut) => {
-        /// Creates a SELECT query builder.
+        /// Starts a `SELECT` query.
+        ///
+        /// `query` is what to select: `()` for every column of the `FROM` table, a
+        /// column, a tuple of columns and expressions, or a `FromRow` type's
+        /// `::Select` marker. Follow it with `.from(..)`.
         pub fn select<'a, 'b, T>(
             &'a mut self,
             query: T,
@@ -133,7 +153,7 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a SELECT DISTINCT query builder.
+        /// Starts a `SELECT DISTINCT` query, which drops duplicate rows.
         pub fn select_distinct<'a, 'b, T>(
             &'a mut self,
             query: T,
@@ -149,7 +169,9 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a SELECT DISTINCT ON query builder.
+        /// Starts a `SELECT DISTINCT ON (on) ...` query, which keeps the first row
+        /// of each set of rows that agree on `on` (pair it with an `ORDER BY` that
+        /// starts with the same expressions).
         pub fn select_distinct_on<'a, 'b, On, Columns>(
             &'a mut self,
             on: On,
@@ -167,7 +189,10 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates an INSERT query builder.
+        /// Starts an `INSERT` into `table`.
+        ///
+        /// Follow it with `.values(..)` and `Insert*` models, or with `.select(..)`
+        /// to insert a query's rows.
         pub fn insert<'a, 'b, Table>(
             &'a mut self,
             table: Table,
@@ -183,7 +208,10 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates an UPDATE query builder.
+        /// Starts an `UPDATE` of `table`.
+        ///
+        /// Follow it with `.set(..)` and an `Update*` model. Without `.r#where(..)`,
+        /// every row is updated.
         pub fn update<'a, 'b, Table>(
             &'a mut self,
             table: Table,
@@ -199,7 +227,8 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a DELETE query builder.
+        /// Starts a `DELETE` from `table`. Without `.r#where(..)`, every row is
+        /// deleted.
         pub fn delete<'a, 'b, Table>(
             &'a mut self,
             table: Table,
@@ -215,7 +244,10 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Creates a query with CTE (Common Table Expression).
+        /// Starts a query with a common table expression: `WITH name AS (...)`.
+        ///
+        /// Make the CTE with `.into_cte::<Tag>()` on a select query, then pass it
+        /// here and select from it.
         pub fn with<'a, 'b, C>(
             &'a mut self,
             cte: &C,

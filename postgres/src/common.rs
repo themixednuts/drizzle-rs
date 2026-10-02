@@ -1,8 +1,16 @@
+//! Shared `PostgreSQL` types: schema object kinds, a number helper, the legacy
+//! isolation-level enum, and the join types re-exported from core.
+
 use drizzle_core::schema::SQLEnumInfo;
 use drizzle_core::traits::SQLViewInfo;
 use drizzle_core::{SQLIndexInfo, SQLPolicyInfo, SQLSchemaType};
 
 /// A schema object that a `PostgreSQL` schema can contain.
+///
+/// Each table, view, index, policy and enum that the `PostgreSQL` macros
+/// generate reports its kind as one of these (its `SQLSchema::TYPE`). The
+/// type also serves as the dialect marker that keeps tables of other
+/// dialects out of a `PostgreSQL` schema.
 #[derive(Debug, Clone)]
 pub enum PostgresSchemaType {
     /// A regular table
@@ -26,6 +34,8 @@ impl SQLSchemaType for PostgresSchemaType {}
 //------------------------------------------------------------------------------
 
 /// A number that is either an integer or a float.
+///
+/// Defaults to `Integer(0)`.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum Number {
     /// Integer value
@@ -52,9 +62,13 @@ impl From<f64> for Number {
     }
 }
 
-/// `PostgreSQL` transaction isolation levels.
+/// `PostgreSQL` transaction isolation levels (legacy form of
+/// [`TransactionConfig`](crate::TransactionConfig)).
 ///
-/// `Display` renders the SQL keyword, such as `READ COMMITTED`.
+/// Converts into a [`TransactionConfig`](crate::TransactionConfig). For the
+/// default, `ReadCommitted`, the `postgres` and `tokio-postgres` drivers keep
+/// the server's default isolation level instead of setting `READ COMMITTED`
+/// explicitly. `Display` renders the SQL keyword, such as `READ COMMITTED`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PostgresTransactionType {
     /// READ UNCOMMITTED isolation level
@@ -79,9 +93,6 @@ impl core::fmt::Display for PostgresTransactionType {
         write!(f, "{level}")
     }
 }
-
-// Note: Generic From implementation is removed to avoid conflicts.
-// The table macro will generate specific implementations using PostgresEnumVisitor.
 
 // Re-export Join from core
 pub use drizzle_core::{Join, JoinType};

@@ -22,6 +22,7 @@ pub struct ColumnBinOp<Lhs, Rhs, Op, D, SQLType, Nullable> {
 }
 
 impl<Lhs, Rhs, Op, D, SQLType, Nullable> ColumnBinOp<Lhs, Rhs, Op, D, SQLType, Nullable> {
+    /// Pairs the two operands; the type parameters carry the result type.
     #[inline]
     pub const fn new(lhs: Lhs, rhs: Rhs) -> Self {
         Self {
@@ -39,6 +40,7 @@ pub use crate::types::{
 
 /// The SQL operator token of an arithmetic operation marker.
 pub trait BinOpToken {
+    /// The operator token, such as `+`.
     const TOKEN: Token;
 }
 
@@ -274,6 +276,7 @@ pub struct ColumnNeg<T, D, SQLType, Nullable> {
 }
 
 impl<T, D, SQLType, Nullable> ColumnNeg<T, D, SQLType, Nullable> {
+    /// Wraps the negated operand.
     #[inline]
     pub const fn new(inner: T) -> Self {
         Self {

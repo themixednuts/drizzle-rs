@@ -171,7 +171,7 @@ impl ConfigValue {
         }
     }
 
-    /// Returns the value, or `None` when an [`ConfigValue::Env`] variable is unset.
+    /// Returns the value, or `None` when a [`ConfigValue::Env`] variable is unset.
     ///
     /// # Errors
     ///

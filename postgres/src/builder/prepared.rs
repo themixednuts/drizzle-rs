@@ -32,40 +32,7 @@ impl PreparedStatement<'_> {
     /// # Examples
     ///
     /// ```rust
-    /// # mod drizzle {
-    /// #     pub mod core { pub use drizzle_core::*; }
-    /// #     pub mod error { pub use drizzle_core::error::*; }
-    /// #     pub mod types { pub use drizzle_types::*; }
-    /// #     pub mod migrations { pub use drizzle_migrations::*; }
-    /// #     pub use drizzle_types::Dialect;
-    /// #     pub use drizzle_types as ddl;
-    /// #     pub mod postgres {
-    /// #         pub mod values { pub use drizzle_postgres::values::*; }
-    /// #         pub mod traits { pub use drizzle_postgres::traits::*; }
-    /// #         pub mod common { pub use drizzle_postgres::common::*; }
-    /// #         pub mod attrs { pub use drizzle_postgres::attrs::*; }
-    /// #         pub mod builder { pub use drizzle_postgres::builder::*; }
-    /// #         pub mod helpers { pub use drizzle_postgres::helpers::*; }
-    /// #         pub mod expr { pub use drizzle_postgres::expr::*; }
-    /// #         pub mod types { pub use drizzle_postgres::types::*; }
-    /// #         #[cfg(feature = "aws-data-api")]
-    /// #         pub mod aws_data_api { pub use drizzle_postgres::aws_data_api::*; }
-    /// #         pub struct Row;
-    /// #         impl Row {
-    /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
-    /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
-    /// #         }
-    /// #         pub mod prelude {
-    /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
-    /// #             pub use drizzle_postgres::attrs::*;
-    /// #             pub use drizzle_postgres::common::PostgresSchemaType;
-    /// #             pub use drizzle_postgres::traits::{PostgresColumn, PostgresTable};
-    /// #             pub use drizzle_postgres::values::{PostgresInsertValue, PostgresUpdateValue, PostgresValue};
-    /// #             pub use drizzle_core::*;
-    /// #         }
-    /// #     }
-    /// # }
-    /// # fn example(prepared: drizzle::postgres::builder::prepared::PreparedStatement<'_>) {
+    /// # fn example(prepared: drizzle_postgres::builder::prepared::PreparedStatement<'_>) {
     /// let owned = prepared.into_owned();
     /// // `owned` has no lifetime, so it can be cached or sent to another thread.
     /// # }
@@ -94,6 +61,7 @@ impl PreparedStatement<'_> {
 ///
 /// Use it to cache a statement or move it across threads. Convert from a
 /// [`PreparedStatement`] with `into_owned()` or `From`, and back with `From`.
+/// `Display` prints the SQL text.
 #[derive(Debug, Clone)]
 pub struct OwnedPreparedStatement {
     pub(crate) inner: CoreOwnedPreparedStatement<crate::values::OwnedPostgresValue>,

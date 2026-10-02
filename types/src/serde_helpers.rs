@@ -1,7 +1,8 @@
 //! `#[serde(deserialize_with = ...)]` helpers for `Cow<'static, str>` fields.
 //!
 //! DDL types store names as `Cow<'static, str>` so they can be `const`.
-//! These functions deserialize owned strings into `Cow::Owned`.
+//! These functions deserialize owned strings into `Cow::Owned`. All of them
+//! need the `serde` feature.
 
 #[allow(unused_imports)]
 use crate::alloc_prelude::*;

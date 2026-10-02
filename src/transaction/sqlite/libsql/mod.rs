@@ -145,7 +145,9 @@ impl<Schema> Transaction<Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the savepoint cannot be created/released, or the inner closure returns an error.
+    /// Returns the error from `f`, or an error when `SAVEPOINT`, `RELEASE`, or
+    /// `ROLLBACK TO` fails. When cleanup after an `Err` also fails, both
+    /// errors are reported together.
     pub async fn savepoint<F, R>(&self, f: F) -> drizzle_core::error::Result<R>
     where
         F: AsyncFnOnce(&Self) -> drizzle_core::error::Result<R>,
@@ -163,9 +165,12 @@ impl<Schema> Transaction<Schema> {
     /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, inside
     /// the transaction and returns the number of rows it changed.
     ///
+    /// Prefer the builder's own `.execute()`. This method skips the builder's
+    /// compile-time checks.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the database call fails or the SQL is invalid.
+    /// Returns an error when libsql cannot prepare or run the statement.
     pub async fn execute<'q, T>(&self, query: T) -> Result<u64, DrizzleError>
     where
         T: ToSQL<'q, SQLiteValue<'q>>,
@@ -185,11 +190,13 @@ impl<Schema> Transaction<Schema> {
         .await?)
     }
 
-    /// Runs any SQL value inside the transaction and decodes every row.
+    /// Runs any SQL value inside the transaction and decodes every row into
+    /// `R` with `TryFrom<&Row>`, skipping the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails or row decoding fails.
+    /// Returns an error when libsql cannot prepare or run the query, or when a
+    /// row cannot be decoded into `R`.
     pub async fn all<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Vec<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -199,11 +206,13 @@ impl<Schema> Transaction<Schema> {
         self.rows(query).await?.collect().await
     }
 
-    /// Runs any SQL value inside the transaction and returns its decoded rows.
+    /// Runs any SQL value inside the transaction and returns its rows, fetched
+    /// and decoded into `R` as you call `next().await`.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails.
+    /// Returns an error when libsql cannot prepare or run the query. Decoding
+    /// errors surface per row.
     pub async fn rows<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -220,11 +229,14 @@ impl<Schema> Transaction<Schema> {
         Ok(Rows::new(rows))
     }
 
-    /// Runs any SQL value inside the transaction and decodes its first row.
+    /// Runs any SQL value inside the transaction and decodes its first row
+    /// into `R`.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the query fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when libsql cannot prepare or run the query or the row cannot be decoded
+    /// into `R`.
     pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -245,7 +257,7 @@ impl<Schema> Transaction<Schema> {
         )
     }
 
-    /// Commits the transaction using libsql's SQL commands
+    /// Commits the transaction.
     ///
     /// # Errors
     ///
@@ -258,7 +270,7 @@ impl<Schema> Transaction<Schema> {
         Ok(self.tx.commit().await?)
     }
 
-    /// Rolls back the transaction using libsql's SQL commands
+    /// Rolls back the transaction.
     ///
     /// # Errors
     ///
@@ -274,7 +286,8 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Runs the statement inside the transaction and returns the number of rows it changed.
+    /// Runs the statement inside the transaction and returns the number of rows
+    /// it changed.
     ///
     /// # Errors
     ///
@@ -336,13 +349,14 @@ where
     /// Runs the query inside the transaction and returns its rows, decoded into
     /// the row type the query infers from its selection.
     ///
-    /// Rows are fetched lazily as you call `next().await`. Unlike [`all`](Self::all), this method does not check scope or
-    /// grouping at compile time.
+    /// Rows are fetched lazily as you call `next().await`. Unlike
+    /// [`all`](Self::all), this method does not check scope or grouping at
+    /// compile time.
     ///
     /// # Errors
     ///
-    /// Returns an error when libsql cannot prepare or run the query, or when a
-    /// row cannot be decoded.
+    /// Returns an error when libsql cannot prepare or run the query. Decoding
+    /// errors surface per row.
     pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
         Rw: for<'r> TryFrom<&'r Row>,
@@ -362,8 +376,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, and an error when libsql
-    /// cannot prepare or run the query or the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// when no row matches, and an error when libsql cannot prepare or run
+    /// the query or the row cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///
@@ -397,9 +412,8 @@ use crate::builder::sqlite::common;
 
 #[cfg(feature = "query")]
 impl<Schema> Transaction<Schema> {
-    /// Creates a relational query builder scoped to this transaction.
-    ///
-    /// Rows read here observe the transaction's uncommitted state. Unlike the
+    /// Starts a relational query inside this transaction, like the database
+    /// handle's `query`. It sees the transaction's uncommitted writes. Unlike the
     /// database handle's relational queries, statements are not cached — a
     /// transaction is short-lived by design.
     pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
@@ -433,7 +447,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -522,7 +541,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -559,9 +585,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations, in the table's `PartialSelect*` shape.
     ///
-    /// Base columns are deserialized from a JSON `"__base"` column.
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -653,7 +682,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<

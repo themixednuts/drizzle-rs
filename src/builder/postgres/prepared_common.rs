@@ -175,7 +175,20 @@ pub fn tokio_postgres_param_types(
 macro_rules! postgres_prepared_sync_impl {
     ($client:ty, $row:ty, $to_sql:path) => {
         impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
-            /// Runs the prepared statement and returns the number of affected rows
+            /// Binds `params` and runs the statement, returning the number of rows it
+            /// changed.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra), or the
+            /// database error when the statement fails.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+            ///
+            /// # Panics
+            ///
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub fn execute<const N: usize>(
                 &self,
                 client: &mut $client,
@@ -224,7 +237,33 @@ macro_rules! postgres_prepared_sync_impl {
                 result.map_err(Into::into)
             }
 
-            /// Runs the prepared statement and returns all matching rows
+            /// Binds `params`, runs the query, and decodes every row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), the database
+
+            /// error when the query fails, or a decode error when a row does not fit
+
+            /// `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub fn all<T, const N: usize>(
                 &self,
                 client: &mut $client,
@@ -280,7 +319,33 @@ macro_rules! postgres_prepared_sync_impl {
                 Ok(results)
             }
 
-            /// Runs the prepared statement and returns a single row
+            /// Binds `params`, runs the query, and decodes its single row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), an error when
+
+            /// the query does not return exactly one row (none or several) or fails, or
+
+            /// a decode error when the row does not fit `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub fn get<T, const N: usize>(
                 &self,
                 client: &mut $client,
@@ -327,7 +392,20 @@ macro_rules! postgres_prepared_sync_impl {
         }
 
         impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
-            /// Runs the prepared statement and returns the number of affected rows
+            /// Binds `params` and runs the statement, returning the number of rows it
+            /// changed.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra), or the
+            /// database error when the statement fails.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+            ///
+            /// # Panics
+            ///
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub fn execute<'a, const N: usize>(
                 &self,
                 client: &mut $client,
@@ -377,7 +455,33 @@ macro_rules! postgres_prepared_sync_impl {
                 result.map_err(Into::into)
             }
 
-            /// Runs the prepared statement and returns all matching rows
+            /// Binds `params`, runs the query, and decodes every row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), the database
+
+            /// error when the query fails, or a decode error when a row does not fit
+
+            /// `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub fn all<'a, T, const N: usize>(
                 &self,
                 client: &mut $client,
@@ -433,7 +537,33 @@ macro_rules! postgres_prepared_sync_impl {
                 Ok(results)
             }
 
-            /// Runs the prepared statement and returns a single row
+            /// Binds `params`, runs the query, and decodes its single row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), an error when
+
+            /// the query does not return exactly one row (none or several) or fails, or
+
+            /// a decode error when the row does not fit `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub fn get<'a, T, const N: usize>(
                 &self,
                 client: &mut $client,
@@ -484,7 +614,20 @@ macro_rules! postgres_prepared_sync_impl {
 macro_rules! postgres_prepared_async_impl {
     ($client:ty, $row:ty, $to_sql:path) => {
         impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
-            /// Runs the prepared statement and returns the number of affected rows
+            /// Binds `params` and runs the statement, returning the number of rows it
+            /// changed.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra), or the
+            /// database error when the statement fails.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+            ///
+            /// # Panics
+            ///
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub async fn execute<const N: usize>(
                 &self,
                 client: &$client,
@@ -529,7 +672,33 @@ macro_rules! postgres_prepared_async_impl {
                 result.map_err(Into::into)
             }
 
-            /// Runs the prepared statement and returns all matching rows
+            /// Binds `params`, runs the query, and decodes every row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), the database
+
+            /// error when the query fails, or a decode error when a row does not fit
+
+            /// `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub async fn all<T, const N: usize>(
                 &self,
                 client: &$client,
@@ -589,7 +758,33 @@ macro_rules! postgres_prepared_async_impl {
                 Ok(results)
             }
 
-            /// Runs the prepared statement and returns a single row
+            /// Binds `params`, runs the query, and decodes its single row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), an error when
+
+            /// the query does not return exactly one row (none or several) or fails, or
+
+            /// a decode error when the row does not fit `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub async fn get<T, const N: usize>(
                 &self,
                 client: &$client,
@@ -640,7 +835,20 @@ macro_rules! postgres_prepared_async_impl {
         }
 
         impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
-            /// Runs the prepared statement and returns the number of affected rows
+            /// Binds `params` and runs the statement, returning the number of rows it
+            /// changed.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+            /// statement's placeholders (missing, duplicated, or extra), or the
+            /// database error when the statement fails.
+            ///
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+            ///
+            /// # Panics
+            ///
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub async fn execute<'a, const N: usize>(
                 &self,
                 client: &$client,
@@ -688,7 +896,33 @@ macro_rules! postgres_prepared_async_impl {
                 result.map_err(Into::into)
             }
 
-            /// Runs the prepared statement and returns all matching rows
+            /// Binds `params`, runs the query, and decodes every row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), the database
+
+            /// error when the query fails, or a decode error when a row does not fit
+
+            /// `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub async fn all<'a, T, const N: usize>(
                 &self,
                 client: &$client,
@@ -751,7 +985,33 @@ macro_rules! postgres_prepared_async_impl {
                 Ok(results)
             }
 
-            /// Runs the prepared statement and returns a single row
+            /// Binds `params`, runs the query, and decodes its single row into `T`.
+
+            ///
+
+            /// # Errors
+
+            ///
+
+            /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+
+            /// statement's placeholders (missing, duplicated, or extra), an error when
+
+            /// the query does not return exactly one row (none or several) or fails, or
+
+            /// a decode error when the row does not fit `T`.
+
+            ///
+
+            /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            ///
+
+            /// # Panics
+
+            ///
+
+            /// In debug builds, panics when `N` differs from the number of placeholders.
             pub async fn get<'a, T, const N: usize>(
                 &self,
                 client: &$client,

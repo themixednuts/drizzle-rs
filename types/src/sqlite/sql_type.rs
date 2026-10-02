@@ -1,11 +1,10 @@
-//! `SQLite` column type definitions
-//!
-//! Defines the core `SQLite` storage classes and type affinities.
+//! `SQLite` column types ([`SQLiteType`]) and affinities ([`SQLiteAffinity`]).
 
-/// Enum representing supported `SQLite` column types.
+/// A `SQLite` column type as written in DDL.
 ///
-/// These correspond to the [SQLite storage classes](https://sqlite.org/datatype3.html#storage_classes_and_datatypes).
-/// Each type maps to specific Rust types and has different capabilities for constraints and features.
+/// These are the types a STRICT table accepts, plus `NUMERIC`; see
+/// [SQLite datatypes](https://sqlite.org/datatype3.html). The type decides
+/// which column attributes are allowed ([`is_valid_flag`](Self::is_valid_flag)).
 ///
 /// # Examples
 ///
@@ -35,14 +34,14 @@ pub enum SQLiteType {
     ///
     /// See: <https://sqlite.org/datatype3.html#text_datatype>
     ///
-    /// Supports: enums (variant name storage), JSON serialization
+    /// Supports: enums (variant name storage), JSON (`#[column(json)]`)
     Text,
 
     /// `SQLite` BLOB type - stores binary data exactly as input.
     ///
     /// See: <https://sqlite.org/datatype3.html#blob_datatype>
     ///
-    /// Supports: JSON serialization, UUID storage
+    /// Used for byte arrays and UUIDs.
     Blob,
 
     /// `SQLite` REAL type - stores floating point values as 8-byte IEEE floating point numbers.
@@ -56,8 +55,10 @@ pub enum SQLiteType {
     Numeric,
 
     /// `SQLite` ANY type - no type affinity, can store any type of data.
+    /// This holds in STRICT tables; elsewhere `SQLite` gives a column declared
+    /// `ANY` `NUMERIC` affinity. The default.
     ///
-    /// See: <https://sqlite.org/datatype3.html#type_affinity>
+    /// See: <https://sqlite.org/stricttables.html>
     #[default]
     Any,
 }

@@ -88,7 +88,7 @@ pub trait RoundingPolicy<D>: Numeric {
     /// Result type of the rounding functions.
     type Output: DataType;
 
-    /// Prepare the operand of `ROUND(expr, precision)`.
+    /// Prepares the operand of `ROUND(expr, precision)`.
     ///
     /// PostgreSQL only defines the two-argument `ROUND` for `numeric`, and
     /// `double precision` does not cast to it implicitly.
@@ -96,7 +96,7 @@ pub trait RoundingPolicy<D>: Numeric {
         expr
     }
 
-    /// Coerce a rounding function's result to [`Self::Output`].
+    /// Coerces a rounding function's result to [`Self::Output`].
     ///
     /// PostgreSQL returns `numeric` for every rounding function unless the
     /// argument is `double precision`; the declared output is `float8`.
@@ -853,7 +853,9 @@ where
 ///
 /// Both arguments must be numeric. The result has the dividend's SQL type and
 /// is nullable if either argument is. Named `mod_` because `mod` is a Rust
-/// keyword; `expr % n` on an [`SQLExpr`] does the same.
+/// keyword. `expr % n` on an [`SQLExpr`] renders the same SQL, but types the
+/// result through [`ArithmeticOutput`](crate::types::ArithmeticOutput), which
+/// also marks it nullable on SQLite and MySQL (where `x % 0` is NULL).
 ///
 /// # Examples
 ///
@@ -978,6 +980,23 @@ where
 /// always nullable, since both dialects return NULL outside the domain.
 /// SQLite needs the `math` feature. PostgreSQL has no `LOG2`, so this does not
 /// compile for PostgreSQL; use [`log`] with base 2 there.
+///
+/// # Examples
+///
+/// ```rust
+/// # use drizzle_core::dialect::{Dialect, DialectTypes, MySQLDialect as D};
+/// # use drizzle_core::{ColumnRef, SQL, SQLParam, expr::*};
+/// # #[derive(Clone, Debug)] struct Value(String);
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::MySQL; type DialectMarker = D; }
+/// # impl<X: ToString> From<X> for Value { fn from(v: X) -> Self { Value(v.to_string()) } }
+/// # impl From<Value> for std::borrow::Cow<'_, Value> { fn from(v: Value) -> Self { Self::Owned(v) } }
+/// # type C<X, N = NonNull> = &'static SQLExpr<'static, Value, X, N>;
+/// # fn col<X: drizzle_core::types::DataType, N: Nullability>(c: &'static str) -> C<X, N> { Box::leak(Box::new(SQLExpr::new(SQL::column(ColumnRef::sql("users", c))))) }
+/// # type Int = <D as DialectTypes>::Int; type Text = <D as DialectTypes>::Text; type Real = <D as DialectTypes>::Double;
+/// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
+/// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
+/// assert_eq!(log2(users.score).sql(), "LOG2(`users`.`score`)");
+/// ```
 #[allow(clippy::type_complexity)]
 pub fn log2<'a, V, E>(
     expr: E,

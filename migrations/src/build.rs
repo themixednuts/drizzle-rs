@@ -258,6 +258,9 @@ impl Config {
     /// The snapshot is **not** transformed: it records the schema the diff was
     /// computed from, and rewriting it would desynchronize the next diff.
     ///
+    /// Cannot be combined with a SQLite rebuild-data plan; [`run`] returns
+    /// [`BuildError::SqliteRebuildDataTransformConflict`] if both are set.
+    ///
     /// # Examples
     ///
     /// ```rust,no_run
@@ -272,7 +275,7 @@ impl Config {
     ///     .transform_statements(|statements| {
     ///         statements
     ///             .into_iter()
-    ///             .filter(|sql| !sql.contains("\"scratch_\""))
+    ///             .filter(|sql| !sql.contains("`scratch_"))
     ///             .collect()
     ///     });
     ///
@@ -331,7 +334,8 @@ impl Config {
     }
 
     /// Paths cargo must watch: the schema files, the TOML config (if loaded
-    /// via [`Config::from_toml`]), and the migrations output directory.
+    /// via [`Config::from_toml`]), the migrations output directory, and the
+    /// SQLite rebuild-data plan file (if any).
     ///
     /// Split out of [`Config::watch`] so the set is assertable without
     /// capturing the build script's stdout.
@@ -348,8 +352,9 @@ impl Config {
     }
 
     /// Prints `cargo:rerun-if-changed=` for schema files, the TOML config (if
-    /// loaded via [`Config::from_toml`]), and the migrations output directory,
-    /// plus `cargo:rerun-if-env-changed=` for any env vars referenced by
+    /// loaded via [`Config::from_toml`]), the migrations output directory, and
+    /// a SQLite rebuild-data plan file (if one is set), plus
+    /// `cargo:rerun-if-env-changed=` for any env vars referenced by
     /// `dbCredentials.url`.
     ///
     /// The output directory is watched because the previous-snapshot chain

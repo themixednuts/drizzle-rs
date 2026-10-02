@@ -42,14 +42,21 @@ pub struct MigrateOptions {
     pub repair: bool,
 }
 
-/// Run the migrate command.
+/// Runs `drizzle migrate`: applies the pending migrations in the migrations
+/// folder and records them in the tracking table.
+///
+/// `--plan` and `--verify` only report; `--safe` verifies, then applies;
+/// `--repair` first reconciles an interrupted migration. For the
+/// `durable-sqlite` driver it only prints how to apply migrations inside the
+/// Durable Object and returns `Ok`.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if mutually exclusive flags are combined, the
-/// migrations directory does not exist, the database or credentials cannot be
-/// resolved (including no credentials at all), connecting to the database
-/// fails, or applying migrations fails.
+/// Returns [`CliError`] if `--safe` is combined with `--verify` or `--plan`,
+/// or `--repair` with either; `db_name` does not match the config; the
+/// migrations folder does not exist; there are no credentials or no driver
+/// for them; connecting fails; `--verify` or `--safe` finds integrity
+/// problems; or a migration fails to apply.
 pub fn run(config: &Config, db_name: Option<&str>, opts: MigrateOptions) -> Result<(), CliError> {
     validate_mutex_opts(opts)?;
 

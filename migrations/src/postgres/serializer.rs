@@ -1,4 +1,5 @@
-//! Turns drizzle PostgreSQL schema definitions into DDL entities and snapshots.
+//! Reads and writes PostgreSQL `snapshot.json` files and pairs the newest one with
+//! a new DDL state for diffing.
 
 use super::collection::PostgresDDL;
 use super::ddl::PostgresEntity;
@@ -8,7 +9,9 @@ use std::path::Path;
 /// Error type for serialization operations
 #[derive(Debug, Clone)]
 pub struct SerializerError {
+    /// What went wrong.
     pub message: String,
+    /// The file or folder involved, if any.
     pub path: Option<String>,
 }
 
@@ -40,7 +43,7 @@ pub struct PreparedSnapshots {
     pub snapshot_prev: PostgresSnapshot,
 }
 
-/// Load a snapshot from a JSON file.
+/// Reads a snapshot from a JSON file.
 ///
 /// # Errors
 ///
@@ -58,7 +61,7 @@ pub fn load_snapshot(path: &Path) -> SerializerResult<PostgresSnapshot> {
     })
 }
 
-/// Save a snapshot to a JSON file.
+/// Writes a snapshot as pretty-printed JSON, creating parent folders.
 ///
 /// # Errors
 ///
@@ -86,7 +89,8 @@ pub fn save_snapshot(snapshot: &PostgresSnapshot, path: &Path) -> SerializerResu
     Ok(())
 }
 
-/// Load the latest snapshot from a drizzle folder.
+/// Loads the newest `snapshot.json` (by folder name) in a migrations folder,
+/// or `None` if there is none.
 ///
 /// # Errors
 ///
@@ -97,7 +101,8 @@ pub fn load_latest_snapshot(drizzle_folder: &Path) -> SerializerResult<Option<Po
     snapshots.last().map(|path| load_snapshot(path)).transpose()
 }
 
-/// Find all snapshot files in a drizzle folder.
+/// Returns the `<folder>/<tag>/snapshot.json` paths in a migrations folder,
+/// sorted by tag. A missing folder gives an empty list.
 ///
 /// # Errors
 ///
@@ -132,7 +137,8 @@ pub fn find_snapshot_files(drizzle_folder: &Path) -> SerializerResult<Vec<std::p
     Ok(snapshots)
 }
 
-/// Prepare snapshots for migration generation.
+/// Pairs the newest snapshot in `drizzle_folder` (or an empty one) with
+/// `current_ddl`, building the new snapshot that follows it.
 ///
 /// # Errors
 ///
@@ -160,13 +166,13 @@ pub fn prepare_snapshots(
     })
 }
 
-/// Create an empty/dry snapshot (for initial migrations)
+/// Returns an empty snapshot, the baseline for a first migration.
 #[must_use]
 pub fn empty_snapshot() -> PostgresSnapshot {
     PostgresSnapshot::new()
 }
 
-/// Create a DDL from a list of entities
+/// Same as `from_entities` on the DDL type.
 #[must_use]
 pub fn ddl_from_entities(entities: Vec<PostgresEntity>) -> PostgresDDL {
     PostgresDDL::from_entities(entities)

@@ -99,7 +99,8 @@ where
 /// `first` is separate so the list is never empty. `rest` is any iterator;
 /// its elements share one Rust type, and their SQL type must be compatible
 /// with `first`'s. The result has `first`'s type and is non-null if `first`
-/// or the `rest` elements are non-null.
+/// or the `rest` element type is non-null (even when `rest` turns out to be
+/// empty).
 ///
 /// # Examples
 ///
@@ -208,7 +209,8 @@ where
 /// The first value, or `default` when it is NULL (`IFNULL(expr, default)`).
 ///
 /// Same typing as [`coalesce`]. `IFNULL` exists on SQLite and MySQL but not on
-/// PostgreSQL; use [`coalesce`] for portable code.
+/// PostgreSQL. This function is not restricted by dialect, so on PostgreSQL
+/// it compiles but the database rejects it; use [`coalesce`] there.
 ///
 /// # Examples
 ///

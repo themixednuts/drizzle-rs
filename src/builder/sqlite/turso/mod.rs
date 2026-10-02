@@ -38,7 +38,8 @@
 //!
 //! # Transactions
 //!
-//! Return `Ok(value)` to commit, `Err(...)` to rollback.
+//! Return `Ok(value)` to commit, `Err(...)` to roll back. A panic also rolls
+//! back.
 //!
 //! ```no_run
 //! # use drizzle::sqlite::turso::Drizzle;
@@ -289,8 +290,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// Runs any SQL value and returns its rows decoded into `R`.
     ///
     /// Rows are fetched lazily: call `next().await` on the result, or
-    /// `collect().await` to gather them. Like [`all`](Self::all), this skips the builder's
-    /// compile-time checks.
+    /// `collect().await` to gather them. Like [`all`](Self::all), this skips
+    /// the builder's compile-time checks.
     ///
     /// # Errors
     ///
@@ -325,8 +326,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, and an error when turso
-    /// cannot prepare or run the query or the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// when no row matches, and an error when turso cannot prepare or run
+    /// the query or the row cannot be decoded into `R`.
     pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -1299,7 +1301,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -1336,7 +1343,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -1462,9 +1476,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations, in the table's `PartialSelect*` shape.
     ///
-    /// Base columns are deserialized from a JSON `"__base"` column.
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub async fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -1499,7 +1516,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub async fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -1524,7 +1548,13 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, Connection, T, Rels, drizzle_core::query::AllColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_many<const N: usize>(
         &self,
         conn: &impl prepared::TursoExecutor,
@@ -1582,9 +1612,16 @@ impl<'a, T, Rels>
         Ok(results)
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_first<const N: usize>(
         &self,
         conn: &impl prepared::TursoExecutor,
@@ -1612,7 +1649,13 @@ impl<'a, T, Rels>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, Connection, T, Rels, drizzle_core::query::PartialColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_many<const N: usize>(
         &self,
         conn: &impl prepared::TursoExecutor,
@@ -1671,9 +1714,16 @@ impl<'a, T, Rels>
         Ok(results)
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub async fn find_first<const N: usize>(
         &self,
         conn: &impl prepared::TursoExecutor,
@@ -1702,9 +1752,9 @@ where
 {
     /// Runs the statement and returns the number of rows it changed.
     ///
-    /// Use it for `INSERT`, `UPDATE`, and `DELETE`. A statement with a `RETURNING` clause still runs to
-    /// completion; its returned rows are counted, not decoded (use
-    /// [`all`](Self::all) to read them).
+    /// Use it for `INSERT`, `UPDATE`, and `DELETE`. A statement with a
+    /// `RETURNING` clause still runs to completion; its returned rows are
+    /// counted, not decoded (use [`all`](Self::all) to read them).
     ///
     /// # Examples
     ///
@@ -1879,8 +1929,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, and an error when turso
-    /// cannot prepare or run the query or the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// when no row matches, and an error when turso cannot prepare or run
+    /// the query or the row cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///

@@ -1,4 +1,4 @@
-//! Driver-neutral values used by generated MySQL update models.
+//! The field type of generated `MySQL` update models.
 
 use super::{MySQLValue, insert::ValueWrapper};
 use crate::prelude::*;
@@ -11,7 +11,10 @@ use drizzle_core::{
     types::{Assignable, DataType},
 };
 
-/// A generated update field: skipped, explicitly null, or a typed expression.
+/// One field of a generated update model: unchanged, `NULL`, or a new value.
+///
+/// You rarely build this directly. The `with_*` setters on a generated
+/// `UpdateX` model convert their arguments into it.
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::large_enum_variant)]
 pub enum MySQLUpdateValue<
@@ -21,7 +24,7 @@ pub enum MySQLUpdateValue<
     Target: DataType = Any,
     TargetNull: Nullability = Null,
 > {
-    /// Leave the column unchanged.
+    /// Leave the column out of the SET clause.
     #[default]
     Skip,
     /// Assign SQL `NULL`.
@@ -33,7 +36,7 @@ pub enum MySQLUpdateValue<
 impl<V: SQLParam, T, Target: DataType, TargetNull: Nullability>
     MySQLUpdateValue<'_, V, T, Target, TargetNull>
 {
-    /// Return whether this field is omitted from the `SET` clause.
+    /// Returns `true` if the column is left out of the SET clause.
     #[must_use]
     pub const fn is_skip(&self) -> bool {
         matches!(self, Self::Skip)

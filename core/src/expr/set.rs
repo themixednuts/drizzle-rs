@@ -1,7 +1,9 @@
 //! Membership tests: `IN`, `NOT IN`, `EXISTS` and `NOT EXISTS`.
 //!
-//! Each returns the dialect's boolean, typed as non-null. Values compared
-//! with `IN` must have a SQL type compatible with the left-hand side.
+//! Each returns the dialect's boolean. `IN` and `NOT IN` are NULL when the
+//! left side or a compared value is NULL (tracked through their sources, as
+//! for [comparisons](super::eq)); `EXISTS` is never NULL. Values compared with
+//! `IN` must have a SQL type compatible with the left-hand side.
 
 use crate::dialect::DialectTypes;
 use crate::sql::{SQL, Token};
@@ -145,8 +147,8 @@ with_col_sizes_200!(impl_in_subquery_lhs_tuple);
 ///
 /// `values` is any iterator, such as an array or `Vec`; each value must have
 /// a SQL type compatible with `expr`. An empty list renders `FALSE`, since
-/// nothing is in an empty list. The result is the dialect's boolean, typed as
-/// non-null.
+/// nothing is in an empty list. The result is the dialect's boolean, NULL
+/// when `expr` or a value is.
 ///
 /// # Examples
 ///
@@ -291,7 +293,7 @@ where
 /// `(users.id, users.name)`). The subquery's SQL type must be compatible
 /// with `lhs`. Pass a select query built with the dialect's query builder;
 /// its single column (or tuple of columns) gives the subquery's type. The
-/// result is the dialect's boolean, typed as non-null.
+/// result is the dialect's boolean, NULL when `lhs` or a subquery value is.
 ///
 /// # Examples
 ///

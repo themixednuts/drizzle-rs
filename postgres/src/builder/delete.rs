@@ -1,3 +1,9 @@
+//! `DELETE` builder states and clause methods.
+//!
+//! [`DeleteBuilder`] is the builder returned by `QueryBuilder::delete`.
+//! `WHERE` and `RETURNING` may only read the table being deleted from; this
+//! is checked at the method call.
+
 use crate::values::PostgresValue;
 use core::marker::PhantomData;
 use drizzle_core::ToSQL;

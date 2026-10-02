@@ -719,7 +719,9 @@ impl PostgresValue<'_> {
 
     /// Converts the value into a Rust type through [`FromPostgresValue`].
     ///
-    /// Lossless conversions are allowed, such as `INTEGER` into `i64`.
+    /// Integers convert to other integer types when they fit, and text is
+    /// parsed for numeric targets. An enum converts through its variant label
+    /// and `NUMERIC` through its text form.
     ///
     /// # Examples
     ///

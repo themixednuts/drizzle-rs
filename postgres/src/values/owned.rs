@@ -37,6 +37,16 @@ use rust_decimal::Decimal;
 ///
 /// Use it to store values beyond the query that produced them, for example
 /// in an owned prepared statement. Convert with `From` in either direction.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_postgres::values::{OwnedPostgresValue, PostgresValue};
+///
+/// let owned = OwnedPostgresValue::from(PostgresValue::from("hello"));
+/// assert_eq!(owned.as_str(), Some("hello"));
+/// assert_eq!(owned.as_value().as_str(), Some("hello"));
+/// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum OwnedPostgresValue {
     /// SMALLINT values (16-bit signed integer)
@@ -642,12 +652,14 @@ impl OwnedPostgresValue {
         }
     }
 
-    /// Convert this `PostgreSQL` value to a Rust type using the `FromPostgresValue` trait.
+    /// Converts the value into a Rust type through [`FromPostgresValue`].
+    ///
+    /// Behaves like [`PostgresValue::convert`](super::PostgresValue::convert).
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
-    /// native type does not match the target type `T`.
+    /// Returns [`DrizzleError::ConversionError`] when `T` cannot hold the
+    /// stored value.
     pub fn convert<T: FromPostgresValue>(self) -> Result<T, DrizzleError> {
         match self {
             Self::Boolean(value) => T::from_postgres_bool(value),
@@ -722,12 +734,13 @@ impl OwnedPostgresValue {
         }
     }
 
-    /// Convert a reference to this `PostgreSQL` value to a Rust type.
+    /// Like [`convert`](Self::convert), but borrows the value (cloning data
+    /// where `T` needs it).
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ConversionError`] when the stored variant's
-    /// native type does not match the target type `T`.
+    /// Returns [`DrizzleError::ConversionError`] when `T` cannot hold the
+    /// stored value.
     pub fn convert_ref<T: FromPostgresValue>(&self) -> Result<T, DrizzleError> {
         match self {
             Self::Boolean(value) => T::from_postgres_bool(*value),

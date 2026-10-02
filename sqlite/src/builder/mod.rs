@@ -1,5 +1,11 @@
+//! The typed `SQLite` query builder.
+//!
+//! [`QueryBuilder`] builds SELECT, INSERT, UPDATE and DELETE statements (with
+//! optional common table expressions) and renders them to [`SQL`]. The
+//! submodules hold each statement's builder states. The `drizzle` crate's
+//! drivers wrap this builder to run the queries.
+
 use drizzle_core::Token;
-// Re-export common enums and traits from core
 pub use drizzle_core::builder::{BuilderInit, ExecutableState};
 pub use drizzle_core::{
     OrderBy, SQL, ToSQL,
@@ -355,8 +361,9 @@ where
     /// Prepends a [sqlcommenter](https://google.github.io/sqlcommenter/)
     /// comment (`/*...*/`) to the query.
     ///
-    /// `/*` and `*/` inside `text` are escaped so the text cannot end the
-    /// comment early. An empty `text` leaves the query unchanged.
+    /// `/*` and `*/` inside `text` are broken up (`/ *`, `* /`) so the text
+    /// cannot end the comment early. An empty `text` leaves the query
+    /// unchanged.
     ///
     /// # Examples
     ///

@@ -787,14 +787,34 @@ impl DialectSupports<feature::Excluded> for PostgresDialect {}
 /// # Examples
 ///
 /// ```rust
-/// # let _ = r####"
+/// # use drizzle_core::dialect::{Dialect, SQLiteDialect};
+/// # use drizzle_core::{SQL, SQLColumnInfo, SQLParam, SQLTableInfo, ToSQL, expr::excluded};
+/// # #[derive(Clone, Debug)] struct Value;
+/// # impl SQLParam for Value { const DIALECT: Dialect = Dialect::SQLite; type DialectMarker = SQLiteDialect; }
+/// # struct NameColumn;
+/// # impl SQLColumnInfo for NameColumn {
+/// #     fn name(&self) -> &'static str { "name" }
+/// #     fn is_not_null(&self) -> bool { true }
+/// #     fn is_primary_key(&self) -> bool { false }
+/// #     fn is_unique(&self) -> bool { false }
+/// #     fn r#type(&self) -> &'static str { "TEXT" }
+/// #     fn has_default(&self) -> bool { false }
+/// #     fn table(&self) -> &'static dyn SQLTableInfo { unimplemented!() }
+/// # }
+/// // `NameColumn` stands in for a generated column such as `users.name`.
+/// let new_name: SQL<'_, Value> = excluded(NameColumn).to_sql();
+/// assert_eq!(new_name.sql(), r#"EXCLUDED."name""#);
+/// ```
+///
+/// In an upsert built with a dialect crate:
+///
+/// ```text
 /// // INSERT INTO "simple" ("id", "name") VALUES (?, ?)
 /// //   ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"
 /// db.insert(simple)
 ///     .values([InsertSimple::new("test").with_id(1)])
 ///     .on_conflict(simple.id)
 ///     .do_update(UpdateSimple::default().with_name(excluded(simple.name)));
-/// # "####;
 /// ```
 pub const fn excluded<C>(column: C) -> Excluded<C> {
     Excluded { column }

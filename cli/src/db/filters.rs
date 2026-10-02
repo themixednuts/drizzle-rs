@@ -1,3 +1,7 @@
+//! Applies `tablesFilter`, `schemaFilter`, `extensionsFilters`, and
+//! `entities.roles` from the config to a snapshot before push and pull
+//! compare it with the database.
+
 use std::collections::HashSet;
 
 use drizzle_migrations::schema::Snapshot;

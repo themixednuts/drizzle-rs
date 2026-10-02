@@ -7,22 +7,25 @@
 //! 1. a [`Generator`] set with `.generator(...)`, else
 //! 2. a [`GeneratorKind`] set with `.kind(...)`, else
 //! 3. `DEFAULT` when the column has a default (and is not the primary key), else
-//! 4. a generator inferred from the SQL type and column name (`email` gets
-//!    emails, `first_name` gets first names, and so on).
+//! 4. an inferred generator: integer primary keys count up from 1; otherwise
+//!    the column name decides when it is recognized (`email` gets emails,
+//!    `first_name` gets first names, and so on), then the SQL type.
 //!
-//! Parent tables are seeded before their children, and foreign keys point at
-//! generated parent rows. A child table gets `parent rows × relation count`
-//! rows (the relation count defaults to 1) unless you set its count.
-//! [`reset_plan`](SeedConfig::reset_plan) returns delete statements in
-//! child-before-parent order.
+//! Parent tables are seeded before their children, and foreign key columns
+//! are overwritten to point at generated parent rows. A child table without
+//! its own count gets `parent rows × relation count` rows (the relation count
+//! defaults to 1; with several parents, the largest product wins).
+//! `reset_plan` returns `DELETE` statements in child-before-parent order.
 //!
-//! Enable one dialect feature: `sqlite`, `postgres`, or `mysql`.
+//! The crate has no default dialect: enable `sqlite`, `postgres`, and/or
+//! `mysql`.
 //!
 //! # Examples
 //!
-//! With drizzle schema macros (`drizzle` with the `rusqlite` feature):
+//! With drizzle schema macros (`drizzle` with the `rusqlite` feature; not
+//! compiled here because `drizzle` is not a dependency of this crate):
 //!
-//! ```rust,ignore
+//! ```text
 //! use drizzle::sqlite::prelude::*;
 //! use drizzle_seed::{GeneratorKind, SeedConfig};
 //!
@@ -1123,6 +1126,11 @@ impl Generator for DefaultGen {
     }
 }
 
+/// A column reference generates what would be inferred for that column from
+/// its name, SQL type and primary-key flag, so
+/// `.generator(&Users::name, &Users::display_name)` fills `name` the way
+/// `display_name` would be filled. The column's default and MySQL-specific
+/// type rules are not used.
 impl<C> Generator for &'static C
 where
     C: drizzle_core::SQLColumnInfo,
@@ -1162,6 +1170,7 @@ where
     }
 }
 
+/// Delegates to the shared generator.
 impl Generator for Arc<dyn Generator> {
     fn generate(
         &self,

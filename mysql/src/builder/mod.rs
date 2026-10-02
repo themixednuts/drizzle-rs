@@ -6,8 +6,8 @@
 //!
 //! Examples in this module use the `drizzle` crate and its macros, which
 //! this crate cannot depend on, so they are shown but not compiled here.
-//! The same queries are compiled and checked in the workspace's
-//! `tests/mysql/builder.rs`.
+//! The workspace's `tests/mysql/builder.rs` compiles and checks the same
+//! kinds of query.
 
 use crate::{common::MySQLSchemaType, traits::MySQLTable, values::MySQLValue};
 use core::{fmt::Debug, marker::PhantomData};
@@ -205,8 +205,9 @@ where
     /// Prepends a [sqlcommenter](https://google.github.io/sqlcommenter/)
     /// comment (`/*...*/`) to the query.
     ///
-    /// `/*` and `*/` inside `text` are escaped so the text cannot end the
-    /// comment early. An empty `text` leaves the query unchanged.
+    /// `/*` and `*/` inside `text` are broken up (`/ *`, `* /`) so the text
+    /// cannot end the comment early. An empty `text` leaves the query
+    /// unchanged.
     #[must_use]
     pub fn comment(mut self, text: impl AsRef<str>) -> Self {
         let fragment = drizzle_core::sql::comment::<MySQLValue<'a>>(text);

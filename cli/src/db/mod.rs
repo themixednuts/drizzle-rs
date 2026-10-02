@@ -164,8 +164,13 @@ impl SnapshotFilters {
     }
 }
 
-/// Plans a push: introspects the live database and diffs it against the
-/// desired snapshot.
+/// Plans a push: introspects the live database and diffs it against
+/// `desired`.
+///
+/// The tracking table and anything `filters` excludes are removed from the
+/// live side first; the caller filters `desired`. `breakpoints` is unused.
+/// The plan is destructive when a statement drops or truncates something,
+/// or (MySQL) when the diff emits any warning.
 ///
 /// # Errors
 ///
@@ -384,13 +389,19 @@ pub fn plan_migrations(
     }
 }
 
-/// Applies pending migrations to the connected database.
+/// Applies the pending migrations in `migrations_dir` and records them in
+/// the tracking table, creating or upgrading that table as needed.
+///
+/// With `repair`, an interrupted migration is first reconciled against the
+/// live schema (see [`drizzle_migrations::repair`]); without it, an
+/// interrupted migration stops the run.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if no compiled driver matches, if connecting or
-/// starting a transaction fails, if executing a migration's SQL fails, or if
-/// writing to the tracking table fails.
+/// Returns [`CliError`] if no compiled driver matches, connecting fails, the
+/// migrations cannot be loaded, a migration is interrupted (and `repair` is
+/// off or cannot reconcile it), a statement fails, or the tracking table
+/// cannot be written.
 #[allow(unused_variables)] // params consumed inside feature-gated block
 pub fn run_migrations(
     connection: &ResolvedConnection,
@@ -3190,13 +3201,19 @@ pub struct IntrospectResult {
     pub snapshot_path: std::path::PathBuf,
 }
 
-/// Introspects a database and writes the generated schema and snapshot files.
+/// Introspects a database and writes `<out_dir>/schema.rs` and a baseline
+/// `<out_dir>/<tag>/` folder (`snapshot.json` and a `migration.sql` that
+/// creates the whole schema).
+///
+/// The tracking table is excluded and `filters` applied before anything is
+/// written. With `init_metadata`, the baseline is then recorded as applied.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if connecting to the database fails, if querying the
-/// catalogs fails, if applying the configured snapshot filters fails, or if
-/// writing the generated schema and snapshot files to disk fails.
+/// Returns [`CliError`] if connecting or querying the catalogs fails,
+/// applying the filters fails, `out_dir` uses the legacy journal layout, a
+/// file cannot be written, or `init_metadata` is refused because migrations
+/// are already recorded or the folder holds more than one migration.
 #[allow(clippy::too_many_arguments)]
 pub fn run_introspection(
     connection: &ResolvedConnection,

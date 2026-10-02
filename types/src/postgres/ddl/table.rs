@@ -1,8 +1,4 @@
-//! `PostgreSQL` Table DDL types
-//!
-//! This module provides two complementary types:
-//! - [`TableDef`] - A const-friendly definition type for compile-time schema definitions
-//! - [`Table`] - A runtime type for serde serialization/deserialization
+//! `PostgreSQL` tables: [`TableDef`] (const) and [`Table`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -13,7 +9,8 @@ use crate::serde_helpers::{cow_from_string, cow_option_from_string};
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly table definition for compile-time schema definitions.
+/// A table definition that can be built in a `const`. Columns and
+/// constraints are separate entities that name the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TableDef {
     /// Schema name
@@ -35,7 +32,7 @@ pub struct TableDef {
 }
 
 impl TableDef {
-    /// Create a new table definition
+    /// Creates a plain table in `schema`.
     #[must_use]
     pub const fn new(schema: &'static str, name: &'static str) -> Self {
         Self {
@@ -50,7 +47,7 @@ impl TableDef {
         }
     }
 
-    /// Set UNLOGGED table storage.
+    /// Makes the table `UNLOGGED` (and not `TEMPORARY`).
     #[must_use]
     pub const fn unlogged(self) -> Self {
         Self {
@@ -60,7 +57,7 @@ impl TableDef {
         }
     }
 
-    /// Set TEMPORARY table storage.
+    /// Makes the table `TEMPORARY` (and not `UNLOGGED`).
     #[must_use]
     pub const fn temporary(self) -> Self {
         Self {
@@ -70,7 +67,7 @@ impl TableDef {
         }
     }
 
-    /// Set INHERITS parent table.
+    /// Sets the `INHERITS` parent table.
     #[must_use]
     pub const fn inherits(self, parent: &'static str) -> Self {
         Self {
@@ -79,7 +76,7 @@ impl TableDef {
         }
     }
 
-    /// Set table tablespace.
+    /// Sets the `TABLESPACE`.
     #[must_use]
     pub const fn tablespace(self, tablespace: &'static str) -> Self {
         Self {
@@ -88,7 +85,7 @@ impl TableDef {
         }
     }
 
-    /// Set Row-Level Security enabled
+    /// Enables row-level security.
     #[must_use]
     pub const fn rls_enabled(self) -> Self {
         Self {
@@ -97,7 +94,7 @@ impl TableDef {
         }
     }
 
-    /// Set the table comment.
+    /// Sets the table comment.
     #[must_use]
     pub const fn comment(self, comment: &'static str) -> Self {
         Self {
@@ -106,7 +103,7 @@ impl TableDef {
         }
     }
 
-    /// Convert to runtime [`Table`] type
+    /// Converts to the runtime [`Table`].
     #[must_use]
     pub const fn into_table(self) -> Table {
         Table {
@@ -145,7 +142,10 @@ impl Default for TableDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime table entity for serde serialization.
+/// A table, as stored in migration snapshots.
+///
+/// The flags are `Option<bool>` to match the snapshot format; `None` means
+/// unset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
@@ -214,7 +214,7 @@ pub struct Table {
 }
 
 impl Table {
-    /// Create a new table (runtime)
+    /// Creates a plain table in `schema`.
     #[must_use]
     pub fn new(schema: impl Into<Cow<'static, str>>, name: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -229,7 +229,7 @@ impl Table {
         }
     }
 
-    /// Set UNLOGGED table storage.
+    /// Makes the table `UNLOGGED` (and not `TEMPORARY`).
     #[must_use]
     pub const fn unlogged(mut self) -> Self {
         self.is_unlogged = Some(true);
@@ -237,7 +237,7 @@ impl Table {
         self
     }
 
-    /// Set TEMPORARY table storage.
+    /// Makes the table `TEMPORARY` (and not `UNLOGGED`).
     #[must_use]
     pub const fn temporary(mut self) -> Self {
         self.is_temporary = Some(true);
@@ -245,42 +245,42 @@ impl Table {
         self
     }
 
-    /// Set INHERITS parent table.
+    /// Sets the `INHERITS` parent table.
     #[must_use]
     pub fn inherits(mut self, parent: impl Into<Cow<'static, str>>) -> Self {
         self.inherits = Some(parent.into());
         self
     }
 
-    /// Set table tablespace.
+    /// Sets the `TABLESPACE`.
     #[must_use]
     pub fn tablespace(mut self, tablespace: impl Into<Cow<'static, str>>) -> Self {
         self.tablespace = Some(tablespace.into());
         self
     }
 
-    /// Set Row-Level Security enabled
+    /// Enables row-level security.
     #[must_use]
     pub const fn rls_enabled(mut self) -> Self {
         self.is_rls_enabled = Some(true);
         self
     }
 
-    /// Set the table comment.
+    /// Sets the table comment.
     #[must_use]
     pub fn comment(mut self, comment: impl Into<Cow<'static, str>>) -> Self {
         self.comment = Some(comment.into());
         self
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {

@@ -30,12 +30,14 @@ impl Snapshot {
         }
     }
 
-    /// Writes the snapshot as JSON to `path`.
+    /// Writes the snapshot as pretty-printed JSON to `path`, creating parent
+    /// folders.
     ///
     /// # Errors
     ///
-    /// Returns any [`std::io::Error`] produced by the underlying dialect-specific
-    /// save operation (e.g., serialization failure or filesystem I/O failure).
+    /// Returns the [`std::io::Error`] from serializing (as
+    /// [`InvalidData`](std::io::ErrorKind::InvalidData)), creating the
+    /// folder, or writing the file.
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         match self {
             Self::Sqlite(s) => s.save(path),
@@ -46,10 +48,15 @@ impl Snapshot {
 
     /// Reads a `dialect` snapshot from the JSON file at `path`.
     ///
+    /// SQLite and PostgreSQL files must already be in the current format
+    /// (run `drizzle up` first); MySQL v5 files are upgraded in memory, and
+    /// MySQL snapshots are validated.
+    ///
     /// # Errors
     ///
-    /// Returns any [`std::io::Error`] produced by the dialect-specific load
-    /// operation (file not found, parse failure, etc.).
+    /// Returns the [`std::io::Error`] from reading the file, or one of kind
+    /// [`InvalidData`](std::io::ErrorKind::InvalidData) if the contents do not
+    /// parse (or, for MySQL, fail validation).
     pub fn load(path: &std::path::Path, dialect: Dialect) -> std::io::Result<Self> {
         match dialect {
             Dialect::SQLite => Ok(Self::Sqlite(SQLiteSnapshot::load(path)?)),

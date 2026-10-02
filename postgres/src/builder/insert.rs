@@ -1,3 +1,9 @@
+//! `INSERT` builder states and clause methods.
+//!
+//! [`InsertBuilder`] is the builder returned by `QueryBuilder::insert`. Its
+//! state parameter only allows steps in SQL order: rows (`VALUES` or a
+//! `SELECT`), then `ON CONFLICT`, then `RETURNING`.
+
 use crate::traits::PostgresTable;
 use crate::values::PostgresValue;
 use core::marker::PhantomData;
@@ -266,8 +272,9 @@ where
 
     /// Inserts the given rows, built with the table's `Insert*` model.
     ///
-    /// All rows must set the same columns, so they have the same model type.
-    /// Columns not set use their database default.
+    /// Every row has the same model type. A column a row leaves unset gets
+    /// its database default; when rows set different columns, every row lists
+    /// the union of the columns, with `DEFAULT` where it sets none.
     ///
     /// # Examples
     ///
@@ -461,8 +468,9 @@ where
     /// Inserts the rows of a `SELECT` into every insertable column of the table.
     ///
     /// The query's columns must match the table's insertable columns in
-    /// number, order, type and nullability; this is checked at compile time.
-    /// To fill only some columns, call [`columns`](Self::columns) first.
+    /// number, order, type and nullability, and the query must pass the
+    /// usual scope and `GROUP BY` checks; all of this is checked at compile
+    /// time. To fill only some columns, call [`columns`](Self::columns) first.
     #[inline]
     pub fn select<Q, R, ScopeProof, AggProof>(
         self,
@@ -518,7 +526,8 @@ where
     /// Inserts the rows of a `SELECT` into the columns chosen with `.columns(...)`.
     ///
     /// The query's columns must match the target columns in number, order,
-    /// type and nullability; this is checked at compile time.
+    /// type and nullability, and the query must pass the usual scope and
+    /// `GROUP BY` checks; all of this is checked at compile time.
     #[inline]
     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
         self,

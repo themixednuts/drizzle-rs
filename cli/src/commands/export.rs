@@ -24,13 +24,18 @@ pub struct ExportOptions {
     pub schema: Option<Vec<String>>,
 }
 
-/// Run the export command.
+/// Runs `drizzle export`: parses the schema files and prints the SQL that
+/// creates the whole schema from scratch (the same statements a first
+/// `drizzle generate` would write), or writes it to the `--sql` file.
+///
+/// Statements are joined with `--> statement-breakpoint` lines when the
+/// config's `breakpoints` is on (the default), otherwise with blank lines.
 ///
 /// # Errors
 ///
-/// Returns [`CliError`] if the requested database cannot be resolved, the
-/// schema files cannot be read/parsed, the resolved snapshot cannot be
-/// generated, or if writing the output SQL file fails.
+/// Returns [`CliError`] if `db_name` does not match the config, no schema
+/// files are found, a schema file cannot be read or has parse errors, the
+/// SQL cannot be planned, or the output file cannot be written.
 pub fn run(config: &Config, db_name: Option<&str>, opts: ExportOptions) -> Result<(), CliError> {
     use drizzle_migrations::parser::SchemaParser;
 

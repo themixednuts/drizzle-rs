@@ -63,23 +63,25 @@ use crate::builder::postgres::common;
 use crate::builder::postgres::rows::DecodeRows;
 use crate::transaction::postgres::aws_data_api::Transaction;
 
-/// AWS Data API drizzle builder type alias.
+/// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
+/// `.all()`, `.get()`, or `.rows()`.
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
     common::DrizzleBuilder<'a, &'a Drizzle<Schema>, Schema, Builder, State>;
 
-/// Lazy decoded row cursor for AWS Data API queries.
+/// Rows returned by `.rows()`: fetched up front, decoded as you iterate.
 pub type Rows<R> = DecodeRows<Row, R>;
 
 // =============================================================================
 // Drizzle
 // =============================================================================
 
-/// Async AWS Aurora Serverless Data API database wrapper.
+/// The Aurora Data API database handle: an [`aws_sdk_rdsdata::Client`], the
+/// cluster and secret ARNs every request names, and the schema's table
+/// handles.
 ///
-/// Holds an `aws_sdk_rdsdata::Client` plus the target cluster/secret ARNs.
-/// The SDK `Client` is cheaply cloneable (wraps an internal `Arc`), and this
-/// wrapper stores its static inputs behind `Arc<str>` so `Drizzle` itself is
-/// cheaply cloneable for sharing across tasks.
+/// Create it with [`Drizzle::new`], then build queries with `select`,
+/// `insert`, `update`, and `delete`. It is cheap to clone and share across
+/// tasks.
 #[derive(Debug, Clone)]
 pub struct Drizzle<Schema = ()> {
     client: Client,
@@ -90,7 +92,9 @@ pub struct Drizzle<Schema = ()> {
 }
 
 impl<Schema: Default> Drizzle<Schema> {
-    /// Create a new AWS Data API drizzle instance.
+    /// Creates a handle that sends requests through `client` to the cluster
+    /// `resource_arn`, authenticating with the Secrets Manager secret
+    /// `secret_arn`, and optionally naming a default `database`.
     ///
     /// Returns `(Drizzle, Schema)` like every other driver, with the schema
     /// built by `Default`. The pattern that destructures the schema usually
@@ -122,31 +126,31 @@ impl<S> AsRef<Self> for Drizzle<S> {
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Reference to the underlying AWS SDK client.
+    /// Returns the wrapped AWS SDK client.
     #[inline]
     pub const fn client(&self) -> &Client {
         &self.client
     }
 
-    /// Target cluster resource ARN.
+    /// Returns the ARN of the Aurora cluster requests go to.
     #[inline]
     pub fn resource_arn(&self) -> &str {
         &self.resource_arn
     }
 
-    /// Secrets Manager secret ARN providing credentials.
+    /// Returns the ARN of the Secrets Manager secret holding the credentials.
     #[inline]
     pub fn secret_arn(&self) -> &str {
         &self.secret_arn
     }
 
-    /// Optional default database name.
+    /// Returns the default database name, if one was given.
     #[inline]
     pub fn database(&self) -> Option<&str> {
         self.database.as_deref()
     }
 
-    /// Schema handle.
+    /// Returns the schema value this handle was created with.
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
@@ -154,11 +158,16 @@ impl<Schema> Drizzle<Schema> {
 
     postgres_builder_constructors!();
 
-    /// Run the query and return the number of affected rows.
+    /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, and
+    /// returns the number of rows it changed (`numberOfRecordsUpdated`).
+    ///
+    /// Prefer the builder's own `.execute()`. This method takes anything that
+    /// renders to SQL, so it skips the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails or the SQL is invalid.
+    /// Returns an error when the Data API request fails or the database
+    /// rejects the statement.
     pub async fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, PostgresValue<'a>>,
@@ -179,11 +188,16 @@ impl<Schema> Drizzle<Schema> {
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
-    /// Run the query and collect all rows into `C`.
+    /// Runs any SQL value and collects its rows into `C` (for example
+    /// `Vec<R>`).
+    ///
+    /// Each row is decoded with `R: TryFrom<&Row>`. This skips the builder's
+    /// compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails or row decoding fails.
+    /// Returns an error when the Data API request fails or a row cannot be
+    /// decoded into `R`.
     pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -196,11 +210,16 @@ impl<Schema> Drizzle<Schema> {
             .collect::<drizzle_core::error::Result<C>>()
     }
 
-    /// Run the query and return a lazy row cursor.
+    /// Runs any SQL value and returns its rows, decoded into `R` as you
+    /// iterate.
+    ///
+    /// Every row arrives in the one Data API response. Like
+    /// [`all`](Self::all), this skips the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails.
+    /// Returns an error when the Data API request fails. Decoding errors
+    /// surface per row.
     pub async fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -223,11 +242,15 @@ impl<Schema> Drizzle<Schema> {
         Ok(Rows::new(decode_rows(out)))
     }
 
-    /// Run the query and return a single row.
+    /// Runs any SQL value and decodes its first row into `R`.
+    ///
+    /// Rows after the first are ignored. Like [`all`](Self::all), this skips
+    /// the builder's compile-time checks.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API call fails, no rows match (returns `DrizzleError::NotFound`), or decoding fails.
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when the Data API request fails or the row cannot be decoded into `R`.
     pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -238,17 +261,20 @@ impl<Schema> Drizzle<Schema> {
         rows.next().transpose()?.ok_or(DrizzleError::NotFound)
     }
 
-    /// Run a transaction. Returns `Ok(value)` to commit, `Err(...)` to rollback.
+    /// Runs the async closure `f` inside a transaction and returns its value.
     ///
-    /// The Data API implicitly starts each transaction via the service-level
-    /// `BeginTransaction` call; PostgreSQL options are communicated as a
-    /// preamble statement. If the callback future is cancelled after the
-    /// service allocates a transaction ID, dropping its handle schedules a
-    /// best-effort rollback on the current Tokio runtime.
+    /// The transaction commits when `f` returns `Ok` and rolls back when it
+    /// returns `Err`. It starts with the Data API's `BeginTransaction` call;
+    /// the isolation level, access mode, and `DEFERRABLE` from `config` are
+    /// applied with a `SET TRANSACTION` statement. If the future is dropped
+    /// before it finishes, dropping the transaction schedules a best-effort
+    /// rollback on the current Tokio runtime.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the Data API begin/commit call fails, or if the inner closure returns an error.
+    /// Returns the error from `f`, or an error when beginning, configuring,
+    /// committing, or rolling back fails. When the rollback after an `Err`
+    /// also fails, both errors are reported together.
     pub async fn transaction<F, R>(
         &self,
         config: impl Into<TransactionConfig>,
@@ -366,11 +392,14 @@ impl<Schema> Drizzle<Schema>
 where
     Schema: drizzle_core::traits::SQLSchemaImpl + Default,
 {
-    /// Create all schema objects (tables, indexes, ...) from `SQLSchemaImpl`.
+    /// Creates every table, index, and view in the schema.
+    ///
+    /// The statements run one by one, outside a transaction.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if any CREATE statement fails via the Data API.
+    /// Returns an error when one of the statements fails; earlier statements
+    /// stay applied.
     pub async fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements = schema.create_statements()?;
@@ -383,14 +412,19 @@ where
 }
 
 impl<Schema> Drizzle<Schema> {
-    /// Apply pending migrations from an embedded migration slice.
+    /// Applies the migrations that have not run yet.
     ///
-    /// Migrations run inside a single Data API transaction so a mid-run failure
-    /// rolls back cleanly. Each migration can contain multiple statements.
+    /// Creates the tracking table (and its schema) if needed, then runs every
+    /// pending migration and its tracking row in one Data API transaction,
+    /// under `pg_advisory_xact_lock` so concurrent runs do not overlap.
+    /// `CREATE/DROP INDEX CONCURRENTLY` statements cannot run in a transaction
+    /// and are sent outside it, so they are not rolled back with the rest.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError`] if the underlying migration or Data API transaction fails.
+    /// Returns an error when a statement or Data API request fails (the
+    /// transaction is rolled back), or when the tracking table holds an
+    /// unfinished ("dirty") row left by an interrupted run.
     pub async fn migrate(
         &self,
         migrations: &[drizzle_migrations::Migration],
@@ -487,7 +521,7 @@ pub fn encode_params(params: &[&PostgresValue<'_>]) -> Vec<SqlParameter> {
         .collect()
 }
 
-/// Decode rows from an `ExecuteStatementOutput` into a Vec<Row>, sharing the
+/// Decode rows from an `ExecuteStatementOutput` into a `Vec<Row>`, sharing the
 /// column metadata via an Arc.
 pub fn decode_rows(
     out: aws_sdk_rdsdata::operation::execute_statement::ExecuteStatementOutput,
@@ -563,7 +597,13 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
 where
     State: builder::ExecutableState,
 {
-    /// Run the builder and return the number of affected rows.
+    /// Runs the statement and returns the number of rows it changed
+    /// (`numberOfRecordsUpdated`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Data API request fails or the database
+    /// rejects the statement.
     pub async fn execute(self) -> drizzle_core::error::Result<u64> {
         let (sql_str, params) = {
             #[cfg(feature = "profiling")]
@@ -581,7 +621,17 @@ where
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
-    /// Run the builder and collect all rows using the builder's row type.
+    /// Runs the query and decodes every row into `R`.
+    ///
+    /// The scope and grouping checks apply as on the other drivers, but `R`
+    /// is not checked against the selection at compile time: it only needs
+    /// `TryFrom<&Row>`, so a mismatch, including a non-`Option` field for a
+    /// `NULL` value, is a runtime decode error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Data API request fails or a row cannot be
+    /// decoded into `R`.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -610,7 +660,13 @@ where
         Ok(decoded)
     }
 
-    /// Run the builder and return a lazy row cursor.
+    /// Runs the query and returns its rows, decoded into the row type the
+    /// query infers from its selection as you iterate.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Data API request fails. Decoding errors
+    /// surface per row.
     pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -634,7 +690,15 @@ where
         Ok(Rows::new(decode_rows(out)))
     }
 
-    /// Run the builder and return a single row.
+    /// Runs the query and decodes its first row into `R`.
+    ///
+    /// Rows after the first are ignored. `R` is checked as in
+    /// [`all`](Self::all).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when the Data API request fails or the row cannot be decoded into `R`.
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>

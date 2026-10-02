@@ -492,6 +492,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// interrupted run rolls back completely and leaves nothing to clean up.
     /// Migrations that already ran are skipped.
     ///
+    /// The connection's busy timeout is set to 30 seconds. When a pending
+    /// migration wraps statements in `PRAGMA foreign_keys=OFF` / `ON` (as
+    /// generated table rebuilds do), enforcement is switched off around the
+    /// whole transaction instead, `PRAGMA foreign_key_check` must pass before
+    /// `COMMIT`, and enforcement is restored afterwards.
+    ///
     /// Load the migrations with [`include_migrations!`](crate::include_migrations)
     /// or [`MigrationDir`](drizzle_migrations::MigrationDir).
     ///
@@ -1175,7 +1181,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -1212,7 +1223,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -1335,9 +1353,12 @@ impl<'db, 'a, Schema, T, Rels, Cl>
         Cl,
     >
 {
-    /// Executes the query and returns all matching rows with their relations.
+    /// Runs the relational query and returns every root row with its loaded
+    /// relations, in the table's `PartialSelect*` shape.
     ///
-    /// Base columns are deserialized from a JSON `"__base"` column.
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a row cannot be decoded.
     pub fn find_many(
         self,
     ) -> drizzle_core::error::Result<
@@ -1372,7 +1393,14 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
         drizzle_core::query::Clauses<W, Ord, drizzle_core::query::NoLimit>,
     >
 {
-    /// Executes the query and returns the first matching row, or `None`.
+    /// Runs the relational query with `LIMIT 1` and returns the first root row,
+    /// or `None` when nothing matches.
+    ///
+    /// Available only while no `.limit(..)` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or the row cannot be decoded.
     pub fn find_first(
         self,
     ) -> drizzle_core::error::Result<
@@ -1397,7 +1425,13 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, Connection, T, Rels, drizzle_core::query::AllColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_many<const N: usize>(
         &self,
         conn: &Connection,
@@ -1452,9 +1486,16 @@ impl<'a, T, Rels>
         Ok(results)
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_first<const N: usize>(
         &self,
         conn: &Connection,
@@ -1482,7 +1523,13 @@ impl<'a, T, Rels>
 impl<'a, T, Rels>
     common::DrizzlePreparedQuery<'a, Connection, T, Rels, drizzle_core::query::PartialColumns>
 {
-    /// Executes the prepared relational query and returns all matching rows.
+    /// Runs the prepared relational query with `params` bound and returns
+    /// every root row with its loaded relations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_many<const N: usize>(
         &self,
         conn: &Connection,
@@ -1536,9 +1583,16 @@ impl<'a, T, Rels>
         Ok(results)
     }
 
-    /// Executes the prepared relational query and returns the first row, if any.
+    /// Runs the prepared relational query and returns its first root row, or
+    /// `None` when nothing matches.
     ///
-    /// To apply `LIMIT 1` in SQL, call `.limit(1)` before `.prepare()`.
+    /// Every matching row is still fetched; call `.limit(1)` before
+    /// `.prepare()` to limit the query itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a placeholder is missing or unknown, when the
+    /// query fails, or when a row cannot be decoded.
     pub fn find_first<const N: usize>(
         &self,
         conn: &Connection,

@@ -1,4 +1,5 @@
-//! `PostgreSQL` Unique Constraint DDL types
+//! `PostgreSQL` unique constraints: [`UniqueConstraintDef`] (const) and
+//! [`UniqueConstraint`] (runtime).
 
 use crate::alloc_prelude::*;
 
@@ -6,7 +7,7 @@ use crate::alloc_prelude::*;
 // Const-friendly Definition Type
 // =============================================================================
 
-/// Const-friendly unique constraint definition
+/// A unique constraint definition that can be built in a `const`.
 ///
 /// # Examples
 ///
@@ -39,7 +40,7 @@ pub struct UniqueConstraintDef {
 }
 
 impl UniqueConstraintDef {
-    /// Create a new unique constraint definition
+    /// Creates a unique constraint definition.
     #[must_use]
     pub const fn new(schema: &'static str, table: &'static str, name: &'static str) -> Self {
         Self {
@@ -100,7 +101,7 @@ impl UniqueConstraintDef {
         }
     }
 
-    /// Convert to runtime [`UniqueConstraint`] type
+    /// Converts to the runtime [`UniqueConstraint`].
     #[must_use]
     pub const fn into_unique_constraint(self) -> UniqueConstraint {
         UniqueConstraint {
@@ -126,11 +127,7 @@ impl Default for UniqueConstraintDef {
 // Runtime Type for Serde
 // =============================================================================
 
-/// Runtime unique constraint entity
-///
-/// Uses `Cow<'static, str>` for all string fields, which works with both:
-/// - Borrowed data from const definitions (`Cow::Borrowed`)
-/// - Owned data from deserialization/introspection (`Cow::Owned`)
+/// A unique constraint, as stored in migration snapshots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UniqueConstraint {
     /// Schema name
@@ -159,7 +156,7 @@ pub struct UniqueConstraint {
 }
 
 impl UniqueConstraint {
-    /// Create a new unique constraint
+    /// Creates a unique constraint.
     #[must_use]
     pub fn new(
         schema: impl Into<Cow<'static, str>>,
@@ -179,7 +176,7 @@ impl UniqueConstraint {
         }
     }
 
-    /// Create a new unique constraint from owned strings (convenience for runtime construction)
+    /// Creates a unique constraint from owned strings.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_strings(schema: String, table: String, name: String, columns: Vec<String>) -> Self {
@@ -195,21 +192,21 @@ impl UniqueConstraint {
         }
     }
 
-    /// Get the schema name
+    /// Returns the schema name.
     #[inline]
     #[must_use]
     pub fn schema(&self) -> &str {
         &self.schema
     }
 
-    /// Get the constraint name
+    /// Returns the constraint name.
     #[inline]
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Get the table name
+    /// Returns the table name.
     #[inline]
     #[must_use]
     pub fn table(&self) -> &str {

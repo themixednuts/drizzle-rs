@@ -1,3 +1,11 @@
+//! Query builders for `PostgreSQL` statements.
+//!
+//! [`QueryBuilder`] builds `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `WITH` and
+//! `REFRESH MATERIALIZED VIEW` statements as SQL text plus bound parameters,
+//! without a connection. The driver integrations in the `drizzle` crate wrap
+//! it to run the statements. Each statement kind has a submodule with its
+//! builder states.
+
 use drizzle_core::Token;
 // Re-export common enums and traits from core
 pub use drizzle_core::builder::{BuilderInit, ExecutableState};
@@ -1294,7 +1302,6 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     }
 }
 
-// Marker trait to indicate a query builder state is executable
 #[cfg(test)]
 mod tests {
     use super::*;

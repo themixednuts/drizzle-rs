@@ -1,7 +1,8 @@
 //! Shared helpers for table macro pipelines.
 //!
-//! This module centralizes common setup steps used by `SQLite` and `PostgreSQL`
-//! table macros to reduce duplication and keep behavior consistent.
+//! Setup steps every dialect's table macro runs the same way: the table name,
+//! the struct's fields, primary-key counting and the insert model's
+//! required-field pattern.
 
 use heck::ToSnakeCase;
 use syn::spanned::Spanned;

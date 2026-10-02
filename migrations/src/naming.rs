@@ -1488,13 +1488,10 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     (i32::try_from(y).unwrap_or(i32::MAX), m, d)
 }
 
-/// Returns a random `adjective_hero` suffix, e.g. `brave_thor`.
+/// Returns a random `adjective_hero` suffix from [`ADJECTIVES`] and
+/// [`HEROES`], for example `brave_thor`.
 ///
-/// The nanosecond `seed` is narrowed from `u128` to `u64` via
-/// `u64::try_from(..).unwrap_or(u64::MAX)`; a truncated seed just costs a tiny
-/// sliver of entropy but never panics. The modulus-to-`usize` conversions are
-/// guaranteed to fit because `ADJECTIVES.len()` and `HEROES.len()` are
-/// compile-time-known to be small.
+/// Seeded from the current time; not cryptographically random.
 #[must_use]
 pub fn generate_random_suffix() -> String {
     let seed: u64 = SystemTime::now()

@@ -1,7 +1,10 @@
 //! SQL fragment builders used by the `PostgreSQL` query builders.
 //!
-//! Most items are internal. The public `*_join_using` functions render a
-//! `JOIN ... USING (...)` fragment for hand-built SQL.
+//! Most items are internal. The public ones render join fragments for
+//! hand-built SQL: `join`, `left_join`, `natural_join` and the other
+//! `*_join` functions (`JOIN table ON condition`), and the `PostgreSQL`-only
+//! `*_join_using` functions (`JOIN table USING (columns)`). [`JoinArg`] is the
+//! argument type of the select builder's `.join(...)` methods.
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;

@@ -55,9 +55,11 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+    /// statement's placeholders (missing, duplicated, or extra),
     /// or the database error when the statement fails.
+    ///
+    /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
     /// # Panics
     ///
@@ -92,10 +94,12 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+    /// statement's placeholders (missing, duplicated, or extra),
     /// the database error when the query fails, or a decode error when a row
     /// does not fit `T`.
+    ///
+    /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
     /// # Panics
     ///
@@ -138,10 +142,12 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+    /// statement's placeholders (missing, duplicated, or extra),
     /// rusqlite's `QueryReturnedNoRows` when no row matches, the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
+    ///
+    /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
     /// # Panics
     ///
@@ -219,9 +225,11 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+    /// statement's placeholders (missing, duplicated, or extra),
     /// or the database error when the statement fails.
+    ///
+    /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
     /// # Panics
     ///
@@ -256,10 +264,12 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+    /// statement's placeholders (missing, duplicated, or extra),
     /// the database error when the query fails, or a decode error when a row
     /// does not fit `T`.
+    ///
+    /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
     /// # Panics
     ///
@@ -302,10 +312,12 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::ParameterError`](drizzle_core::error::DrizzleError::ParameterError) when `params` do not
-    /// match the statement's placeholders (missing, duplicated, or extra),
+    /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
+    /// statement's placeholders (missing, duplicated, or extra),
     /// rusqlite's `QueryReturnedNoRows` when no row matches, the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
+    ///
+    /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
     /// # Panics
     ///

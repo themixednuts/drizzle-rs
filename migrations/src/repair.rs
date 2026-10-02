@@ -15,8 +15,9 @@
 //! * **Skip** — introspection proves the statement's effect is already
 //!   present (`CREATE TABLE` whose table exists with the same columns,
 //!   `CREATE [UNIQUE] INDEX` whose index exists over the same columns,
-//!   `CREATE VIEW` with the same definition, `CREATE TYPE ... AS ENUM` with
-//!   the same labels).
+//!   `CREATE VIEW` whose stored definition matches (SQLite only; the
+//!   PostgreSQL catalog carries no view text, so an existing view there is
+//!   unresolvable), `CREATE TYPE ... AS ENUM` with the same labels).
 //! * **Execute** — the object provably does not exist yet, so the statement
 //!   (and everything after it) still has to run.
 //! * **Unresolvable** — the statement is not a provable `CREATE` (an `ALTER`,
@@ -62,8 +63,8 @@ pub struct CatalogObject {
     pub schema: Option<String>,
     /// Object name, unqualified.
     pub name: String,
-    /// Stored DDL text when the engine keeps one (`sqlite_master.sql`,
-    /// `pg_indexes.indexdef`). `None` when it does not.
+    /// Stored DDL text, when known. [`sqlite::catalog`] fills it from
+    /// `sqlite_master.sql`; [`postgres::catalog`] always leaves it `None`.
     pub sql: Option<String>,
     /// Ordered members: column names for tables and indexes, labels for enums.
     pub members: Vec<String>,

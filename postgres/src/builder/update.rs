@@ -1,3 +1,11 @@
+//! `UPDATE` builder states and clause methods.
+//!
+//! [`UpdateBuilder`] is the builder returned by `QueryBuilder::update`. Its
+//! state parameter only allows steps in SQL order: `SET`, then `FROM`,
+//! `WHERE` and `RETURNING`. Column checks on `WHERE` and `RETURNING` happen
+//! at the method call: they may only read the updated table and the `FROM`
+//! source.
+
 use crate::common::PostgresSchemaType;
 use crate::values::PostgresValue;
 use core::marker::PhantomData;
@@ -18,7 +26,6 @@ pub use drizzle_core::builder::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateFromSet;
 
-// Mark states that can execute update queries
 impl ExecutableState for UpdateFromSet {}
 
 //------------------------------------------------------------------------------

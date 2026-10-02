@@ -482,7 +482,7 @@ where
 /// let year = extract("YEAR", users.created_at);
 /// assert_eq!(
 ///     year.sql(),
-///     r#"CAST (EXTRACT(YEAR FROM "users"."created_at") AS DOUBLE PRECISION)"#
+///     r#"CAST (EXTRACT( YEAR FROM "users"."created_at") AS DOUBLE PRECISION)"#
 /// );
 /// ```
 #[allow(clippy::type_complexity)]

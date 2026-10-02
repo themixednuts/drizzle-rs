@@ -235,9 +235,11 @@ where
 
     /// Inserts one or more rows.
     ///
-    /// Each item is the table's generated insert model. Rows may set
-    /// different columns: every row then lists all of them, with `DEFAULT`
-    /// for the ones it leaves out.
+    /// Each item is the table's generated insert model, and all rows share
+    /// one model type. A `with_*` setter given `None` leaves its column out
+    /// of that row, so rows can still set different columns; every row then
+    /// lists all of them, with `DEFAULT` for the ones it leaves out. If no
+    /// row sets a column, this renders `() VALUES ()`.
     ///
     /// # Examples
     ///

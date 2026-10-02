@@ -514,7 +514,7 @@ where
 /// # struct Users { id: C<Int>, age: C<Int>, name: C<Text>, email: C<Text, Null>, score: C<Real, Null>, active: C<<D as DialectTypes>::Bool>, created_at: C<<D as DialectTypes>::Timestamp> }
 /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// let n = ntile(4).over(window().order_by(asc(users.age)));
-/// assert_eq!(n.sql(), r#"NTILE(4) OVER (ORDER BY "users"."age" ASC)"#);
+/// assert_eq!(n.sql(), r#"NTILE (4) OVER (ORDER BY "users"."age" ASC)"#);
 /// ```
 #[must_use]
 pub fn ntile<'a, V>(
@@ -784,9 +784,9 @@ where
 
 /// The value of `expr` in the last row of the frame (`LAST_VALUE(expr)`).
 ///
-/// With the default frame, the last row is the current row; use
-/// [`WindowSpec::rows_between`] to look further. The result has `expr`'s SQL
-/// type and is typed as nullable.
+/// With an `ORDER BY` and the default frame, the frame ends at the current
+/// row (and its ties); use [`WindowSpec::rows_between`] to look further.
+/// The result has `expr`'s SQL type and is typed as nullable.
 ///
 /// # Examples
 ///

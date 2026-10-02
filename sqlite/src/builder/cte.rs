@@ -1,4 +1,7 @@
-//! Common table expression support for SQLite.
+//! Common table expressions (`WITH name AS (...)`) for `SQLite`.
+//!
+//! Make one with [`into_cte`](super::QueryBuilder::into_cte) and add it to a
+//! query with [`QueryBuilder::with`](super::QueryBuilder::with).
 
 use crate::values::SQLiteValue;
 
