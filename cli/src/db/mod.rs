@@ -6593,6 +6593,125 @@ pub struct Schema {
         ));
     }
 
+    /// An interrupted pre-transactional upgrade left `name` without
+    /// `applied_at`; the next run finishes it instead of failing on the
+    /// missing column. Statement errors also carry the server message.
+    #[cfg(feature = "postgres-sync")]
+    #[test]
+    fn postgres_sync_migrate_finishes_half_upgraded_tracking_table() {
+        use drizzle_migrations::{Migration, Migrations};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let mut client = connect_postgres_sync(&creds).expect("connect postgres");
+        let migration_schema = unique_pg_name("cli_sync_half_upgraded");
+        client
+            .batch_execute(&format!(
+                "DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE; \
+                 CREATE SCHEMA \"{migration_schema}\"; \
+                 CREATE TABLE \"{migration_schema}\".\"__drizzle_migrations\" \
+                     (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at BIGINT, name TEXT); \
+                 INSERT INTO \"{migration_schema}\".\"__drizzle_migrations\" (hash, created_at) \
+                     VALUES ('half_hash', 1680271923456);"
+            ))
+            .expect("reproduce the half-upgraded table");
+        drop(client);
+
+        let applied = Migration::with_hash(
+            "20230331141203_cli_half",
+            "half_hash",
+            1_680_271_923_000,
+            vec![],
+        );
+        let broken = Migration::new(
+            "20230401000000_cli_broken",
+            &format!("INSERT INTO \"{migration_schema}\".missing_table VALUES (1);"),
+        );
+        let tracking = drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone());
+
+        let set =
+            Migrations::with_tracking(vec![applied.clone()], Dialect::PostgreSQL, tracking.clone());
+        let result = run_postgres_sync_migrations(&set, &creds, false)
+            .expect("a half-upgraded tracking table is completed");
+        assert_eq!(result.applied_count, 0);
+
+        let set = Migrations::with_tracking(vec![applied, broken], Dialect::PostgreSQL, tracking);
+        let error = run_postgres_sync_migrations(&set, &creds, false)
+            .expect_err("the broken migration fails")
+            .to_string();
+        assert!(error.contains("20230401000000_cli_broken"), "{error}");
+        assert!(
+            error.contains("does not exist"),
+            "server message is kept: {error}"
+        );
+
+        let mut verify_client = connect_postgres_sync(&creds).expect("reconnect");
+        let row = verify_client
+            .query_one(
+                &format!(
+                    "SELECT name, applied_at IS NOT NULL FROM \"{migration_schema}\".\"__drizzle_migrations\""
+                ),
+                &[],
+            )
+            .expect("upgraded row");
+        assert_eq!(row.get::<_, String>(0), "20230331141203_cli_half");
+        assert!(row.get::<_, bool>(1));
+        let _ = verify_client.batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+        ));
+    }
+
+    /// Concurrent first runs take the advisory lock before creating the
+    /// tracking schema, so none of them races on `CREATE SCHEMA`.
+    #[cfg(feature = "postgres-sync")]
+    #[test]
+    fn postgres_sync_concurrent_first_migrate_creates_tracking_schema_once() {
+        use drizzle_migrations::{Migration, Migrations};
+        use drizzle_types::Dialect;
+
+        let creds = test_postgres_creds();
+        let migration_schema = unique_pg_name("cli_sync_concurrent_first");
+        let table = unique_pg_name("cli_sync_concurrent_table");
+        let set = Migrations::with_tracking(
+            vec![Migration::new(
+                "20240101000000_cli_concurrent",
+                &format!("CREATE TABLE \"{table}\" (id integer);"),
+            )],
+            Dialect::PostgreSQL,
+            drizzle_migrations::Tracking::POSTGRES.schema(migration_schema.clone()),
+        );
+
+        let barrier = std::sync::Barrier::new(6);
+        let applied: usize = std::thread::scope(|scope| {
+            let handles = (0..6)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        run_postgres_sync_migrations(&set, &creds, false)
+                            .map(|result| result.applied_count)
+                            .map_err(|error| error.to_string())
+                    })
+                })
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .expect("thread")
+                        .unwrap_or_else(|error| panic!("{error}"))
+                })
+                .sum()
+        });
+        assert_eq!(applied, 1);
+
+        let mut verify_client = connect_postgres_sync(&creds).expect("reconnect");
+        let _ = verify_client.batch_execute(&format!(
+            "DROP TABLE IF EXISTS \"{table}\" CASCADE; \
+             DROP SCHEMA IF EXISTS \"{migration_schema}\" CASCADE;"
+        ));
+    }
+
     #[cfg(feature = "postgres-sync")]
     #[test]
     fn postgres_sync_migrate_upgrade_rejects_unmatched_legacy_rows() {
