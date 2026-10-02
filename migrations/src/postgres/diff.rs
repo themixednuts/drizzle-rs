@@ -203,7 +203,11 @@ pub fn compute_migration(prev: &PostgresDDL, cur: &PostgresDDL) -> MigrationDiff
         .into_iter()
         .flat_map(Generator::statement_to_sqls)
         .collect::<Vec<_>>();
-    sql_statements.extend(generator.generate_with_ddl(&schema_diff.diffs, Some(cur)));
+    sql_statements.extend(generator.generate_with_context(
+        &schema_diff.diffs,
+        Some(&prev_normalized),
+        Some(cur),
+    ));
     collect_enum_removal_warnings(&mut warnings, &schema_diff);
     collect_generated_recreate_warnings(&mut warnings, &schema_diff);
     collect_table_storage_warnings(&mut warnings, &schema_diff);

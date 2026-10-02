@@ -199,11 +199,15 @@ fn postgres_policy_conversion_for_public_role_and_as_clause() {
     prev.columns.push(column);
     let mut cur = prev.clone();
     cur.policies.push(policy);
-    let migration_sql = compute_postgres_migration(&prev, &cur).sql_statements[0].clone();
+    let migration_sql = compute_postgres_migration(&prev, &cur).sql_statements;
 
+    // The table's first policy turns row-level security on (drizzle-kit).
     assert_eq!(
         migration_sql,
-        "CREATE POLICY \"users_policy\" ON \"users\" AS PERMISSIVE FOR SELECT TO PUBLIC USING (id > 0);"
+        [
+            "ALTER TABLE \"users\" ENABLE ROW LEVEL SECURITY;",
+            "CREATE POLICY \"users_policy\" ON \"users\" AS PERMISSIVE FOR SELECT TO PUBLIC USING (id > 0);"
+        ]
     );
 }
 

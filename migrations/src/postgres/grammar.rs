@@ -183,84 +183,93 @@ impl PgTypeCategory {
         Some(body[..end].trim())
     }
 
-    /// Match serial and integer types. Serial aliases must be checked first so
-    /// `smallserial` isn't misclassified as `smallint`.
+    /// Whether `s` is the type `name`, optionally followed by type
+    /// parameters, a trailing qualifier or array brackets — but not by more
+    /// identifier characters. `time_unit` or `text_align` (enum names) must
+    /// not classify as `time` / `text`.
+    fn is_type(s: &str, name: &str) -> bool {
+        Self::type_name_rest(s, name).is_some()
+    }
+
+    /// Match serial and integer types.
     fn match_numeric(s: &str) -> Option<Self> {
-        // Serial aliases first (prefix collides with integer types).
-        if s.starts_with("smallserial") {
+        if Self::is_type(s, "smallserial") || Self::is_type(s, "serial2") {
             return Some(Self::SmallSerial);
         }
-        if s.starts_with("bigserial") {
+        if Self::is_type(s, "bigserial") || Self::is_type(s, "serial8") {
             return Some(Self::BigSerial);
         }
-        if s.starts_with("serial") {
+        if Self::is_type(s, "serial") || Self::is_type(s, "serial4") {
             return Some(Self::Serial);
         }
 
-        if s.starts_with("smallint") || s == "int2" {
+        if Self::is_type(s, "smallint") || Self::is_type(s, "int2") {
             return Some(Self::SmallInt);
         }
-        if s.starts_with("integer") || s == "int" || s == "int4" {
+        if Self::is_type(s, "integer") || Self::is_type(s, "int") || Self::is_type(s, "int4") {
             return Some(Self::Integer);
         }
-        if s.starts_with("bigint") || s == "int8" {
+        if Self::is_type(s, "bigint") || Self::is_type(s, "int8") {
             return Some(Self::BigInt);
         }
-        if s.starts_with("numeric") || s.starts_with("decimal") {
+        if Self::is_type(s, "numeric") || Self::is_type(s, "decimal") {
             return Some(Self::Numeric);
         }
-        if s.starts_with("real") || s == "float4" {
+        if Self::is_type(s, "real") || Self::is_type(s, "float4") {
             return Some(Self::Real);
         }
-        if s.starts_with("double") {
+        if s.starts_with("double precision") || Self::is_type(s, "float8") {
             return Some(Self::DoublePrecision);
         }
-        if s.starts_with("boolean") || s == "bool" {
+        if Self::is_type(s, "boolean") || Self::is_type(s, "bool") {
             return Some(Self::Boolean);
         }
         None
     }
 
     /// Match string and JSON types. `varchar`/`character varying` must be
-    /// checked before `char`/`character`; `jsonb` before `json`.
+    /// checked before `char`/`character`.
     fn match_string_or_json(s: &str) -> Option<Self> {
-        if s.starts_with("varchar") || s.starts_with("character varying") {
+        if Self::is_type(s, "varchar") || s.starts_with("character varying") {
             return Some(Self::Varchar);
         }
-        if s.starts_with("char") || s.starts_with("character") {
+        if Self::is_type(s, "char") || Self::is_type(s, "character") || Self::is_type(s, "bpchar") {
             return Some(Self::Char);
         }
-        if s.starts_with("text") {
+        if Self::is_type(s, "text") {
             return Some(Self::Text);
         }
-        if s.starts_with("jsonb") {
+        if Self::is_type(s, "jsonb") {
             return Some(Self::Jsonb);
         }
-        if s.starts_with("json") {
+        if Self::is_type(s, "json") {
             return Some(Self::Json);
         }
         None
     }
 
     /// Match time/date types. The `with time zone` variants are checked before
-    /// the base `timestamp` / `time` prefixes.
+    /// the base `timestamp` / `time` names.
     fn match_temporal(s: &str) -> Option<Self> {
-        if s.starts_with("timestamp") && s.contains("with time zone") {
+        if Self::is_type(s, "timestamptz")
+            || (Self::is_type(s, "timestamp") && s.contains("with time zone"))
+        {
             return Some(Self::TimestampTz);
         }
-        if s.starts_with("timestamp") {
+        if Self::is_type(s, "timestamp") {
             return Some(Self::Timestamp);
         }
-        if s.starts_with("time") && s.contains("with time zone") {
+        if Self::is_type(s, "timetz") || (Self::is_type(s, "time") && s.contains("with time zone"))
+        {
             return Some(Self::TimeTz);
         }
-        if s.starts_with("time") {
+        if Self::is_type(s, "time") {
             return Some(Self::Time);
         }
-        if s.starts_with("date") {
+        if Self::is_type(s, "date") {
             return Some(Self::Date);
         }
-        if s.starts_with("interval") {
+        if Self::is_type(s, "interval") {
             return Some(Self::Interval);
         }
         None
@@ -268,32 +277,31 @@ impl PgTypeCategory {
 
     /// Match network, vector, bit, geometric and other specialized types.
     fn match_specialized(s: &str) -> Option<Self> {
-        if s.starts_with("uuid") {
+        if Self::is_type(s, "uuid") {
             return Some(Self::Uuid);
         }
-        if s.starts_with("inet") {
+        if Self::is_type(s, "inet") {
             return Some(Self::Inet);
         }
-        if s.starts_with("cidr") {
+        if Self::is_type(s, "cidr") {
             return Some(Self::Cidr);
         }
-        // macaddr8 must be matched before macaddr
-        if s.starts_with("macaddr8") {
+        if Self::is_type(s, "macaddr8") {
             return Some(Self::MacAddr8);
         }
-        if s.starts_with("macaddr") {
+        if Self::is_type(s, "macaddr") {
             return Some(Self::MacAddr);
         }
-        if s.starts_with("vector") {
+        if Self::is_type(s, "vector") {
             return Some(Self::Vector);
         }
-        if s.starts_with("halfvec") {
+        if Self::is_type(s, "halfvec") {
             return Some(Self::HalfVec);
         }
-        if s.starts_with("sparsevec") {
+        if Self::is_type(s, "sparsevec") {
             return Some(Self::SparseVec);
         }
-        if s.starts_with("bit") {
+        if Self::is_type(s, "bit") || Self::is_type(s, "varbit") {
             return Some(Self::Bit);
         }
         if Self::type_name_rest(s, "geometry").is_some() {
@@ -309,10 +317,10 @@ impl PgTypeCategory {
         {
             return Some(Self::Custom);
         }
-        if s.starts_with("point") {
+        if Self::is_type(s, "point") {
             return Some(Self::Point);
         }
-        if s.starts_with("line") {
+        if Self::is_type(s, "line") {
             return Some(Self::Line);
         }
         None

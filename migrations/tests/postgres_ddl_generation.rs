@@ -1350,7 +1350,9 @@ fn test_alter_index_respects_concurrently() {
     assert_eq!(
         sql,
         vec![
-            "DROP INDEX CONCURRENTLY \"users_email_idx\";".to_string(),
+            // drizzle-kit never drops CONCURRENTLY: it cannot run in a
+            // migration transaction.
+            "DROP INDEX \"users_email_idx\";".to_string(),
             "CREATE UNIQUE INDEX CONCURRENTLY \"users_email_idx\" ON \"users\"(\"email\");"
                 .to_string(),
         ]
@@ -1795,7 +1797,7 @@ fn test_enum_reorder_recreates_type_with_column_round_trip() {
             .to_string(),
         "DROP TYPE \"status\";".to_string(),
         "CREATE TYPE \"status\" AS ENUM ('archived', 'active');".to_string(),
-        "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DATA TYPE \"status\" USING \"status\"::text::\"status\";"
+        "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DATA TYPE \"status\" USING \"status\"::\"status\";"
             .to_string(),
         "ALTER TABLE \"users\" ALTER COLUMN \"status\" SET DEFAULT 'active';".to_string(),
     ];

@@ -6,6 +6,8 @@ pub mod collection;
 pub mod diff;
 pub mod grammar;
 pub mod introspect;
+#[cfg(test)]
+mod regression_tests;
 pub mod serializer;
 mod snapshot;
 pub mod statements;
