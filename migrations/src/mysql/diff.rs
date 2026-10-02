@@ -1681,6 +1681,43 @@ fn collect_column_warnings(
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DependencyOrder {
+    /// Generated columns before the columns they read (dropping).
+    DependentsFirst,
+    /// Columns before the generated columns that read them (adding).
+    DependenciesFirst,
+}
+
+/// Orders columns so a generated column and the columns its expression
+/// reads are dropped or added in an order MySQL accepts (error 3108 when a
+/// referenced column is dropped first, 1054 when it is added later). The
+/// input order is kept otherwise; a dependency cycle keeps the input order.
+fn order_by_generated_dependencies(
+    columns: Vec<&model::Column>,
+    order: DependencyOrder,
+) -> Vec<&model::Column> {
+    let depends_on = |dependent: &model::Column, dependency: &model::Column| {
+        dependent.table == dependency.table
+            && dependent.name != dependency.name
+            && dependent.generated.as_ref().is_some_and(|generated| {
+                identifier_tokens(&generated.expression).contains(dependency.name.as_ref())
+            })
+    };
+    let mut remaining = columns;
+    let mut ordered = Vec::with_capacity(remaining.len());
+    while !remaining.is_empty() {
+        let ready = remaining.iter().position(|column| {
+            !remaining.iter().any(|other| match order {
+                DependencyOrder::DependentsFirst => depends_on(other, column),
+                DependencyOrder::DependenciesFirst => depends_on(column, other),
+            })
+        });
+        ordered.push(remaining.remove(ready.unwrap_or(0)));
+    }
+    ordered
+}
+
 fn depends_on_recreated_column(
     table: &str,
     columns: impl IntoIterator<Item = String>,
@@ -2347,15 +2384,20 @@ pub fn compute_migration_with(
     }
     statements.extend(column_rename_statements);
 
-    for (table, column) in &dropped_columns {
-        if rename_generated_dependents.contains(&(table.clone(), column.clone())) {
-            continue;
-        }
-        let old = prev_columns[&(table.clone(), column.clone())];
+    let dropped_in_order = order_by_generated_dependencies(
+        dropped_columns
+            .iter()
+            .filter(|key| !rename_generated_dependents.contains(key))
+            .map(|key| prev_columns[key])
+            .collect(),
+        DependencyOrder::DependentsFirst,
+    );
+    for old in dropped_in_order {
+        let (table, column) = (old.table.to_string(), old.name.to_string());
         statements.push(MySQLStatement::DropColumn {
             database: database(&old.database),
-            table: table.clone(),
-            column: column.clone(),
+            table,
+            column,
         });
     }
     for table in &dropped_tables {
@@ -2444,11 +2486,20 @@ pub fn compute_migration_with(
         });
     }
 
-    for column in cur.columns.list() {
+    let added_in_order = order_by_generated_dependencies(
+        cur.columns
+            .list()
+            .iter()
+            .filter(|column| {
+                !created_tables.contains(column.table.as_ref())
+                    && !prev_columns
+                        .contains_key(&(column.table.to_string(), column.name.to_string()))
+            })
+            .collect(),
+        DependencyOrder::DependenciesFirst,
+    );
+    for column in added_in_order {
         let key = (column.table.to_string(), column.name.to_string());
-        if created_tables.contains(&key.0) || prev_columns.contains_key(&key) {
-            continue;
-        }
         statements.push(MySQLStatement::AddColumn {
             database: database(&column.database),
             table: key.0.clone(),
@@ -3944,5 +3995,47 @@ mod tests {
             sql[1],
             "CREATE INDEX `tickets_note_idx` ON `tickets` (`note`);"
         );
+    }
+
+    #[test]
+    fn generated_column_dependencies_order_column_drops_and_adds() {
+        let generated = |table: &str, name: &str, expression: &str| {
+            let mut column = model::Column::new(table.to_string(), name.to_string(), "int");
+            column.generated = Some(model::Generated {
+                expression: expression.to_string().into(),
+                generation_type: model::GeneratedType::Stored,
+            });
+            column
+        };
+        let base = table_with_columns("metrics", &["id"]);
+        let mut with_generated = base.clone();
+        with_generated
+            .columns
+            .push(generated("metrics", "a_double", "z_base * 2"));
+        with_generated
+            .columns
+            .push(model::Column::new("metrics", "z_base", "int"));
+        with_generated
+            .columns
+            .push(generated("metrics", "b_triple", "`z_base` * 3"));
+
+        // Dependents are dropped before the column they read (3108 otherwise).
+        let drops = compute_migration(&with_generated, &base)
+            .unwrap()
+            .sql_statements;
+        let position = |sql: &[String], column: &str| {
+            sql.iter()
+                .position(|statement| statement.contains(&format!("COLUMN `{column}`")))
+                .unwrap()
+        };
+        assert!(position(&drops, "a_double") < position(&drops, "z_base"));
+        assert!(position(&drops, "b_triple") < position(&drops, "z_base"));
+
+        // The column a generated column reads is added first (1054 otherwise).
+        let adds = compute_migration(&base, &with_generated)
+            .unwrap()
+            .sql_statements;
+        assert!(position(&adds, "z_base") < position(&adds, "a_double"));
+        assert!(position(&adds, "z_base") < position(&adds, "b_triple"));
     }
 }
