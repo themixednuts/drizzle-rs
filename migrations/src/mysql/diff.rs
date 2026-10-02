@@ -1718,6 +1718,134 @@ fn order_by_generated_dependencies(
     ordered
 }
 
+/// The table an operation that may join an `ALTER TABLE` batch acts on.
+fn batchable_table(statement: &MySQLStatement) -> Option<&str> {
+    match statement {
+        MySQLStatement::AddColumn { table, .. }
+        | MySQLStatement::ModifyColumn { table, .. }
+        | MySQLStatement::DropColumn { table, .. }
+        | MySQLStatement::DropPrimaryKey { table, .. }
+        | MySQLStatement::DropIndex { table, .. }
+        | MySQLStatement::DropUnique { table, .. } => Some(table),
+        MySQLStatement::AddPrimaryKey { primary_key } => Some(&primary_key.table),
+        MySQLStatement::AddUnique { unique } => Some(&unique.table),
+        MySQLStatement::CreateIndex { index } if index.algorithm.is_none() && index.lock.is_none() => {
+            Some(&index.table)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `statement` changes a primary key or touches an `AUTO_INCREMENT`
+/// column (as a column change or as a key part).
+fn touches_auto_increment_key(
+    statement: &MySQLStatement,
+    auto_increment: &BTreeSet<(String, String)>,
+    prev_indexes: &BTreeMap<(String, String), &model::Index>,
+) -> bool {
+    let is_auto = |table: &str, column: &str| {
+        auto_increment.contains(&(table.to_string(), column.to_string()))
+    };
+    let index_parts_auto = |table: &str, columns: &[IndexColumnDefinition]| {
+        columns.iter().any(|column| {
+            matches!(column, IndexColumnDefinition::Column { name, .. } if is_auto(table, name))
+        })
+    };
+    match statement {
+        MySQLStatement::DropPrimaryKey { .. } | MySQLStatement::AddPrimaryKey { .. } => true,
+        MySQLStatement::AddColumn { table, column, .. }
+        | MySQLStatement::ModifyColumn { table, column, .. } => is_auto(table, &column.name),
+        MySQLStatement::DropColumn { table, column, .. } => is_auto(table, column),
+        MySQLStatement::DropIndex { table, name, .. }
+        | MySQLStatement::DropUnique { table, name, .. } => prev_indexes
+            .get(&(table.clone(), name.clone()))
+            .is_some_and(|index| {
+                index.columns.iter().any(|column| {
+                    !column.is_expression && is_auto(table, column.expression.as_ref())
+                })
+            }) || is_auto(table, name),
+        MySQLStatement::AddUnique { unique } => index_parts_auto(&unique.table, &unique.columns),
+        MySQLStatement::CreateIndex { index } => index_parts_auto(&index.table, &index.columns),
+        _ => false,
+    }
+}
+
+/// Merges the column and key operations of a table whose primary key or
+/// `AUTO_INCREMENT` key changes into one `ALTER TABLE`, placed where the last
+/// of them was. Separately, `DROP PRIMARY KEY` fails while an
+/// `AUTO_INCREMENT` column depends on it (1075), an `AUTO_INCREMENT` column
+/// cannot be added or modified before its key exists (1075), and a new
+/// primary key cannot be added before the old one is gone (1068).
+fn batch_auto_increment_key_changes(
+    statements: Vec<MySQLStatement>,
+    prev: &MySQLDDL,
+    cur: &MySQLDDL,
+) -> Vec<MySQLStatement> {
+    let auto_increment: BTreeSet<_> = prev
+        .columns
+        .list()
+        .iter()
+        .chain(cur.columns.list())
+        .filter(|column| column.autoincrement)
+        .map(|column| (column.table.to_string(), column.name.to_string()))
+        .collect();
+    if auto_increment.is_empty() {
+        return statements;
+    }
+    let prev_indexes = index_map(prev);
+    let batched_tables: BTreeSet<String> = statements
+        .iter()
+        .filter(|statement| touches_auto_increment_key(statement, &auto_increment, &prev_indexes))
+        .filter_map(|statement| batchable_table(statement).map(str::to_string))
+        .filter(|table| auto_increment.iter().any(|(auto_table, _)| auto_table == table))
+        .collect();
+    let mut members: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (position, statement) in statements.iter().enumerate() {
+        if let Some(table) = batchable_table(statement).filter(|table| batched_tables.contains(*table)) {
+            members.entry(table.to_string()).or_default().push(position);
+        }
+    }
+    members.retain(|_, positions| positions.len() > 1);
+    if members.is_empty() {
+        return statements;
+    }
+    let last_member: BTreeMap<usize, String> = members
+        .iter()
+        .map(|(table, positions)| (*positions.last().expect("non-empty"), table.clone()))
+        .collect();
+    let mut batches: BTreeMap<String, Vec<MySQLStatement>> = BTreeMap::new();
+    let mut output = Vec::with_capacity(statements.len());
+    for (position, statement) in statements.into_iter().enumerate() {
+        let table = batchable_table(&statement).map(str::to_string);
+        match table.filter(|table| members.contains_key(table)) {
+            Some(table) => {
+                let database = match &statement {
+                    MySQLStatement::AddPrimaryKey { primary_key } => primary_key.database.clone(),
+                    MySQLStatement::AddUnique { unique } => unique.database.clone(),
+                    MySQLStatement::CreateIndex { index } => index.database.clone(),
+                    MySQLStatement::AddColumn { database, .. }
+                    | MySQLStatement::ModifyColumn { database, .. }
+                    | MySQLStatement::DropColumn { database, .. }
+                    | MySQLStatement::DropPrimaryKey { database, .. }
+                    | MySQLStatement::DropIndex { database, .. }
+                    | MySQLStatement::DropUnique { database, .. } => database.clone(),
+                    _ => None,
+                };
+                batches.entry(table.clone()).or_default().push(statement);
+                if last_member.get(&position) == Some(&table) {
+                    output.push(MySQLStatement::AlterTable {
+                        database,
+                        table: table.clone(),
+                        operations: batches.remove(&table).unwrap_or_default(),
+                    });
+                }
+            }
+            None => output.push(statement),
+        }
+    }
+    output
+}
+
 fn depends_on_recreated_column(
     table: &str,
     columns: impl IntoIterator<Item = String>,
@@ -2655,6 +2783,7 @@ pub fn compute_migration_with(
         }
     }
 
+    let statements = batch_auto_increment_key_changes(statements, &prev, &cur);
     let sql_statements = render_statements(&statements)?;
     let typed_warnings: Vec<_> = warnings.into_iter().collect();
     let warnings = typed_warnings.iter().map(ToString::to_string).collect();
@@ -4037,5 +4166,55 @@ mod tests {
             .sql_statements;
         assert!(position(&adds, "z_base") < position(&adds, "a_double"));
         assert!(position(&adds, "z_base") < position(&adds, "b_triple"));
+    }
+
+    #[test]
+    fn auto_increment_key_changes_are_one_alter_table() {
+        let auto_table = |pk: &[&str], auto: bool| {
+            let mut ddl = table_with_columns("tickets", &["id", "tenant"]);
+            ddl.columns.list_mut()[0].autoincrement = auto;
+            for column in ddl.columns.list_mut() {
+                column.primary_key = pk.contains(&column.name.as_ref());
+            }
+            ddl.pks.push(primary_key("tickets", pk));
+            ddl
+        };
+
+        // Widening the key of an AUTO_INCREMENT column: a lone DROP PRIMARY
+        // KEY fails with error 1075.
+        let widened = compute_migration(&auto_table(&["id"], true), &auto_table(&["id", "tenant"], true))
+            .unwrap()
+            .sql_statements;
+        assert_eq!(
+            widened,
+            ["ALTER TABLE `tickets` DROP PRIMARY KEY, ADD PRIMARY KEY (`id`, `tenant`);"]
+        );
+
+        // Moving the key off an AUTO_INCREMENT column that stops being one.
+        let moved = compute_migration(&auto_table(&["id"], true), &auto_table(&["tenant"], false))
+            .unwrap()
+            .sql_statements;
+        assert_eq!(
+            moved,
+            [
+                "ALTER TABLE `tickets` DROP PRIMARY KEY, MODIFY COLUMN `id` bigint NOT NULL, ADD PRIMARY KEY (`tenant`);"
+            ]
+        );
+
+        // Introducing a new AUTO_INCREMENT primary key column.
+        let mut before = table_with_columns("tickets", &["tenant"]);
+        before.columns.list_mut()[0].primary_key = true;
+        before.pks.push(primary_key("tickets", &["tenant"]));
+        let mut after = table_with_columns("tickets", &["tenant", "id"]);
+        after.columns.list_mut()[1].autoincrement = true;
+        after.columns.list_mut()[1].primary_key = true;
+        after.pks.push(primary_key("tickets", &["id"]));
+        let added = compute_migration(&before, &after).unwrap().sql_statements;
+        assert_eq!(
+            added,
+            [
+                "ALTER TABLE `tickets` DROP PRIMARY KEY, ADD COLUMN `id` bigint NOT NULL AUTO_INCREMENT, ADD PRIMARY KEY (`id`);"
+            ]
+        );
     }
 }

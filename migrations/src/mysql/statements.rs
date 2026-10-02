@@ -375,6 +375,15 @@ pub enum MySQLStatement {
         from: String,
         to: String,
     },
+    /// Several column and key operations on one table applied by a single
+    /// `ALTER TABLE` with comma-separated clauses. MySQL validates the table
+    /// only after all of them, which key changes around an `AUTO_INCREMENT`
+    /// column need (separate statements fail with errors 1075 and 1068).
+    AlterTable {
+        database: Option<String>,
+        table: String,
+        operations: Vec<MySQLStatement>,
+    },
 }
 
 /// Failure to render a typed operation.
@@ -817,6 +826,68 @@ fn render_view(view: &ViewDefinition, replace: bool) -> Result<String, RenderErr
     Ok(sql)
 }
 
+fn render_index_clause(index: &IndexDefinition) -> Result<String, RenderError> {
+    let mut sql = format!(
+        "ADD {}INDEX {}",
+        if index.unique { "UNIQUE " } else { "" },
+        quote_identifier(&index.name)
+    );
+    if let Some(using) = index.using {
+        sql.push_str(match using {
+            IndexUsing::Btree => " USING BTREE",
+            IndexUsing::Hash => " USING HASH",
+        });
+    }
+    sql.push_str(" (");
+    sql.push_str(&render_index_columns("alter table index", &index.columns)?);
+    sql.push(')');
+    if let Some(comment) = &index.comment {
+        sql.push_str(" COMMENT ");
+        sql.push_str(&quote_literal(comment));
+    }
+    if let Some(visible) = index.visible {
+        sql.push_str(if visible { " VISIBLE" } else { " INVISIBLE" });
+    }
+    Ok(sql)
+}
+
+/// Renders the `ALTER TABLE` clauses of one operation inside an
+/// [`MySQLStatement::AlterTable`] batch.
+fn render_alter_clauses(operation: &MySQLStatement) -> Result<Vec<String>, RenderError> {
+    Ok(match operation {
+        MySQLStatement::AddColumn { column, .. } => {
+            vec![format!("ADD COLUMN {}", render_column(column)?)]
+        }
+        MySQLStatement::ModifyColumn { column, .. } => {
+            vec![format!("MODIFY COLUMN {}", render_column(column)?)]
+        }
+        MySQLStatement::DropColumn { column, .. } => {
+            vec![format!("DROP COLUMN {}", quote_identifier(column))]
+        }
+        MySQLStatement::RecreateColumn { column, .. } => vec![
+            format!("DROP COLUMN {}", quote_identifier(&column.name)),
+            format!("ADD COLUMN {}", render_column(column)?),
+        ],
+        MySQLStatement::DropPrimaryKey { .. } => vec!["DROP PRIMARY KEY".to_string()],
+        MySQLStatement::AddPrimaryKey { primary_key } => {
+            vec![format!("ADD {}", render_primary_key(primary_key)?)]
+        }
+        MySQLStatement::DropIndex { name, .. } | MySQLStatement::DropUnique { name, .. } => {
+            vec![format!("DROP INDEX {}", quote_identifier(name))]
+        }
+        MySQLStatement::AddUnique { unique } => vec![format!("ADD {}", render_unique(unique)?)],
+        MySQLStatement::CreateIndex { index } if index.algorithm.is_none() && index.lock.is_none() => {
+            vec![render_index_clause(index)?]
+        }
+        other => {
+            return Err(RenderError::InvalidOption {
+                field: "batched ALTER TABLE operation",
+                value: format!("{other:?}"),
+            });
+        }
+    })
+}
+
 /// Renders one typed operation into one or more independently committed DDL statements.
 ///
 /// # Errors
@@ -993,6 +1064,28 @@ pub fn render_statement(statement: &MySQLStatement) -> Result<Vec<String>, Rende
             qualified_name(database.as_deref(), from),
             qualified_name(database.as_deref(), to)
         )],
+        MySQLStatement::AlterTable {
+            database,
+            table,
+            operations,
+        } => {
+            let clauses = operations
+                .iter()
+                .map(render_alter_clauses)
+                .collect::<Result<Vec<_>, _>>()?
+                .concat();
+            if clauses.is_empty() {
+                return Err(RenderError::EmptyList {
+                    operation: "alter table",
+                    item: "operation",
+                });
+            }
+            vec![format!(
+                "ALTER TABLE {} {};",
+                qualified_name(database.as_deref(), table),
+                clauses.join(", ")
+            )]
+        }
     };
     Ok(sql)
 }
