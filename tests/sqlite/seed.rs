@@ -1094,6 +1094,34 @@ mod executed {
                 .is_ok()
         );
     }
+    #[SQLiteTable(NAME = "seed_defaults")]
+    pub struct SeedDefaults {
+        #[column(PRIMARY)]
+        pub id: i64,
+        #[column(DEFAULT = 7)]
+        pub score: i64,
+        pub name: String,
+    }
+
+    #[derive(SQLiteSchema)]
+    pub struct SeedDefaultsSchema {
+        pub defaults: SeedDefaults,
+    }
+
+    /// SQLite has no `DEFAULT` keyword inside `VALUES`, so a column that
+    /// takes its default is left out of the INSERT instead.
+    #[drizzle::test]
+    fn columns_with_defaults_take_them(db: &mut TestDb<SeedDefaultsSchema>) {
+        let SeedDefaultsSchema { defaults } = schema;
+        for statement in SeedConfig::sqlite(&schema).count(&defaults, 5).generate() {
+            assert!(!statement.sql().contains("DEFAULT"), "{}", statement.sql());
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedDefaults> = db.select(()).from(defaults).all();
+        assert_eq!(rows.len(), 5);
+        assert!(rows.iter().all(|row| row.score == 7));
+    }
 }
 
 #[test]

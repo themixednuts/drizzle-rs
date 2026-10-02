@@ -855,11 +855,12 @@ where
     S: drizzle_core::SQLSchemaImpl,
 {
     fn generate_sqlite(&self) -> Result<Vec<SQLiteSeedStatement>, SeedError> {
-        Ok(self
-            .generate_chunks(batch::SQLITE_MAX_PARAMS)?
-            .iter()
-            .map(|chunk| build_sqlite_statement(chunk))
-            .collect())
+        let chunks = self.generate_chunks(batch::SQLITE_MAX_PARAMS)?;
+        let mut statements = Vec::with_capacity(chunks.len());
+        for chunk in &chunks {
+            build_sqlite_statements(chunk, &mut statements);
+        }
+        Ok(statements)
     }
 
     fn reset_sqlite(&self) -> Result<Vec<SQLiteResetStatement>, SeedError> {
@@ -1169,8 +1170,10 @@ fn batch_ranges_by_param_limit(
 // Per-dialect rendering: SeedValue → SQL fragments, assembled via core's SQL
 // ---------------------------------------------------------------------------
 
-#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
-#[cfg_attr(not(any(feature = "sqlite", feature = "mysql")), allow(dead_code))]
+#[cfg(any(
+    feature = "mysql",
+    all(test, any(feature = "sqlite", feature = "postgres"))
+))]
 fn build_insert_sql<V>(table: &TableRef, rows: &[Vec<SQL<'static, V>>]) -> OwnedSQL<V>
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
@@ -1180,7 +1183,7 @@ where
 
 /// `overriding_system_value` adds `PostgreSQL`'s `OVERRIDING SYSTEM VALUE`,
 /// which lets explicit values into `GENERATED ALWAYS AS IDENTITY` columns.
-#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+#[cfg(any(feature = "postgres", feature = "mysql", all(test, feature = "sqlite")))]
 fn build_insert_sql_with<V>(
     table: &TableRef,
     rows: &[Vec<SQL<'static, V>>],
@@ -1189,17 +1192,32 @@ fn build_insert_sql_with<V>(
 where
     V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
 {
-    let columns = table
+    let columns: Vec<usize> = table
         .columns
         .iter()
         .enumerate()
         .filter(|(_, column)| generated_expression(column).is_none())
-        .collect::<Vec<_>>();
+        .map(|(index, _)| index)
+        .collect();
+    build_insert_sql_columns(table, &columns, rows, overriding_system_value)
+}
 
+/// `INSERT INTO table (columns...) VALUES ...`, writing only the values at
+/// `columns` (indexes into `table.columns` and each row).
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+fn build_insert_sql_columns<V>(
+    table: &TableRef,
+    columns: &[usize],
+    rows: &[Vec<SQL<'static, V>>],
+    overriding_system_value: bool,
+) -> OwnedSQL<V>
+where
+    V: drizzle_core::SQLParam + Clone + ToOwned<Owned = V> + 'static,
+{
     let column_idents = SQL::join(
         columns
             .iter()
-            .map(|(_, column)| SQL::<'static, V>::ident(column.name.to_string())),
+            .map(|&index| SQL::<'static, V>::ident(table.columns[index].name.to_string())),
         Token::COMMA,
     );
 
@@ -1219,7 +1237,7 @@ where
         }
         debug_assert_eq!(row.len(), table.columns.len());
         let row_sql = SQL::join(
-            columns.iter().map(|(index, _)| row[*index].clone()),
+            columns.iter().map(|&index| row[index].clone()),
             Token::COMMA,
         );
         values_sql = values_sql.append(row_sql.parens());
@@ -1294,16 +1312,56 @@ fn seed_value_to_sqlite_sql(value: &SeedValue) -> SQL<'static, OwnedSQLiteValue>
     }
 }
 
+/// SQLite has no `DEFAULT` keyword inside `VALUES`, so a column that takes
+/// its default is left out of the column list instead. Rows are split into
+/// runs that default the same columns, keeping their order; a row that
+/// defaults every column becomes `INSERT ... DEFAULT VALUES`.
 #[cfg(feature = "sqlite")]
-fn build_sqlite_statement(chunk: &GeneratedChunk<'_>) -> SQLiteSeedStatement {
-    let rows: Vec<Vec<SQL<'static, OwnedSQLiteValue>>> = chunk
-        .rows
+fn build_sqlite_statements(chunk: &GeneratedChunk<'_>, out: &mut Vec<SQLiteSeedStatement>) {
+    let insertable: Vec<usize> = chunk
+        .table
+        .columns
         .iter()
-        .map(|row| row.iter().map(seed_value_to_sqlite_sql).collect())
+        .enumerate()
+        .filter(|(_, column)| generated_expression(column).is_none())
+        .map(|(index, _)| index)
         .collect();
+    let given = |row: &[SeedValue]| -> Vec<usize> {
+        insertable
+            .iter()
+            .copied()
+            .filter(|&index| !matches!(row[index], SeedValue::Default))
+            .collect()
+    };
 
-    SQLiteSeedStatement {
-        inner: build_insert_sql(chunk.table, &rows),
+    let mut start = 0;
+    while start < chunk.rows.len() {
+        let columns = given(&chunk.rows[start]);
+        let mut end = start + 1;
+        while end < chunk.rows.len() && given(&chunk.rows[end]) == columns {
+            end += 1;
+        }
+        let run = &chunk.rows[start..end];
+        if columns.is_empty() {
+            for _ in run {
+                out.push(SQLiteSeedStatement {
+                    inner: SQL::<'static, OwnedSQLiteValue>::token(Token::INSERT)
+                        .push(Token::INTO)
+                        .append(SQL::table(statement_table(chunk.table)))
+                        .append(SQL::raw("DEFAULT VALUES"))
+                        .into_owned(),
+                });
+            }
+        } else {
+            let rows: Vec<Vec<SQL<'static, OwnedSQLiteValue>>> = run
+                .iter()
+                .map(|row| row.iter().map(seed_value_to_sqlite_sql).collect())
+                .collect();
+            out.push(SQLiteSeedStatement {
+                inner: build_insert_sql_columns(chunk.table, &columns, &rows, false),
+            });
+        }
+        start = end;
     }
 }
 
