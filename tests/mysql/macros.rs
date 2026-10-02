@@ -239,6 +239,27 @@ struct ExpressionDefaults {
     normalized_label: String,
 }
 
+#[MySQLTable]
+struct NamedConstraintParents {
+    #[column(PRIMARY)]
+    id: u64,
+}
+
+#[MySQLTable(UNIQUE(columns(a, b)), CHECK(expr = "a <> b"))]
+struct NamedConstraintChildren {
+    #[column(PRIMARY)]
+    id: u64,
+    #[column(VARCHAR(32))]
+    a: String,
+    #[column(VARCHAR(32))]
+    b: String,
+    #[column(CHECK = "low < high")]
+    low: i32,
+    high: i32,
+    #[column(REFERENCES = NamedConstraintParents::id)]
+    parent_id: u64,
+}
+
 #[MySQLTable(DATABASE = "odd`db", NAME = "par`ents")]
 struct EscapedParent {
     #[column(NAME = "i`d", PRIMARY)]
@@ -873,6 +894,29 @@ fn snapshot_defaults_use_the_rendered_mysql_expressions() {
             ("metadata", "('{}')"),
             ("normalized_label", "(lower('DRAFT'))"),
         ]
+    );
+}
+
+#[test]
+fn create_table_sql_names_constraints_like_the_snapshot() {
+    let sql = NamedConstraintChildren::create_table_sql();
+    // A column CHECK naming another column is only valid as a table
+    // constraint (MySQL error 3813), and every constraint carries the name
+    // generate and push use, so db.create() agrees with both.
+    assert!(!sql.contains("NOT NULL CHECK"), "{sql}");
+    for expected in [
+        "CONSTRAINT `named_constraint_children_low_check` CHECK (low < high)",
+        "CONSTRAINT `named_constraint_children_check` CHECK (a <> b)",
+        "CONSTRAINT `named_constraint_children_a_b_key` UNIQUE (`a`, `b`)",
+        "CONSTRAINT `named_constraint_children_parent_id_fkey` FOREIGN KEY (`parent_id`)",
+    ] {
+        assert!(sql.contains(expected), "{expected} in {sql}");
+    }
+
+    let table = <NamedConstraintChildren as DrizzleTable>::TABLE_REF;
+    assert_eq!(
+        table.foreign_keys[0].name,
+        "named_constraint_children_parent_id_fkey"
     );
 }
 

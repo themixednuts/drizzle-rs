@@ -339,7 +339,7 @@ pub(super) fn generate_table_impls(
         .filter_map(|field| {
             let expr = field.check_constraint.as_ref()?;
             Some(ConstraintRefInput {
-                name: Some(format!("{}_{}_check", ctx.table_name, field.column_name)),
+                name: Some(column_check_name(ctx, field)),
                 name_explicit: false,
                 kind: quote! { drizzle::core::SQLConstraintKind::Check },
                 columns: vec![field.column_name.clone()],
@@ -682,7 +682,7 @@ fn table_unique_column_data(
     (col_zsts, col_names, source_checks)
 }
 
-fn table_unique_column_names(ctx: &MacroContext, columns: &[Ident]) -> Vec<String> {
+pub(super) fn table_unique_column_names(ctx: &MacroContext, columns: &[Ident]) -> Vec<String> {
     columns
         .iter()
         .map(|src| {
@@ -694,13 +694,26 @@ fn table_unique_column_names(ctx: &MacroContext, columns: &[Ident]) -> Vec<Strin
         .collect()
 }
 
-fn table_unique_name(ctx: &MacroContext, columns: &[String], explicit: &Option<String>) -> String {
+pub(super) fn table_unique_name(
+    ctx: &MacroContext,
+    columns: &[String],
+    explicit: &Option<String>,
+) -> String {
     explicit
         .clone()
         .unwrap_or_else(|| format!("{}_{}_key", ctx.table_name, columns.join("_")))
 }
 
-fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -> String {
+/// Name of a column-level `CHECK`, shared by the snapshot and `CREATE TABLE`.
+pub(super) fn column_check_name(ctx: &MacroContext, field: &FieldInfo) -> String {
+    format!("{}_{}_check", ctx.table_name, field.column_name)
+}
+
+pub(super) fn table_check_name(
+    ctx: &MacroContext,
+    idx: usize,
+    explicit: &Option<String>,
+) -> String {
     explicit.clone().unwrap_or_else(|| {
         if ctx.attrs.check_constraints.len() == 1 {
             format!("{}_check", ctx.table_name)

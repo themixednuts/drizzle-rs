@@ -284,7 +284,6 @@ impl FieldInfo {
             auto_increment: parsed.is_auto_increment,
             generated: parsed.generated.as_ref(),
             default: parsed.default.as_ref(),
-            check: parsed.check.as_deref(),
             charset: parsed.charset.as_deref(),
             collate: parsed.collate.as_deref(),
             on_update: parsed.on_update.as_deref(),
@@ -1065,7 +1064,6 @@ struct SqlDefinition<'a> {
     auto_increment: bool,
     generated: Option<&'a GeneratedColumn>,
     default: Option<&'a MySQLDefault>,
-    check: Option<&'a str>,
     charset: Option<&'a str>,
     collate: Option<&'a str>,
     on_update: Option<&'a str>,
@@ -1083,7 +1081,6 @@ fn build_sql_definition(definition: SqlDefinition<'_>) -> String {
         auto_increment,
         generated,
         default,
-        check,
         charset,
         collate,
         on_update,
@@ -1135,9 +1132,6 @@ fn build_sql_definition(definition: SqlDefinition<'_>) -> String {
     }
     if let Some(on_update) = on_update {
         let _ = write!(sql, " ON UPDATE {on_update}");
-    }
-    if let Some(check) = check {
-        let _ = write!(sql, " CHECK ({check})");
     }
     if let Some(comment) = comment {
         let _ = write!(sql, " COMMENT '{}'", escape_mysql_string(comment));
