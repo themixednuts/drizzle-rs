@@ -579,6 +579,31 @@ fn enum_changes() {
     column(&mut cur, "public", "people", "m", "text");
     col(&mut cur, "people", "m").default = Some(Cow::Borrowed("'z'"));
     db.apply(&prev, &cur, "INSERT INTO people(m) VALUES ('c');");
+
+    // value removed while new tables/columns start using the enum and a
+    // table using it is dropped
+    let mut db = TestSchema::new("enum_new_users");
+    let mut prev = PostgresDDL::new();
+    enum_type(&mut prev, "public", "mood", &["a", "b", "c"]);
+    table(&mut prev, "public", "people");
+    enum_column(&mut prev, "people", "m", "mood");
+    table(&mut prev, "public", "old_people");
+    enum_column(&mut prev, "old_people", "m", "mood");
+    let mut cur = PostgresDDL::new();
+    enum_type(&mut cur, "public", "mood", &["a", "b"]);
+    table(&mut cur, "public", "people");
+    enum_column(&mut cur, "people", "m", "mood");
+    enum_column(&mut cur, "people", "m2", "mood");
+    col(&mut cur, "people", "m2").default = Some(Cow::Borrowed("'b'"));
+    table(&mut cur, "public", "fresh");
+    // (an extra column, so `old_people` -> `fresh` is not a rename)
+    column(&mut cur, "public", "fresh", "id", "integer");
+    enum_column(&mut cur, "fresh", "m", "mood");
+    db.apply(
+        &prev,
+        &cur,
+        "INSERT INTO people(m) VALUES ('a'); INSERT INTO old_people(m) VALUES ('c');",
+    );
 }
 
 #[test]

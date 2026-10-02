@@ -474,18 +474,14 @@ impl<'a> GenContext<'a> {
     /// typed with it after the migration.
     fn collect_enum_restored_columns(&self) -> HashSet<String> {
         let mut out = HashSet::new();
-        let Some(cur) = self.cur else {
-            return out;
-        };
         for d in self.diff.iter().filter(|d| self.is_enum_recreate(d)) {
-            let Some(PostgresEntity::Enum(new)) = &d.right else {
+            let (Some(PostgresEntity::Enum(old)), Some(PostgresEntity::Enum(new))) =
+                (&d.left, &d.right)
+            else {
                 continue;
             };
-            for column in cur.columns.list() {
-                if Self::column_is_enum(column, new) {
-                    out.insert(column_key(column));
-                }
-            }
+            let (_, restore) = self.enum_recreate_columns(old, new);
+            out.extend(restore.iter().map(column_key));
         }
         out
     }
@@ -584,34 +580,29 @@ impl<'a> GenContext<'a> {
         old_enum: &Enum,
         new_enum: &Enum,
     ) -> (Vec<Column>, Vec<Column>) {
-        let restore: Vec<Column> = self
-            .cur
-            .map(|cur| {
-                cur.columns
-                    .list()
-                    .iter()
-                    .filter(|column| Self::column_is_enum(column, new_enum))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        let columns = self.prev.map_or_else(
-            || restore.clone(),
-            |prev| {
-                prev.columns
-                    .list()
-                    .iter()
-                    .filter(|column| Self::column_is_enum(column, old_enum))
-                    .filter(|column| {
-                        // Columns of a dropped table go with the table.
-                        !self
-                            .dropped_tables
-                            .contains(&Generator::table_key(&column.schema, &column.table))
-                    })
-                    .cloned()
-                    .collect()
-            },
-        );
+        let typed_in = |ddl: &PostgresDDL, enum_: &Enum| -> Vec<Column> {
+            ddl.columns
+                .list()
+                .iter()
+                .filter(|column| Self::column_is_enum(column, enum_))
+                .cloned()
+                .collect()
+        };
+        let Some(cur) = self.cur else {
+            return (Vec::new(), Vec::new());
+        };
+        let Some(prev) = self.prev else {
+            let columns = typed_in(cur, new_enum);
+            return (columns.clone(), columns);
+        };
+        // Every column using the type now, including ones a later step
+        // drops (with their table or alone): DROP TYPE needs them gone.
+        let columns = typed_in(prev, old_enum);
+        let converted: HashSet<String> = columns.iter().map(column_key).collect();
+        let restore = typed_in(cur, new_enum)
+            .into_iter()
+            .filter(|column| converted.contains(&column_key(column)))
+            .collect();
         (columns, restore)
     }
 
@@ -875,19 +866,20 @@ impl Generator {
     /// Statement ordering follows drizzle-kit:
     ///
     /// 1. creates of schemas, enums (and `ADD VALUE`), sequences, roles,
-    /// 2. table creates (with inlined columns and constraints; foreign keys
+    /// 2. view drops (including views whose definition changes),
+    /// 3. recreation of enums whose values were removed or reordered,
+    /// 4. table creates (with inlined columns and constraints; foreign keys
     ///    whose target is only completed later in the migration are
-    ///    deferred to step 9),
-    /// 3. view drops (including views whose definition changes),
-    /// 4. policy and foreign-key drops,
-    /// 5. table drops,
-    /// 6. table alters (row-level security, logging, tablespace, comment),
-    /// 7. unique/check/index/primary-key drops on surviving tables,
-    /// 8. column adds, primary-key adds, enum and generated-column
-    ///    recreation, column drops, column alters,
-    /// 9. unique, index, foreign-key and check creates on surviving tables,
-    /// 10. view creates, policy creates,
-    /// 11. enum, sequence, role and schema drops.
+    ///    deferred to step 10),
+    /// 5. policy and foreign-key drops,
+    /// 6. table drops,
+    /// 7. table alters (row-level security, logging, tablespace, comment),
+    /// 8. unique/check/index/primary-key drops on surviving tables,
+    /// 9. column adds, primary-key adds, generated-column recreation, column
+    ///    drops, column alters,
+    /// 10. unique, index, foreign-key and check creates on surviving tables,
+    /// 11. view creates, policy creates,
+    /// 12. enum, sequence, role and schema drops.
     #[must_use]
     pub fn generate_with_ddl(
         &self,
@@ -943,11 +935,8 @@ impl Generator {
             }
         }
 
-        // 2. Table creates in dependency order.
-        let deferred_fks = ctx.push_created_tables(&mut sqls);
-
-        // 3. View drops: dropped views and views whose definition changes
-        //    (recreated in step 10). Views depend on columns that later
+        // 2. View drops: dropped views and views whose definition changes
+        //    (recreated in step 11). Views depend on columns that later
         //    steps drop or retype.
         for d in of(EntityKind::View, DiffType::Drop) {
             push_diff(&mut sqls, d);
@@ -961,7 +950,19 @@ impl Generator {
             }
         }
 
-        // 4. Policy drops, then foreign-key drops: FKs on surviving tables,
+        // 3. Enums whose values were removed or reordered are recreated
+        //    before any new table or column can use them (DROP TYPE fails
+        //    while a column of the old type exists).
+        for d in of(EntityKind::Enum, DiffType::Alter) {
+            if ctx.is_enum_recreate(d) {
+                push_diff(&mut sqls, d);
+            }
+        }
+
+        // 4. Table creates in dependency order.
+        let deferred_fks = ctx.push_created_tables(&mut sqls);
+
+        // 5. Policy drops, then foreign-key drops: FKs on surviving tables,
         //    FKs between two dropped tables (so the drop order of the tables
         //    no longer matters), and FKs that reference a column about to
         //    be recreated.
@@ -981,7 +982,7 @@ impl Generator {
             sqls.push(Self::drop_constraint_sql(&fk.schema, &fk.table, &fk.name));
         }
 
-        // 5. Table drops.
+        // 6. Table drops.
         for table_key in &ctx.sorted_drops() {
             if let Some(table_diff) = ctx.index.table_diff(table_key)
                 && table_diff.diff_type == DiffType::Drop
@@ -990,7 +991,7 @@ impl Generator {
             }
         }
 
-        // 6. Table alters: row-level security toggles, then the rest.
+        // 7. Table alters: row-level security toggles, then the rest.
         for (schema, name, enable) in ctx.rls_toggles() {
             sqls.push(Self::alter_rls_sql(&schema, &name, enable));
         }
@@ -998,7 +999,7 @@ impl Generator {
             push_diff(&mut sqls, d);
         }
 
-        // 7. Constraint and index drops on surviving tables (dropped tables
+        // 8. Constraint and index drops on surviving tables (dropped tables
         //    took theirs with them).
         for kind in [
             EntityKind::UniqueConstraint,
@@ -1013,17 +1014,12 @@ impl Generator {
             }
         }
 
-        // 8. Columns.
+        // 9. Columns.
         for kind in [EntityKind::Column, EntityKind::PrimaryKey] {
             for d in of(kind, DiffType::Create) {
                 if !ctx.on_created_table(d) {
                     push_diff(&mut sqls, d);
                 }
-            }
-        }
-        for d in of(EntityKind::Enum, DiffType::Alter) {
-            if ctx.is_enum_recreate(d) {
-                push_diff(&mut sqls, d);
             }
         }
         for d in of(EntityKind::Column, DiffType::Alter) {
@@ -1048,7 +1044,7 @@ impl Generator {
             }
         }
 
-        // 9. Constraint and index creates on surviving tables, after every
+        // 10. Constraint and index creates on surviving tables, after every
         //    column they reference has its final type. Uniques and indexes
         //    precede foreign keys so an FK can target a new unique key.
         for d in of(EntityKind::Index, DiffType::Alter) {
@@ -1093,7 +1089,7 @@ impl Generator {
             push_diff(&mut sqls, d);
         }
 
-        // 10. View creates (after every table/column they may select from),
+        // 11. View creates (after every table/column they may select from),
         //     then policies.
         for d in of(EntityKind::View, DiffType::Create) {
             push_diff(&mut sqls, d);
@@ -1115,7 +1111,7 @@ impl Generator {
             push_diff(&mut sqls, d);
         }
 
-        // 11. Drops of top-level entities, after the column alters that
+        // 12. Drops of top-level entities, after the column alters that
         //     move columns off a dropped enum or sequence, the policies that
         //     referenced a dropped role, and everything inside a dropped
         //     schema.

@@ -316,6 +316,38 @@ fn enum_recreate_converts_columns_that_leave_the_enum() {
 }
 
 #[test]
+fn enum_recreate_runs_before_new_tables_and_columns_use_the_enum() {
+    let mut prev = PostgresDDL::new();
+    enum_type(&mut prev, "mood", &["a", "b", "c"]);
+    table(&mut prev, "people");
+    enum_column(&mut prev, "people", "m", "mood");
+    let mut cur = prev.clone();
+    cur.enums.list_mut()[0].values = Cow::Owned(vec![Cow::Borrowed("a"), Cow::Borrowed("b")]);
+    enum_column(&mut cur, "people", "m2", "mood");
+    table(&mut cur, "fresh");
+    column(&mut cur, "fresh", "id", "integer");
+    enum_column(&mut cur, "fresh", "m", "mood");
+
+    let statements = sql(&prev, &cur);
+    let recreate = position(&statements, "CREATE TYPE \"mood\"");
+    assert!(
+        recreate < position(&statements, "CREATE TABLE \"fresh\""),
+        "{statements:#?}"
+    );
+    assert!(
+        recreate < position(&statements, "ADD COLUMN \"m2\""),
+        "{statements:#?}"
+    );
+    // Only the column that existed before is converted back.
+    assert!(
+        statements
+            .iter()
+            .all(|s| !s.contains("ALTER COLUMN \"m2\" SET DATA TYPE")),
+        "{statements:#?}"
+    );
+}
+
+#[test]
 fn serial_transitions_manage_the_sequence() {
     let serial_case = |from: &str, to: &str| {
         let mut prev = PostgresDDL::new();
