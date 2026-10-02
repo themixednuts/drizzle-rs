@@ -1471,6 +1471,39 @@ fn views_equivalent(left: &model::View, right: &model::View) -> bool {
     left == right
 }
 
+/// Indexes of a new table that must be declared inside `CREATE TABLE`:
+/// those leading with an `AUTO_INCREMENT` column that neither the primary key
+/// nor a unique key leads with. InnoDB requires such a column to start some
+/// index when the table is created.
+fn inline_index_names(table: &model::Table, ddl: &MySQLDDL) -> BTreeSet<String> {
+    let keyed_first = |column: &model::Column| {
+        column.unique
+            || ddl.pks.list().iter().any(|primary_key| {
+                primary_key.table == table.name && primary_key.columns.first() == Some(&column.name)
+            })
+            || ddl.uniques.list().iter().any(|unique| {
+                unique.table == table.name && unique.columns.first() == Some(&column.name)
+            })
+    };
+    ddl.indexes
+        .list()
+        .iter()
+        .filter(|index| index.table == table.name)
+        .filter(|index| {
+            index.columns.first().is_some_and(|first| {
+                !first.is_expression
+                    && ddl.columns.list().iter().any(|column| {
+                        column.table == table.name
+                            && column.name == first.expression
+                            && column.autoincrement
+                            && !keyed_first(column)
+                    })
+            })
+        })
+        .map(|index| index.name.to_string())
+        .collect()
+}
+
 fn table_definition(table: &model::Table, ddl: &MySQLDDL) -> TableDefinition {
     let columns: Vec<_> = ddl
         .columns
@@ -1501,6 +1534,14 @@ fn table_definition(table: &model::Table, ddl: &MySQLDDL) -> TableDefinition {
         .map(check_definition)
         .collect();
     checks.sort_by(|left, right| left.name.cmp(&right.name));
+    let inline = inline_index_names(table, ddl);
+    let indexes = ddl
+        .indexes
+        .list()
+        .iter()
+        .filter(|index| index.table == table.name && inline.contains(index.name.as_ref()))
+        .map(index_definition)
+        .collect();
     TableDefinition {
         database: database(&table.database),
         name: table.name.to_string(),
@@ -1509,6 +1550,7 @@ fn table_definition(table: &model::Table, ddl: &MySQLDDL) -> TableDefinition {
         primary_key,
         uniques,
         checks,
+        indexes,
         engine: table.engine.as_deref().map(str::to_string),
         charset: table.charset.as_deref().map(str::to_string),
         collation: table.collation.as_deref().map(str::to_string),
@@ -2504,7 +2546,18 @@ pub fn compute_migration_with(
             },
         });
     }
+    let inline_created_indexes: BTreeSet<_> = created_tables
+        .iter()
+        .flat_map(|table| {
+            inline_index_names(cur_tables[table], &cur)
+                .into_iter()
+                .map(move |name| (table.clone(), name))
+        })
+        .collect();
     for (key, index) in &cur_indexes {
+        if inline_created_indexes.contains(key) {
+            continue;
+        }
         if !prev_indexes.contains_key(key) || drop_indexes.contains(key) {
             statements.push(MySQLStatement::CreateIndex {
                 index: index_definition(index),
@@ -3857,6 +3910,39 @@ mod tests {
                 .warnings
                 .iter()
                 .all(|warning| !warning.contains("can fail when rows contain NULL"))
+        );
+    }
+
+    #[test]
+    fn auto_increment_column_keyed_by_secondary_index_declares_it_inline() {
+        // PRIMARY KEY (tenant, id) does not lead with the AUTO_INCREMENT
+        // column, so InnoDB needs the `id` index inside CREATE TABLE.
+        let mut cur = table_with_columns("tickets", &["tenant", "id", "note"]);
+        cur.columns.list_mut()[1].autoincrement = true;
+        cur.pks.push(primary_key("tickets", &["tenant", "id"]));
+        cur.indexes.push(model::Index::new(
+            "tickets",
+            "tickets_id_idx",
+            vec![model::IndexColumn::column("id")],
+        ));
+        cur.indexes.push(model::Index::new(
+            "tickets",
+            "tickets_note_idx",
+            vec![model::IndexColumn::column("note")],
+        ));
+
+        let sql = compute_migration(&MySQLDDL::new(), &cur)
+            .unwrap()
+            .sql_statements;
+        assert_eq!(sql.len(), 2, "{sql:#?}");
+        assert!(
+            sql[0].contains("PRIMARY KEY (`tenant`, `id`),\n\tKEY `tickets_id_idx` (`id`)"),
+            "{}",
+            sql[0]
+        );
+        assert_eq!(
+            sql[1],
+            "CREATE INDEX `tickets_note_idx` ON `tickets` (`note`);"
         );
     }
 }

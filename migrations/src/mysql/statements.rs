@@ -220,6 +220,11 @@ pub struct TableDefinition {
     pub primary_key: Option<PrimaryKeyDefinition>,
     pub uniques: Vec<UniqueDefinition>,
     pub checks: Vec<CheckDefinition>,
+    /// Indexes declared inside `CREATE TABLE`. An `AUTO_INCREMENT` column
+    /// keyed only by a secondary index needs it there: MySQL rejects the
+    /// table before a later `CREATE INDEX` could run (error 1075).
+    #[serde(default)]
+    pub indexes: Vec<IndexDefinition>,
     pub engine: Option<String>,
     pub charset: Option<String>,
     pub collation: Option<String>,
@@ -637,6 +642,13 @@ fn render_create_table(table: &TableDefinition) -> Result<String, RenderError> {
     );
     definitions.extend(
         table
+            .indexes
+            .iter()
+            .map(render_inline_index)
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    definitions.extend(
+        table
             .checks
             .iter()
             .map(render_check)
@@ -666,6 +678,31 @@ fn render_create_table(table: &TableDefinition) -> Result<String, RenderError> {
         sql.push_str(&quote_literal(comment));
     }
     sql.push(';');
+    Ok(sql)
+}
+
+fn render_inline_index(index: &IndexDefinition) -> Result<String, RenderError> {
+    let mut sql = format!(
+        "{}KEY {}",
+        if index.unique { "UNIQUE " } else { "" },
+        quote_identifier(&index.name)
+    );
+    if let Some(using) = index.using {
+        sql.push_str(match using {
+            IndexUsing::Btree => " USING BTREE",
+            IndexUsing::Hash => " USING HASH",
+        });
+    }
+    sql.push_str(" (");
+    sql.push_str(&render_index_columns("create table index", &index.columns)?);
+    sql.push(')');
+    if let Some(comment) = &index.comment {
+        sql.push_str(" COMMENT ");
+        sql.push_str(&quote_literal(comment));
+    }
+    if let Some(visible) = index.visible {
+        sql.push_str(if visible { " VISIBLE" } else { " INVISIBLE" });
+    }
     Ok(sql)
 }
 
@@ -1136,6 +1173,7 @@ mod tests {
                 expression: "`id` > 0".to_string(),
                 enforced: Some(true),
             }],
+            indexes: Vec::new(),
             engine: Some("InnoDB".to_string()),
             charset: Some("utf8mb4".to_string()),
             collation: Some("utf8mb4_0900_ai_ci".to_string()),
