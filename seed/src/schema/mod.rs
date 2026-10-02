@@ -58,12 +58,24 @@
 //! happens once per `Schema` value, not per call; build the schema once and
 //! reuse it.
 
+// Without a dialect feature the module still compiles (so `from_snapshot`
+// can report the missing feature), but every dialect match is empty.
+#![cfg_attr(
+    not(any(feature = "sqlite", feature = "postgres", feature = "mysql")),
+    allow(unused_imports, unused_variables, unreachable_code)
+)]
+
 use drizzle_core::error::Result as CoreResult;
 use drizzle_core::{
     ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, EnumVariantRef, ForeignKeyRef,
     PrimaryKeyRef, SQLConstraintKind, SQLSchemaImpl, TableDialect, TableRef,
 };
 use std::sync::OnceLock;
+
+mod check;
+mod ddl;
+
+pub use ddl::DdlEntity;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Dialect {
@@ -155,6 +167,21 @@ impl Schema {
     #[must_use]
     pub fn tables(&self) -> &[Table] {
         &self.tables
+    }
+
+    /// Keeps only the tables for which `keep` returns `true`: for example
+    /// one `PostgreSQL` schema of an introspected database, which holds
+    /// every schema the connection can read.
+    ///
+    /// A kept table whose foreign key points at a dropped one keeps its
+    /// generated values for that key, as with
+    /// [`skip`](crate::SeedConfig::skip); point them at existing rows with a
+    /// generator, or keep the parent too.
+    #[must_use]
+    pub fn retain(mut self, mut keep: impl FnMut(&Table) -> bool) -> Self {
+        self.tables.retain(|table| keep(table));
+        self.refs = OnceLock::new();
+        self
     }
 
     fn build_refs(&self) -> &'static [&'static TableRef] {
@@ -285,6 +312,19 @@ impl Table {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The table's namespace (`PostgreSQL` schema or MySQL database), if
+    /// it has one.
+    #[must_use]
+    pub fn namespace(&self) -> Option<&str> {
+        self.schema.as_deref()
+    }
+
+    /// The columns, in order.
+    #[must_use]
+    pub fn columns(&self) -> &[Column] {
+        &self.columns
     }
 
     fn display_name(&self) -> String {
@@ -441,6 +481,9 @@ pub struct Column {
     generated: Option<String>,
     references: Option<(String, String)>,
     enum_values: Option<Vec<String>>,
+    /// A `PostgreSQL` column whose default draws from a sequence
+    /// (`nextval(...)`), as introspection reports a `SERIAL`.
+    sequence_default: bool,
 }
 
 impl Column {
@@ -461,6 +504,7 @@ impl Column {
             generated: None,
             references: None,
             enum_values: None,
+            sequence_default: false,
         }
     }
 
@@ -571,7 +615,10 @@ impl Column {
         if self.unique {
             flags |= ColumnFlags::UNIQUE;
         }
-        if self.has_default || (dialect_is_postgres(dialect) && is_serial_type(&self.sql_type)) {
+        if self.has_default
+            || self.sequence_default
+            || (dialect_is_postgres(dialect) && is_serial_type(&self.sql_type))
+        {
             flags |= ColumnFlags::HAS_DEFAULT;
         }
 
@@ -620,7 +667,8 @@ impl Column {
                     ColumnDialect::PostgreSQL {
                         postgres_type: element,
                         dimensions: (dimensions > 0).then_some(dimensions),
-                        is_serial: is_serial_type(&upper) && upper != "BIGSERIAL",
+                        is_serial: (is_serial_type(&upper) && upper != "BIGSERIAL")
+                            || self.sequence_default,
                         is_bigserial: upper == "BIGSERIAL",
                         is_generated_identity: self.auto_increment,
                         is_identity_always: self.identity_always,

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use drizzle_cli::commands::{
     check::CheckOptions, export::ExportOptions, generate::GenerateOptions,
     introspect::IntrospectOptions, migrate::MigrateOptions, new::NewOptions, push::PushOptions,
-    upgrade::UpgradeOptions,
+    seed::SeedOptions, upgrade::UpgradeOptions,
 };
 use drizzle_cli::config::Config;
 use drizzle_cli::error::CliError;
@@ -66,6 +66,10 @@ enum Command {
 
     /// Introspect database and generate schema
     Introspect(IntrospectOptions),
+
+    /// Fill the database with deterministic test data (tables are read from
+    /// the database)
+    Seed(SeedOptions),
 
     /// Introspect database and generate schema (alias for introspect)
     Pull(IntrospectOptions),
@@ -135,6 +139,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Migrate(opts) => commands::migrate::run(&load_config(config_path)?, db_name, opts),
         Command::Up(opts) => commands::upgrade::run(&load_config(config_path)?, db_name, &opts),
         Command::Push(opts) => commands::push::run(&load_config(config_path)?, db_name, &opts),
+        Command::Seed(opts) => commands::seed::run(&load_config(config_path)?, db_name, &opts),
         Command::Introspect(opts) | Command::Pull(opts) => {
             commands::introspect::run(&load_config(config_path)?, db_name, &opts)
         }

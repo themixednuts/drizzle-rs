@@ -10,7 +10,8 @@ rust-version.workspace = true
 
 [dependencies]
 drizzle-core = { workspace = true, features = ["std"] }
-drizzle-types = { workspace = true, optional = true, features = ["std"] }
+drizzle-types = { workspace = true, features = ["std"] }
+drizzle-migrations = { workspace = true, optional = true }
 drizzle-sqlite = { workspace = true, optional = true, features = ["std"] }
 drizzle-postgres = { workspace = true, optional = true, features = ["std"] }
 drizzle-mysql = { workspace = true, optional = true, features = ["std"] }
@@ -23,7 +24,12 @@ default = []
 
 sqlite = ["dep:drizzle-sqlite"]
 postgres = ["dep:drizzle-postgres"]
-mysql = ["dep:drizzle-mysql", "dep:drizzle-types"]
+mysql = ["dep:drizzle-mysql"]
+
+# `schema::Schema::from_snapshot`, which takes a `drizzle_migrations`
+# snapshot (a migration folder's `snapshot.json`, or a driver's
+# `introspect()` result).
+migrations = ["dep:drizzle-migrations"]
 
 # Weak forwards: type features must not activate a dialect the caller did not
 # request (previously `uuid = ["postgres", ...]` pulled drizzle-postgres into

@@ -130,6 +130,37 @@ impl Snapshot<PostgresEntity> {
         scoped
     }
 
+    /// Return a new snapshot holding only what lives in `schemas`: those
+    /// schemas, and the tables, columns, constraints, indexes, policies,
+    /// sequences, enums and views in them. Roles and privileges, which
+    /// belong to no schema, are kept.
+    #[must_use]
+    pub fn scoped_to_schemas<S: AsRef<str>>(&self, schemas: &[S]) -> Self {
+        let keep = |schema: &str| schemas.iter().any(|name| name.as_ref() == schema);
+        let mut scoped = Self::new();
+        scoped.ddl = self
+            .ddl
+            .iter()
+            .filter(|entity| match entity {
+                PostgresEntity::Schema(s) => keep(&s.name),
+                PostgresEntity::Table(t) => keep(&t.schema),
+                PostgresEntity::Column(c) => keep(&c.schema),
+                PostgresEntity::Index(i) => keep(&i.schema),
+                PostgresEntity::ForeignKey(f) => keep(&f.schema),
+                PostgresEntity::PrimaryKey(p) => keep(&p.schema),
+                PostgresEntity::UniqueConstraint(u) => keep(&u.schema),
+                PostgresEntity::CheckConstraint(c) => keep(&c.schema),
+                PostgresEntity::Policy(p) => keep(&p.schema),
+                PostgresEntity::Sequence(s) => keep(&s.schema),
+                PostgresEntity::Enum(e) => keep(&e.schema),
+                PostgresEntity::View(v) => keep(&v.schema),
+                PostgresEntity::Role(_) | PostgresEntity::Privilege(_) => true,
+            })
+            .cloned()
+            .collect();
+        scoped
+    }
+
     /// Remove sequences that are owned by serial/bigserial columns.
     ///
     /// Serial columns auto-create sequences in `PostgreSQL`. These should not

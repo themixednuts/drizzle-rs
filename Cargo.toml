@@ -156,7 +156,7 @@ predicates = { version = "3.1" }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", default-features = false, features = ["stable"] }
-drizzle-seed = { workspace = true, default-features = false }
+drizzle-seed = { workspace = true, default-features = false, features = ["migrations"] }
 futures-util = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

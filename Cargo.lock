@@ -2492,6 +2492,7 @@ dependencies = [
  "colored",
  "dotenvy",
  "drizzle-migrations",
+ "drizzle-seed",
  "drizzle-types",
  "glob",
  "heck",
@@ -2651,6 +2652,7 @@ version = "0.2.1"
 dependencies = [
  "chrono",
  "drizzle-core",
+ "drizzle-migrations",
  "drizzle-mysql",
  "drizzle-postgres",
  "drizzle-sqlite",

@@ -438,6 +438,26 @@ macro_rules! dialect_seed_config {
                 crate::Seeder::new(self).$generate()
             }
 
+            /// Generates the statements of [`generate`](Self::generate) as
+            /// one SQL script with every value written inline (see
+            /// `inline_sql` on the statement type): one statement per line,
+            /// each ending in `;`. Save it as a fixture, or run it with any
+            /// client.
+            ///
+            /// # Errors
+            ///
+            /// The same as [`try_generate`](Self::try_generate), plus
+            /// [`SeedError::NoLiteral`](crate::SeedError::NoLiteral) for a
+            /// value with no literal form.
+            pub fn try_generate_script(&self) -> Result<String, crate::SeedError> {
+                let mut script = String::new();
+                for statement in self.try_generate()? {
+                    script.push_str(&statement.inline_sql()?);
+                    script.push_str(";\n");
+                }
+                Ok(script)
+            }
+
             /// Generates the rows without rendering SQL: per table, the
             /// column names and one `Vec` of [`SeedValue`](crate::SeedValue)s
             /// per row, parents first and foreign keys resolved.

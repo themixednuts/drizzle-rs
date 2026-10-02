@@ -224,6 +224,38 @@ fn exclude_tracking_table(
     )
 }
 
+/// Reads the live schema for `drizzle seed`: introspects the database,
+/// drops the migrations tracking table, and applies `filters`.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if introspecting the database or applying the
+/// filters fails.
+pub fn introspect_for_seed(
+    connection: &ResolvedConnection,
+    filters: &SnapshotFilters,
+    migrations_table: &str,
+) -> Result<Snapshot, CliError> {
+    let mut snapshot = introspect_database(connection)?.snapshot;
+    exclude_tracking_table(&mut snapshot, connection.dialect, migrations_table)?;
+    apply_snapshot_filters(&mut snapshot, connection.dialect, filters)?;
+    Ok(snapshot)
+}
+
+/// Runs the statements of a seed in order, in one transaction where the
+/// driver supports it.
+///
+/// # Errors
+///
+/// Returns [`CliError`] if no compiled driver matches the credentials,
+/// connecting fails, or a statement fails.
+pub fn execute_seed(
+    connection: &ResolvedConnection,
+    statements: &[String],
+) -> Result<(), CliError> {
+    execute_statements(connection, statements)
+}
+
 /// Runs a [`PushPlan`], asking for confirmation first when it is
 /// destructive and `force` is `false`.
 ///

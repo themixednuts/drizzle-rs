@@ -768,6 +768,124 @@ pub fn non_postgres_filters_warn_and_are_ignored<B: LiveDriverCase>() {
         );
 }
 
+/// `drizzle seed` fills tables it reads from the live database (made here
+/// with `drizzle push`), honors table filters, `--count`, `--relation` and
+/// `--reset`, and writes the same SQL with `--out` that it would run.
+pub fn seed_fills_introspected_tables<B: LiveDriverCase>() {
+    let _database = B::lock_database();
+    let dir = tempdir().expect("create parity temp directory");
+    let root = dir.path();
+    let suffix = unique_suffix();
+    let users = format!("parity_seed_users_{suffix}");
+    let posts = format!("parity_seed_posts_{suffix}");
+    let config = root.join("drizzle.config.toml");
+    let schema = root.join("schema.rs");
+    let tables = [&*posts, &*users];
+    B::drop_tables(root, &tables);
+    let _cleanup = TableCleanup::<B>::new(root, &tables);
+
+    let source = [
+        B::render_table(
+            "SeedUsers",
+            &users,
+            &format!(
+                "    #[column(primary)]\n    pub id: {},\n    pub email: String,",
+                B::id_type()
+            ),
+        ),
+        B::render_table(
+            "SeedPosts",
+            &posts,
+            &format!(
+                "    #[column(primary)]\n    pub id: {id},\n    #[column(references = SeedUsers::id)]\n    pub user_id: {id},\n    pub title: String,",
+                id = B::id_type()
+            ),
+        ),
+    ]
+    .join("\n");
+    fs::write(&schema, source).expect("write seed schema");
+    write_config::<B>(root, &config, &schema, root.join("out"));
+    let filter = format!("parity_seed_*_{suffix}");
+    let drizzle = |args: &[&str]| {
+        let mut command = cargo_bin_cmd!("drizzle");
+        command
+            .current_dir(root)
+            .args(["--config", &config.to_string_lossy()]);
+        command.args(args).args([
+            "--dialect",
+            B::DIALECT,
+            "--driver",
+            B::DRIVER,
+            "--url",
+            &B::database_url(root),
+            "--tablesFilter",
+            &filter,
+        ]);
+        command
+    };
+
+    drizzle(&["push", "--schema", &schema.to_string_lossy(), "--force"])
+        .assert()
+        .success();
+
+    let users_count = format!("{users}=4");
+    let relation = format!("{users}:{posts}=2");
+    let seed = [
+        "seed",
+        "--seed",
+        "3",
+        "--count",
+        &users_count,
+        "--relation",
+        &relation,
+    ];
+    drizzle(&seed)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!("{users}: 4 row(s)")))
+        .stdout(predicates::str::contains(format!("{posts}: 8 row(s)")));
+
+    // The rows are there: seeding again collides on the primary keys,
+    // unless `--reset` empties the tables first.
+    drizzle(&seed).assert().failure();
+    let mut reset = seed.to_vec();
+    reset.extend(["--reset", "--force"]);
+    drizzle(&reset)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(format!("{posts}: 8 row(s)")));
+
+    // `--out` writes the script instead of running it; `-` is stdout.
+    let script = root.join("seed.sql");
+    let script_path = script.to_string_lossy().into_owned();
+    let mut to_file = seed.to_vec();
+    to_file.extend(["--out", script_path.as_str()]);
+    drizzle(&to_file).assert().success();
+    let written = fs::read_to_string(&script).expect("read seed script");
+    assert!(
+        written.starts_with("INSERT INTO") && written.contains(&users),
+        "{written}"
+    );
+    let mut to_stdout = seed.to_vec();
+    to_stdout.extend(["--out", "-"]);
+    let printed = drizzle(&to_stdout)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(String::from_utf8(printed).expect("utf-8 script"), written);
+
+    drizzle(&["seed", "--count", "lots"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("is not a row count"));
+    drizzle(&["seed", "--count", "missing_table=3"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("no table `missing_table`"));
+}
+
 fn write_config<B: DialectCase>(
     root: &Path,
     path: &Path,
@@ -903,6 +1021,11 @@ macro_rules! shared_live_driver_contract {
         #[test]
         fn pull_honors_filters_casing_breakpoints_and_driver() {
             $crate::parity::pull_honors_filters_casing_breakpoints_and_driver::<$backend>();
+        }
+
+        #[test]
+        fn seed_fills_introspected_tables() {
+            $crate::parity::seed_fills_introspected_tables::<$backend>();
         }
 
         #[test]

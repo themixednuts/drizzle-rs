@@ -27,6 +27,8 @@ pkg-fmt = "zip"
 [dependencies]
 # Core drizzle dependencies
 drizzle-migrations = { workspace = true }
+# `drizzle seed`; each driver feature enables its dialect below.
+drizzle-seed = { workspace = true, features = ["migrations"] }
 drizzle-types = { workspace = true, features = ["std", "serde", "schemars", "uuid", "chrono", "time", "geo-types", "cidr", "bit-vec"] }
 
 # CLI framework
@@ -79,22 +81,24 @@ predicates = { workspace = true }
 default = []
 
 # SQLite drivers
-rusqlite = ["dep:rusqlite"]
-libsql = ["dep:libsql", "dep:tokio"]
+rusqlite = ["dep:rusqlite", "drizzle-seed/sqlite"]
+libsql = ["dep:libsql", "dep:tokio", "drizzle-seed/sqlite"]
 # Turso (remote) connects through the libsql client.
-turso = ["dep:libsql", "dep:tokio"]
+turso = ["dep:libsql", "dep:tokio", "drizzle-seed/sqlite"]
 
 # PostgreSQL drivers
 # Both drivers need `tokio-postgres` for `PostgresCreds::connection_config`
 # (URL/host → `tokio_postgres::Config`). The sync driver additionally pulls
 # the `postgres` crate; the async driver pulls `tokio`.
 postgres-sync = [
+  "drizzle-seed/postgres",
   "dep:postgres",
   "dep:tokio-postgres",
   "dep:postgres-native-tls",
   "dep:native-tls",
 ]
 tokio-postgres = [
+  "drizzle-seed/postgres",
   "dep:tokio-postgres",
   # The workspace dep leaves `runtime` off so wasm targets can use
   # tokio-postgres without `tokio/net`; the CLI dials real sockets.
@@ -106,12 +110,12 @@ tokio-postgres = [
 
 # MySQL drivers. Both use mysql_common's value and row boundary types; the
 # async adapter also needs a Tokio runtime for socket I/O.
-mysql-sync = ["dep:mysql", "dep:mysql_common"]
-mysql-async = ["dep:mysql_async", "dep:mysql_common", "dep:tokio"]
+mysql-sync = ["dep:mysql", "dep:mysql_common", "drizzle-seed/mysql"]
+mysql-async = ["dep:mysql_async", "dep:mysql_common", "dep:tokio", "drizzle-seed/mysql"]
 
 # Cloudflare D1 HTTP driver (CLI-only — runtime D1 uses the Worker binding via
 # the main `drizzle` crate's `d1` feature, not this).
-d1-http = ["dep:reqwest", "dep:tokio"]
+d1-http = ["dep:reqwest", "dep:tokio", "drizzle-seed/sqlite"]
 
 # These used to forward value types to drizzle-seed, which the CLI never
 # used. They do nothing now and remain so existing install commands keep

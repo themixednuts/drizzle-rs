@@ -640,3 +640,129 @@ fn mysql_runtime_schema_values_execute(db: &mut TestDb<MySQLSpecificSchema>) {
     let inserted: i64 = db.select(count(specific.id)).from(specific).get();
     assert_eq!(inserted, 5);
 }
+
+/// The snapshot of a macro schema gives the same seed as the macro schema.
+#[test]
+fn mysql_snapshot_schema_matches_the_macro_schema() {
+    use drizzle::migrations::Schema as _;
+    use drizzle_seed::schema::Schema;
+
+    let macro_schema = MySQLSpecificSchema::new();
+    let from_snapshot = Schema::from_snapshot(&macro_schema.to_snapshot()).unwrap();
+    let typed: Vec<_> = SeedConfig::mysql(&macro_schema)
+        .seed(4)
+        .count_by_name("seed_specific", 9)
+        .generator_by_name("seed_specific", "founded_year", FixedYear)
+        .generate()
+        .iter()
+        .map(|statement| statement.build())
+        .collect();
+    let snapshot: Vec<_> = SeedConfig::mysql(&from_snapshot)
+        .seed(4)
+        .count_by_name("seed_specific", 9)
+        .generator_by_name("seed_specific", "founded_year", FixedYear)
+        .generate()
+        .iter()
+        .map(|statement| statement.build())
+        .collect();
+    assert!(!typed.is_empty());
+    assert_eq!(snapshot, typed);
+}
+
+const LIVE_TABLES: [&str; 4] = [
+    "DROP TABLE IF EXISTS seed_live_events",
+    "DROP TABLE IF EXISTS seed_live_accounts",
+    "CREATE TABLE seed_live_accounts (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        handle VARCHAR(16) NOT NULL UNIQUE,
+        plan VARCHAR(8) NOT NULL CHECK (plan IN ('free', 'pro')),
+        status ENUM('active', 'banned') NOT NULL,
+        perms SET('read', 'write') NOT NULL,
+        balance DECIMAL(10, 2) NOT NULL,
+        ratio DOUBLE,
+        avatar BLOB,
+        is_active BOOLEAN NOT NULL,
+        born_on DATE,
+        wakes_at TIME,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME(3) NOT NULL,
+        bio TEXT,
+        handle_length INT GENERATED ALWAYS AS (CHAR_LENGTH(handle)) STORED
+    )",
+    "CREATE TABLE seed_live_events (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        account_id INT UNSIGNED NOT NULL,
+        kind VARCHAR(32) NOT NULL,
+        happened_at DATETIME NOT NULL,
+        UNIQUE KEY seed_live_events_account_kind (account_id, kind),
+        CONSTRAINT seed_live_events_account_fk FOREIGN KEY (account_id)
+            REFERENCES seed_live_accounts (id)
+    )",
+];
+
+/// Every row of a live table, as one comparable string (without
+/// `created_at`, whose default differs between two runs).
+const LIVE_FINGERPRINTS: [&str; 2] = [
+    "SELECT CAST(GROUP_CONCAT(JSON_ARRAY(id, handle, plan, status, perms, balance, ratio, \
+     avatar, is_active, born_on, wakes_at, updated_at, bio, handle_length) ORDER BY id \
+     SEPARATOR '|') AS CHAR) FROM seed_live_accounts",
+    "SELECT CAST(GROUP_CONCAT(JSON_ARRAY(id, account_id, kind, happened_at) ORDER BY id \
+     SEPARATOR '|') AS CHAR) FROM seed_live_events",
+];
+
+/// A database not described in Rust at all: introspect it, seed it, and
+/// check the inline script inserts exactly what the bound statements do.
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+#[drizzle::test]
+fn mysql_introspected_database_seeds_with_bound_and_inline_values(
+    db: &mut TestDb<MySQLSpecificSchema>,
+) {
+    use drizzle_seed::schema::Schema;
+
+    for statement in LIVE_TABLES {
+        db.execute(SQL::raw(statement));
+    }
+    db.execute(SQL::raw("SET SESSION group_concat_max_len = 1048576"));
+    let snapshot = result!(db.introspect()).expect("introspect");
+    let schema = Schema::from_snapshot(&snapshot)
+        .unwrap()
+        .retain(|table| table.name().starts_with("seed_live_"));
+    assert_eq!(schema.tables().len(), 2);
+
+    let config = SeedConfig::mysql(&schema)
+        .seed(13)
+        .count_by_name("seed_live_accounts", 15)
+        .relation_by_name("seed_live_accounts", "seed_live_events", 2);
+
+    for statement in config.generate() {
+        db.execute(statement);
+    }
+    let mut bound = Vec::new();
+    for fingerprint in LIVE_FINGERPRINTS {
+        let rows: String = db.get(SQL::raw(fingerprint));
+        bound.push(rows);
+    }
+    let plans: String = db.get(SQL::raw(
+        "SELECT CAST(GROUP_CONCAT(DISTINCT plan) AS CHAR) FROM seed_live_accounts",
+    ));
+    assert!(
+        plans.split(',').all(|plan| plan == "free" || plan == "pro"),
+        "{plans}"
+    );
+
+    for statement in config.reset_plan().unwrap() {
+        db.execute(statement);
+    }
+    for statement in config.generate() {
+        db.execute(SQL::raw(statement.inline_sql().unwrap()));
+    }
+    let mut inline = Vec::new();
+    for fingerprint in LIVE_FINGERPRINTS {
+        let rows: String = db.get(SQL::raw(fingerprint));
+        inline.push(rows);
+    }
+    assert_eq!(inline, bound);
+
+    db.execute(SQL::raw("DROP TABLE seed_live_events"));
+    db.execute(SQL::raw("DROP TABLE seed_live_accounts"));
+}

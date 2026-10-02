@@ -40,6 +40,7 @@ A type-safe SQL query builder and ORM for Rust, inspired by Drizzle ORM.
   - [Result Types](#result-types)
 - [Transactions](#transactions)
 - [Prepared Statements](#prepared-statements)
+- [Seeding](#seeding)
 - [PostgreSQL](#postgresql)
 - [MySQL](#mysql)
 - [CLI Reference](#cli-reference)
@@ -1280,6 +1281,37 @@ stmt.execute(db.conn(), [new_name.bind("New Name"), target.bind(1)])?;
 
 Use `.prepare().into_owned()` to convert a prepared statement into a self-contained value that can be stored or moved freely.
 
+## Seeding
+
+[`drizzle-seed`](https://docs.rs/drizzle-seed) fills a database with deterministic test data: the same seed gives the same rows. Values follow the column types and names (emails for `email`, timestamps for `created_at`, enum variants for enums, ...), foreign keys point at seeded parent rows, and `UNIQUE` columns get distinct values.
+
+With the schema macros, pass the schema; tables and columns are checked at compile time:
+
+```rust,ignore
+use drizzle_seed::{SeedConfig, generators};
+
+let schema = AppSchema::new();
+for statement in SeedConfig::sqlite(&schema)
+    .seed(42)
+    .count(&schema.users, 100)
+    .relation(&schema.users, &schema.posts, 3) // 3 posts per user
+    .generator(&schema.users.age, generators::int(18..=90))
+    .generate()
+{
+    db.execute(statement)?;
+}
+```
+
+Without a Rust schema, `drizzle seed` reads the tables from the database itself:
+
+```bash
+drizzle seed --seed 42 --count users=100 --relation users:posts=3
+drizzle seed --reset            # empty the seeded tables first
+drizzle seed --out seed.sql     # write the SQL instead of running it
+```
+
+From Rust, build the seed schema from a live database (`db.introspect()`) or a migration's `snapshot.json` with `drizzle_seed::schema::Schema::from_snapshot` (the `migrations` feature), then configure it by name with `count_by_name`, `relation_by_name` and `generator_by_name`. `try_generate_script()` returns the whole seed as SQL with its values written inline.
+
 ## PostgreSQL
 
 The query API above works the same way with `#[PostgresTable]`,
@@ -1499,6 +1531,7 @@ Most projects only need these:
 | `drizzle migrate` | Apply pending migrations |
 | `drizzle push` | Apply schema diff directly without migration files |
 | `drizzle introspect` | Reverse-engineer schema from a live database |
+| `drizzle seed` | Fill a live database with deterministic test data |
 
 Other useful commands:
 
