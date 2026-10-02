@@ -355,7 +355,8 @@ pub fn assemble_ddl(mut raw: RawIntrospection) -> Result<MySQLDDL, IntrospectErr
         let expression = canonical_catalog_expression(&check.expression);
         let mut entity = CheckConstraint::new(check.table, check.name, expression);
         entity.database = Some(Cow::Owned(database.to_string()));
-        entity.enforced = check.enforced;
+        // ENFORCED is the default; only NOT ENFORCED is schema the macros declare.
+        entity.enforced = check.enforced.filter(|enforced| !enforced);
         ddl.checks.push(entity);
     }
 
@@ -1571,6 +1572,8 @@ pub struct Users {
         assert_eq!(generated.expression, r"concat(`status`,'it''s \\ x')");
         let check = ddl.checks.list().first().expect("check");
         assert_eq!(check.expression, "((`status` <> 'b''ad') and (`id` > 0))");
+        // ENFORCED is the default and not part of the schema.
+        assert_eq!(check.enforced, None);
     }
 
     #[test]
