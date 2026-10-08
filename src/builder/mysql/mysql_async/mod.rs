@@ -282,10 +282,11 @@ async fn catalog(connection: &mut (impl Queryable + ?Sized)) -> Result<introspec
 async fn apply(
     connection: &mut (impl Queryable + ?Sized),
     schema: &impl drizzle_migrations::Schema,
+    renames: &drizzle_migrations::RenameHints,
 ) -> Result<()> {
     let catalog = catalog(connection).await?;
     let desired = schema.to_snapshot();
-    for statement in catalog.plan(&desired)?.statements {
+    for statement in catalog.plan(&desired, renames)?.statements {
         if !statement.trim().is_empty() {
             execute_request(connection, &statement, &[]).await?;
         }
@@ -413,13 +414,31 @@ impl<Schema> Drizzle<Conn, Schema> {
     /// MySQL can implicitly commit DDL. If a statement fails, earlier
     /// statements from this push may already be committed.
     ///
+    /// When a table, column or view may have been renamed, `push` fails
+    /// rather than guess, and the error gives the hint for each answer; pass
+    /// the answers to [`push_with`](Self::push_with).
+    ///
     /// # Errors
     ///
     /// Returns an error if introspection, planning, or applying a generated
     /// statement fails.
     pub async fn push<S: drizzle_migrations::Schema>(&mut self, schema: &S) -> Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+            .await
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub async fn push_with<S: drizzle_migrations::Schema>(
+        &mut self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> Result<()> {
         self.ensure_session().await?;
-        apply(&mut self.connection, schema).await
+        apply(&mut self.connection, schema, renames).await
     }
 
     pub(crate) async fn execute_rendered<'q>(
@@ -578,13 +597,31 @@ impl<Schema> Drizzle<Pool, Schema> {
     /// MySQL can implicitly commit DDL. If a statement fails, earlier
     /// statements from this push may already be committed.
     ///
+    /// When a table, column or view may have been renamed, `push` fails
+    /// rather than guess, and the error gives the hint for each answer; pass
+    /// the answers to [`push_with`](Self::push_with).
+    ///
     /// # Errors
     ///
     /// Returns an error if checkout, introspection, planning, or applying a
     /// generated statement fails.
     pub async fn push<S: drizzle_migrations::Schema>(&self, schema: &S) -> Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+            .await
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub async fn push_with<S: drizzle_migrations::Schema>(
+        &self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> Result<()> {
         let mut connection = self.checkout().await?;
-        apply(&mut connection, schema).await
+        apply(&mut connection, schema, renames).await
     }
 
     pub(crate) async fn execute_rendered<'q>(

@@ -1011,6 +1011,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// # fn main() {}
     /// ```
     ///
+    /// When a table or column may have been renamed, `push` fails rather
+    /// than guess, and the error gives the hint for each answer;
+    /// pass the answers to [`push_with`](Self::push_with).
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1019,10 +1023,27 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         &self,
         schema: &S,
     ) -> drizzle_core::error::Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub fn push_with<S: drizzle_migrations::Schema>(
+        &self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> drizzle_core::error::Result<()> {
         let live = self.introspect()?;
         let desired = schema.to_snapshot();
-        let generated = drizzle_migrations::diff(&live, &desired)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let generated = drizzle_migrations::diff_with(
+            &live,
+            &desired,
+            &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
+        )
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         let operation =
             drizzle_migrations::Migration::with_hash("push", "", 0, generated.statements);
         let execution = operation

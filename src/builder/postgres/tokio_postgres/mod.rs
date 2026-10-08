@@ -1457,6 +1457,10 @@ impl<Schema> Drizzle<Schema> {
     /// local development: nothing is recorded in the migration tracking
     /// table.
     ///
+    /// When a schema, enum, table or column may have been renamed, `push`
+    /// fails rather than guess, and the error gives the hint for each answer;
+    /// pass the answers to [`push_with`](Self::push_with).
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1465,6 +1469,20 @@ impl<Schema> Drizzle<Schema> {
     pub async fn push<S: drizzle_migrations::Schema>(
         &self,
         schema: &S,
+    ) -> drizzle_core::error::Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+            .await
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub async fn push_with<S: drizzle_migrations::Schema>(
+        &self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
     ) -> drizzle_core::error::Result<()> {
         let desired = schema.to_snapshot();
         let target_schemas: Vec<String> = match &desired {
@@ -1488,8 +1506,12 @@ impl<Schema> Drizzle<Schema> {
             }
             (other, _) => other,
         };
-        let generated = drizzle_migrations::diff(&live, &desired)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let generated = drizzle_migrations::diff_with(
+            &live,
+            &desired,
+            &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
+        )
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
         // The push changes tables, and PostgreSQL rejects a cached statement
         // whose result columns changed; drop the connection's statements.
         self.statement_cache.clear();

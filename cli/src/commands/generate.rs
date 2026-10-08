@@ -453,6 +453,9 @@ fn map_migration_error(error: drizzle_migrations::MigrationError) -> CliError {
         drizzle_migrations::MigrationError::NoChanges => {
             CliError::Other("No schema changes detected".to_string())
         }
+        drizzle_migrations::MigrationError::UnansweredRenames(questions) => {
+            CliError::MissingHints(super::renames::missing_hints_report(&questions))
+        }
         drizzle_migrations::MigrationError::ConfigError(_)
         | drizzle_migrations::MigrationError::IoError(_)
         | drizzle_migrations::MigrationError::SnapshotError(_) => {

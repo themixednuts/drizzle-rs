@@ -1771,9 +1771,37 @@ drizzle push --hints-file hints.json
 ]
 ```
 
-`rename` turns a drop plus a create into a rename; `create` keeps them separate. Identifiers are `[name]` for schemas, `[schema, name]` for tables, views, and enums, and `[schema, table, name]` for columns, indexes, and constraints (`unique`, `check`, `primary_key`, `foreign key`). SQLite and MySQL use `public` as the schema, as drizzle-kit does. A column's table is its new name. Hints that match nothing in the current diff are ignored, so one file can be reused. If a question has no hint, the command changes nothing: it prints each unresolved decision with the hints that would answer it and exits with code 2.
+`rename` turns a drop plus a create into a rename; `create` keeps them separate. Identifiers are `[name]` for schemas, `[schema, name]` for tables, views, and enums, and `[schema, table, name]` for columns, indexes, and constraints (`unique`, `check`, `primary_key`, `foreign key`). SQLite and MySQL use `public` as the schema, as drizzle-kit does. A column's table is its new name. Hints that match nothing in the current diff are ignored, so one file can be reused. If a schema, enum, table, or column question has no hint, the command changes nothing: it prints each unresolved decision with the hints that would answer it and exits with code 2. An unhinted index, constraint, or view is dropped and created, which loses no data.
 
-The Rust API (`drizzle_migrations::diff`, `diff_with`, `build::run`, and the drivers' `db.push`) still infers renames of otherwise identical tables and columns on SQLite and PostgreSQL. Turn that off with `DiffOptions::infer_renames(false)`, and list the questions yourself with `drizzle_migrations::rename_questions`.
+The Rust API never guesses either. `drizzle_migrations::diff` and `diff_with`, `build::run`, and the drivers' `db.push` stop with `MigrationError::UnansweredRenames` when a schema, enum, table, or column may have been renamed, and the error gives the hint for each answer:
+
+```text
+cannot tell a rename from a drop plus a create, and guessing wrong loses data. Answer each question with a hint on `RenameHints` or `DiffOptions` (the `drizzle` CLI asks them interactively):
+  column `users.full_name`: created, or renamed from `name`?
+    renamed from `name`: .rename_column("users", "name", "full_name")
+    created: .create(CreateHint::new(RenameKind::Column, "full_name").on_table("users"))
+```
+
+Pass the answer where the diff runs:
+
+```rust,ignore
+use drizzle_migrations::RenameHints;
+
+let renames = RenameHints::new().rename_column("users", "name", "full_name");
+
+// build.rs
+let cfg = drizzle_migrations::build::Config::new(Dialect::SQLite)
+    .file("src/schema.rs")
+    .renames(renames.clone());
+
+// at runtime
+db.push_with(&schema, &renames)?;
+
+// in memory
+drizzle_migrations::diff_with(&prev, &next, &DiffOptions::new().with_renames(renames))?;
+```
+
+A hint that matches nothing in a later diff is ignored, so it can stay in `build.rs`. An index, constraint, or view without an answer is dropped and created, which loses no data; the CLI does the same without a terminal. `drizzle_migrations::rename_questions` lists the questions, for tools that ask them their own way.
 
 ## License
 

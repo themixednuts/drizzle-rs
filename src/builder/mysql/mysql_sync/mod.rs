@@ -260,14 +260,18 @@ fn catalog<C: Queryable>(connection: &mut C) -> Result<introspect::Catalog> {
     introspect::Catalog::assemble(raw)
 }
 
-fn apply<C, S>(connection: &mut C, schema: &S) -> Result<()>
+fn apply<C, S>(
+    connection: &mut C,
+    schema: &S,
+    renames: &drizzle_migrations::RenameHints,
+) -> Result<()>
 where
     C: Queryable,
     S: drizzle_migrations::Schema,
 {
     let catalog = catalog(connection)?;
     let desired = schema.to_snapshot();
-    for statement in catalog.plan(&desired)?.statements {
+    for statement in catalog.plan(&desired, renames)?.statements {
         if !statement.trim().is_empty() {
             execute_request(connection, &statement, &[])?;
         }
@@ -399,13 +403,30 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     /// MySQL can implicitly commit DDL. If a statement fails, earlier
     /// statements from this push may already be committed.
     ///
+    /// When a table, column or view may have been renamed, `push` fails
+    /// rather than guess, and the error gives the hint for each answer; pass
+    /// the answers to [`push_with`](Self::push_with).
+    ///
     /// # Errors
     ///
     /// Returns an error if introspection, planning, or applying a generated
     /// statement fails.
     pub fn push<S: drizzle_migrations::Schema>(&mut self, schema: &S) -> Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub fn push_with<S: drizzle_migrations::Schema>(
+        &mut self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> Result<()> {
         self.ensure_session()?;
-        apply(&mut self.connection, schema)
+        apply(&mut self.connection, schema, renames)
     }
 
     pub(crate) fn execute_rendered<'q>(

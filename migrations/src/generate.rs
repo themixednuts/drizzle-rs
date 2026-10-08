@@ -142,10 +142,9 @@ pub struct RenameHints {
     pub constraint_renames: Vec<ConstraintRenameHint>,
     /// View rename hints.
     pub view_renames: Vec<ViewRenameHint>,
-    /// Entities declared newly created rather than renamed. They only affect
-    /// [`rename_questions`](crate::rename_questions), which stops asking
-    /// about them; the diff itself already treats an unhinted entity as a
-    /// create (unless [`DiffOptions::infer_renames`] pairs it heuristically).
+    /// Entities declared newly created rather than renamed, so
+    /// [`rename_questions`](crate::rename_questions) stops asking about them
+    /// and [`diff_with`] creates them.
     pub creates: Vec<CreateHint>,
 }
 
@@ -467,22 +466,14 @@ pub struct ConstraintRenameHint {
 }
 
 /// Generation options for [`diff_with`] and [`diff_schemas_with`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiffOptions {
-    /// Explicit rename hints applied before heuristic diffing.
+    /// Answers to the rename-or-create questions: renames, and entities
+    /// declared created.
     pub renames: RenameHints,
     /// When `true`, a hint that cannot be applied (unknown object, invalid
     /// name, unsupported for the dialect) is an error instead of being skipped.
     pub strict_renames: bool,
-    /// When `true` (the default), SQLite and PostgreSQL pair a dropped and a
-    /// created table, column, or (PostgreSQL) schema that are otherwise
-    /// identical into a rename. When `false`, only [`renames`](Self::renames)
-    /// produce renames; everything else is a drop plus a create. MySQL never
-    /// infers renames.
-    ///
-    /// The `drizzle` CLI turns this off and asks instead (see
-    /// [`rename_questions`](crate::rename_questions)).
-    pub infer_renames: bool,
     /// Typed data movement for SQLite table rebuilds, bound to the exact
     /// predecessor snapshot.
     pub sqlite_rebuild_data: Option<crate::sqlite::SqliteRebuildDataPlanRegistry>,
@@ -491,51 +482,12 @@ pub struct DiffOptions {
     pub mysql_catalog_defaults: Option<crate::mysql::MySQLCatalogDefaults>,
 }
 
-impl Default for DiffOptions {
-    fn default() -> Self {
-        Self {
-            renames: RenameHints::default(),
-            strict_renames: false,
-            infer_renames: true,
-            sqlite_rebuild_data: None,
-            mysql_catalog_defaults: None,
-        }
-    }
-}
 
 impl DiffOptions {
-    /// Creates default options: no hints, non-strict, renames inferred.
+    /// Creates default options: no hints, non-strict.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets [`infer_renames`](Self::infer_renames). Pass `false` to get
-    /// renames only from explicit hints.
-    ///
-    /// ```rust
-    /// use drizzle_migrations::{DiffOptions, Snapshot, diff_with, parser::SchemaParser};
-    /// use drizzle_types::Dialect;
-    ///
-    /// let snapshot = |src: &str| {
-    ///     Snapshot::from_parse_result(&SchemaParser::parse(src), Dialect::SQLite, None)
-    /// };
-    /// let v1 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub name: String }");
-    /// let v2 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub full_name: String }");
-    ///
-    /// // Inferred by default: one rename.
-    /// let inferred = diff_with(&v1, &v2, &DiffOptions::new())?;
-    /// assert_eq!(inferred.statements, ["ALTER TABLE `users` RENAME COLUMN `name` TO `full_name`;"]);
-    ///
-    /// // Without inference: add plus drop.
-    /// let explicit = diff_with(&v1, &v2, &DiffOptions::new().infer_renames(false))?;
-    /// assert_eq!(explicit.statements.len(), 2);
-    /// # Ok::<(), drizzle_migrations::MigrationError>(())
-    /// ```
-    #[must_use]
-    pub const fn infer_renames(mut self, infer: bool) -> Self {
-        self.infer_renames = infer;
-        self
     }
 
     /// See [`RenameHints::rename_enum`].
@@ -749,21 +701,28 @@ impl DiffOptions {
 /// # Errors
 ///
 /// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
-/// different dialects, or a [`MigrationError::ConfigError`] if snapshot
-/// validation, SQL rendering, or strict rename handling fails.
+/// different dialects, [`MigrationError::UnansweredRenames`] if a possible
+/// rename needs a hint (see [`diff_with`]), or a
+/// [`MigrationError::ConfigError`] if snapshot validation or SQL rendering
+/// fails.
 pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError> {
     diff_with(prev, current, &DiffOptions::default())
 }
 
 /// Diffs two snapshots using `options` (rename hints, strict mode, etc.).
 ///
-/// Rename hints make sure a renamed table or column becomes a rename
-/// instead of a drop + create.
+/// A diff never guesses a rename. When a schema, enum, table or column
+/// disappears and another of the same kind appears in the same scope, the
+/// snapshots alone cannot tell a rename from a drop plus a create, and the
+/// wrong answer loses data. Unless a hint in `options` answers that
+/// question, `diff_with` returns [`MigrationError::UnansweredRenames`],
+/// whose message gives the hint for each answer. An unhinted index,
+/// constraint or view is dropped and created, which loses nothing.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use drizzle_migrations::{DiffOptions, Snapshot, diff_with, parser::SchemaParser};
+/// use drizzle_migrations::{DiffOptions, MigrationError, Snapshot, diff_with, parser::SchemaParser};
 /// use drizzle_types::Dialect;
 ///
 /// let snapshot = |src: &str| {
@@ -771,6 +730,11 @@ pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError>
 /// };
 /// let v1 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub name: String }");
 /// let v2 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub full_name: String }");
+///
+/// // `name` went away and `full_name` appeared: a rename, or a new column?
+/// let error = diff_with(&v1, &v2, &DiffOptions::new()).unwrap_err();
+/// assert!(matches!(error, MigrationError::UnansweredRenames(_)));
+/// assert!(error.to_string().contains(r#".rename_column("users", "name", "full_name")"#));
 ///
 /// let plan = diff_with(&v1, &v2, &DiffOptions::new().rename_column("users", "name", "full_name"))?;
 /// assert_eq!(plan.statements, ["ALTER TABLE `users` RENAME COLUMN `name` TO `full_name`;"]);
@@ -780,13 +744,21 @@ pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError>
 /// # Errors
 ///
 /// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
-/// different dialects, or a [`MigrationError::ConfigError`] if snapshot
+/// different dialects, [`MigrationError::UnansweredRenames`] if a possible
+/// rename has no hint, or a [`MigrationError::ConfigError`] if snapshot
 /// validation, SQL rendering, or strict rename handling fails.
 pub fn diff_with(
     prev: &Snapshot,
     current: &Snapshot,
     options: &DiffOptions,
 ) -> Result<Plan, MigrationError> {
+    let unanswered = crate::rename_questions(prev, current, options)?
+        .into_iter()
+        .filter(|question| question.kind.holds_data())
+        .collect::<Vec<_>>();
+    if !unanswered.is_empty() {
+        return Err(MigrationError::UnansweredRenames(unanswered));
+    }
     let mut preserved_names = Vec::new();
     let (statements, warnings) = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
@@ -798,11 +770,8 @@ pub fn diff_with(
             let mut prev_ddl = SQLiteDDL::from_entities(p.ddl.clone());
             let cur_ddl = crate::sqlite::collection::SQLiteDDL::from_entities(c.ddl.clone());
             let mut statements = apply_sqlite_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
-            let mut diff = crate::sqlite::diff::compute_migration_with_inference(
-                &prev_ddl,
-                &cur_ddl,
-                options.infer_renames,
-            );
+            let mut diff =
+                crate::sqlite::diff::compute_migration_with_inference(&prev_ddl, &cur_ddl, false);
             crate::sqlite::rebuild_data::apply_rebuild_data_plan(
                 prev.id(),
                 &prev_ddl,
@@ -831,11 +800,8 @@ pub fn diff_with(
             let mut prev_ddl = PostgresDDL::from_entities(p.ddl.clone());
             let cur_ddl = PostgresDDL::from_entities(c.ddl.clone());
             let mut statements = apply_postgres_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
-            let diff = crate::postgres::diff::compute_migration_with_inference(
-                &prev_ddl,
-                &cur_ddl,
-                options.infer_renames,
-            );
+            let diff =
+                crate::postgres::diff::compute_migration_with_inference(&prev_ddl, &cur_ddl, false);
             statements.extend(diff.sql_statements);
             preserved_names = diff.preserved_names;
             (statements, diff.warnings)

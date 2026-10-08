@@ -416,6 +416,14 @@ pub enum MigrationError {
     #[error("IO error: {0}")]
     IoError(String),
 
+    /// The diff drops a schema, enum, table or column and creates another of
+    /// the same kind in the same scope, and no hint says whether that is a
+    /// rename. Answer each question with a rename or create hint in
+    /// [`DiffOptions`](crate::DiffOptions); see
+    /// [`rename_questions`](crate::rename_questions).
+    #[error("{}", crate::renames::unanswered_message(.0))]
+    UnansweredRenames(Vec<crate::RenameQuestion>),
+
     /// The diff produced no statements.
     #[error("No schema changes detected")]
     NoChanges,

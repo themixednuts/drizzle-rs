@@ -884,6 +884,41 @@ fn rusqlite_push_converges_on_constraints_collations_and_generated_columns() {
     );
 }
 
+/// A column that went away while another appeared may be a rename: push
+/// asks instead of guessing, and keeps the rows once told.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_push_asks_before_renaming() {
+    let (db, schema) =
+        crate::common::helpers::rusqlite_setup::setup_empty_db(PushSchema::default());
+    db.conn()
+        .execute_batch(
+            "CREATE TABLE `push_users` (`id` integer PRIMARY KEY NOT NULL, `display` text NOT NULL, `email` text);
+             INSERT INTO `push_users` VALUES (1, 'Alice', NULL);",
+        )
+        .expect("create old table");
+
+    let error = db.push(&schema).expect_err("push must not guess");
+    let message = error.to_string();
+    assert!(
+        message.contains(r#".rename_column("push_users", "display", "name")"#),
+        "{message}"
+    );
+
+    db.push_with(
+        &schema,
+        &drizzle_migrations::RenameHints::new().rename_column("push_users", "display", "name"),
+    )
+    .expect("push with the rename");
+    let name: String = db
+        .conn()
+        .query_row("SELECT name FROM push_users WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .expect("select renamed column");
+    assert_eq!(name, "Alice");
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_push_table_is_usable() {
