@@ -1,0 +1,24 @@
+error[E0277]: a required relation cannot be filtered with `.r#where`
+  --> tests/ui/query_api_sqlite/fail/where_on_required_relation.rs:32:29
+   |
+32 |         .with(post.author().r#where(eq(user.active, true)));
+   |                             ^^^^^^^ this relation always loads exactly one row
+   |
+   = help: the trait `Filtered` is not implemented for `drizzle::core::relation::One`
+   = note: filter the root query instead, or make the foreign key an `Option` so the relation loads an `Option`
+help: the following other types implement trait `Filtered`
+  --> core/src/relation.rs
+   |
+   | impl Filtered for Many {}
+   | ^^^^^^^^^^^^^^^^^^^^^^ `drizzle::core::relation::Many`
+   | #[cfg(feature = "query")]
+   | impl Filtered for OptionalOne {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `drizzle::core::relation::OptionalOne`
+note: required by a bound in `RelationHandle::<'a, V, R, Nested, Cols, Clauses<NoWhere, Ord, Lim>>::r#where`
+  --> core/src/query/handle.rs
+   |
+   |     pub fn r#where<E, ScopeProof>(
+   |            ------- required by a bound in this associated function
+...
+   |         R::Card: crate::relation::Filtered,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RelationHandle::<'a, V, R, Nested, Cols, Clauses<NoWhere, Ord, Lim>>::r#where`

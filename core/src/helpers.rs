@@ -283,6 +283,32 @@ where
 /// `DEFAULT` in that cell: what omitting the column means for a single-row
 /// insert. `PostgreSQL` and `MySQL` accept `DEFAULT` there; `SQLite` does not.
 ///
+/// What follows `INSERT INTO table` to insert no rows, for an empty
+/// `.values(...)`: `("id") SELECT NULL WHERE 1 = 0`, so `execute` returns 0
+/// and `RETURNING` returns no rows. `select` is the dialect's spelling of
+/// that `SELECT`, such as MySQL's `SELECT NULL FROM DUAL WHERE 1 = 0`.
+///
+/// It names the first primary-key column, which is never generated, or the
+/// first column.
+#[doc(hidden)]
+#[must_use]
+pub fn insert_no_rows<'a, V: SQLParam>(
+    table: &crate::TableRef,
+    select: &'static str,
+) -> SQL<'a, V> {
+    let column = table
+        .columns
+        .iter()
+        .find(|column| column.flags.contains(crate::ColumnFlags::PRIMARY_KEY))
+        .or_else(|| table.columns.first());
+    let Some(column) = column else {
+        return SQL::from(Token::VALUES);
+    };
+    SQL::columns(core::slice::from_ref(column))
+        .parens()
+        .append(SQL::raw(select))
+}
+
 /// `rows` pairs each row's `SQLModel::columns()` with its `values()`, which
 /// holds one value per column, joined by commas. Returns `None` when a row's
 /// values do not split into one value per column.

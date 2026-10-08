@@ -69,13 +69,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         conn: &Connection,
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<usize> {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.execute");
         let (sql_str, params) = {
@@ -112,13 +105,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     where
         for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.all");
         let (sql_str, params) = self.inner.bind(params)?;
@@ -160,13 +146,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     where
         for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.get");
         let (sql_str, params) = self.inner.bind(params)?;
@@ -239,13 +218,6 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         conn: &Connection,
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> Result<usize> {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.execute");
         let (sql_str, params) = {
@@ -282,13 +254,6 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     where
         for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.all");
         let (sql_str, params) = self.inner.bind(params)?;
@@ -330,13 +295,6 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     where
         for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.get");
         let (sql_str, params) = self.inner.bind(params)?;

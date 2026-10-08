@@ -751,11 +751,14 @@ fn mysql_mutation_results_expose_ok_packet_metadata() {
 }
 
 #[test]
-#[should_panic(expected = "insert values requires at least one row")]
-fn empty_batch_insert_is_rejected_at_the_builder_boundary() {
+fn empty_batch_insert_inserts_no_rows() {
     let Schema { users, .. } = Schema::new();
     let values: [InsertUsers<'static>; 0] = [];
-    let _ = builder().insert(users).values(values);
+    let sql = builder().insert(users).values(values).to_sql().sql();
+    assert!(
+        sql.ends_with("SELECT NULL FROM DUAL WHERE 1 = 0"),
+        "unexpected SQL: {sql}"
+    );
 }
 
 #[test]

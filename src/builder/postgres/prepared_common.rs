@@ -194,7 +194,6 @@ macro_rules! postgres_prepared_sync_impl {
                 client: &mut $client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.execute");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -272,7 +271,6 @@ macro_rules! postgres_prepared_sync_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.all");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -354,7 +352,6 @@ macro_rules! postgres_prepared_sync_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.get");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -411,7 +408,6 @@ macro_rules! postgres_prepared_sync_impl {
                 client: &mut $client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_execute");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -490,7 +486,6 @@ macro_rules! postgres_prepared_sync_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_all");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -572,7 +567,6 @@ macro_rules! postgres_prepared_sync_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_get");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -633,7 +627,6 @@ macro_rules! postgres_prepared_async_impl {
                 client: &$client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.execute");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -707,7 +700,6 @@ macro_rules! postgres_prepared_async_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.all");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -793,7 +785,6 @@ macro_rules! postgres_prepared_async_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.get");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -854,7 +845,6 @@ macro_rules! postgres_prepared_async_impl {
                 client: &$client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
             ) -> drizzle_core::error::Result<u64> {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.owned_execute");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -931,7 +921,6 @@ macro_rules! postgres_prepared_async_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.owned_all");
                 let (sql_str, bound_params) = self.inner.bind(params)?;
@@ -1020,7 +1009,6 @@ macro_rules! postgres_prepared_async_impl {
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
-                debug_assert_eq!(N, self.inner.external_param_count(), "parameter count mismatch: expected {} params but got {}", self.inner.external_param_count(), N);
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "async.owned_get");
                 let (sql_str, bound_params) = self.inner.bind(params)?;

@@ -139,13 +139,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         conn: &D1Database,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = borrowed_values_to_js(bound);
         let stmt = bind_statement(conn.prepare(sql_str), &values)?;
@@ -174,13 +167,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = borrowed_values_to_js(bound);
         let stmt = bind_statement(conn.prepare(sql_str), &values)?;
@@ -209,13 +195,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = borrowed_values_to_js(bound);
         let stmt = bind_statement(conn.prepare(sql_str), &values)?;
@@ -243,13 +222,6 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         conn: &D1Database,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = owned_values_to_js(bound);
         let stmt = bind_statement(conn.prepare(sql_str), &values)?;
@@ -278,13 +250,6 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = owned_values_to_js(bound);
         let stmt = bind_statement(conn.prepare(sql_str), &values)?;
@@ -313,13 +278,6 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     where
         T: for<'de> serde::Deserialize<'de>,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
         let (sql_str, bound) = self.inner.bind(params)?;
         let values = owned_values_to_js(bound);
         let stmt = bind_statement(conn.prepare(sql_str), &values)?;

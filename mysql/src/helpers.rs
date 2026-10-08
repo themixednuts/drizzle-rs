@@ -458,7 +458,19 @@ where
     Table: MySQLTable<'a>,
 {
     let rows: Vec<_> = rows.into_iter().collect();
-    assert!(!rows.is_empty(), "insert values requires at least one row");
+    if rows.is_empty() {
+        return match <Table as drizzle_core::SQLSchema<
+            'a,
+            crate::common::MySQLSchemaType,
+            MySQLValue<'a>,
+        >>::TYPE
+        {
+            crate::common::MySQLSchemaType::Table(table) => {
+                drizzle_core::helpers::insert_no_rows(table, "SELECT NULL FROM DUAL WHERE 1 = 0")
+            }
+            _ => SQL::from(Token::VALUES),
+        };
+    }
 
     let columns = rows[0].columns();
     // A `None` passed to a `with_*` setter leaves that column to its default

@@ -1,0 +1,21 @@
+error[E0277]: `.limit`, `.offset` and `.first` apply only to relations that load many rows
+  --> tests/ui/query_api_sqlite/fail/limit_on_single_row_relation.rs:28:47
+   |
+28 |     let _ = db.query(post).with(post.author().limit(1).offset(1));
+   |                                               ^^^^^ this relation loads at most one row
+   |
+   = help: the trait `Paginated` is not implemented for `drizzle::core::relation::One`
+   = note: a LIMIT or OFFSET here could only drop or skip that row
+help: the trait `Paginated` is implemented for `drizzle::core::relation::Many`
+  --> core/src/relation.rs
+   |
+   | impl Paginated for Many {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `RelationHandle::<'a, V, R, Nested, Cols, Clauses<W, Ord>>::limit`
+  --> core/src/query/handle.rs
+   |
+   |     pub fn limit<P>(self, n: P) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, HasLimit>>
+   |            ----- required by a bound in this associated function
+   |     where
+   |         R::Card: crate::relation::Paginated,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RelationHandle::<'a, V, R, Nested, Cols, Clauses<W, Ord>>::limit`

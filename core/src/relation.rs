@@ -92,6 +92,27 @@ pub trait AssembleRel: RelationDef {
     ) -> Self::Row<Inner, Child>;
 }
 
+/// Cardinalities that `.limit(...)`, `.offset(...)` and `.first()` apply
+/// to: those that load any number of rows.
+#[cfg(feature = "query")]
+#[diagnostic::on_unimplemented(
+    message = "`.limit`, `.offset` and `.first` apply only to relations that load many rows",
+    label = "this relation loads at most one row",
+    note = "a LIMIT or OFFSET here could only drop or skip that row"
+)]
+pub trait Paginated: private::Sealed {}
+
+/// Cardinalities that `.r#where(...)` applies to: every one but [`One`],
+/// whose row is required.
+#[cfg(feature = "query")]
+#[diagnostic::on_unimplemented(
+    message = "a required relation cannot be filtered with `.r#where`",
+    label = "this relation always loads exactly one row",
+    note = "filter the root query instead, or make the foreign key an `Option` so the relation \
+            loads an `Option`"
+)]
+pub trait Filtered: private::Sealed {}
+
 /// Cardinality marker: any number of rows, loaded as `Vec<T>`.
 #[cfg(feature = "query")]
 pub struct Many;
@@ -123,6 +144,13 @@ impl private::Sealed for Many {}
 impl private::Sealed for One {}
 #[cfg(feature = "query")]
 impl private::Sealed for OptionalOne {}
+
+#[cfg(feature = "query")]
+impl Paginated for Many {}
+#[cfg(feature = "query")]
+impl Filtered for Many {}
+#[cfg(feature = "query")]
+impl Filtered for OptionalOne {}
 
 #[cfg(feature = "query")]
 impl CardWrap for Many {

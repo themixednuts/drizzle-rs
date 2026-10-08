@@ -1574,14 +1574,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let num_base_cols = T::COLUMN_NAMES.len();
         let (sql_str, params) = self.inner.bind(params)?;
         let mut driver_params = Vec::with_capacity(self.inner.params.len());
@@ -1673,14 +1665,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let (sql_str, params) = self.inner.bind(params)?;
         let mut driver_params = Vec::with_capacity(self.inner.params.len());
         driver_params.extend(params.map(Into::into));

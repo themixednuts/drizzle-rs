@@ -977,14 +977,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let (sql, bound) = self.inner.bind(params)?;
         let values: Vec<SqlStorageValue> = bound.map(|v| sqlite_value_to_storage(&v)).collect();
         let rows = query_json_rows(conn.sql(), sql, values)?;
@@ -1052,14 +1044,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let (sql, bound) = self.inner.bind(params)?;
         let values: Vec<SqlStorageValue> = bound.map(|v| sqlite_value_to_storage(&v)).collect();
         let rows = query_json_rows(conn.sql(), sql, values)?;

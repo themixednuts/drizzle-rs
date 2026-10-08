@@ -171,13 +171,13 @@ macro_rules! shared_relational_api_suite {
             /// `edition_number` to `number` gives `notes.edition()`, and
             /// editions get `shared_api_edition_notes()`.
             #[$table(
-                                NAME = "shared_api_edition_notes",
-                                FOREIGN_KEY(
-                                    COLUMNS(post_id, edition_number),
-                                    REFERENCES(SharedApiEdition, post_id, number),
-                                    ON_DELETE = CASCADE
-                                )
-                            )]
+                                                NAME = "shared_api_edition_notes",
+                                                FOREIGN_KEY(
+                                                    COLUMNS(post_id, edition_number),
+                                                    REFERENCES(SharedApiEdition, post_id, number),
+                                                    ON_DELETE = CASCADE
+                                                )
+                                            )]
             struct SharedApiEditionNote {
                 #[column(PRIMARY, DEFAULT = 0)]
                 id: i32,
@@ -294,6 +294,14 @@ macro_rules! shared_relational_api_suite {
 
                 let first = db.query(authors).order_by(asc(authors.name)).find_first();
                 assert_eq!(first.map(|row| row.name).as_deref(), Some("Alice"));
+            }
+
+            #[drizzle::test($dialect)]
+            fn empty_insert_inserts_no_rows(db: &mut TestDb<SharedApiSchema>) {
+                let SharedApiSchema { authors, .. } = schema;
+                db.insert(authors).values(Vec::<AuthorRow>::new()).execute();
+                let rows = db.query(authors).find_many();
+                assert!(rows.is_empty());
             }
 
             #[drizzle::test($dialect)]
