@@ -1145,20 +1145,29 @@ When a table references itself, or has two or more foreign keys to the same
 table, each of those reverse accessors is named `{forward}_{plural}` instead,
 for example `users.author_posts()` and `users.editor_posts()`.
 
-`relation = "..."` sets a reverse accessor's name and leaves the forward name
-alone. You only need it when two accessors on the referenced table would still
-share a name. If both come from one table, the macro's compile error asks for
-`relation`. If they come from different tables, for example a direct foreign
-key and a junction table that both give `tags.posts()`, rustc reports a
-duplicate definition instead, and `relation` on the direct foreign key
-resolves it.
+A link table also gives a many-to-many pair: each side gets an accessor named
+after the plural of the other side, so `PostTags` gives `posts.tags()` and
+`tags.posts()`. The link keeps its own accessors as well: `post_tags.post()`,
+and `posts.post_tags()` for its rows.
 
-A table with exactly two foreign keys that point at two different tables,
-neither of them the table itself, also works as a junction table: each side
-gets a many-to-many accessor named after the plural of the other side, so
-`PostTags` gives `posts.tags()` and `tags.posts()`. The junction keeps its own
-accessors as well (`post_tags.post()`, `posts.post_tags()`), and `relation`
-does not rename the many-to-many pair.
+A link table has exactly two foreign keys, pointing at two different tables
+other than itself, and its rows are that pair: the pair is its primary key or
+a `UNIQUE(columns(...))` constraint, or the table has no other column except a
+single-column primary key. A table that holds two foreign keys beside columns
+of its own, such as a comment with an author and a post, is an entity rather
+than a link. It gets the forward and reverse accessors of each foreign key and
+no many-to-many pair.
+
+`relation = "..."` names the accessor the referenced table gets through the
+column and leaves the forward name alone. On most tables that is the reverse
+accessor. On a link table it is the many-to-many accessor, and the link's rows
+keep their plural name. You only need `relation` when two accessors on the
+referenced table would still share a name, such as two links between the same
+tables (likes and bookmarks would both give `users.posts()`), or a direct
+foreign key and a link that both give `tags.posts()`. If both come from one
+table, the macro's compile error asks for `relation`. If they come from
+different tables, rustc reports a duplicate definition at both columns, and
+`relation` on either one resolves it.
 
 ```rust
 # #[cfg(all(feature = "rusqlite", feature = "query"))]
@@ -1202,28 +1211,45 @@ pub struct PostTags {
     pub tag_id: i64,
 }
 
+// A link with a payload, its pair unique. relation names the many-to-many
+// pair, users.liked_posts() and posts.likers(); a second link between users
+// and posts would need names too. Its rows stay users.post_likes().
+#[SQLiteTable(UNIQUE(columns(user_id, post_id)))]
+pub struct PostLikes {
+    #[column(primary)]
+    pub id: i64,
+    #[column(references = Users::id, relation = "liked_posts")]
+    pub user_id: i64,
+    #[column(references = Posts::id, relation = "likers")]
+    pub post_id: i64,
+    pub liked_at: i64,
+}
+
 #[derive(SQLiteSchema)]
 pub struct Schema {
     pub users: Users,
     pub posts: Posts,
     pub tags: Tags,
     pub post_tags: PostTags,
+    pub post_likes: PostLikes,
 }
 
 # let conn = rusqlite::Connection::open_in_memory()?;
-# let (db, Schema { users, posts, tags, post_tags }) = Drizzle::new(conn);
+# let (db, Schema { users, posts, tags, post_tags, .. }) = Drizzle::new(conn);
 # db.create()?;
 let authors = db
     .query(users)
     .with(users.author_posts())
     .with(users.edited_posts())
     .with(users.invited_by_users())
+    .with(users.liked_posts())
     .find_many()?;
 
 let tagged = db.query(posts).with(posts.author()).with(posts.tags()).find_many()?;
 # let _ = db.query(users).with(users.invited_by()).find_many()?;
 # let _ = db.query(posts).with(posts.editor()).with(posts.post_tags()).find_many()?;
 # let _ = db.query(tags).with(tags.posts()).find_many()?;
+# let _ = db.query(posts).with(posts.likers()).with(posts.post_likes()).find_many()?;
 # let _ = db.query(post_tags).with(post_tags.post()).with(post_tags.tag()).find_many()?;
 # Ok(())
 # }

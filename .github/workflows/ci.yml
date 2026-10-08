@@ -20,9 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Nightly is pinned because turso_core's `branches` 0.4 calls
+      # `core::intrinsics::abort`, which nightly removed on 2026-10-04.
+      # Unpin once turso depends on `branches` 0.5. Keep the build matrix's
+      # nightly on the same date.
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-10-03
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
@@ -426,7 +431,8 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        rust: [stable, nightly]
+        # Nightly is pinned with the Lint job's; see there.
+        rust: [stable, nightly-2026-10-03]
 
     steps:
       - uses: actions/checkout@v6

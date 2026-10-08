@@ -5,8 +5,8 @@
 //! selectors from FK declarations.
 
 use heck::{ToSnakeCase, ToUpperCamelCase};
-use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote};
+use proc_macro2::{Ident, Span, TokenStream};
+use quote::{format_ident, quote, quote_spanned};
 use syn::Visibility;
 
 /// How an enum field is stored in a dialect's JSON projection.
@@ -35,9 +35,52 @@ pub struct FkInfo {
     pub target_column_ident: Ident,
     /// Whether the source field is nullable (Option<T>).
     pub is_nullable: bool,
-    /// Optional reverse-relation name from `#[column(relation = "...")]`.
-    /// When set, overrides the auto-derived reverse accessor name.
+    /// Optional name from `#[column(relation = "...")]` for the accessor the
+    /// target table gets through this column: the reverse relation, or on a
+    /// link table the many-to-many relation.
     pub relation_name: Option<String>,
+    /// Where the column is declared. The accessors the target table gets
+    /// through it are located here, so a clash points at the column to name.
+    pub span: Span,
+}
+
+/// The column sets that identify a table's rows, by SQL column name.
+///
+/// Many-to-many detection reads them to tell a link table, whose rows are
+/// its foreign-key pair, from a table that holds two foreign keys beside a
+/// row of its own.
+pub struct RowKeys {
+    /// The primary key's columns; empty when the table has none.
+    pub primary_key: Vec<String>,
+    /// Each table-level `UNIQUE(columns(...))` constraint's columns.
+    pub unique: Vec<Vec<String>>,
+}
+
+impl RowKeys {
+    /// Collects the primary key from the fields and resolves each unique
+    /// constraint's field idents to column names.
+    pub fn new<'c, F: crate::common::constraints::ConstraintFieldInfo>(
+        fields: &[F],
+        unique_constraints: impl IntoIterator<Item = &'c [Ident]>,
+    ) -> Self {
+        let column_name = |ident: &Ident| {
+            fields
+                .iter()
+                .find(|field| field.ident() == ident)
+                .map_or_else(|| ident.to_string(), |field| field.column_name().to_owned())
+        };
+        Self {
+            primary_key: fields
+                .iter()
+                .filter(|field| field.is_primary())
+                .map(|field| field.column_name().to_owned())
+                .collect(),
+            unique: unique_constraints
+                .into_iter()
+                .map(|columns| columns.iter().map(column_name).collect())
+                .collect(),
+        }
+    }
 }
 
 /// How a field should be read from JSON. These storage kinds are mutually
@@ -139,6 +182,7 @@ pub fn generate_query_api(
     fk_infos: &[FkInfo],
     field_json_infos: &[FieldJsonInfo],
     column_names: &[String],
+    row_keys: &RowKeys,
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
 
@@ -187,35 +231,41 @@ pub fn generate_query_api(
         fk_infos,
     ));
 
-    // 3. Generate reverse relations (from target tables back to this table)
+    // 3. Name the accessors the target tables get: a reverse relation per FK,
+    //    and a many-to-many pair when this is a link table.
+    let link = link_pair(struct_ident, fk_infos, column_names, row_keys);
+    let mut accessors = plan_target_accessors(struct_ident, fk_infos, link);
+    tokens.extend(drop_duplicate_accessors(&mut accessors));
+
+    // 4. Generate reverse relations (from target tables back to this table)
     tokens.extend(generate_reverse_relations(
         struct_ident,
         struct_vis,
-        fk_infos,
+        &accessors,
     ));
 
-    // 4. Generate many-to-many relations (junction table detection)
+    // 5. Generate many-to-many relations through this link table
     tokens.extend(generate_many_to_many_relations(
         struct_ident,
         struct_vis,
-        fk_infos,
+        &accessors,
     ));
 
-    // 5. Generate JSON decoder for the select model
+    // 6. Generate JSON decoder for the select model
     tokens.extend(generate_json_decoder(
         select_model_ident,
         field_json_infos,
         false,
     ));
 
-    // 6. Generate JSON decoder for the partial select model (all fields optional)
+    // 7. Generate JSON decoder for the partial select model (all fields optional)
     tokens.extend(generate_json_decoder(
         partial_select_model_ident,
         field_json_infos,
         true,
     ));
 
-    // 7. Generate column selector struct and `.columns()` method
+    // 8. Generate column selector struct and `.columns()` method
     tokens.extend(generate_column_selector(
         struct_ident,
         struct_vis,
@@ -335,15 +385,17 @@ fn reverse_method_name(source_table_ident: &Ident) -> String {
 /// Resolve the reverse relation accessor name for one FK.
 ///
 /// Priority:
-/// 1. Explicit `relation = "..."` override
+/// 1. Explicit `relation = "..."` override, except on a link table, where
+///    `relation` names the many-to-many accessor instead
 /// 2. Disambiguated `{forward}_{plural(source)}` when self-ref or multi-FK
 /// 3. Plain `plural(source)` otherwise
 fn reverse_relation_method_name(
     fk: &FkInfo,
     source_table_ident: &Ident,
     needs_disambiguation: bool,
+    is_link: bool,
 ) -> String {
-    if let Some(name) = &fk.relation_name {
+    if let Some(name) = fk.relation_name.as_ref().filter(|_| !is_link) {
         return name.clone();
     }
     let base = reverse_method_name(source_table_ident);
@@ -401,6 +453,8 @@ struct RelEmitter<'a> {
     /// Receiver of the accessor method's inherent impl
     /// (e.g. `__XForwardRels`, the target table ZST, the source table ZST).
     accessor_receiver: TokenStream,
+    /// Where the accessor method is reported, such as a duplicate definition.
+    accessor_span: Span,
 }
 
 impl RelEmitter<'_> {
@@ -419,6 +473,7 @@ impl RelEmitter<'_> {
             fk_columns_body,
             junction_body,
             accessor_receiver,
+            accessor_span,
         } = self;
 
         let card = match card_kind {
@@ -438,6 +493,14 @@ impl RelEmitter<'_> {
                 fn junction() -> Option<drizzle::core::relation::JunctionMeta> { #body }
             }
         });
+
+        let accessor = quote_spanned! {*accessor_span=>
+            impl #accessor_receiver {
+                #vis fn #method<'a, __V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<'a, __V, #rel_zst> {
+                    drizzle::core::query::RelationHandle::new()
+                }
+            }
+        };
 
         quote! {
             #[doc(hidden)]
@@ -494,11 +557,7 @@ impl RelEmitter<'_> {
                 }
             }
 
-            impl #accessor_receiver {
-                #vis fn #method<'a, __V: drizzle::core::SQLParam>(&self) -> drizzle::core::query::RelationHandle<'a, __V, #rel_zst> {
-                    drizzle::core::query::RelationHandle::new()
-                }
-            }
+            #accessor
         }
     }
 }
@@ -568,6 +627,7 @@ fn generate_forward_relations(
                 fk_columns_body: quote!(&[(#target_col, #source_col)]),
                 junction_body: None,
                 accessor_receiver: quote!(#rels_struct),
+                accessor_span: Span::call_site(),
             }
             .emit(),
         );
@@ -576,61 +636,160 @@ fn generate_forward_relations(
     tokens
 }
 
-/// Generates reverse relations (Many from target tables back to this table).
+/// An accessor a target table gets through one of this table's FKs.
+struct TargetAccessor<'f> {
+    /// The FK the accessor goes through; its target table receives it.
+    through: &'f FkInfo,
+    /// On a many-to-many accessor, the link's other FK, whose table it
+    /// reaches. A reverse accessor reaches this table instead.
+    link_to: Option<&'f FkInfo>,
+    /// The accessor's name.
+    method: String,
+}
+
+impl TargetAccessor<'_> {
+    const fn kind(&self) -> &'static str {
+        if self.link_to.is_some() {
+            "many-to-many"
+        } else {
+            "reverse"
+        }
+    }
+
+    /// The FK column the accessor goes through, where it is reported.
+    ///
+    /// Accessors from different tables can share a name on one target, which
+    /// no single table's macro can see. Rust then reports the duplicate at
+    /// both columns, where `relation = "..."` names one of them.
+    fn span(&self) -> Span {
+        Span::call_site().located_at(self.through.span)
+    }
+}
+
+/// Names the accessors this table's FKs give their target tables: a reverse
+/// relation per FK, and on a link table a many-to-many pair.
+fn plan_target_accessors<'f>(
+    struct_ident: &'f Ident,
+    fk_infos: &'f [FkInfo],
+    link: Option<(&'f FkInfo, &'f FkInfo)>,
+) -> Vec<TargetAccessor<'f>> {
+    let mut accessors = plan_reverse_relations(struct_ident, fk_infos, link.is_some());
+    if let Some((fk_a, fk_b)) = link {
+        accessors.extend(plan_many_to_many(fk_a, fk_b));
+    }
+    accessors
+}
+
+/// Names the reverse relation each FK gives its target table.
 ///
 /// Unique FKs use the pluralized source table name (`posts`). Self-referential
 /// FKs and multiple FKs to the same target are disambiguated as
 /// `{forward}_{plural}` (e.g. `author_posts`), unless `relation = "..."`
-/// overrides the reverse name.
-fn generate_reverse_relations(
+/// overrides the reverse name. A link table's `relation` names its
+/// many-to-many pair instead (see [`plan_many_to_many`]).
+fn plan_reverse_relations<'f>(
     struct_ident: &Ident,
-    vis: &Visibility,
-    fk_infos: &[FkInfo],
-) -> TokenStream {
-    let mut tokens = TokenStream::new();
-
+    fk_infos: &'f [FkInfo],
+    is_link: bool,
+) -> Vec<TargetAccessor<'f>> {
     // Count FKs per target table to detect multi-FK situations
     let mut target_fk_counts = std::collections::HashMap::new();
     for fk in fk_infos {
-        let target_name = fk.target_table_ident.to_string();
-        *target_fk_counts.entry(target_name).or_insert(0usize) += 1;
+        *target_fk_counts
+            .entry(&fk.target_table_ident)
+            .or_insert(0usize) += 1;
     }
 
-    // Planned reverses: (fk, method_name). Collision-checked per target.
-    let mut planned: Vec<(&FkInfo, String)> = Vec::with_capacity(fk_infos.len());
-    let mut names_by_target: std::collections::HashMap<String, Vec<(String, String)>> =
-        std::collections::HashMap::new();
-
-    for fk in fk_infos {
-        let target_name = fk.target_table_ident.to_string();
-        let is_self_ref = fk.target_table_ident == *struct_ident;
-        let needs_disambiguation = is_self_ref || target_fk_counts[&target_name] > 1;
-        let method_name_str = reverse_relation_method_name(fk, struct_ident, needs_disambiguation);
-
-        names_by_target
-            .entry(target_name)
-            .or_default()
-            .push((method_name_str.clone(), fk.source_column.clone()));
-        planned.push((fk, method_name_str));
-    }
-
-    for (target, entries) in &names_by_target {
-        let mut seen = std::collections::HashMap::<&str, &str>::new();
-        for (method, col) in entries {
-            if let Some(prev_col) = seen.insert(method.as_str(), col.as_str()) {
-                let msg = format!(
-                    "duplicate reverse relation `{method}` on `{target}` \
-                     (from columns `{prev_col}` and `{col}`). \
-                     Use `#[column(relation = \"...\")]` to disambiguate."
-                );
-                tokens.extend(quote! {
-                    ::core::compile_error!(#msg);
-                });
+    fk_infos
+        .iter()
+        .map(|fk| {
+            let is_self_ref = fk.target_table_ident == *struct_ident;
+            let needs_disambiguation = is_self_ref || target_fk_counts[&fk.target_table_ident] > 1;
+            TargetAccessor {
+                through: fk,
+                link_to: None,
+                method: reverse_relation_method_name(
+                    fk,
+                    struct_ident,
+                    needs_disambiguation,
+                    is_link,
+                ),
             }
-        }
-    }
+        })
+        .collect()
+}
 
-    for (fk, method_name_str) in planned {
+/// Names the many-to-many pair of a link table.
+///
+/// Each side gets an accessor to the other through the link. `relation` on
+/// the column that references a side names that side's accessor; otherwise
+/// it is the plural of the other side (`posts.tags()`). Two links between the
+/// same pair of tables mean different things (likes and bookmarks), so they
+/// need a `relation` on at least one of them.
+fn plan_many_to_many<'f>(fk_a: &'f FkInfo, fk_b: &'f FkInfo) -> Vec<TargetAccessor<'f>> {
+    [(fk_a, fk_b), (fk_b, fk_a)]
+        .into_iter()
+        .map(|(through, other)| TargetAccessor {
+            through,
+            link_to: Some(other),
+            method: through
+                .relation_name
+                .clone()
+                .unwrap_or_else(|| reverse_method_name(&other.target_table_ident)),
+        })
+        .collect()
+}
+
+/// Drops each accessor that would give a target table a name this table
+/// already gave it, and reports it at its column instead.
+fn drop_duplicate_accessors(accessors: &mut Vec<TargetAccessor<'_>>) -> TokenStream {
+    let advice = if accessors.iter().any(|accessor| accessor.link_to.is_some()) {
+        "On a link table, `relation` names the many-to-many accessor; \
+         give it a name the link's own rows do not use."
+    } else {
+        "Use `#[column(relation = \"...\")]` to name one of them."
+    };
+    let mut tokens = TokenStream::new();
+    let mut kept: Vec<TargetAccessor<'_>> = Vec::with_capacity(accessors.len());
+    for accessor in std::mem::take(accessors) {
+        let prev = kept.iter().find(|prev| {
+            prev.through.target_table_ident == accessor.through.target_table_ident
+                && prev.method == accessor.method
+        });
+        let Some(prev) = prev else {
+            kept.push(accessor);
+            continue;
+        };
+        let msg = format!(
+            "duplicate relation accessor `{}` on `{}`: the {} relation through column `{}` \
+             and the {} relation through column `{}`. {advice}",
+            accessor.method,
+            accessor.through.target_table_ident,
+            prev.kind(),
+            prev.through.source_column,
+            accessor.kind(),
+            accessor.through.source_column,
+        );
+        tokens.extend(quote_spanned! {accessor.span()=> ::core::compile_error!(#msg); });
+    }
+    *accessors = kept;
+    tokens
+}
+
+/// Generates reverse relations (Many from target tables back to this table).
+fn generate_reverse_relations(
+    struct_ident: &Ident,
+    vis: &Visibility,
+    accessors: &[TargetAccessor<'_>],
+) -> TokenStream {
+    let mut tokens = TokenStream::new();
+
+    for accessor in accessors
+        .iter()
+        .filter(|accessor| accessor.link_to.is_none())
+    {
+        let fk = accessor.through;
+        let method_name_str = accessor.method.clone();
         let target_table = &fk.target_table_ident;
         let child_select = format_ident!("Select{struct_ident}");
         let parent_select = format_ident!("Select{target_table}");
@@ -654,6 +813,7 @@ fn generate_reverse_relations(
                 fk_columns_body: quote!(&[(#source_col, #target_col)]),
                 junction_body: None,
                 accessor_receiver: quote!(#target_table),
+                accessor_span: accessor.span(),
             }
             .emit(),
         );
@@ -662,44 +822,85 @@ fn generate_reverse_relations(
     tokens
 }
 
-/// Generates many-to-many relations through a junction table.
+/// Whether the table links its two foreign keys' tables, and is nothing more.
+///
+/// A link table's rows are its foreign-key pair: the pair is its primary key
+/// or a unique constraint, or the table holds no column besides the pair and
+/// a single-column surrogate key. A table whose rows are entities of their
+/// own (a comment with an author and a post) is not one: each foreign key
+/// gives it a forward and reverse relation, and it adds no many-to-many pair
+/// to clash with a real link's.
+fn is_link_table(
+    fk_a: &FkInfo,
+    fk_b: &FkInfo,
+    column_names: &[String],
+    row_keys: &RowKeys,
+) -> bool {
+    let pair = [fk_a.source_column.as_str(), fk_b.source_column.as_str()];
+    let is_pair = |columns: &[String]| {
+        columns.len() == 2 && columns.iter().all(|column| pair.contains(&column.as_str()))
+    };
+    if is_pair(&row_keys.primary_key) || row_keys.unique.iter().any(|columns| is_pair(columns)) {
+        return true;
+    }
+    let rest: Vec<&String> = column_names
+        .iter()
+        .filter(|column| !pair.contains(&column.as_str()))
+        .collect();
+    match rest.as_slice() {
+        [] => true,
+        [surrogate] => matches!(row_keys.primary_key.as_slice(), [key] if key == *surrogate),
+        _ => false,
+    }
+}
+
+/// The table's two FKs, when it is a link table between two other tables.
 ///
 /// A junction table is detected when:
 /// - Exactly 2 FK columns exist
 /// - They target 2 different tables
 /// - Neither target is the junction table itself
+/// - The table is a link table (see [`is_link_table`])
+fn link_pair<'f>(
+    struct_ident: &Ident,
+    fk_infos: &'f [FkInfo],
+    column_names: &[String],
+    row_keys: &RowKeys,
+) -> Option<(&'f FkInfo, &'f FkInfo)> {
+    let [fk_a, fk_b] = fk_infos else {
+        return None;
+    };
+    let distinct = fk_a.target_table_ident != fk_b.target_table_ident;
+    let external =
+        fk_a.target_table_ident != *struct_ident && fk_b.target_table_ident != *struct_ident;
+    (distinct && external && is_link_table(fk_a, fk_b, column_names, row_keys))
+        .then_some((fk_a, fk_b))
+}
+
+/// Generates many-to-many relations through a link table.
 ///
 /// For each direction, generates a relation from one target to the other
 /// through the junction, with `Card = Many` and `fn junction()`.
 fn generate_many_to_many_relations(
     struct_ident: &Ident,
     vis: &Visibility,
-    fk_infos: &[FkInfo],
+    accessors: &[TargetAccessor<'_>],
 ) -> TokenStream {
-    // Junction detection: exactly 2 FKs to 2 different external tables
-    if fk_infos.len() != 2 {
-        return TokenStream::new();
-    }
-    let (fk_a, fk_b) = (&fk_infos[0], &fk_infos[1]);
-    if fk_a.target_table_ident == fk_b.target_table_ident {
-        return TokenStream::new();
-    }
-    if fk_a.target_table_ident == *struct_ident || fk_b.target_table_ident == *struct_ident {
-        return TokenStream::new();
-    }
-
     let mut tokens = TokenStream::new();
 
     let junction_pascal = to_pascal(&struct_ident.to_string());
 
-    // Generate both directions: A→B and B→A through the junction
-    for (source_fk, target_fk) in [(fk_a, fk_b), (fk_b, fk_a)] {
+    // Each accessor goes through one FK and reaches the other FK's table.
+    for accessor in accessors {
+        let (source_fk, Some(target_fk)) = (accessor.through, accessor.link_to) else {
+            continue;
+        };
         let source_table = &source_fk.target_table_ident;
         let target_table = &target_fk.target_table_ident;
         let source_select = format_ident!("Select{source_table}");
         let target_select = format_ident!("Select{target_table}");
 
-        let method_name_str = reverse_method_name(target_table);
+        let method_name_str = accessor.method.clone();
         let method_pascal = to_pascal(&method_name_str);
 
         let source_col_name = &source_fk.source_column;
@@ -729,6 +930,7 @@ fn generate_many_to_many_relations(
                     })
                 }),
                 accessor_receiver: quote!(#source_table),
+                accessor_span: accessor.span(),
             }
             .emit(),
         );

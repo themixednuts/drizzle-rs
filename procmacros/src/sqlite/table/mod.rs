@@ -210,7 +210,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 /// Shared by both `#[SQLiteTable]` and `#[SQLiteView]`.
 #[cfg(feature = "query")]
 pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
-    use crate::common::query::{FieldJsonInfo, FkInfo, generate_query_api};
+    use crate::common::query::{FieldJsonInfo, FkInfo, RowKeys, generate_query_api};
     use crate::sqlite::field::SQLiteType;
 
     let struct_ident = ctx.struct_ident;
@@ -229,6 +229,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 target_column_ident: fk.column_ident.clone(),
                 is_nullable: f.is_nullable,
                 relation_name: f.relation_name.clone(),
+                span: f.ident.span(),
             })
         })
         .collect();
@@ -297,6 +298,13 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         &fk_infos,
         &field_json_infos,
         &column_names,
+        &RowKeys::new(
+            ctx.field_infos,
+            ctx.attrs
+                .unique_constraints
+                .iter()
+                .map(|unique| unique.columns.as_slice()),
+        ),
     )
 }
 

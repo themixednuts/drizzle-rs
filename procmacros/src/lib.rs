@@ -272,7 +272,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// | `default_fn = path` | Rust function called to fill the field when an insert model is created. Cannot be combined with `default`. |
 /// | `references = Table::column` | Foreign key to another table's column. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
-/// | `relation = "name"` | Name of the reverse relation accessor (see [Relations](#relations)). Needs `references`. |
+/// | `relation = "name"` | Name of the accessor the referenced table gets through this column: the reverse relation, or on a link table the many-to-many one (see [Relations](#relations)). Needs `references`. |
 /// | `collate = NOCASE` | Column collation: `BINARY`, `NOCASE`, `RTRIM`, or any name as a string. |
 /// | `check = "score >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
 /// | `generated(stored, "expr")` or `generated(virtual, "expr")` | Generated column. Never written by inserts. Cannot be combined with `default`. |
@@ -321,13 +321,16 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///   `categories()`).
 /// - A self-reference, or two or more foreign keys to the same table, name
 ///   each reverse accessor `{forward}_{plural}` (`users.author_posts()`).
-/// - `relation = "name"` renames the reverse accessor. It is needed only when
-///   two accessors on the referenced table would still share a name. The
-///   macro asks for it when both come from one table; when they come from
-///   different tables (for example a direct foreign key and a junction
-///   table), rustc reports a duplicate definition instead.
-/// - A table with exactly two foreign keys, to two other distinct tables,
-///   also links those tables many-to-many (`posts.tags()` and `tags.posts()`).
+/// - A link table, whose rows are a pair of foreign keys to two other
+///   tables, also links them many-to-many (`posts.tags()` and
+///   `tags.posts()`). The pair is its primary key or a `UNIQUE` constraint,
+///   or it has no other column except a single-column primary key.
+/// - `relation = "name"` names the accessor the referenced table gets through
+///   the column: the reverse one, or on a link table the many-to-many one. It
+///   is needed only when two accessors on the referenced table would still
+///   share a name, such as two links between the same tables. The macro asks
+///   for it when both come from one table; when they come from different
+///   tables, rustc reports a duplicate definition at both columns.
 ///
 /// # Examples
 ///
@@ -1357,7 +1360,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// | `fk_name = "..."` | Name of that foreign key constraint (default `{table}_{column}_fkey`). Needs `references`. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
 /// | `deferrable`, `initially_deferred` | Make the column's foreign key deferrable. Needs `references`. |
-/// | `relation = "name"` | Name of the reverse relation accessor (see [Relations](#relations)). Needs `references`. |
+/// | `relation = "name"` | Name of the accessor the referenced table gets through this column: the reverse relation, or on a link table the many-to-many one (see [Relations](#relations)). Needs `references`. |
 /// | `collate = "C"` | Column collation, written quoted in the DDL. |
 /// | `check = "balance >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
 /// | `generated(stored, "expr")` or `generated(virtual, "expr")` | Generated column. Never written by inserts. `VIRTUAL` needs `PostgreSQL` 18 or later. |
@@ -1404,8 +1407,9 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// for the relational query API. The naming rules are the same as for
 /// [`SQLiteTable`](SQLiteTable#relations): the forward accessor drops the
 /// `_id` suffix (`posts.author()`), the reverse one is this struct's name in
-/// plural `snake_case` (`users.posts()`), and `relation = "name"` renames the
-/// reverse accessor when two would collide.
+/// plural `snake_case` (`users.posts()`), a link table gives a many-to-many
+/// pair, and `relation = "name"` names the accessor the referenced table gets
+/// through the column.
 ///
 /// # Examples
 ///
@@ -1833,7 +1837,7 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 /// | `on_update = "CURRENT_TIMESTAMP"` | Column `ON UPDATE` clause, given as a string. Only on `DATETIME` and `TIMESTAMP` columns. |
 /// | `references = Table::column` | Foreign key to another table's column. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`, as a bare identifier: `CASCADE`, `SET_NULL`, `RESTRICT` or `NO_ACTION`. InnoDB rejects `SET_DEFAULT`. |
-/// | `relation = "name"` | Name of the reverse relation accessor (see [Relations](#relations)). Needs `references`. |
+/// | `relation = "name"` | Name of the accessor the referenced table gets through this column: the reverse relation, or on a link table the many-to-many one (see [Relations](#relations)). Needs `references`. |
 /// | `charset = "..."` (or `character_set`), `collate = "..."` | Column character set and collation, on character, text, `ENUM` and `SET` columns. |
 /// | `comment = "..."` | Column `COMMENT`. |
 /// | `check = "score >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
@@ -1873,13 +1877,17 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 /// - a self-reference, or two or more foreign keys to the same table, names
 ///   each of those reverse accessors `{forward}_{plural}`
 ///   (`users.author_posts()`)
-/// - `relation = "name"` names the reverse accessor and leaves the forward one
-///   alone. It is required only when two accessors on the referenced table
-///   would still share a name: the macro's error asks for it when both come
-///   from one table, and rustc reports a duplicate definition when they come
-///   from different tables (e.g. a direct foreign key and a junction table)
-/// - a table with exactly two foreign keys, to two other distinct tables,
-///   also links them many-to-many (`posts.tags()` and `tags.posts()`)
+/// - a link table, whose rows are a pair of foreign keys to two other tables,
+///   also links them many-to-many (`posts.tags()` and `tags.posts()`); the
+///   pair is its primary key or a `UNIQUE` constraint, or it has no other
+///   column except a single-column primary key
+/// - `relation = "name"` names the accessor the referenced table gets through
+///   the column (the reverse one, or on a link table the many-to-many one)
+///   and leaves the forward one alone. It is required only when two
+///   accessors on the referenced table would still share a name, such as two
+///   links between the same tables: the macro's error asks for it when both
+///   come from one table, and rustc reports a duplicate definition at both
+///   columns when they come from different tables
 ///
 /// # Examples
 ///

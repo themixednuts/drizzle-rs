@@ -226,7 +226,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 #[cfg(feature = "query")]
 pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
     use crate::common::query::{
-        EnumStorage, FieldJsonInfo, FieldProjectionKind, FieldStorageKind, FkInfo,
+        EnumStorage, FieldJsonInfo, FieldProjectionKind, FieldStorageKind, FkInfo, RowKeys,
         generate_query_api,
     };
     use crate::common::{
@@ -245,6 +245,7 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 target_column_ident: reference.column.clone(),
                 is_nullable: field.is_nullable,
                 relation_name: field.relation_name.clone(),
+                span: field.ident.span(),
             })
         })
         .collect::<Vec<_>>();
@@ -347,6 +348,13 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         &fk_infos,
         &field_json_infos,
         &column_names,
+        &RowKeys::new(
+            ctx.field_infos,
+            ctx.attrs
+                .unique_constraints
+                .iter()
+                .map(|unique| unique.columns.as_slice()),
+        ),
     )
 }
 

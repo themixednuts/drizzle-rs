@@ -252,7 +252,8 @@ pub struct FieldInfo<'a> {
     // Foreign key support
     pub(crate) foreign_key: Option<ForeignKeyReference>,
 
-    /// Optional reverse-relation name from `#[column(relation = "...")]`.
+    /// Optional name from `#[column(relation = "...")]` for the accessor the
+    /// referenced table gets through this column (reverse or many-to-many).
     /// Only the relational query API (`query` feature) reads it.
     #[cfg_attr(not(feature = "query"), allow(dead_code))]
     pub(crate) relation_name: Option<String>,
@@ -393,7 +394,8 @@ struct ParsedArgs {
     references: Option<Expr>,
     on_delete: Option<String>,
     on_update: Option<String>,
-    /// Reverse-relation accessor name from `relation = "..."`.
+    /// Name from `relation = "..."` for the accessor the referenced table gets
+    /// through this column (reverse or many-to-many).
     relation: Option<String>,
     /// Where `on_delete`, `on_update` and `relation` were written, for the
     /// errors that need a `references` beside them.
@@ -424,7 +426,8 @@ struct AttributeData {
     references_path: Option<ExprPath>,
     on_delete: Option<String>,
     on_update: Option<String>,
-    /// Reverse-relation accessor name from `relation = "..."`.
+    /// Name from `relation = "..."` for the accessor the referenced table gets
+    /// through this column (reverse or many-to-many).
     relation: Option<String>,
     /// See [`ParsedArgs::reference_option_spans`].
     reference_option_spans: Vec<proc_macro2::Span>,

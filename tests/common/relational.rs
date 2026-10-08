@@ -77,6 +77,47 @@ macro_rules! shared_relational_api_suite {
                 category_id: i32,
             }
 
+            /// Two foreign keys and a row of its own: an entity, not a link,
+            /// so it adds no many-to-many pair to clash with the junction's.
+            #[$table(NAME = "shared_api_post_category_notes")]
+            struct SharedApiPostCategoryNote {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                #[column(REFERENCES = SharedApiPost::id, RELATION = "category_notes")]
+                post_id: i32,
+                #[column(REFERENCES = SharedApiCategory::id, RELATION = "post_notes")]
+                category_id: i32,
+                body: String,
+            }
+
+            /// A link with a payload: the foreign-key pair is unique, so it
+            /// is a link, and `relation` names its many-to-many pair,
+            /// `authors.followed_categories()` and `categories.followers()`.
+            #[$table(
+                NAME = "shared_api_author_follows",
+                UNIQUE(columns(author_id, category_id))
+            )]
+            struct SharedApiAuthorFollow {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                #[column(REFERENCES = SharedApiAuthor::id, RELATION = "followed_categories")]
+                author_id: i32,
+                #[column(REFERENCES = SharedApiCategory::id, RELATION = "followers")]
+                category_id: i32,
+                since: i32,
+            }
+
+            /// A second link between the same tables keeps the default
+            /// names, `authors.shared_api_categories()` and
+            /// `categories.shared_api_authors()`.
+            #[$table(NAME = "shared_api_author_favorites")]
+            struct SharedApiAuthorFavorite {
+                #[column(REFERENCES = SharedApiAuthor::id)]
+                author_id: i32,
+                #[column(REFERENCES = SharedApiCategory::id)]
+                category_id: i32,
+            }
+
             #[$table(NAME = "shared_api_articles")]
             struct SharedApiArticle {
                 #[column(PRIMARY, DEFAULT = 0)]
@@ -111,6 +152,9 @@ macro_rules! shared_relational_api_suite {
                 replies: SharedApiReply,
                 categories: SharedApiCategory,
                 post_categories: SharedApiPostCategory,
+                post_category_notes: SharedApiPostCategoryNote,
+                author_follows: SharedApiAuthorFollow,
+                author_favorites: SharedApiAuthorFavorite,
                 articles: SharedApiArticle,
                 headlines: SharedApiPostHeadline,
             }
@@ -633,6 +677,65 @@ macro_rules! shared_relational_api_suite {
                     .find_first()
                     .unwrap();
                 assert_eq!(limited.shared_api_categories.len(), 2);
+            }
+
+            #[drizzle::test($dialect)]
+            fn two_links_between_the_same_tables(db: &mut TestDb<SharedApiSchema>) {
+                let SharedApiSchema {
+                    authors,
+                    categories,
+                    author_follows,
+                    author_favorites,
+                    ..
+                } = schema;
+                db.insert(authors)
+                    .values([author(ALICE, "Alice"), author(BOB, "Bob")])
+                    .execute();
+                db.insert(categories)
+                    .values([
+                        InsertSharedApiCategory::new("Tech").with_id(40),
+                        InsertSharedApiCategory::new("Science").with_id(41),
+                    ])
+                    .execute();
+                db.insert(author_follows)
+                    .values([
+                        InsertSharedApiAuthorFollow::new(ALICE, 40, 2020).with_id(1),
+                        InsertSharedApiAuthorFollow::new(ALICE, 41, 2021).with_id(2),
+                        InsertSharedApiAuthorFollow::new(BOB, 41, 2022).with_id(3),
+                    ])
+                    .execute();
+                db.insert(author_favorites)
+                    .value(InsertSharedApiAuthorFavorite::new(BOB, 40))
+                    .execute();
+
+                let loaded = db
+                    .query(authors)
+                    .with(authors.followed_categories().order_by(asc(categories.id)))
+                    .with(authors.shared_api_categories())
+                    .with(authors.shared_api_author_follows())
+                    .order_by(asc(authors.id))
+                    .find_many();
+                let names = |categories: &[SelectSharedApiCategory]| {
+                    categories
+                        .iter()
+                        .map(|category| category.name.clone())
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(names(&loaded[0].followed_categories), ["Tech", "Science"]);
+                assert!(loaded[0].shared_api_categories.is_empty());
+                assert_eq!(loaded[0].shared_api_author_follows.len(), 2);
+                assert_eq!(names(&loaded[1].followed_categories), ["Science"]);
+                assert_eq!(names(&loaded[1].shared_api_categories), ["Tech"]);
+
+                let science = db
+                    .query(categories)
+                    .r#where(eq(categories.id, 41))
+                    .with(categories.followers().order_by(asc(authors.id)))
+                    .with(categories.shared_api_authors())
+                    .find_first()
+                    .unwrap();
+                assert_eq!(science.followers.len(), 2);
+                assert!(science.shared_api_authors.is_empty());
             }
 
             #[drizzle::test($dialect)]
