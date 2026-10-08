@@ -1153,12 +1153,19 @@ key and a junction table that both give `tags.posts()`, rustc reports a
 duplicate definition instead, and `relation` on the direct foreign key
 resolves it.
 
-A table with exactly two foreign keys that point at two different tables,
-neither of them the table itself, also works as a junction table: each side
-gets a many-to-many accessor named after the plural of the other side, so
-`PostTags` gives `posts.tags()` and `tags.posts()`. The junction keeps its own
-accessors as well (`post_tags.post()`, `posts.post_tags()`), and `relation`
-does not rename the many-to-many pair.
+A link table also gives a many-to-many pair: each side gets an accessor named
+after the plural of the other side, so `PostTags` gives `posts.tags()` and
+`tags.posts()`. The junction keeps its own accessors as well
+(`post_tags.post()`, `posts.post_tags()`), and `relation` does not rename the
+many-to-many pair.
+
+A link table has exactly two foreign keys, pointing at two different tables
+other than itself, and its rows are that pair: the pair is its primary key or
+a `UNIQUE(columns(...))` constraint, or the table has no other column except a
+single-column primary key. A table that holds two foreign keys beside columns
+of its own, such as a comment with an author and a post, is an entity rather
+than a link. It gets the forward and reverse accessors of each foreign key and
+no many-to-many pair.
 
 ```rust
 # #[cfg(all(feature = "rusqlite", feature = "query"))]

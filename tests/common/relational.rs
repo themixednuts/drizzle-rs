@@ -77,6 +77,36 @@ macro_rules! shared_relational_api_suite {
                 category_id: i32,
             }
 
+            /// Two foreign keys and a row of its own: an entity, not a link,
+            /// so it adds no many-to-many pair to clash with the junction's.
+            #[$table(NAME = "shared_api_post_category_notes")]
+            struct SharedApiPostCategoryNote {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                #[column(REFERENCES = SharedApiPost::id, RELATION = "category_notes")]
+                post_id: i32,
+                #[column(REFERENCES = SharedApiCategory::id, RELATION = "post_notes")]
+                category_id: i32,
+                body: String,
+            }
+
+            /// A link with a payload: the foreign-key pair is unique, so it
+            /// gives `authors.shared_api_categories()` and
+            /// `categories.shared_api_authors()`.
+            #[$table(
+                NAME = "shared_api_author_categories",
+                UNIQUE(columns(author_id, category_id))
+            )]
+            struct SharedApiAuthorCategory {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                #[column(REFERENCES = SharedApiAuthor::id, RELATION = "category_follows")]
+                author_id: i32,
+                #[column(REFERENCES = SharedApiCategory::id, RELATION = "author_follows")]
+                category_id: i32,
+                since: i32,
+            }
+
             #[$table(NAME = "shared_api_articles")]
             struct SharedApiArticle {
                 #[column(PRIMARY, DEFAULT = 0)]
@@ -111,6 +141,8 @@ macro_rules! shared_relational_api_suite {
                 replies: SharedApiReply,
                 categories: SharedApiCategory,
                 post_categories: SharedApiPostCategory,
+                post_category_notes: SharedApiPostCategoryNote,
+                author_categories: SharedApiAuthorCategory,
                 articles: SharedApiArticle,
                 headlines: SharedApiPostHeadline,
             }
@@ -633,6 +665,57 @@ macro_rules! shared_relational_api_suite {
                     .find_first()
                     .unwrap();
                 assert_eq!(limited.shared_api_categories.len(), 2);
+            }
+
+            #[drizzle::test($dialect)]
+            fn many_to_many_through_a_link_with_a_payload(db: &mut TestDb<SharedApiSchema>) {
+                let SharedApiSchema {
+                    authors,
+                    categories,
+                    author_categories,
+                    ..
+                } = schema;
+                db.insert(authors)
+                    .values([author(ALICE, "Alice"), author(BOB, "Bob")])
+                    .execute();
+                db.insert(categories)
+                    .values([
+                        InsertSharedApiCategory::new("Tech").with_id(40),
+                        InsertSharedApiCategory::new("Science").with_id(41),
+                    ])
+                    .execute();
+                db.insert(author_categories)
+                    .values([
+                        InsertSharedApiAuthorCategory::new(ALICE, 40, 2020).with_id(1),
+                        InsertSharedApiAuthorCategory::new(ALICE, 41, 2021).with_id(2),
+                        InsertSharedApiAuthorCategory::new(BOB, 41, 2022).with_id(3),
+                    ])
+                    .execute();
+
+                let followed = db
+                    .query(authors)
+                    .with(authors.shared_api_categories().order_by(asc(categories.id)))
+                    .order_by(asc(authors.id))
+                    .find_many();
+                assert_eq!(
+                    followed
+                        .iter()
+                        .map(|author| author
+                            .shared_api_categories
+                            .iter()
+                            .map(|category| category.name.as_str())
+                            .collect::<Vec<_>>())
+                        .collect::<Vec<_>>(),
+                    [vec!["Tech", "Science"], vec!["Science"]]
+                );
+
+                let followers = db
+                    .query(categories)
+                    .r#where(eq(categories.id, 41))
+                    .with(categories.shared_api_authors().order_by(asc(authors.id)))
+                    .find_first()
+                    .unwrap();
+                assert_eq!(followers.shared_api_authors.len(), 2);
             }
 
             #[drizzle::test($dialect)]

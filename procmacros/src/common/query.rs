@@ -40,6 +40,45 @@ pub struct FkInfo {
     pub relation_name: Option<String>,
 }
 
+/// The column sets that identify a table's rows, by SQL column name.
+///
+/// Many-to-many detection reads them to tell a link table, whose rows are
+/// its foreign-key pair, from a table that holds two foreign keys beside a
+/// row of its own.
+pub struct RowKeys {
+    /// The primary key's columns; empty when the table has none.
+    pub primary_key: Vec<String>,
+    /// Each table-level `UNIQUE(columns(...))` constraint's columns.
+    pub unique: Vec<Vec<String>>,
+}
+
+impl RowKeys {
+    /// Collects the primary key from the fields and resolves each unique
+    /// constraint's field idents to column names.
+    pub fn new<'c, F: crate::common::constraints::ConstraintFieldInfo>(
+        fields: &[F],
+        unique_constraints: impl IntoIterator<Item = &'c [Ident]>,
+    ) -> Self {
+        let column_name = |ident: &Ident| {
+            fields
+                .iter()
+                .find(|field| field.ident() == ident)
+                .map_or_else(|| ident.to_string(), |field| field.column_name().to_owned())
+        };
+        Self {
+            primary_key: fields
+                .iter()
+                .filter(|field| field.is_primary())
+                .map(|field| field.column_name().to_owned())
+                .collect(),
+            unique: unique_constraints
+                .into_iter()
+                .map(|columns| columns.iter().map(column_name).collect())
+                .collect(),
+        }
+    }
+}
+
 /// How a field should be read from JSON. These storage kinds are mutually
 /// exclusive and each takes a distinct decode path.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -139,6 +178,7 @@ pub fn generate_query_api(
     fk_infos: &[FkInfo],
     field_json_infos: &[FieldJsonInfo],
     column_names: &[String],
+    row_keys: &RowKeys,
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
 
@@ -199,6 +239,8 @@ pub fn generate_query_api(
         struct_ident,
         struct_vis,
         fk_infos,
+        column_names,
+        row_keys,
     ));
 
     // 5. Generate JSON decoder for the select model
@@ -662,12 +704,45 @@ fn generate_reverse_relations(
     tokens
 }
 
+/// Whether the table links its two foreign keys' tables, and is nothing more.
+///
+/// A link table's rows are its foreign-key pair: the pair is its primary key
+/// or a unique constraint, or the table holds no column besides the pair and
+/// a single-column surrogate key. A table whose rows are entities of their
+/// own (a comment with an author and a post) is not one: each foreign key
+/// gives it a forward and reverse relation, and it adds no many-to-many pair
+/// to clash with a real link's.
+fn is_link_table(
+    fk_a: &FkInfo,
+    fk_b: &FkInfo,
+    column_names: &[String],
+    row_keys: &RowKeys,
+) -> bool {
+    let pair = [fk_a.source_column.as_str(), fk_b.source_column.as_str()];
+    let is_pair = |columns: &[String]| {
+        columns.len() == 2 && columns.iter().all(|column| pair.contains(&column.as_str()))
+    };
+    if is_pair(&row_keys.primary_key) || row_keys.unique.iter().any(|columns| is_pair(columns)) {
+        return true;
+    }
+    let rest: Vec<&String> = column_names
+        .iter()
+        .filter(|column| !pair.contains(&column.as_str()))
+        .collect();
+    match rest.as_slice() {
+        [] => true,
+        [surrogate] => matches!(row_keys.primary_key.as_slice(), [key] if key == *surrogate),
+        _ => false,
+    }
+}
+
 /// Generates many-to-many relations through a junction table.
 ///
 /// A junction table is detected when:
 /// - Exactly 2 FK columns exist
 /// - They target 2 different tables
 /// - Neither target is the junction table itself
+/// - The table is a link table (see [`is_link_table`])
 ///
 /// For each direction, generates a relation from one target to the other
 /// through the junction, with `Card = Many` and `fn junction()`.
@@ -675,6 +750,8 @@ fn generate_many_to_many_relations(
     struct_ident: &Ident,
     vis: &Visibility,
     fk_infos: &[FkInfo],
+    column_names: &[String],
+    row_keys: &RowKeys,
 ) -> TokenStream {
     // Junction detection: exactly 2 FKs to 2 different external tables
     if fk_infos.len() != 2 {
@@ -685,6 +762,9 @@ fn generate_many_to_many_relations(
         return TokenStream::new();
     }
     if fk_a.target_table_ident == *struct_ident || fk_b.target_table_ident == *struct_ident {
+        return TokenStream::new();
+    }
+    if !is_link_table(fk_a, fk_b, column_names, row_keys) {
         return TokenStream::new();
     }
 

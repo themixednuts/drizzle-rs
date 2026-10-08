@@ -223,7 +223,7 @@ fn doc_comment_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {
 /// Shared by both `#[PostgresTable]` and `#[PostgresView]`.
 #[cfg(feature = "query")]
 pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) -> TokenStream {
-    use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, generate_query_api};
+    use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, RowKeys, generate_query_api};
     use crate::common::type_is_uuid;
     use crate::postgres::field::PostgreSQLType;
 
@@ -316,6 +316,13 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
         &fk_infos,
         &field_json_infos,
         &column_names,
+        &RowKeys::new(
+            ctx.field_infos,
+            ctx.attrs
+                .unique_constraints
+                .iter()
+                .map(|unique| unique.columns.as_slice()),
+        ),
     )
 }
 
