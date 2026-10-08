@@ -91,20 +91,31 @@ macro_rules! shared_relational_api_suite {
             }
 
             /// A link with a payload: the foreign-key pair is unique, so it
-            /// gives `authors.shared_api_categories()` and
-            /// `categories.shared_api_authors()`.
+            /// is a link, and `relation` names its many-to-many pair,
+            /// `authors.followed_categories()` and `categories.followers()`.
             #[$table(
-                NAME = "shared_api_author_categories",
+                NAME = "shared_api_author_follows",
                 UNIQUE(columns(author_id, category_id))
             )]
-            struct SharedApiAuthorCategory {
+            struct SharedApiAuthorFollow {
                 #[column(PRIMARY, DEFAULT = 0)]
                 id: i32,
-                #[column(REFERENCES = SharedApiAuthor::id, RELATION = "category_follows")]
+                #[column(REFERENCES = SharedApiAuthor::id, RELATION = "followed_categories")]
                 author_id: i32,
-                #[column(REFERENCES = SharedApiCategory::id, RELATION = "author_follows")]
+                #[column(REFERENCES = SharedApiCategory::id, RELATION = "followers")]
                 category_id: i32,
                 since: i32,
+            }
+
+            /// A second link between the same tables keeps the default
+            /// names, `authors.shared_api_categories()` and
+            /// `categories.shared_api_authors()`.
+            #[$table(NAME = "shared_api_author_favorites")]
+            struct SharedApiAuthorFavorite {
+                #[column(REFERENCES = SharedApiAuthor::id)]
+                author_id: i32,
+                #[column(REFERENCES = SharedApiCategory::id)]
+                category_id: i32,
             }
 
             #[$table(NAME = "shared_api_articles")]
@@ -142,7 +153,8 @@ macro_rules! shared_relational_api_suite {
                 categories: SharedApiCategory,
                 post_categories: SharedApiPostCategory,
                 post_category_notes: SharedApiPostCategoryNote,
-                author_categories: SharedApiAuthorCategory,
+                author_follows: SharedApiAuthorFollow,
+                author_favorites: SharedApiAuthorFavorite,
                 articles: SharedApiArticle,
                 headlines: SharedApiPostHeadline,
             }
@@ -668,11 +680,12 @@ macro_rules! shared_relational_api_suite {
             }
 
             #[drizzle::test($dialect)]
-            fn many_to_many_through_a_link_with_a_payload(db: &mut TestDb<SharedApiSchema>) {
+            fn two_links_between_the_same_tables(db: &mut TestDb<SharedApiSchema>) {
                 let SharedApiSchema {
                     authors,
                     categories,
-                    author_categories,
+                    author_follows,
+                    author_favorites,
                     ..
                 } = schema;
                 db.insert(authors)
@@ -684,38 +697,45 @@ macro_rules! shared_relational_api_suite {
                         InsertSharedApiCategory::new("Science").with_id(41),
                     ])
                     .execute();
-                db.insert(author_categories)
+                db.insert(author_follows)
                     .values([
-                        InsertSharedApiAuthorCategory::new(ALICE, 40, 2020).with_id(1),
-                        InsertSharedApiAuthorCategory::new(ALICE, 41, 2021).with_id(2),
-                        InsertSharedApiAuthorCategory::new(BOB, 41, 2022).with_id(3),
+                        InsertSharedApiAuthorFollow::new(ALICE, 40, 2020).with_id(1),
+                        InsertSharedApiAuthorFollow::new(ALICE, 41, 2021).with_id(2),
+                        InsertSharedApiAuthorFollow::new(BOB, 41, 2022).with_id(3),
                     ])
                     .execute();
+                db.insert(author_favorites)
+                    .value(InsertSharedApiAuthorFavorite::new(BOB, 40))
+                    .execute();
 
-                let followed = db
+                let loaded = db
                     .query(authors)
-                    .with(authors.shared_api_categories().order_by(asc(categories.id)))
+                    .with(authors.followed_categories().order_by(asc(categories.id)))
+                    .with(authors.shared_api_categories())
+                    .with(authors.shared_api_author_follows())
                     .order_by(asc(authors.id))
                     .find_many();
-                assert_eq!(
-                    followed
+                let names = |categories: &[SelectSharedApiCategory]| {
+                    categories
                         .iter()
-                        .map(|author| author
-                            .shared_api_categories
-                            .iter()
-                            .map(|category| category.name.as_str())
-                            .collect::<Vec<_>>())
-                        .collect::<Vec<_>>(),
-                    [vec!["Tech", "Science"], vec!["Science"]]
-                );
+                        .map(|category| category.name.clone())
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(names(&loaded[0].followed_categories), ["Tech", "Science"]);
+                assert!(loaded[0].shared_api_categories.is_empty());
+                assert_eq!(loaded[0].shared_api_author_follows.len(), 2);
+                assert_eq!(names(&loaded[1].followed_categories), ["Science"]);
+                assert_eq!(names(&loaded[1].shared_api_categories), ["Tech"]);
 
-                let followers = db
+                let science = db
                     .query(categories)
                     .r#where(eq(categories.id, 41))
-                    .with(categories.shared_api_authors().order_by(asc(authors.id)))
+                    .with(categories.followers().order_by(asc(authors.id)))
+                    .with(categories.shared_api_authors())
                     .find_first()
                     .unwrap();
-                assert_eq!(followers.shared_api_authors.len(), 2);
+                assert_eq!(science.followers.len(), 2);
+                assert!(science.shared_api_authors.is_empty());
             }
 
             #[drizzle::test($dialect)]

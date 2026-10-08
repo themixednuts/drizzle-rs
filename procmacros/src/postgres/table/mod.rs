@@ -244,6 +244,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
                 target_column_ident: fk.column.clone(),
                 is_nullable: f.is_nullable,
                 relation_name: f.relation_name.clone(),
+                span: f.ident.span(),
             })
         })
         .collect();

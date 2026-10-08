@@ -750,7 +750,8 @@ pub struct FieldInfo {
     pub default_fn: Option<TokenStream>,
     pub check_constraint: Option<String>,
     pub foreign_key: Option<PostgreSQLReference>,
-    /// Optional reverse-relation name from `#[column(relation = "...")]`.
+    /// Optional name from `#[column(relation = "...")]` for the accessor the
+    /// referenced table gets through this column (reverse or many-to-many).
     pub relation_name: Option<String>,
     pub has_default: bool,
     pub marker_exprs: Vec<syn::ExprPath>,

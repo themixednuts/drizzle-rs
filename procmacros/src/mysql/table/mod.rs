@@ -245,6 +245,7 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
                 target_column_ident: reference.column.clone(),
                 is_nullable: field.is_nullable,
                 relation_name: field.relation_name.clone(),
+                span: field.ident.span(),
             })
         })
         .collect::<Vec<_>>();
