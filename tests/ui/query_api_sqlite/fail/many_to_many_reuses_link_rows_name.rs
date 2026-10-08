@@ -12,11 +12,11 @@ struct Post {
     id: i32,
 }
 
-// On a link table `relation` names the many-to-many accessor, and the link's
-// rows keep `users.post_likes()`, so this names both the same.
+// The link's rows are `users.post_likes()`, so the many-to-many accessor
+// cannot take that name too.
 #[SQLiteTable(NAME = "post_likes")]
 struct PostLike {
-    #[column(REFERENCES = User::id, RELATION = "post_likes")]
+    #[column(REFERENCES = User::id, MANY_TO_MANY = "post_likes")]
     user_id: i32,
     #[column(REFERENCES = Post::id)]
     post_id: i32,

@@ -78,20 +78,20 @@ fn query_reverse_relation_many(db: &mut TestDb<ComplexPostQuerySchema>) {
         .execute();
 
     // Query users with their posts
-    let users = db.query(complex).with(complex.posts()).find_many();
+    let users = db.query(complex).with(complex.author_posts()).find_many();
 
     assert_eq!(users.len(), 2);
 
     // Alice has 2 posts
     let alice = users.iter().find(|u| u.name == "Alice").unwrap();
-    assert_eq!(alice.posts.len(), 2);
-    assert_eq!(alice.posts[0].title, "Alice Post 1");
-    assert_eq!(alice.posts[1].title, "Alice Post 2");
+    assert_eq!(alice.author_posts.len(), 2);
+    assert_eq!(alice.author_posts[0].title, "Alice Post 1");
+    assert_eq!(alice.author_posts[1].title, "Alice Post 2");
 
     // Bob has 1 post
     let bob = users.iter().find(|u| u.name == "Bob").unwrap();
-    assert_eq!(bob.posts.len(), 1);
-    assert_eq!(bob.posts[0].title, "Bob Post 1");
+    assert_eq!(bob.author_posts.len(), 1);
+    assert_eq!(bob.author_posts[0].title, "Bob Post 1");
 }
 
 // -- basic m2m: post.categories returns categories through junction --

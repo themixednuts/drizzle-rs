@@ -3,6 +3,7 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
+use crate::common::constraints::RelationNames;
 use crate::common::make_uppercase_path;
 
 #[derive(Default)]
@@ -71,6 +72,7 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) initially_deferred: bool,
     /// Explicit constraint name; `None` uses `{table}_{first_column}_fkey`.
     pub(crate) name: Option<String>,
+    pub(crate) relation_names: RelationNames,
 }
 
 #[derive(Clone)]
@@ -124,6 +126,7 @@ impl Parse for CompositeForeignKeyAttr {
         let mut deferrable = false;
         let mut initially_deferred = false;
         let mut name: Option<String> = None;
+        let mut relation_names = RelationNames::default();
 
         for meta in metas {
             match meta {
@@ -188,10 +191,11 @@ impl Parse for CompositeForeignKeyAttr {
                     deferrable = true;
                     initially_deferred = true;
                 }
+                Meta::NameValue(nv) if relation_names.parse_key(&nv)? => {}
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), name = \"...\", on_delete, on_update, deferrable, or initially_deferred",
+                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), name = \"...\", on_delete, on_update, deferrable, initially_deferred, relation, or many_to_many",
                     ));
                 }
             }
@@ -229,6 +233,7 @@ impl Parse for CompositeForeignKeyAttr {
             deferrable,
             initially_deferred,
             name,
+            relation_names,
         })
     }
 }
@@ -544,6 +549,9 @@ impl crate::common::constraints::CompositeForeignKeyRef for CompositeForeignKeyA
     }
     fn target_columns(&self) -> &[Ident] {
         &self.target_columns
+    }
+    fn relation_names(&self) -> &RelationNames {
+        &self.relation_names
     }
 }
 

@@ -62,12 +62,7 @@ pub(super) fn generate_table_impls(
         },
         &sql_const,
     );
-    let dialect_types = crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: postgres_paths::postgres_schema_type(),
-        value_type: postgres_paths::postgres_value(),
-        unique_constraint_suffix: "_key",
-    };
+    let dialect_types = postgres_dialect_types();
     let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
@@ -545,6 +540,16 @@ pub(super) fn generate_table_impls(
         #capability_impls
         #table_unique_capability_impls
     })
+}
+
+/// `DialectTypes` for compile-time names of `PostgreSQL` columns and tables.
+pub(crate) fn postgres_dialect_types() -> crate::common::constraints::DialectTypes {
+    crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: postgres_paths::postgres_schema_type(),
+        value_type: postgres_paths::postgres_value(),
+        unique_constraint_suffix: "_key",
+    }
 }
 
 fn table_unique_column_data(

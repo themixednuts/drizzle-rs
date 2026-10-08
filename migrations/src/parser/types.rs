@@ -144,6 +144,8 @@ pub struct ColumnSpec {
     pub mysql_on_update: Option<String>,
     /// `relation = "..."` reverse-relation accessor name (no DDL impact).
     pub relation: Option<String>,
+    /// `many_to_many = "..."` link-table accessor name (no DDL impact).
+    pub many_to_many: Option<String>,
     /// Whether the Rust type is `Option<T>` (matched by last path segment,
     /// so `std::option::Option<T>` is recognized too).
     pub nullable: bool,

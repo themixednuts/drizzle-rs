@@ -19,6 +19,8 @@ pub mod paths;
 #[cfg(feature = "query")]
 pub mod query;
 pub mod ref_gen;
+#[cfg(feature = "query")]
+pub mod relations;
 mod table_pipeline;
 pub mod type_mapping;
 mod type_utils;
@@ -31,7 +33,9 @@ pub use diagnostics::{
     references_required_message, reject_schema_trait_derives, relation_requires_references_message,
     unknown_key_message,
 };
-pub use helpers::{extract_struct_fields, make_uppercase_path, parse_column_reference};
+pub use helpers::{
+    extract_struct_fields, make_uppercase_path, parse_column_reference, parse_relation_name,
+};
 pub use table_pipeline::{
     count_primary_keys, required_fields_pattern, struct_fields, table_name_from_attrs,
 };

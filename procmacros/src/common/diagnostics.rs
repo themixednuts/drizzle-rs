@@ -16,10 +16,13 @@ pub fn references_required_message(on_delete: bool, on_update: bool) -> String {
     }
 }
 
-/// Error when `relation = "..."` is set without a foreign key reference.
-pub fn relation_requires_references_message() -> &'static str {
-    "relation requires a references attribute.\n\
-     Example: #[column(references = Table::column, relation = \"posts\")]"
+/// Error when `relation = "..."` or `many_to_many = "..."` is set without a
+/// foreign key reference. `key` is the attribute key, lowercase.
+pub fn relation_requires_references_message(key: &str) -> String {
+    format!(
+        "{key} requires a references attribute.\n\
+         Example: #[column(references = Table::column, {key} = \"posts\")]"
+    )
 }
 
 /// The candidate closest to `input` (case-insensitive edit distance), when it

@@ -87,13 +87,11 @@ fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -
 /// so explicit `#[column(name = "...")]` renames on the referenced table are
 /// honored in FK clauses.
 fn ref_column_name_expr(table: &Ident, column: &Ident) -> TokenStream {
-    let dt = crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: postgres_paths::postgres_schema_type(),
-        value_type: postgres_paths::postgres_value(),
-        unique_constraint_suffix: "_key",
-    };
-    crate::common::constraints::cross_table_column_name_const(table, column, &dt)
+    crate::common::constraints::cross_table_column_name_const(
+        table,
+        column,
+        &super::traits::postgres_dialect_types(),
+    )
 }
 
 /// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`.
@@ -961,6 +959,7 @@ mod tests {
             check_constraint: None,
             foreign_key: None,
             relation_name: None,
+            many_to_many_name: None,
             has_default: false,
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,
@@ -1012,6 +1011,7 @@ mod tests {
                 name: None,
             }),
             relation_name: None,
+            many_to_many_name: None,
             has_default: false,
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,

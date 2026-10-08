@@ -396,11 +396,11 @@ fn bench_rusqlite(c: &mut Criterion) {
             |(db, user)| {
                 let out = db
                     .query(user)
-                    .with(user.posts())
+                    .with(user.author_posts())
                     .order_by([asc(user.id)])
                     .find_many()
                     .expect("relations");
-                let post_count = out.iter().map(|row| row.posts.len()).sum::<usize>();
+                let post_count = out.iter().map(|row| row.author_posts.len()).sum::<usize>();
                 black_box(post_count);
                 black_box(out);
             },

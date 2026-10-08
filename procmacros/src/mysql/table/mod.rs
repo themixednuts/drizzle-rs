@@ -226,7 +226,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 #[cfg(feature = "query")]
 pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
     use crate::common::query::{
-        EnumStorage, FieldJsonInfo, FieldProjectionKind, FieldStorageKind, FkInfo, RowKeys,
+        EnumStorage, FieldJsonInfo, FieldProjectionKind, FieldStorageKind, TableKeys,
         generate_query_api,
     };
     use crate::common::{
@@ -234,21 +234,15 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         type_is_vec_u8,
     };
 
-    let fk_infos = ctx
-        .field_infos
-        .iter()
-        .filter_map(|field| {
-            let reference = field.foreign_key.as_ref()?;
-            Some(FkInfo {
-                source_column: field.column_name.clone(),
-                target_table_ident: reference.table.clone(),
-                target_column_ident: reference.column.clone(),
-                is_nullable: field.is_nullable,
-                relation_name: field.relation_name.clone(),
-                span: field.ident.span(),
-            })
-        })
-        .collect::<Vec<_>>();
+    let keys = TableKeys::new(
+        ctx.field_infos,
+        &ctx.attrs.composite_foreign_keys,
+        ctx.attrs
+            .unique_constraints
+            .iter()
+            .map(|unique| unique.columns.as_slice()),
+        &traits::mysql_dialect_types(),
+    );
 
     let field_json_infos = ctx
         .field_infos
@@ -332,12 +326,6 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
-    let column_names = ctx
-        .field_infos
-        .iter()
-        .map(|field| field.column_name.clone())
-        .collect::<Vec<_>>();
-
     generate_query_api(
         ctx.struct_ident,
         ctx.struct_vis,
@@ -345,16 +333,8 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         &ctx.table_name,
         &ctx.select_model_ident,
         &ctx.select_model_partial_ident,
-        &fk_infos,
+        &keys,
         &field_json_infos,
-        &column_names,
-        &RowKeys::new(
-            ctx.field_infos,
-            ctx.attrs
-                .unique_constraints
-                .iter()
-                .map(|unique| unique.columns.as_slice()),
-        ),
     )
 }
 

@@ -8,7 +8,6 @@ use syn::{
     parse::ParseStream, punctuated::Punctuated,
 };
 
-use crate::common::make_uppercase_path;
 use crate::common::{
     is_option_type, option_inner_type, references_required_message,
     relation_requires_references_message, type_is_array_string, type_is_array_u8,
@@ -17,6 +16,7 @@ use crate::common::{
     type_is_naive_time, type_is_offset_datetime, type_is_primitive_date_time, type_is_string_like,
     type_is_time_date, type_is_time_time, type_is_uuid, type_is_vec_u8, unwrap_option,
 };
+use crate::common::{make_uppercase_path, parse_relation_name};
 
 // =============================================================================
 // Re-export shared types from drizzle-types
@@ -252,11 +252,16 @@ pub struct FieldInfo<'a> {
     // Foreign key support
     pub(crate) foreign_key: Option<ForeignKeyReference>,
 
-    /// Optional name from `#[column(relation = "...")]` for the accessor the
-    /// referenced table gets through this column (reverse or many-to-many).
+    /// Optional name from `#[column(relation = "...")]` for the accessor that
+    /// loads this table's rows from the referenced table.
     /// Only the relational query API (`query` feature) reads it.
     #[cfg_attr(not(feature = "query"), allow(dead_code))]
     pub(crate) relation_name: Option<String>,
+
+    /// Optional name from `#[column(many_to_many = "...")]` for the accessor
+    /// the referenced table gets to the other side of this link table.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))]
+    pub(crate) many_to_many_name: Option<String>,
 
     /// Resolved primary-key / unique state.
     ///
@@ -377,6 +382,7 @@ const SQLITE_COLUMN_KEYS: &[&str] = &[
     "default_fn",
     "references",
     "relation",
+    "many_to_many",
     "on_delete",
     "on_update",
     "name",
@@ -394,11 +400,14 @@ struct ParsedArgs {
     references: Option<Expr>,
     on_delete: Option<String>,
     on_update: Option<String>,
-    /// Name from `relation = "..."` for the accessor the referenced table gets
-    /// through this column (reverse or many-to-many).
+    /// Name from `relation = "..."` for the accessor that loads this table's
+    /// rows from the referenced table.
     relation: Option<String>,
-    /// Where `on_delete`, `on_update` and `relation` were written, for the
-    /// errors that need a `references` beside them.
+    /// Name from `many_to_many = "..."` for the accessor the referenced table
+    /// gets through this link table.
+    many_to_many: Option<String>,
+    /// Where `on_delete`, `on_update`, `relation` and `many_to_many` were
+    /// written, for the errors that need a `references` beside them.
     reference_option_spans: Vec<proc_macro2::Span>,
     name: Option<Expr>,
     /// SQLite collation name from `collate = "NOCASE"` (or other built-in /
@@ -426,9 +435,10 @@ struct AttributeData {
     references_path: Option<ExprPath>,
     on_delete: Option<String>,
     on_update: Option<String>,
-    /// Name from `relation = "..."` for the accessor the referenced table gets
-    /// through this column (reverse or many-to-many).
+    /// See [`ParsedArgs::relation`].
     relation: Option<String>,
+    /// See [`ParsedArgs::many_to_many`].
+    many_to_many: Option<String>,
     /// See [`ParsedArgs::reference_option_spans`].
     reference_option_spans: Vec<proc_macro2::Span>,
     attr_name: Option<String>,
@@ -588,31 +598,18 @@ impl<'a> FieldInfo<'a> {
                                     .push(make_uppercase_path(param, "REFERENCES"));
                             }
                             "RELATION" => {
-                                if let Expr::Lit(syn::ExprLit {
-                                    lit: Lit::Str(lit_str),
-                                    ..
-                                }) = &*assign.right
-                                {
-                                    let name = lit_str.value();
-                                    // Must be a valid Rust identifier for the generated accessor.
-                                    if syn::parse_str::<Ident>(&name).is_err() {
-                                        return Err(Error::new_spanned(
-                                            lit_str,
-                                            format!(
-                                                "relation = \"{name}\" must be a valid Rust identifier"
-                                            ),
-                                        ));
-                                    }
-                                    args.relation = Some(name);
-                                    args.reference_option_spans.push(param.span());
-                                    args.marker_exprs
-                                        .push(make_uppercase_path(param, "RELATION"));
-                                } else {
-                                    return Err(Error::new_spanned(
-                                        &assign.right,
-                                        "relation requires a string literal, e.g. relation = \"authored\"",
-                                    ));
-                                }
+                                args.relation =
+                                    Some(parse_relation_name(&assign.right, "relation")?);
+                                args.reference_option_spans.push(param.span());
+                                args.marker_exprs
+                                    .push(make_uppercase_path(param, "RELATION"));
+                            }
+                            "MANY_TO_MANY" => {
+                                args.many_to_many =
+                                    Some(parse_relation_name(&assign.right, "many_to_many")?);
+                                args.reference_option_spans.push(param.span());
+                                args.marker_exprs
+                                    .push(make_uppercase_path(param, "MANY_TO_MANY"));
                             }
                             "ON_DELETE" | "ON_UPDATE" => {
                                 let Expr::Path(action_path) = &*assign.right else {
@@ -857,6 +854,7 @@ impl<'a> FieldInfo<'a> {
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
                 data.relation = data.relation.or(args.relation);
+                data.many_to_many = data.many_to_many.or(args.many_to_many);
                 data.reference_option_spans
                     .extend(args.reference_option_spans);
                 data.collate = data.collate.or(args.collate);
@@ -909,6 +907,7 @@ impl<'a> FieldInfo<'a> {
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
                 data.relation = data.relation.or(args.relation);
+                data.many_to_many = data.many_to_many.or(args.many_to_many);
                 data.reference_option_spans
                     .extend(args.reference_option_spans);
                 data.collate = data.collate.or(args.collate);
@@ -938,9 +937,16 @@ impl<'a> FieldInfo<'a> {
             return Err(Error::new(span, msg));
         }
 
-        // Validate: relation requires references
-        if data.relation.is_some() && data.references_path.is_none() {
-            let msg = relation_requires_references_message();
+        // Validate: relation and many_to_many require references
+        let relation_key = if data.relation.is_some() {
+            Some("relation")
+        } else {
+            data.many_to_many.as_ref().map(|_| "many_to_many")
+        };
+        if let Some(key) = relation_key
+            && data.references_path.is_none()
+        {
+            let msg = relation_requires_references_message(key);
             let span = data
                 .reference_option_spans
                 .first()
@@ -1067,6 +1073,7 @@ impl<'a> FieldInfo<'a> {
             column_type,
             foreign_key,
             relation_name: attrs.relation,
+            many_to_many_name: attrs.many_to_many,
             constraint: crate::common::Constraint::from_flags(
                 is_primary,
                 is_unique,
@@ -1636,5 +1643,14 @@ impl crate::common::constraints::ConstraintFieldInfo for FieldInfo<'_> {
     }
     fn foreign_key(&self) -> Option<&ForeignKeyReference> {
         self.foreign_key.as_ref()
+    }
+    fn is_nullable(&self) -> bool {
+        self.is_nullable
+    }
+    fn relation_names(&self) -> crate::common::constraints::RelationNames {
+        crate::common::constraints::RelationNames {
+            relation: self.relation_name.clone(),
+            many_to_many: self.many_to_many_name.clone(),
+        }
     }
 }

@@ -62,12 +62,7 @@ pub(super) fn generate_table_impls(
         },
         &sql_const,
     );
-    let dialect_types = crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: mysql_paths::mysql_schema_type(),
-        value_type: mysql_paths::mysql_value(),
-        unique_constraint_suffix: "_key",
-    };
+    let dialect_types = mysql_dialect_types();
     let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
@@ -578,6 +573,16 @@ pub(super) fn generate_table_impls(
         #relations_impl
         #capability_impls
     })
+}
+
+/// `DialectTypes` for compile-time names of `MySQL` columns and tables.
+pub(crate) fn mysql_dialect_types() -> crate::common::constraints::DialectTypes {
+    crate::common::constraints::DialectTypes {
+        sql_schema: core_paths::sql_schema(),
+        schema_type: mysql_paths::mysql_schema_type(),
+        value_type: mysql_paths::mysql_value(),
+        unique_constraint_suffix: "_key",
+    }
 }
 
 fn mysql_fk_sql_type_validation(source: &TokenStream, target: &TokenStream) -> TokenStream {

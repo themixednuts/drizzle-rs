@@ -46,6 +46,10 @@ pub trait ConstraintFieldInfo {
     fn is_primary(&self) -> bool;
     fn is_unique(&self) -> bool;
     fn foreign_key(&self) -> Option<&Self::ForeignKey>;
+    /// Whether the field is an `Option<T>`.
+    fn is_nullable(&self) -> bool;
+    /// The `relation` and `many_to_many` names on the field's foreign key.
+    fn relation_names(&self) -> RelationNames;
 }
 
 /// Foreign key reference abstraction over dialect-specific FK types.
@@ -59,6 +63,40 @@ pub trait CompositeForeignKeyRef {
     fn target_table(&self) -> &Ident;
     fn source_columns(&self) -> &[Ident];
     fn target_columns(&self) -> &[Ident];
+    /// The accessor names given in the `foreign_key(...)` attribute.
+    fn relation_names(&self) -> &RelationNames;
+}
+
+/// Accessor names a foreign key declaration gives the relational query API.
+#[derive(Clone, Default)]
+pub struct RelationNames {
+    /// `relation = "..."`: the accessor that loads the declaring table's rows
+    /// from the referenced table.
+    pub relation: Option<String>,
+    /// `many_to_many = "..."`: the accessor the referenced table gets to the
+    /// other side of a link table.
+    pub many_to_many: Option<String>,
+}
+
+impl RelationNames {
+    /// Reads `relation = "..."` or `many_to_many = "..."` from a
+    /// `foreign_key(...)` argument. Returns whether `nv` was one of them.
+    pub fn parse_key(&mut self, nv: &syn::MetaNameValue) -> Result<bool> {
+        let Some(key) = nv
+            .path
+            .get_ident()
+            .map(|ident| ident.to_string().to_ascii_lowercase())
+        else {
+            return Ok(false);
+        };
+        let slot = match key.as_str() {
+            "relation" => &mut self.relation,
+            "many_to_many" => &mut self.many_to_many,
+            _ => return Ok(false),
+        };
+        *slot = Some(crate::common::parse_relation_name(&nv.value, &key)?);
+        Ok(true)
+    }
 }
 
 // =============================================================================

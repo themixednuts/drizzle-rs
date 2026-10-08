@@ -692,7 +692,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// Starts a relational query on `table` (requires the `query` feature).
     ///
     /// Relations come from foreign keys: `#[column(references = Users::id)]` on
-    /// `Posts::author_id` gives `users.posts()` (one-to-many) and
+    /// `Posts::author_id` gives `users.author_posts()` (one-to-many) and
     /// `posts.author()` (many-to-one). Results nest the related rows as fields.
     ///
     /// # Examples
@@ -708,16 +708,16 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// use drizzle::core::expr::eq;
     ///
     /// // Each user, with their posts.
-    /// let everyone = db.query(users).with(users.posts()).find_many()?;
+    /// let everyone = db.query(users).with(users.author_posts()).find_many()?;
     /// assert_eq!(everyone.len(), 3);
     ///
     /// let alex = db
     ///     .query(users)
-    ///     .with(users.posts())
+    ///     .with(users.author_posts())
     ///     .r#where(eq(users.name, "Alex Smith"))
     ///     .find_first()?
     ///     .expect("Alex exists");
-    /// assert_eq!(alex.posts.len(), 2);
+    /// assert_eq!(alex.author_posts.len(), 2);
     /// # Ok(())
     /// # }
     /// # #[cfg(not(feature = "rusqlite"))]
@@ -800,7 +800,7 @@ where
     /// use drizzle::core::expr::eq;
     ///
     /// let name = users.name.placeholder("name");
-    /// let by_name = db.query(users).with(users.posts()).r#where(eq(users.name, name)).prepare();
+    /// let by_name = db.query(users).with(users.author_posts()).r#where(eq(users.name, name)).prepare();
     ///
     /// let alex = by_name.find_many(db.conn(), [name.bind("Alex Smith")])?;
     /// let bob = by_name.find_many(db.conn(), [name.bind("Bob")])?;
@@ -898,8 +898,8 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
     /// # let (db, Schema { users, posts, comments }) = app::database()?;
     /// # let _ = (&users, &posts, &comments);
     /// // Users with their posts, and each post with its comments.
-    /// let rows = db.query(users).with(users.posts().with(posts.comments())).find_many()?;
-    /// assert_eq!(rows[0].posts[0].comments.len(), 1);
+    /// let rows = db.query(users).with(users.author_posts().with(posts.comments())).find_many()?;
+    /// assert_eq!(rows[0].author_posts[0].comments.len(), 1);
     /// # Ok(())
     /// # }
     /// # #[cfg(not(feature = "rusqlite"))]

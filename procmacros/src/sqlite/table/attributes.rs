@@ -3,6 +3,7 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
+use crate::common::constraints::RelationNames;
 use crate::common::make_uppercase_path;
 
 #[derive(Default)]
@@ -25,6 +26,7 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) target_columns: Vec<Ident>,
     pub(crate) on_delete: Option<String>,
     pub(crate) on_update: Option<String>,
+    pub(crate) relation_names: RelationNames,
 }
 
 #[derive(Clone)]
@@ -72,6 +74,7 @@ impl Parse for CompositeForeignKeyAttr {
         let mut target_columns: Option<Vec<Ident>> = None;
         let mut on_delete: Option<String> = None;
         let mut on_update: Option<String> = None;
+        let mut relation_names = RelationNames::default();
 
         for meta in metas {
             match meta {
@@ -121,10 +124,11 @@ impl Parse for CompositeForeignKeyAttr {
                         ));
                     }
                 }
+                Meta::NameValue(nv) if relation_names.parse_key(&nv)? => {}
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, or on_update",
+                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, on_update, relation, or many_to_many",
                     ));
                 }
             }
@@ -159,6 +163,7 @@ impl Parse for CompositeForeignKeyAttr {
             target_columns,
             on_delete,
             on_update,
+            relation_names,
         })
     }
 }
@@ -401,5 +406,8 @@ impl crate::common::constraints::CompositeForeignKeyRef for CompositeForeignKeyA
     }
     fn target_columns(&self) -> &[Ident] {
         &self.target_columns
+    }
+    fn relation_names(&self) -> &RelationNames {
+        &self.relation_names
     }
 }

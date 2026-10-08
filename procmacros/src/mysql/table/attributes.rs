@@ -3,6 +3,7 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
+use crate::common::constraints::RelationNames;
 use crate::common::make_uppercase_path;
 use crate::mysql::string_value;
 
@@ -31,6 +32,7 @@ pub struct CompositeForeignKeyAttr {
     /// Explicit constraint name; `None` derives one (see
     /// `MacroContext::composite_foreign_key_name`).
     pub(crate) name: Option<String>,
+    pub(crate) relation_names: RelationNames,
 }
 
 #[derive(Clone)]
@@ -107,6 +109,7 @@ impl Parse for CompositeForeignKeyAttr {
         let mut on_delete = None;
         let mut on_update = None;
         let mut name = None;
+        let mut relation_names = RelationNames::default();
         for meta in metas {
             match meta {
                 Meta::NameValue(value)
@@ -145,6 +148,7 @@ impl Parse for CompositeForeignKeyAttr {
                         "MySQL foreign keys are not deferrable",
                     ));
                 }
+                Meta::NameValue(value) if relation_names.parse_key(&value)? => {}
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
@@ -167,6 +171,7 @@ impl Parse for CompositeForeignKeyAttr {
             on_delete,
             on_update,
             name,
+            relation_names,
         })
     }
 }
@@ -329,5 +334,8 @@ impl crate::common::constraints::CompositeForeignKeyRef for CompositeForeignKeyA
     }
     fn target_columns(&self) -> &[Ident] {
         &self.target_columns
+    }
+    fn relation_names(&self) -> &RelationNames {
+        &self.relation_names
     }
 }

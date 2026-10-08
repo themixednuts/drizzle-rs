@@ -15,7 +15,9 @@ use crate::common::{
     type_is_primitive_date_time, type_is_string_like, type_is_time_date, type_is_time_time,
     type_is_uuid, type_is_vec_u8, unwrap_option, vec_inner_type,
 };
-use crate::common::{make_uppercase_path, render_default, unknown_key_message};
+use crate::common::{
+    make_uppercase_path, parse_relation_name, render_default, unknown_key_message,
+};
 
 // Note: drizzle_types::postgres::TypeCategory exists but has different feature gates.
 // The local TypeCategory is kept for now to maintain feature flag consistency.
@@ -750,9 +752,12 @@ pub struct FieldInfo {
     pub default_fn: Option<TokenStream>,
     pub check_constraint: Option<String>,
     pub foreign_key: Option<PostgreSQLReference>,
-    /// Optional name from `#[column(relation = "...")]` for the accessor the
-    /// referenced table gets through this column (reverse or many-to-many).
+    /// Optional name from `#[column(relation = "...")]` for the accessor that
+    /// loads this table's rows from the referenced table.
     pub relation_name: Option<String>,
+    /// Optional name from `#[column(many_to_many = "...")]` for the accessor
+    /// the referenced table gets to the other side of this link table.
+    pub many_to_many_name: Option<String>,
     pub has_default: bool,
     pub marker_exprs: Vec<syn::ExprPath>,
     /// True for unknown types that are validated at type-check time via `DrizzlePostgresColumn` trait
@@ -856,6 +861,7 @@ const POSTGRES_COLUMN_KEYS: &[&str] = &[
     "references",
     "fk_name",
     "relation",
+    "many_to_many",
     "on_delete",
     "on_update",
     "deferrable",
@@ -923,6 +929,7 @@ impl FieldInfo {
         let mut column_name = None;
         let mut collate: Option<String> = None;
         let mut relation_name: Option<String> = None;
+        let mut many_to_many_name: Option<String> = None;
         let mut seen_column_attribute = false;
         for attr in &field.attrs {
             if let Some(column_info) = Self::parse_column_attribute(
@@ -958,6 +965,7 @@ impl FieldInfo {
                 column_name = column_info.column_name;
                 collate = column_info.collate;
                 relation_name = column_info.relation_name;
+                many_to_many_name = column_info.many_to_many_name;
                 marker_exprs = column_info.marker_exprs;
                 explicit_type = column_info.explicit_type;
                 type_args = column_info.type_args;
@@ -1112,6 +1120,7 @@ impl FieldInfo {
             check_constraint,
             foreign_key,
             relation_name,
+            many_to_many_name,
             has_default,
             marker_exprs,
             is_custom_type,
@@ -1173,6 +1182,7 @@ impl FieldInfo {
         let mut column_name = None;
         let mut collate: Option<String> = None;
         let mut relation_name: Option<String> = None;
+        let mut many_to_many_name: Option<String> = None;
         let mut marker_exprs = Vec::new();
         let mut explicit_type = None;
         let mut type_args = Vec::new();
@@ -1496,25 +1506,15 @@ impl FieldInfo {
                     }
                     "RELATION" => {
                         meta.input.parse::<Token![=]>()?;
-                        let lit: Lit = meta.input.parse()?;
-                        if let Lit::Str(s) = lit {
-                            let name = s.value();
-                            if syn::parse_str::<Ident>(&name).is_err() {
-                                return Err(syn::Error::new_spanned(
-                                    &s,
-                                    format!(
-                                        "relation = \"{name}\" must be a valid Rust identifier"
-                                    ),
-                                ));
-                            }
-                            relation_name = Some(name);
-                            marker_exprs.push(make_uppercase_path(path_ident, "RELATION"));
-                        } else {
-                            return Err(syn::Error::new_spanned(
-                                lit,
-                                "relation requires a string literal, e.g. relation = \"authored\"",
-                            ));
-                        }
+                        let value: Expr = meta.input.parse()?;
+                        relation_name = Some(parse_relation_name(&value, "relation")?);
+                        marker_exprs.push(make_uppercase_path(path_ident, "RELATION"));
+                    }
+                    "MANY_TO_MANY" => {
+                        meta.input.parse::<Token![=]>()?;
+                        let value: Expr = meta.input.parse()?;
+                        many_to_many_name = Some(parse_relation_name(&value, "many_to_many")?);
+                        marker_exprs.push(make_uppercase_path(path_ident, "MANY_TO_MANY"));
                     }
                     "ON_DELETE" | "ON_UPDATE" => {
                         meta.input.parse::<Token![=]>()?;
@@ -1620,10 +1620,17 @@ impl FieldInfo {
             ));
         }
 
-        if relation_name.is_some() && foreign_key.is_none() {
+        let relation_key = if relation_name.is_some() {
+            Some("relation")
+        } else {
+            many_to_many_name.as_ref().map(|_| "many_to_many")
+        };
+        if let Some(key) = relation_key
+            && foreign_key.is_none()
+        {
             return Err(syn::Error::new(
                 span,
-                relation_requires_references_message(),
+                relation_requires_references_message(key),
             ));
         }
 
@@ -1634,6 +1641,7 @@ impl FieldInfo {
             check_constraint,
             foreign_key,
             relation_name,
+            many_to_many_name,
             is_serial,
             is_smallserial,
             is_bigserial,
@@ -2149,6 +2157,7 @@ struct ColumnInfo {
     check_constraint: Option<String>,
     foreign_key: Option<PostgreSQLReference>,
     relation_name: Option<String>,
+    many_to_many_name: Option<String>,
     is_serial: bool,
     is_smallserial: bool,
     is_bigserial: bool,
@@ -2213,6 +2222,15 @@ impl crate::common::constraints::ConstraintFieldInfo for FieldInfo {
     }
     fn foreign_key(&self) -> Option<&PostgreSQLReference> {
         self.foreign_key.as_ref()
+    }
+    fn is_nullable(&self) -> bool {
+        self.is_nullable
+    }
+    fn relation_names(&self) -> crate::common::constraints::RelationNames {
+        crate::common::constraints::RelationNames {
+            relation: self.relation_name.clone(),
+            many_to_many: self.many_to_many_name.clone(),
+        }
     }
 }
 

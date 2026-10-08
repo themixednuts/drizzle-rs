@@ -210,29 +210,22 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 /// Shared by both `#[SQLiteTable]` and `#[SQLiteView]`.
 #[cfg(feature = "query")]
 pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
-    use crate::common::query::{FieldJsonInfo, FkInfo, RowKeys, generate_query_api};
+    use crate::common::query::{FieldJsonInfo, TableKeys, generate_query_api};
     use crate::sqlite::field::SQLiteType;
 
     let struct_ident = ctx.struct_ident;
     let select_model_ident = &ctx.select_model_ident;
     let table_name = &ctx.table_name;
 
-    // Collect FK infos
-    let fk_infos: Vec<FkInfo> = ctx
-        .field_infos
-        .iter()
-        .filter_map(|f| {
-            let fk = f.foreign_key.as_ref()?;
-            Some(FkInfo {
-                source_column: f.column_name.clone(),
-                target_table_ident: fk.table_ident.clone(),
-                target_column_ident: fk.column_ident.clone(),
-                is_nullable: f.is_nullable,
-                relation_name: f.relation_name.clone(),
-                span: f.ident.span(),
-            })
-        })
-        .collect();
+    let keys = TableKeys::new(
+        ctx.field_infos,
+        &ctx.attrs.composite_foreign_keys,
+        ctx.attrs
+            .unique_constraints
+            .iter()
+            .map(|unique| unique.columns.as_slice()),
+        &ddl::sqlite_dialect_types(),
+    );
 
     let partial_select_model_ident = &ctx.select_model_partial_ident;
 
@@ -281,13 +274,6 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         })
         .collect();
 
-    // Collect column names
-    let column_names: Vec<String> = ctx
-        .field_infos
-        .iter()
-        .map(|f| f.column_name.clone())
-        .collect();
-
     generate_query_api(
         struct_ident,
         ctx.struct_vis,
@@ -295,16 +281,8 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         table_name,
         select_model_ident,
         partial_select_model_ident,
-        &fk_infos,
+        &keys,
         &field_json_infos,
-        &column_names,
-        &RowKeys::new(
-            ctx.field_infos,
-            ctx.attrs
-                .unique_constraints
-                .iter()
-                .map(|unique| unique.columns.as_slice()),
-        ),
     )
 }
 

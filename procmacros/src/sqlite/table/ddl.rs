@@ -42,7 +42,7 @@ fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -
 
 /// `DialectTypes` for compile-time column-name resolution on referenced
 /// tables (`SQLSchema::NAME` of the target column ZST).
-fn sqlite_dialect_types() -> crate::common::constraints::DialectTypes {
+pub(crate) fn sqlite_dialect_types() -> crate::common::constraints::DialectTypes {
     crate::common::constraints::DialectTypes {
         sql_schema: core_paths::sql_schema(),
         schema_type: sqlite_paths::sqlite_schema_type(),
@@ -813,6 +813,7 @@ mod tests {
             column_type: SQLiteType::Text,
             foreign_key: None,
             relation_name: None,
+            many_to_many_name: None,
             constraint: Constraint::None,
             collate: None,
             default: default

@@ -491,7 +491,7 @@ impl<Schema> Drizzle<Schema> {
     /// Starts a relational query on `table` (requires the `query` feature).
     ///
     /// Relations come from foreign keys: `#[column(references = Users::id)]` on
-    /// `Posts::author_id` gives `users.posts()` (one-to-many) and
+    /// `Posts::author_id` gives `users.author_posts()` (one-to-many) and
     /// `posts.author()` (many-to-one). Results nest the related rows as fields.
     #[cfg(feature = "query")]
     pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
