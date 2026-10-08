@@ -2141,6 +2141,44 @@ fn mysql_option_identifier(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
+/// Whether a `FOREIGN_KEY(...)` argument's key is `key`, in any case, as the
+/// table macros accept it.
+fn fk_key_is(path: &syn::Path, key: &str) -> bool {
+    path.get_ident()
+        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case(key))
+}
+
+/// Reads a `FOREIGN_KEY(...)` referential action the way the table macros
+/// do: an identifier (`SET_NULL`) or a string (`"SET NULL"`), in any case.
+/// MySQL rejects `SET DEFAULT`.
+fn composite_fk_action(
+    value: &Expr,
+    dialect: Dialect,
+    key: &str,
+    desc: &str,
+    diags: &mut Diags,
+) -> Option<String> {
+    let text = match value {
+        Expr::Path(path) => path.path.get_ident().map(ToString::to_string),
+        _ => lit_str_value(value),
+    };
+    let action = text
+        .map(|text| text.trim().to_ascii_uppercase().replace(' ', "_"))
+        .and_then(|text| normalize_referential_action(&text))
+        .filter(|action| dialect != Dialect::MySQL || action != "SET DEFAULT");
+    if action.is_none() {
+        let expected = if dialect == Dialect::MySQL {
+            "CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
+        } else {
+            "CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, or NO_ACTION"
+        };
+        diags
+            .errors
+            .push(format!("{desc}: FOREIGN_KEY {key} expects {expected}"));
+    }
+    action
+}
+
 fn parse_composite_fk(
     tokens: proc_macro2::TokenStream,
     dialect: Dialect,
@@ -2179,7 +2217,7 @@ fn parse_composite_fk(
                     )),
                 }
             }
-            Meta::List(list) if list.path.is_ident("references") => {
+            Meta::List(list) if fk_key_is(&list.path, "references") => {
                 match parse_references_arg(list.tokens.clone()) {
                     Ok(r) => {
                         fk.target_table = r.table.to_string();
@@ -2191,41 +2229,11 @@ fn parse_composite_fk(
                     )),
                 }
             }
-            Meta::NameValue(nv) if nv.path.is_ident("on_delete") => {
-                if let Some(value) = lit_str_value(&nv.value) {
-                    if dialect == Dialect::MySQL {
-                        match mysql_referential_action(&value) {
-                            Some(action) => fk.on_delete = Some(action),
-                            None => diags.errors.push(format!(
-                                "{desc}: MySQL FOREIGN_KEY on_delete expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
-                            )),
-                        }
-                    } else {
-                        fk.on_delete = Some(value);
-                    }
-                } else {
-                    diags.errors.push(format!(
-                        "{desc}: FOREIGN_KEY on_delete must be a string literal"
-                    ));
-                }
+            Meta::NameValue(nv) if fk_key_is(&nv.path, "on_delete") => {
+                fk.on_delete = composite_fk_action(&nv.value, dialect, "on_delete", desc, diags);
             }
-            Meta::NameValue(nv) if nv.path.is_ident("on_update") => {
-                if let Some(value) = lit_str_value(&nv.value) {
-                    if dialect == Dialect::MySQL {
-                        match mysql_referential_action(&value) {
-                            Some(action) => fk.on_update = Some(action),
-                            None => diags.errors.push(format!(
-                                "{desc}: MySQL FOREIGN_KEY on_update expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
-                            )),
-                        }
-                    } else {
-                        fk.on_update = Some(value);
-                    }
-                } else {
-                    diags.errors.push(format!(
-                        "{desc}: FOREIGN_KEY on_update must be a string literal"
-                    ));
-                }
+            Meta::NameValue(nv) if fk_key_is(&nv.path, "on_update") => {
+                fk.on_update = composite_fk_action(&nv.value, dialect, "on_update", desc, diags);
             }
             Meta::NameValue(nv)
                 if nv.path.get_ident().is_some_and(|ident| {
@@ -2244,10 +2252,7 @@ fn parse_composite_fk(
                     ));
                 }
             }
-            Meta::NameValue(nv)
-                if dialect != Dialect::SQLite
-                    && (nv.path.is_ident("name") || nv.path.is_ident("NAME")) =>
-            {
+            Meta::NameValue(nv) if dialect != Dialect::SQLite && fk_key_is(&nv.path, "name") => {
                 match lit_str_value(&nv.value) {
                     Some(name) if !name.is_empty() => fk.name = Some(name),
                     _ => diags.errors.push(format!(
@@ -2255,18 +2260,21 @@ fn parse_composite_fk(
                     )),
                 }
             }
-            Meta::Path(path) if dialect == Dialect::PostgreSQL && path.is_ident("deferrable") => {
+            Meta::Path(path)
+                if dialect == Dialect::PostgreSQL && fk_key_is(&path, "deferrable") =>
+            {
                 fk.deferrable = true;
             }
             Meta::Path(path)
-                if dialect == Dialect::PostgreSQL && path.is_ident("initially_deferred") =>
+                if dialect == Dialect::PostgreSQL && fk_key_is(&path, "initially_deferred") =>
             {
                 fk.deferrable = true;
                 fk.initially_deferred = true;
             }
             Meta::Path(path)
                 if dialect == Dialect::MySQL
-                    && (path.is_ident("deferrable") || path.is_ident("initially_deferred")) =>
+                    && (fk_key_is(&path, "deferrable")
+                        || fk_key_is(&path, "initially_deferred")) =>
             {
                 diags
                     .errors

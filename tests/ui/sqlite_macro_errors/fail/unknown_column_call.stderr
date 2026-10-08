@@ -1,0 +1,5 @@
+error: unknown SQLite column attribute `varchar`; expected one of: primary, primary_key, unique, autoincrement, json, enum, integer, text, blob, real, numeric, boolean, any, default, default_fn, references, relation, many_to_many, on_delete, on_update, name, collate, check, generated
+ --> tests/ui/sqlite_macro_errors/fail/unknown_column_call.rs:8:14
+  |
+8 |     #[column(varchar(255))]
+  |              ^^^^^^^

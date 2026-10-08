@@ -266,6 +266,7 @@ fn generate_untagged(ctx: &MacroContext) -> syn::Result<TokenStream> {
         &quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::NAME},
         &quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::TYPE},
         &quote! {<#table_name as #sql_schema<'a, #sqlite_schema_type, #sqlite_value<'a>>>::SQL},
+        None,
     );
 
     let to_sql_impl = generate_to_sql(

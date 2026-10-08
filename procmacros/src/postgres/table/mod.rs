@@ -41,6 +41,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
     let fields = struct_fields(input, "PostgresTable")?;
+    let struct_attrs = crate::common::forwarded_struct_attrs(input, "PostgresTable")?;
     let table_comment = doc_comment_from_attrs(&input.attrs);
 
     let primary_key_count = count_primary_keys(fields, |field| {
@@ -62,6 +63,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         .iter()
         .map(|field| FieldInfo::from_field(field, is_composite_pk))
         .collect::<Result<Vec<_>>>()?;
+    crate::common::constraints::validate_keys(&field_infos, &attrs.composite_foreign_keys)?;
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
     let table_meta_json = generate_table_meta_json(
@@ -147,6 +149,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         // Table marker const for IDE hover documentation
         #table_marker_const
 
+        #struct_attrs
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
          #column_fields
@@ -239,7 +242,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
             .unique_constraints
             .iter()
             .map(|unique| unique.columns.as_slice()),
-        &traits::postgres_dialect_types(),
+        &crate::common::constraints::DialectTypes::postgres(),
     );
 
     // Collect field info for JSON decoder generation

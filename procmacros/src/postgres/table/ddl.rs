@@ -90,7 +90,7 @@ fn ref_column_name_expr(table: &Ident, column: &Ident) -> TokenStream {
     crate::common::constraints::cross_table_column_name_const(
         table,
         column,
-        &super::traits::postgres_dialect_types(),
+        &crate::common::constraints::DialectTypes::postgres(),
     )
 }
 

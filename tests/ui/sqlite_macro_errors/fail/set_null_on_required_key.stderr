@@ -1,0 +1,5 @@
+error: SET_NULL needs a nullable foreign-key column: make the field an `Option<T>`, or choose another action
+  --> tests/ui/sqlite_macro_errors/fail/set_null_on_required_key.rs:15:5
+   |
+15 |     user_id: i64,
+   |     ^^^^^^^

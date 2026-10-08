@@ -61,6 +61,7 @@ pub fn generate_table_impls(
             }
         },
         &quote! {#schema_sql_const},
+        Some(&crate::common::generators::table_name_scope(&struct_ident)),
     );
     let dialect_types = crate::common::constraints::DialectTypes {
         sql_schema: core_paths::sql_schema(),
@@ -405,6 +406,7 @@ pub fn generate_table_impls(
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
         ctx.struct_ident,
+        &crate::common::constraints::DialectTypes::sqlite(),
     )?;
     let has_check = ctx
         .field_infos

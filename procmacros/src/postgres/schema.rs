@@ -98,6 +98,11 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
 
     let schema_table_refs_method = generate_schema_table_refs_method(&all_fields);
     let schema_has_table_impls = generate_schema_has_table_impls(struct_name, &all_fields);
+    let schema_name_check = crate::common::schema_name_check(
+        struct_name,
+        &all_fields,
+        &crate::common::constraints::DialectTypes::postgres(),
+    );
     let schema_fk_validation_asserts = generate_schema_fk_validation_asserts(
         &all_fields,
         struct_name,
@@ -156,6 +161,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
         }
 
         #schema_has_table_impls
+        #schema_name_check
 
         #schema_fk_validation_asserts
 
@@ -626,14 +632,15 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         // Guarantees dependency-safe order for DAGs in O(V + E), with
         // lexical tie-breaking for stable output.
         tables.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
-        let table_names: ::std::collections::HashSet<::std::string::String> =
-            tables.iter().map(|(name, _, _, _, _)| name.clone()).collect();
-
-        if table_names.len() != tables.len() {
+        if let ::core::option::Option::Some(pair) =
+            tables.windows(2).find(|pair| pair[0].0 == pair[1].0)
+        {
             return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
-                "Duplicate table names detected in PostgresSchema".into(),
+                ::std::format!("two tables in PostgresSchema are named `{}`", pair[0].0).into(),
             ));
         }
+        let table_names: ::std::collections::HashSet<::std::string::String> =
+            tables.iter().map(|(name, _, _, _, _)| name.clone()).collect();
 
         let mut indegree: ::std::collections::HashMap<::std::string::String, usize> =
             ::std::collections::HashMap::with_capacity(tables.len());
@@ -821,6 +828,7 @@ fn generate_schema_has_table_impls(
     fields: &[(&syn::Ident, &syn::Type)],
 ) -> TokenStream {
     let schema_has_table = core_paths::schema_has_table();
+    let duplicates = crate::common::duplicate_schema_fields(fields);
     let mut unique_types = Vec::new();
     let mut seen = HashSet::new();
     for (_, ty) in fields {
@@ -831,6 +839,7 @@ fn generate_schema_has_table_impls(
     }
 
     quote! {
+        #duplicates
         #(
             impl #schema_has_table<#unique_types> for #struct_name {}
         )*

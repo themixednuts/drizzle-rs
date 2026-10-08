@@ -294,6 +294,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
         )
     };
 
+    let table_name_scope = crate::common::generators::table_name_scope(&table_type);
     let mut expanded = quote! {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #struct_vis struct #struct_ident;
@@ -361,6 +362,13 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
                 #sqlite_schema_type::Index(&INDEX_INSTANCE)
             };
             const SQL: &'static str = #const_sql;
+            const NAME_SCOPE: ::core::option::Option<(&'static str, &'static str)> =
+                match #table_name_scope {
+                    ::core::option::Option::Some((scope, _)) => {
+                        ::core::option::Option::Some((scope, #index_name))
+                    }
+                    ::core::option::Option::None => ::core::option::Option::None,
+                };
         }
 
         impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_ident

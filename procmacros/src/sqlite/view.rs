@@ -8,7 +8,7 @@ use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
 use crate::paths::{
     core as core_paths, ddl as ddl_paths, sqlite as sqlite_paths, std as std_paths,
 };
-use crate::sqlite::field::{FieldInfo, SQLiteType};
+use crate::sqlite::field::FieldInfo;
 use crate::sqlite::generators::{
     SQLTableConfig, generate_sql_schema, generate_sql_table, generate_sqlite_table, generate_to_sql,
 };
@@ -174,10 +174,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         info.is_nullable
             || info.has_default
             || info.default_fn.is_some()
-            || (info.is_primary()
-                && !table_attrs.without_rowid
-                && !info.is_enum
-                && matches!(info.column_type, SQLiteType::Integer))
+            || info.is_rowid_alias(table_attrs.without_rowid)
     });
 
     let ctx = MacroContext {
@@ -220,6 +217,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
         ctx.struct_ident,
+        &crate::common::constraints::DialectTypes::sqlite(),
     )?;
     #[cfg(feature = "rusqlite")]
     let rusqlite_impls = rusqlite::generate_rusqlite_impls(&ctx)?;
@@ -414,6 +412,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             }
         },
         &view_const_sql,
+        Some(&crate::common::generators::table_name_scope(&struct_ident)),
     );
     let table_ref = core_paths::table_ref();
     let view_column_names: Vec<&String> = ctx.field_infos.iter().map(|f| &f.column_name).collect();

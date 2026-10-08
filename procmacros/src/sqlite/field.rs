@@ -474,12 +474,11 @@ impl<'a> FieldInfo<'a> {
     ///   (or `number`), `boolean`, `any`
     /// - Flags: `primary`/`primary_key`, `unique`, `autoincrement`, `json`, `enum`
     /// - Named parameters: `default`, `default_fn`, `references`, `relation`,
-    ///   `on_delete`, `on_update`, `name`, `collate`, `check`
+    ///   `many_to_many`, `on_delete`, `on_update`, `name`, `collate`, `check`
     /// - `generated(stored | virtual, "expr")`
     ///
-    /// Keys are case-insensitive. Calls other than `generated(...)`, and
-    /// expressions that are not paths or assignments, are skipped without an
-    /// error.
+    /// Keys are case-insensitive. Any other call, or an expression that is
+    /// not a path or an assignment, is an error.
     fn parse_args(input: ParseStream) -> Result<ParsedArgs> {
         if input.is_empty() {
             return Ok(ParsedArgs::default());
@@ -776,9 +775,31 @@ impl<'a> FieldInfo<'a> {
                         });
                         args.marker_exprs
                             .push(make_uppercase_path(ident, "GENERATED"));
+                    } else {
+                        let name = match &*call.func {
+                            Expr::Path(path) => path
+                                .path
+                                .get_ident()
+                                .map_or_else(String::new, ToString::to_string),
+                            _ => String::new(),
+                        };
+                        return Err(Error::new_spanned(
+                            &call.func,
+                            crate::common::unknown_key_message(
+                                "SQLite column attribute",
+                                &name,
+                                SQLITE_COLUMN_KEYS,
+                            ),
+                        ));
                     }
                 }
-                _ => {}
+                other => {
+                    return Err(Error::new_spanned(
+                        other,
+                        "expected a flag (`primary`), `key = value` (`default = 0`) or \
+                         `generated(stored, \"expr\")` in #[column(...)]",
+                    ));
+                }
             }
         }
 
@@ -968,7 +989,7 @@ impl<'a> FieldInfo<'a> {
         let column_name = attrs
             .attr_name
             .clone()
-            .unwrap_or_else(|| field_name.to_string().to_snake_case());
+            .unwrap_or_else(|| field_name.unraw().to_string().to_snake_case());
         let is_nullable = is_option_type(field_type);
         let base_type = option_inner_type(field_type).unwrap_or(field_type);
 
@@ -1609,6 +1630,16 @@ impl FieldInfo<'_> {
         self.constraint.is_primary()
     }
 
+    /// Whether the column is the table's rowid: the sole `INTEGER` primary
+    /// key of a rowid table. `SQLite` fills it when an insert leaves it out.
+    /// A column of a composite key is not, and an insert must set it.
+    pub(crate) fn is_rowid_alias(&self, without_rowid: bool) -> bool {
+        self.constraint.is_inline_primary()
+            && !without_rowid
+            && !self.is_enum
+            && matches!(self.column_type, SQLiteType::Integer)
+    }
+
     #[inline]
     pub(crate) fn is_unique(&self) -> bool {
         self.constraint.is_inline_unique()
@@ -1623,6 +1654,12 @@ impl crate::common::constraints::ForeignKeyRef for ForeignKeyReference {
     }
     fn ref_column(&self) -> &Ident {
         &self.column_ident
+    }
+    fn on_delete(&self) -> Option<&str> {
+        self.on_delete.as_deref()
+    }
+    fn on_update(&self) -> Option<&str> {
+        self.on_update.as_deref()
     }
 }
 

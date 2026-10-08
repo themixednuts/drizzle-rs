@@ -54,6 +54,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
     let fields = struct_fields(input, "SQLiteTable")?;
+    let struct_attrs = crate::common::forwarded_struct_attrs(input, "SQLiteTable")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
         Ok(FieldInfo::from_field(field, false)?.is_primary())
@@ -67,6 +68,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 
     validate_strict_affinity(&field_infos, attrs.strict)?;
     validation::validate_autoincrement(&field_infos, attrs.without_rowid)?;
+    crate::common::constraints::validate_keys(&field_infos, &attrs.composite_foreign_keys)?;
 
     // Calculate required fields pattern for const generic
     let required_fields_pattern = required_fields_pattern(&field_infos, |info| {
@@ -74,10 +76,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
             || info.has_default
             || info.default_fn.is_some()
             || info.generated_column.is_some()
-            || (info.is_primary()
-                && !attrs.without_rowid
-                && !info.is_enum
-                && matches!(info.column_type, crate::sqlite::field::SQLiteType::Integer))
+            || info.is_rowid_alias(attrs.without_rowid)
     });
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
@@ -163,6 +162,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         // Table marker const for IDE hover documentation
         #table_marker_const
 
+        #struct_attrs
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
          #column_fields
@@ -224,7 +224,7 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
             .unique_constraints
             .iter()
             .map(|unique| unique.columns.as_slice()),
-        &ddl::sqlite_dialect_types(),
+        &crate::common::constraints::DialectTypes::sqlite(),
     );
 
     let partial_select_model_ident = &ctx.select_model_partial_ident;

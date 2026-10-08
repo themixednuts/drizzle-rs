@@ -849,69 +849,6 @@ fn sqlite_cycle_reports_structured_error() {
     );
 }
 
-#[SQLiteTable(NAME = "dup_table")]
-struct DuplicateTableOne {
-    #[column(PRIMARY)]
-    id: i32,
-}
-
-#[SQLiteTable(NAME = "dup_table")]
-struct DuplicateTableTwo {
-    #[column(PRIMARY)]
-    id: i32,
-}
-
-#[derive(SQLiteSchema)]
-struct DuplicateTableSchema {
-    first: DuplicateTableOne,
-    second: DuplicateTableTwo,
-}
-
-#[test]
-fn sqlite_duplicate_table_reports_error() {
-    let schema = DuplicateTableSchema::new();
-    let err = match schema.create_statements() {
-        Ok(_) => panic!("expected duplicate table error"),
-        Err(err) => err,
-    };
-    assert!(
-        err.to_string()
-            .contains("Duplicate table names detected in SQLiteSchema"),
-        "unexpected error: {err}"
-    );
-}
-
-#[SQLiteTable(NAME = "dup_idx_table")]
-struct DuplicateIndexTable {
-    #[column(PRIMARY)]
-    id: i32,
-    email: String,
-}
-
-#[SQLiteIndex]
-struct DuplicateIndex(DuplicateIndexTable::email);
-
-#[derive(SQLiteSchema)]
-struct DuplicateIndexSchema {
-    table: DuplicateIndexTable,
-    idx1: DuplicateIndex,
-    idx2: DuplicateIndex,
-}
-
-#[test]
-fn sqlite_duplicate_index_reports_error() {
-    let schema = DuplicateIndexSchema::new();
-    let err = match schema.create_statements() {
-        Ok(_) => panic!("expected duplicate index error"),
-        Err(err) => err,
-    };
-    assert!(
-        err.to_string()
-            .contains("Duplicate index 'duplicate_index' on table 'dup_idx_table' in SQLiteSchema"),
-        "unexpected error: {err}"
-    );
-}
-
 // =============================================================================
 // View query DSL tests
 // =============================================================================

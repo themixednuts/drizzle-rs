@@ -2,6 +2,7 @@ use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::fmt::Write as _;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::{
@@ -288,7 +289,7 @@ impl FieldInfo {
         let column_name = parsed
             .name
             .clone()
-            .unwrap_or_else(|| ident.to_string().to_snake_case());
+            .unwrap_or_else(|| ident.unraw().to_string().to_snake_case());
         let sql_definition = build_sql_definition(SqlDefinition {
             name: &column_name,
             ty: &column_type,
@@ -1291,6 +1292,14 @@ impl crate::common::constraints::ForeignKeyRef for MySQLReference {
 
     fn ref_column(&self) -> &Ident {
         &self.column
+    }
+
+    fn on_delete(&self) -> Option<&str> {
+        self.on_delete.as_deref()
+    }
+
+    fn on_update(&self) -> Option<&str> {
+        self.on_update.as_deref()
     }
 }
 

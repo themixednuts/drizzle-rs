@@ -1,0 +1,5 @@
+error: on_delete expects CASCADE, SET_NULL, SET_DEFAULT, RESTRICT or NO_ACTION, as an identifier or a string
+  --> tests/ui/sqlite_macro_errors/fail/composite_foreign_key_bad_action.rs:15:17
+   |
+15 |     on_delete = "casade"
+   |                 ^^^^^^^^

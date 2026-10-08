@@ -97,8 +97,15 @@ pub fn generate_sql_schema(
     name: &TokenStream,
     r#type: &TokenStream,
     const_sql: &TokenStream,
+    name_scope: Option<&TokenStream>,
 ) -> TokenStream {
-    common_gen::generate_sql_schema::<SqliteDialect>(struct_ident, name, r#type, const_sql)
+    common_gen::generate_sql_schema::<SqliteDialect>(
+        struct_ident,
+        name,
+        r#type,
+        const_sql,
+        name_scope,
+    )
 }
 
 /// Generate `SQLite` `SQLSchema` for fields trait implementation.

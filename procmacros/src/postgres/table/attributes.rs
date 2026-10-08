@@ -3,7 +3,7 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
-use crate::common::constraints::RelationNames;
+use crate::common::constraints::{RelationNames, is_key, referential_action};
 use crate::common::make_uppercase_path;
 
 #[derive(Default)]
@@ -130,7 +130,7 @@ impl Parse for CompositeForeignKeyAttr {
 
         for meta in metas {
             match meta {
-                Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
+                Meta::NameValue(nv) if is_key(&nv.path, "name") => {
                     if let syn::Expr::Lit(lit) = &nv.value
                         && let syn::Lit::Str(s) = &lit.lit
                         && !s.value().is_empty()
@@ -143,7 +143,7 @@ impl Parse for CompositeForeignKeyAttr {
                         ));
                     }
                 }
-                Meta::List(list) if list.path.is_ident("columns") => {
+                Meta::List(list) if is_key(&list.path, "columns") => {
                     let cols: Punctuated<Ident, Token![,]> =
                         Punctuated::<Ident, Token![,]>::parse_terminated
                             .parse2(list.tokens.clone())?;
@@ -155,39 +155,21 @@ impl Parse for CompositeForeignKeyAttr {
                     }
                     source_columns = Some(cols.into_iter().collect());
                 }
-                Meta::List(list) if list.path.is_ident("references") => {
+                Meta::List(list) if is_key(&list.path, "references") => {
                     let r: ReferencesArg = syn::parse2(list.tokens.clone())?;
                     target_table = Some(r.table);
                     target_columns = Some(r.columns);
                 }
-                Meta::NameValue(nv) if nv.path.is_ident("on_delete") => {
-                    if let syn::Expr::Lit(lit) = &nv.value
-                        && let syn::Lit::Str(s) = &lit.lit
-                    {
-                        on_delete = Some(s.value());
-                    } else {
-                        return Err(syn::Error::new(
-                            nv.span(),
-                            "on_delete must be a string literal",
-                        ));
-                    }
+                Meta::NameValue(nv) if is_key(&nv.path, "on_delete") => {
+                    on_delete = Some(referential_action(&nv.value, "on_delete")?);
                 }
-                Meta::NameValue(nv) if nv.path.is_ident("on_update") => {
-                    if let syn::Expr::Lit(lit) = &nv.value
-                        && let syn::Lit::Str(s) = &lit.lit
-                    {
-                        on_update = Some(s.value());
-                    } else {
-                        return Err(syn::Error::new(
-                            nv.span(),
-                            "on_update must be a string literal",
-                        ));
-                    }
+                Meta::NameValue(nv) if is_key(&nv.path, "on_update") => {
+                    on_update = Some(referential_action(&nv.value, "on_update")?);
                 }
-                Meta::Path(path) if path.is_ident("deferrable") => {
+                Meta::Path(path) if is_key(&path, "deferrable") => {
                     deferrable = true;
                 }
-                Meta::Path(path) if path.is_ident("initially_deferred") => {
+                Meta::Path(path) if is_key(&path, "initially_deferred") => {
                     deferrable = true;
                     initially_deferred = true;
                 }
@@ -552,6 +534,12 @@ impl crate::common::constraints::CompositeForeignKeyRef for CompositeForeignKeyA
     }
     fn relation_names(&self) -> &RelationNames {
         &self.relation_names
+    }
+    fn on_delete(&self) -> Option<&str> {
+        self.on_delete.as_deref()
+    }
+    fn on_update(&self) -> Option<&str> {
+        self.on_update.as_deref()
     }
 }
 

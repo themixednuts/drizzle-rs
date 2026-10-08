@@ -38,6 +38,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
     let fields = struct_fields(input, "MySQLTable")?;
+    let struct_attrs = crate::common::forwarded_struct_attrs(input, "MySQLTable")?;
     let table_comment = doc_comment_from_attrs(&input.attrs);
 
     let primary_key_count = count_primary_keys(fields, |field| {
@@ -72,35 +73,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
             "MySQL temporary tables cannot declare foreign keys",
         ));
     }
-    for field in &field_infos {
-        if let Some(reference) = &field.foreign_key
-            && (reference.on_delete.as_deref() == Some("SET NULL")
-                || reference.on_update.as_deref() == Some("SET NULL"))
-            && !field.is_nullable
-        {
-            return Err(syn::Error::new_spanned(
-                &field.ident,
-                "SET_NULL requires a nullable MySQL foreign-key column",
-            ));
-        }
-    }
-    for foreign_key in &attrs.composite_foreign_keys {
-        if foreign_key.on_delete.as_deref() == Some("SET NULL")
-            || foreign_key.on_update.as_deref() == Some("SET NULL")
-        {
-            for source in &foreign_key.source_columns {
-                let Some(field) = field_infos.iter().find(|field| field.ident == *source) else {
-                    continue;
-                };
-                if !field.is_nullable {
-                    return Err(syn::Error::new_spanned(
-                        source,
-                        "SET_NULL requires every MySQL foreign-key source column to be nullable",
-                    ));
-                }
-            }
-        }
-    }
+    crate::common::constraints::validate_keys(&field_infos, &attrs.composite_foreign_keys)?;
     for field in &field_infos {
         if (field.is_primary() || field.is_unique()) && !field.is_indexable_without_prefix() {
             return Err(syn::Error::new_spanned(
@@ -183,6 +156,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         // Table marker const for IDE hover documentation
         #table_marker_const
 
+        #struct_attrs
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
          #column_fields
@@ -241,7 +215,7 @@ pub(super) fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
             .unique_constraints
             .iter()
             .map(|unique| unique.columns.as_slice()),
-        &traits::mysql_dialect_types(),
+        &crate::common::constraints::DialectTypes::mysql(),
     );
 
     let field_json_infos = ctx

@@ -3,6 +3,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::fmt::Write;
 use std::{collections::HashSet, fmt::Display};
+use syn::ext::IdentExt;
 use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Result, Token, Type};
 
 use crate::common::{
@@ -1073,7 +1074,7 @@ impl FieldInfo {
         let base_type = option_inner_type(&ty).unwrap_or(&ty).clone();
 
         // Column name defaults to field ident converted to snake_case.
-        let column_name = column_name.unwrap_or_else(|| name.to_string().to_snake_case());
+        let column_name = column_name.unwrap_or_else(|| name.unraw().to_string().to_snake_case());
         let comment = doc_comment_from_attrs(&field.attrs);
 
         // Build SQL definition for this column
@@ -2202,6 +2203,12 @@ impl crate::common::constraints::ForeignKeyRef for PostgreSQLReference {
     }
     fn ref_column(&self) -> &Ident {
         &self.column
+    }
+    fn on_delete(&self) -> Option<&str> {
+        self.on_delete.as_deref()
+    }
+    fn on_update(&self) -> Option<&str> {
+        self.on_update.as_deref()
     }
 }
 

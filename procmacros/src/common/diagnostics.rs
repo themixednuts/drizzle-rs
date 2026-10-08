@@ -106,6 +106,60 @@ pub fn reject_schema_trait_derives(input: &syn::DeriveInput, derive: &str) -> sy
     Ok(())
 }
 
+/// A compile error at every schema field whose type an earlier field already
+/// has: the schema would create that table, index or enum twice.
+pub fn duplicate_schema_fields(fields: &[(&syn::Ident, &syn::Type)]) -> proc_macro2::TokenStream {
+    let mut seen: Vec<(String, &syn::Ident)> = Vec::new();
+    let mut errors = proc_macro2::TokenStream::new();
+    for (field, ty) in fields {
+        let key = quote::quote!(#ty).to_string();
+        if let Some((_, first)) = seen.iter().find(|(seen, _)| *seen == key) {
+            let msg = format!(
+                "`{}` is already in this schema as `{first}`; list each table, index and enum once",
+                key.replace(' ', "")
+            );
+            errors.extend(quote::quote_spanned! {syn::spanned::Spanned::span(ty)=>
+                ::core::compile_error!(#msg);
+            });
+        } else {
+            seen.push((key, field));
+        }
+    }
+    errors
+}
+
+/// A compile-time check that no two schema items claim one name in one scope
+/// (`SQLSchema::NAME_SCOPE`), such as two index structs both named
+/// `users_email_idx`. The database would reject the second `CREATE`.
+pub fn schema_name_check(
+    schema: &syn::Ident,
+    fields: &[(&syn::Ident, &syn::Type)],
+    dialect: &crate::common::constraints::DialectTypes,
+) -> proc_macro2::TokenStream {
+    let sql_schema = &dialect.sql_schema;
+    let schema_type = &dialect.schema_type;
+    let value_type = &dialect.value_type;
+    let types = fields.iter().map(|(_, ty)| ty);
+    let messages = fields.iter().map(|(field, ty)| {
+        format!(
+            "`{field}` ({}) in `{schema}` has the same SQL name as an earlier item; give one \
+             of them another `name`",
+            quote::quote!(#ty).to_string().replace(' ', "")
+        )
+    });
+    quote::quote! {
+        const _: () = {
+            const NAMES: &[::core::option::Option<(&str, &str)>] = &[
+                #(<#types as #sql_schema<'static, #schema_type, #value_type<'static>>>::NAME_SCOPE,)*
+            ];
+            const MESSAGES: &[&str] = &[#(#messages),*];
+            if let ::core::option::Option::Some(index) = drizzle::core::first_duplicate_name(NAMES) {
+                ::core::panic!("{}", MESSAGES[index]);
+            }
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::unknown_key_message;

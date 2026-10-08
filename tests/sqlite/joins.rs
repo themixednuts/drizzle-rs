@@ -447,3 +447,55 @@ fn natural_join_matches_columns_by_name(db: &mut TestDb<NaturalSchema>) {
         .all();
     assert_eq!(left_rows, ["a", "b"]);
 }
+
+#[SQLiteTable(NAME = "join_renamed_teams")]
+struct JoinRenamedTeam {
+    #[column(PRIMARY, NAME = "team_key")]
+    id: i32,
+    name: String,
+}
+
+#[SQLiteTable(NAME = "join_renamed_members")]
+struct JoinRenamedMember {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = JoinRenamedTeam::id)]
+    team_id: i32,
+    name: String,
+}
+
+#[derive(SQLiteSchema)]
+struct JoinRenamedSchema {
+    teams: JoinRenamedTeam,
+    members: JoinRenamedMember,
+}
+
+#[derive(Debug, SQLiteFromRow, Default)]
+struct MemberTeam {
+    #[column(JoinRenamedMember::name)]
+    member: String,
+    #[column(JoinRenamedTeam::name)]
+    team: String,
+}
+
+/// `.join(teams)` derives its ON clause from the foreign key, on the
+/// referenced column's declared name `team_key`.
+#[drizzle::test]
+fn auto_fk_join_uses_declared_column_names(db: &mut TestDb<JoinRenamedSchema>) {
+    let JoinRenamedSchema { teams, members } = schema;
+    db.insert(teams)
+        .value(InsertJoinRenamedTeam::new("Core").with_id(7))
+        .execute();
+    db.insert(members)
+        .value(InsertJoinRenamedMember::new(7, "Ada").with_id(1))
+        .execute();
+
+    let rows: Vec<MemberTeam> = db
+        .select(MemberTeam::default())
+        .from(members)
+        .join(teams)
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].member, "Ada");
+    assert_eq!(rows[0].team, "Core");
+}

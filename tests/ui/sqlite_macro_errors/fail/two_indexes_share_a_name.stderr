@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: `name_idx` (UsersNameIdx) in `Schema` has the same SQL name as an earlier item; give one of them another `name`
+  --> tests/ui/sqlite_macro_errors/fail/two_indexes_share_a_name.rs:17:10
+   |
+17 | #[derive(SQLiteSchema)]
+   |          ^^^^^^^^^^^^ evaluation of `_` failed here

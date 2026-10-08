@@ -171,12 +171,13 @@ macro_rules! shared_relational_api_suite {
             /// `edition_number` to `number` gives `notes.edition()`, and
             /// editions get `shared_api_edition_notes()`.
             #[$table(
-                NAME = "shared_api_edition_notes",
-                FOREIGN_KEY(
-                    columns(post_id, edition_number),
-                    references(SharedApiEdition, post_id, number)
-                )
-            )]
+                                NAME = "shared_api_edition_notes",
+                                FOREIGN_KEY(
+                                    COLUMNS(post_id, edition_number),
+                                    REFERENCES(SharedApiEdition, post_id, number),
+                                    ON_DELETE = CASCADE
+                                )
+                            )]
             struct SharedApiEditionNote {
                 #[column(PRIMARY, DEFAULT = 0)]
                 id: i32,

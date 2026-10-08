@@ -300,6 +300,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
         ctx.struct_ident,
+        &crate::common::constraints::DialectTypes::postgres(),
     )?;
     let view_marker_const = generate_view_marker_const(struct_ident, &attrs.marker_exprs);
 
@@ -588,6 +589,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             }
         },
         &view_const_sql,
+        Some(&crate::common::generators::table_name_scope(&struct_ident)),
     );
     let table_ref = core_paths::table_ref();
     let view_column_names: Vec<&String> = ctx.field_infos.iter().map(|f| &f.column_name).collect();

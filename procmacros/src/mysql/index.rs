@@ -474,6 +474,15 @@ pub fn mysql_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Res
                 #mysql_schema_type::Index(&INDEX)
             };
             const SQL: &'static str = Self::DDL_SQL;
+            // MySQL index names are unique per table.
+            const NAME_SCOPE: ::core::option::Option<(&'static str, &'static str)> =
+                ::core::option::Option::Some((
+                    #const_format::concatcp!(
+                        "index on ",
+                        <#table_type as drizzle::core::DrizzleTable>::TABLE_REF.name
+                    ),
+                    #index_name,
+                ));
         }
 
         impl<'a> #to_sql<'a, #mysql_value<'a>> for #struct_ident {
