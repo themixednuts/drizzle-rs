@@ -488,8 +488,9 @@ mod tests {
         };
         let expanded = sqlite_index_attr_macro(attrs, &input).unwrap().to_string();
 
-        // DDL SQL, DDL_INDEX, DrizzleIndex::INDEX_NAME, and SQLSchema::NAME.
-        assert_eq!(expanded.matches("users_by_email").count(), 4);
+        // DDL SQL, DDL_INDEX, DrizzleIndex::INDEX_NAME, SQLSchema::NAME and
+        // SQLSchema::NAME_SCOPE.
+        assert_eq!(expanded.matches("users_by_email").count(), 5);
         assert!(!expanded.contains("users_email_idx"));
     }
 

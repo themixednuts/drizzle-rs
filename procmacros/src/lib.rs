@@ -888,10 +888,11 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 ///   the macro reports an error if they appear in a `#[derive]` on the struct.
 /// - `schema.items()`, a tuple of references to every field, and
 ///   `From<Schema>` for the tuple of fields.
-/// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
-///   statements: tables ordered so referenced tables come first, each table's
-///   indexes right after it, then views. A foreign key cycle or a duplicate
-///   table or index name is an error there.
+/// - `SQLSchemaImpl`, whose `create_statements()` returns the statements a
+///   migration from an empty database runs: each table followed by its
+///   indexes, then views. SQLite checks a foreign key when rows change, not
+///   when a table is created, so tables that reference each other need no
+///   particular order.
 /// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
 ///
 /// # Examples
@@ -922,16 +923,21 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 ///
 /// #[derive(SQLiteSchema)]
 /// struct Schema {
-///     // Field order does not matter: `users` is still created before `posts`.
 ///     posts: Posts,
 ///     users: Users,
 ///     users_email_idx: UsersEmailIdx,
 /// }
 ///
 /// let statements: Vec<String> = Schema::new().create_statements()?.collect();
-/// assert!(statements[0].starts_with("CREATE TABLE `users`"));
-/// assert_eq!(statements[1], r#"CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email")"#);
-/// assert!(statements[2].starts_with("CREATE TABLE `posts`"));
+/// let position = |prefix: &str| {
+///     statements
+///         .iter()
+///         .position(|sql| sql.starts_with(prefix))
+///         .expect(prefix)
+/// };
+/// // Each index follows its table.
+/// assert!(position("CREATE TABLE `users`") < position("CREATE UNIQUE INDEX `users_email_idx`"));
+/// assert!(position("CREATE TABLE `posts`") < statements.len());
 ///
 /// // Destructure to get the handles used in queries.
 /// let Schema { users, posts, .. } = Schema::new();
@@ -1002,11 +1008,11 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
 /// - `Clone`, `Copy` and `Debug`. Do not derive these (or `Default`) yourself:
 ///   the macro reports an error if they appear in a `#[derive]` on the struct.
 /// - `schema.items()` and `From<Schema>` for the tuple of fields.
-/// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
-///   statements in dependency order: enum types first, then each table
-///   (referenced tables first) followed by its `COMMENT ON` statements,
-///   indexes, row-level security switch and policies, then views. A foreign
-///   key cycle or a duplicate table or index name is an error there.
+/// - `SQLSchemaImpl`, whose `create_statements()` returns the statements a
+///   migration from an empty database runs: schemas and enum types first,
+///   then tables (referenced tables first) with their comments, indexes,
+///   row-level security and policies, then views. A foreign key that closes a
+///   cycle is added once both of its tables exist.
 /// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
 ///
 /// As with [`SQLiteSchema`], every table a foreign key points to must be in
@@ -1042,7 +1048,7 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// let statements: Vec<String> = Schema::new().create_statements()?.collect();
-/// assert_eq!(statements[0], r#"CREATE TYPE "Status" AS ENUM ('Open', 'Closed')"#);
+/// assert_eq!(statements[0], r#"CREATE TYPE "Status" AS ENUM ('Open', 'Closed');"#);
 /// assert!(statements[1].starts_with(r#"CREATE TABLE "tickets""#));
 /// # Ok(())
 /// # }
@@ -2090,9 +2096,9 @@ pub fn MySQLIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `schema.items()` and `From<Schema>` for the tuple of fields.
 /// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
 ///   statements: tables ordered so referenced tables come first, each table's
-///   indexes right after it, then views. A foreign key cycle, a duplicate
-///   table or index name, or an index whose table is not in the schema is an
-///   error there.
+///   indexes right after it, then views. Tables in a reference cycle are
+///   created with the session's foreign-key checks off, the way `mysqldump`
+///   does. An index whose table is not in the schema is an error there.
 /// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
 ///
 /// As with [`SQLiteSchema`], every table a foreign key points to must be in
