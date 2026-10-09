@@ -174,7 +174,7 @@ macro_rules! shared_delete_suite {
             }
 
             #[drizzle::test($dialect)]
-            fn delete_without_a_predicate_clears_the_table(db: &mut TestDb<SharedDeleteSchema>) {
+            fn delete_where_true_clears_the_table(db: &mut TestDb<SharedDeleteSchema>) {
                 let SharedDeleteSchema { rows } = schema;
                 db.insert(rows)
                     .values([
@@ -184,13 +184,7 @@ macro_rules! shared_delete_suite {
                     ])
                     .execute();
 
-                let sql = db.delete(rows).to_sql().sql();
-                assert!(
-                    !sql.to_ascii_uppercase().contains("WHERE"),
-                    "unfiltered delete must not render a WHERE clause: {sql}"
-                );
-
-                let deleted = db.delete(rows).execute();
+                let deleted = db.delete(rows).r#where(true).execute();
                 assert_eq!(deleted.affected_rows(), 3);
 
                 let remaining: Vec<SelectSharedDeleteRow> = db.select(()).from(rows).all();

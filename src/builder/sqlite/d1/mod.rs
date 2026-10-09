@@ -711,8 +711,6 @@ async fn ensure_d1_migration_name_index(
 #[cfg(feature = "d1")]
 impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it changed (D1's
     /// `meta.changes`).
@@ -721,7 +719,10 @@ where
     ///
     /// Returns [`DrizzleError::Other`] with D1's message when binding fails or
     /// D1 rejects the statement.
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
@@ -762,6 +763,7 @@ where
     /// query, or a row cannot be deserialized into `R`.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,
@@ -799,6 +801,7 @@ where
     /// the row cannot be deserialized into `R`.
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,

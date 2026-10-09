@@ -938,14 +938,15 @@ where
 
 impl<Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'_, Runner, Schema, QueryBuilder<'_, Schema, State, T, M, R, G>, State>
-where
-    State: drizzle_postgres::builder::ExecutableState,
 {
     /// Adds a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
     /// comment in front of the query. See [`QueryBuilder::comment`] for how the
     /// text is escaped.
     #[inline]
-    pub fn comment(self, text: impl AsRef<str>) -> Self {
+    pub fn comment(self, text: impl AsRef<str>) -> Self
+    where
+        State: drizzle_postgres::builder::ExecutableState,
+    {
         DrizzleBuilder {
             runner: self.runner,
             builder: self.builder.comment(text),
@@ -959,6 +960,7 @@ where
     #[inline]
     pub fn comment_tags<I, K, V>(self, pairs: I) -> Self
     where
+        State: drizzle_postgres::builder::ExecutableState,
         I: IntoIterator<Item = (K, V)>,
         K: AsRef<str>,
         V: AsRef<str>,
@@ -1729,38 +1731,6 @@ impl<'a, 'b, Runner, Schema, Table>
             state: PhantomData,
         }
     }
-
-    /// Returns columns of the updated rows: `RETURNING ...`.
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> DrizzleBuilder<
-        'a,
-        Runner,
-        Schema,
-        UpdateBuilder<
-            'b,
-            Schema,
-            UpdateReturningSet,
-            Table,
-            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
-            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
-        >,
-        UpdateReturningSet,
-    >
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<Table>,
-    {
-        let builder = self.builder.returning(columns);
-        DrizzleBuilder {
-            runner: self.runner,
-            builder,
-            state: PhantomData,
-        }
-    }
 }
 
 impl<'a, 'b, Runner, Schema, Table, M>
@@ -1791,38 +1761,6 @@ impl<'a, 'b, Runner, Schema, Table, M>
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         let builder = self.builder.r#where(condition);
-        DrizzleBuilder {
-            runner: self.runner,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Returns columns of the updated rows: `RETURNING ...`.
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> DrizzleBuilder<
-        'a,
-        Runner,
-        Schema,
-        UpdateBuilder<
-            'b,
-            Schema,
-            UpdateReturningSet,
-            Table,
-            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
-            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
-        >,
-        UpdateReturningSet,
-    >
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, M>, ScopeProof>,
-        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<Table>,
-    {
-        let builder = self.builder.returning(columns);
         DrizzleBuilder {
             runner: self.runner,
             builder,
@@ -1902,38 +1840,6 @@ where
         E::SQLType: drizzle_core::types::BooleanLike,
     {
         let builder = self.builder.r#where(condition);
-        DrizzleBuilder {
-            runner: self.runner,
-            builder,
-            state: PhantomData,
-        }
-    }
-
-    /// Returns columns of the deleted rows: `RETURNING ...`.
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> DrizzleBuilder<
-        'a,
-        Runner,
-        Schema,
-        DeleteBuilder<
-            'b,
-            Schema,
-            DeleteReturningSet,
-            Table,
-            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
-            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
-        >,
-        DeleteReturningSet,
-    >
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'b, PostgresValue<'b>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<Table>,
-    {
-        let builder = self.builder.returning(columns);
         DrizzleBuilder {
             runner: self.runner,
             builder,

@@ -1301,14 +1301,16 @@ impl<'db, 'q, Runner, Schema, State, Table, Marker, DecodedRow, Grouped>
     >
 where
     Runner: AsyncRunner,
-    State: builder::ExecutableState,
 {
     /// Executes this statement and returns normalized MySQL mutation metadata.
     ///
     /// # Errors
     ///
     /// Returns an error if connection checkout, binding, or execution fails.
-    pub async fn execute(self) -> Result<MySQLMutationResult> {
+    pub async fn execute(self) -> Result<MySQLMutationResult>
+    where
+        State: builder::ExecutableState,
+    {
         self.runner.execute_rendered(self.builder).await
     }
 
@@ -1319,6 +1321,7 @@ where
     /// Returns an error if connection checkout, execution, or decoding fails.
     pub async fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -1341,6 +1344,7 @@ where
     /// Returns an error if connection checkout, execution, or decoding fails.
     pub async fn rows<ScopeProof, AggProof>(self) -> Result<Rows<DecodedRow>>
     where
+        State: builder::ExecutableState,
         for<'row> Marker: MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
             + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, DecodedRow, ScopeProof>,
@@ -1362,6 +1366,7 @@ where
     /// row is returned.
     pub async fn get<R, ScopeProof, AggProof>(self) -> Result<R>
     where
+        State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -1376,7 +1381,10 @@ where
 
     /// Detaches a reusable prepared query from this runner.
     #[must_use]
-    pub fn prepare(self) -> prepared::PreparedStatement<'q, Marker, DecodedRow, Grouped> {
+    pub fn prepare(self) -> prepared::PreparedStatement<'q, Marker, DecodedRow, Grouped>
+    where
+        State: builder::ExecutableState,
+    {
         prepared::PreparedStatement::new(drizzle_core::prepared::prepare_render(
             &self.builder.into_sql(),
         ))

@@ -79,8 +79,8 @@ macro_rules! postgres_builder_constructors {
 
         /// Starts an `UPDATE` of `table`.
         ///
-        /// Follow it with `.set(..)` and an `Update*` model. Without `.r#where(..)`,
-        /// every row is updated.
+        /// Follow it with `.set(..)` and an `Update*` model, then `.r#where(..)`;
+        /// `.r#where(true)` updates every row.
         pub fn update<'a, 'b, Table>(
             &'a self,
             table: Table,
@@ -96,8 +96,8 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Starts a `DELETE` from `table`. Without `.r#where(..)`, every row is
-        /// deleted.
+        /// Starts a `DELETE` from `table`. It runs once `.r#where(..)` picks the
+        /// rows; `.r#where(true)` deletes every row.
         pub fn delete<'a, 'b, Table>(
             &'a self,
             table: Table,
@@ -210,8 +210,8 @@ macro_rules! postgres_builder_constructors {
 
         /// Starts an `UPDATE` of `table`.
         ///
-        /// Follow it with `.set(..)` and an `Update*` model. Without `.r#where(..)`,
-        /// every row is updated.
+        /// Follow it with `.set(..)` and an `Update*` model, then `.r#where(..)`;
+        /// `.r#where(true)` updates every row.
         pub fn update<'a, 'b, Table>(
             &'a mut self,
             table: Table,
@@ -227,8 +227,8 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
-        /// Starts a `DELETE` from `table`. Without `.r#where(..)`, every row is
-        /// deleted.
+        /// Starts a `DELETE` from `table`. It runs once `.r#where(..)` picks the
+        /// rows; `.r#where(true)` deletes every row.
         pub fn delete<'a, 'b, Table>(
             &'a mut self,
             table: Table,

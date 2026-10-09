@@ -921,7 +921,6 @@ impl<'db, 'q, Connection, Schema, State, Table, Mk, Rw, Grouped>
     >
 where
     Connection: Queryable,
-    State: builder::ExecutableState,
 {
     /// Executes this statement through MySQL's prepared/binary protocol.
     ///
@@ -931,7 +930,10 @@ where
     /// # Errors
     ///
     /// Returns an error if session initialization or execution fails.
-    pub fn execute(self) -> Result<MySQLMutationResult> {
+    pub fn execute(self) -> Result<MySQLMutationResult>
+    where
+        State: builder::ExecutableState,
+    {
         self.runner.execute_rendered(self.builder)
     }
 
@@ -942,6 +944,7 @@ where
     /// Returns an error if execution or row decoding fails.
     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -961,6 +964,7 @@ where
     /// Returns an error if execution or row decoding fails.
     pub fn rows<ScopeProof, AggProof>(self) -> Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         for<'row> Mk: MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
             + MarkerColumnCountValid<MySQLRow<'row, Row>, Rw, Rw, ScopeProof>,
@@ -977,6 +981,7 @@ where
     /// Returns an error if execution or decoding fails, or no row is returned.
     pub fn get<R, ScopeProof, AggProof>(self) -> Result<R>
     where
+        State: builder::ExecutableState,
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -990,7 +995,10 @@ where
 
     /// Detaches a reusable prepared query from this runner.
     #[must_use]
-    pub fn prepare(self) -> prepared::PreparedStatement<'q, Mk, Rw, Grouped> {
+    pub fn prepare(self) -> prepared::PreparedStatement<'q, Mk, Rw, Grouped>
+    where
+        State: builder::ExecutableState,
+    {
         prepared::PreparedStatement::new(drizzle_core::prepared::prepare_render(
             &self.builder.into_sql(),
         ))

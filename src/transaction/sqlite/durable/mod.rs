@@ -183,8 +183,6 @@ where
 #[cfg(feature = "durable")]
 impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
     TransactionBuilder<'tx, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement inside the transaction and returns the number of
     /// rows it wrote.
@@ -193,7 +191,10 @@ where
     ///
     /// Returns [`DrizzleError::Other`] with the runtime's message when the
     /// statement fails.
-    pub fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
         let _ = cursor
             .to_array::<serde::de::IgnoredAny>()
@@ -214,6 +215,7 @@ where
     /// deserialized into `R`.
     pub fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         R: for<'de> serde::Deserialize<'de>,
     {
         let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
@@ -232,6 +234,7 @@ where
     /// deserialized into `R`.
     pub fn get<R>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         R: for<'de> serde::Deserialize<'de>,
     {
         let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;

@@ -283,8 +283,6 @@ impl<Schema> Transaction<Schema> {
 #[cfg(feature = "libsql")]
 impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     TransactionBuilder<'tx, S, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement inside the transaction and returns the number of rows
     /// it changed.
@@ -293,7 +291,10 @@ where
     ///
     /// Returns an error when libsql cannot prepare or run the statement, for
     /// example on a constraint violation.
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         self.runner.savepoints.ensure_usable()?;
         let (sql, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql, params.len());
@@ -325,6 +326,7 @@ where
     /// column in a selected tuple is grouped or aggregated.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -359,6 +361,7 @@ where
     /// errors surface per row.
     pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
     {
@@ -385,6 +388,7 @@ where
     /// The same checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker

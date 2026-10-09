@@ -586,8 +586,6 @@ fn ensure_durable_migration_table(
 #[cfg(feature = "durable")]
 impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'a, Schema, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it wrote (the
     /// cursor's `rowsWritten`).
@@ -596,7 +594,10 @@ where
     ///
     /// Returns [`DrizzleError::Other`] with the runtime's message when the
     /// statement fails.
-    pub fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;
         let _ = cursor
             .to_array::<serde::de::IgnoredAny>()
@@ -619,6 +620,7 @@ where
     /// deserialized into `R`.
     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,
@@ -641,6 +643,7 @@ where
     /// deserialized into `R`.
     pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,

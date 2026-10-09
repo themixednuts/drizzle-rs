@@ -279,8 +279,6 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 #[cfg(feature = "rusqlite")]
 impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     TransactionBuilder<'tx, '_, S, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement inside the transaction and returns the number of rows
     /// it changed.
@@ -289,7 +287,10 @@ where
     ///
     /// Returns an error when SQLite cannot prepare or run the statement, for
     /// example on a constraint violation.
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
+    pub fn execute(self) -> drizzle_core::error::Result<usize>
+    where
+        State: builder::ExecutableState,
+    {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.execute");
         let (sql_str, params) = self.builder.sql.build();
@@ -319,6 +320,7 @@ where
     /// column in a selected tuple is grouped or aggregated.
     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -355,6 +357,7 @@ where
     /// row cannot be decoded.
     pub fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         Rw: for<'r> TryFrom<&'r ::rusqlite::Row<'r>>,
         for<'r> <Rw as TryFrom<&'r ::rusqlite::Row<'r>>>::Error:
             Into<drizzle_core::error::DrizzleError>,
@@ -393,6 +396,7 @@ where
     /// The same checks as [`all`](Self::all).
     pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker

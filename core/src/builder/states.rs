@@ -152,7 +152,6 @@ pub struct DeleteWhereSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DeleteReturningSet;
 
-impl ExecutableState for DeleteInitial {}
 impl ExecutableState for DeleteWhereSet {}
 impl ExecutableState for DeleteReturningSet {}
 
@@ -176,6 +175,5 @@ pub struct UpdateWhereSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateReturningSet;
 
-impl ExecutableState for UpdateSetClauseSet {}
 impl ExecutableState for UpdateWhereSet {}
 impl ExecutableState for UpdateReturningSet {}

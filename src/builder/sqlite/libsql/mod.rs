@@ -629,8 +629,8 @@ async fn sqlite_foreign_keys_enabled(
         .next()
         .await
         .map_err(DrizzleError::from)?
-        .ok_or_else(|| DrizzleError::Other("PRAGMA foreign_keys returned no row".into()))?;
-    Ok(row.get::<i64>(0).map_err(DrizzleError::from)? != 0)
+        .ok_or_else(|| DrizzleError::Other(format!("`{sql}` returned no row").into()))?;
+    row.get::<i64>(0).map_err(DrizzleError::from)
 }
 
 async fn run_migration_transaction(
@@ -1647,8 +1647,6 @@ impl<'a, T, Rels>
 #[cfg(feature = "libsql")]
 impl<S, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it changed.
     ///
@@ -1680,7 +1678,10 @@ where
     /// Returns an error when libsql cannot prepare or run the statement, for
     /// example on a constraint violation. The error carries the SQL and its
     /// parameters ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<libsql::Value> = params
@@ -1736,6 +1737,7 @@ where
     /// - a raw `sql!` selection carries an explicit result type.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -1789,6 +1791,7 @@ where
     /// The same scope and grouping checks as [`all`](Self::all).
     pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::libsql::Row, Rw, Rw, Proof>,
@@ -1844,6 +1847,7 @@ where
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker

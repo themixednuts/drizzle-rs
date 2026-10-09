@@ -28,7 +28,8 @@ pub use drizzle_core::builder::{
 /// # Clause order
 ///
 /// 1. [`set`](Self::set) (required before the query can run).
-/// 2. Optionally `where`. Without it, every row is updated.
+/// 2. `where` (required): the rows to update. `r#where(true)` updates every
+///    row.
 /// 3. Optionally [`returning`](Self::returning).
 ///
 /// The WHERE condition and the RETURNING columns may only reference the
@@ -279,8 +280,10 @@ where
 impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
     /// Adds a WHERE clause that picks the rows to update.
     ///
-    /// Without it, every row is updated. The condition must be a boolean
-    /// expression over the updated table's columns.
+    /// An UPDATE runs only with a WHERE clause, so a forgotten condition does
+    /// not rewrite the whole table; `r#where(true)` updates every row. The
+    /// condition must be a boolean expression over the updated table's
+    /// columns.
     ///
     /// # Examples
     ///
@@ -342,34 +345,6 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
             sql: self.sql.append(where_sql),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
-    /// Adds a RETURNING clause that reads columns of the updated rows.
-    ///
-    /// Pass one column or expression, a tuple, or `()` for every column.
-    /// Only columns of the updated table may be used.
-    #[inline]
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> ReturningBuilder<'a, S, T, Columns>
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources:
-            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<T>,
-    {
-        let returning_sql = crate::helpers::returning(columns);
-        UpdateBuilder {
-            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

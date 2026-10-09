@@ -403,8 +403,6 @@ impl<Schema> Transaction<Schema> {
 
 impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
     TransactionBuilder<'tx, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement inside the transaction and returns the number of
     /// rows it changed.
@@ -413,7 +411,10 @@ where
     ///
     /// Returns an error when the Data API request fails or the database
     /// rejects the statement.
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.aws_data_api", "tx_builder.execute");
@@ -439,6 +440,7 @@ where
     /// decoded into `R`.
     pub async fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
@@ -469,6 +471,7 @@ where
     /// surface per row.
     pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
@@ -494,6 +497,7 @@ where
     /// when the Data API request fails or the row cannot be decoded into `R`.
     pub async fn get<R>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {

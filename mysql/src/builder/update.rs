@@ -22,10 +22,11 @@ impl drizzle_core::ExecutableState for UpdateLimitSet {}
 /// # Clause order
 ///
 /// 1. [`set`](Self::set) (required).
-/// 2. Optionally `where`. Without it, every row is updated.
+/// 2. `where` (required): the rows to update. `r#where(true)` updates every
+///    row.
 /// 3. Optionally `order_by`, then optionally `limit`.
 ///
-/// `prepare()` is available after any of these. The WHERE and ORDER BY may
+/// `prepare()` is available once `where` is set. The WHERE and ORDER BY may
 /// only reference the updated table; other tables do not compile. `MySQL`
 /// has no `RETURNING`.
 ///
@@ -104,7 +105,7 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
 
 mutation_builder_methods!(
     UpdateBuilder,
-    prepare: [UpdateSetClauseSet, UpdateWhereSet, UpdateOrderSet, UpdateLimitSet],
-    order_by: [UpdateSetClauseSet, UpdateWhereSet] => UpdateOrderSet,
-    limit: [UpdateSetClauseSet, UpdateWhereSet, UpdateOrderSet] => UpdateLimitSet,
+    prepare: [UpdateWhereSet, UpdateOrderSet, UpdateLimitSet],
+    order_by: [UpdateWhereSet] => UpdateOrderSet,
+    limit: [UpdateWhereSet, UpdateOrderSet] => UpdateLimitSet,
 );

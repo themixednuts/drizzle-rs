@@ -518,8 +518,6 @@ impl<'db, 'connection, 'q, Schema, State, Table, Marker, DecodedRow, Grouped>
         QueryBuilder<'q, Schema, State, Table, Marker, DecodedRow, Grouped>,
         State,
     >
-where
-    State: builder::ExecutableState,
 {
     /// Executes this statement through MySQL's prepared/binary protocol.
     ///
@@ -529,7 +527,10 @@ where
     /// # Errors
     ///
     /// Returns an error if the transaction is unusable or execution fails.
-    pub fn execute(self) -> Result<MySQLMutationResult> {
+    pub fn execute(self) -> Result<MySQLMutationResult>
+    where
+        State: builder::ExecutableState,
+    {
         self.runner.execute_rendered(self.builder)
     }
 
@@ -540,6 +541,7 @@ where
     /// Returns an error if execution or row decoding fails.
     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -559,6 +561,7 @@ where
     /// Returns an error if execution or row decoding fails.
     pub fn rows(self) -> Result<Rows<DecodedRow>>
     where
+        State: builder::ExecutableState,
         for<'row> DecodedRow: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
         Ok(self
@@ -574,6 +577,7 @@ where
     /// Returns an error if execution or decoding fails, or no row is returned.
     pub fn get<R, ScopeProof, AggProof>(self) -> Result<R>
     where
+        State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -594,7 +598,10 @@ where
         Marker,
         DecodedRow,
         Grouped,
-    > {
+    >
+    where
+        State: builder::ExecutableState,
+    {
         crate::builder::mysql::mysql_sync::prepared::PreparedStatement::new(
             drizzle_core::prepared::prepare_render(&self.builder.into_sql()),
         )

@@ -1609,12 +1609,13 @@ where
 
 impl<Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'_, Runner, Schema, QueryBuilder<'_, Schema, State, T, M, R, G>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Adds a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
     /// comment in front of the query.
-    pub fn comment(self, text: impl AsRef<str>) -> Self {
+    pub fn comment(self, text: impl AsRef<str>) -> Self
+    where
+        State: builder::ExecutableState,
+    {
         self.map(|builder| builder.comment(text))
     }
 
@@ -1622,6 +1623,7 @@ where
     /// comment, such as `/*route='users'*/`, in front of the query.
     pub fn comment_tags<I, K, V>(self, pairs: I) -> Self
     where
+        State: builder::ExecutableState,
         I: IntoIterator<Item = (K, V)>,
         K: AsRef<str>,
         V: AsRef<str>,
@@ -2017,15 +2019,11 @@ macro_rules! mutation_method {
 }
 
 mutation_method!(UpdateBuilder, UpdateSetClauseSet, where => UpdateWhereSet);
-mutation_method!(UpdateBuilder, UpdateSetClauseSet, order_by => UpdateOrderSet);
-mutation_method!(UpdateBuilder, UpdateSetClauseSet, limit => UpdateLimitSet);
 mutation_method!(UpdateBuilder, UpdateWhereSet, order_by => UpdateOrderSet);
 mutation_method!(UpdateBuilder, UpdateWhereSet, limit => UpdateLimitSet);
 mutation_method!(UpdateBuilder, UpdateOrderSet, limit => UpdateLimitSet);
 
 mutation_method!(DeleteBuilder, DeleteInitial, where => DeleteWhereSet);
-mutation_method!(DeleteBuilder, DeleteInitial, order_by => DeleteOrderSet);
-mutation_method!(DeleteBuilder, DeleteInitial, limit => DeleteLimitSet);
 mutation_method!(DeleteBuilder, DeleteWhereSet, order_by => DeleteOrderSet);
 mutation_method!(DeleteBuilder, DeleteWhereSet, limit => DeleteLimitSet);
 mutation_method!(DeleteBuilder, DeleteOrderSet, limit => DeleteLimitSet);

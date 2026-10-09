@@ -33,8 +33,6 @@ macro_rules! drizzle_prepare_impl {
     () => {
         impl<'a: 'b, 'b, S, Schema, State, Table, Mk, Rw, Grouped>
             DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
-        where
-            State: builder::ExecutableState,
         {
             /// Renders this query once into a reusable prepared statement.
             ///
@@ -50,7 +48,10 @@ macro_rules! drizzle_prepare_impl {
             /// prepare there. Reach for it to bind by name, or to move SQL
             /// rendering out of a hot loop.
             #[inline]
-            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
+            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw>
+            where
+                State: builder::ExecutableState,
+            {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))
             }
         }
@@ -77,8 +78,6 @@ macro_rules! drizzle_tx_prepare_impl {
                 QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>,
                 State,
             >
-        where
-            State: builder::ExecutableState,
         {
             /// Renders this transaction's query once into a reusable prepared
             /// statement.
@@ -95,7 +94,10 @@ macro_rules! drizzle_tx_prepare_impl {
             /// connection after the transaction ends; inside the transaction,
             /// use the builder's own `.execute()`/`.all()`/`.get()` instead.
             #[inline]
-            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
+            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw>
+            where
+                State: builder::ExecutableState,
+            {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))
             }
         }

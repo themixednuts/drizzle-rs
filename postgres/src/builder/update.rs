@@ -11,9 +11,6 @@ use crate::values::PostgresValue;
 use core::marker::PhantomData;
 use drizzle_core::{SQLTable, ToSQL};
 
-// Import the ExecutableState trait
-use super::ExecutableState;
-
 //------------------------------------------------------------------------------
 // Type State Markers
 //------------------------------------------------------------------------------
@@ -26,8 +23,6 @@ pub use drizzle_core::builder::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateFromSet;
 
-impl ExecutableState for UpdateFromSet {}
-
 //------------------------------------------------------------------------------
 // UpdateBuilder Definition
 //------------------------------------------------------------------------------
@@ -35,8 +30,9 @@ impl ExecutableState for UpdateFromSet {}
 /// A `PostgreSQL` `UPDATE` being built: a [`QueryBuilder`](super::QueryBuilder)
 /// in one of the `Update*` states.
 ///
-/// Start with `.set(update_model)`, then optionally add `FROM`, `WHERE` and
-/// `RETURNING`, in that order. Without `WHERE`, every row is updated.
+/// Start with `.set(update_model)`, optionally add `FROM`, then `WHERE`
+/// (required; `r#where(true)` updates every row), then optionally
+/// `RETURNING`.
 ///
 /// # Examples
 ///
@@ -294,31 +290,6 @@ impl<'a, S, T> UpdateBuilder<'a, S, UpdateSetClauseSet, T> {
             grouped: PhantomData,
         }
     }
-
-    /// Adds `RETURNING columns`, so the statement returns the updated rows.
-    #[inline]
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> ReturningBuilder<'a, S, T, Columns>
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources:
-            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<T>,
-    {
-        let returning_sql = crate::helpers::returning(columns);
-        UpdateBuilder {
-            sql: self.sql.append(returning_sql),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
 }
 
 //------------------------------------------------------------------------------
@@ -338,30 +309,6 @@ impl<'a, S, T, M> UpdateBuilder<'a, S, UpdateFromSet, T, M> {
         let where_sql = crate::helpers::r#where(condition);
         UpdateBuilder {
             sql: self.sql.append(where_sql),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
-    /// Adds `RETURNING columns` after `FROM`.
-    #[inline]
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> ReturningBuilder<'a, S, T, Columns>
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, M>, ScopeProof>,
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<T>,
-    {
-        let returning_sql = crate::helpers::returning(columns);
-        UpdateBuilder {
-            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

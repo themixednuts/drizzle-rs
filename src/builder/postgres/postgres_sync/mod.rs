@@ -1432,8 +1432,6 @@ impl<Schema> Drizzle<Schema> {
 
 impl<S, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it changed.
     ///
@@ -1446,7 +1444,10 @@ where
     /// Returns an error when the server rejects the statement, for example on
     /// a constraint violation. The error carries the SQL and its parameters
     /// ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
-    pub fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute");
         let (sql_str, params) = self.builder.sql.build();
@@ -1490,6 +1491,7 @@ where
     /// - a raw `sql!` selection carries an explicit result type.
     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -1538,6 +1540,7 @@ where
     /// The same scope and grouping checks as [`all`](Self::all).
     pub fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, Rw, Proof>,
@@ -1579,6 +1582,7 @@ where
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
     pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker

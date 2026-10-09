@@ -10,6 +10,14 @@ pub use states::*;
 ///
 /// Dialect crates implement this for their builder state markers to allow
 /// execution, set operations, or prepared statements in those states.
+#[diagnostic::on_unimplemented(
+    message = "this query is not complete yet: `{Self}` cannot run",
+    label = "the query is still missing a clause",
+    note = "a DELETE or UPDATE must say which rows it changes with `.r#where(...)`; write \
+            `.r#where(true)` to change every row on purpose",
+    note = "a SELECT needs `.from(...)`, an INSERT needs `.values(...)`, and an UPDATE \
+            needs `.set(...)`"
+)]
 pub trait ExecutableState {}
 
 /// The state of a query builder before any statement has been started.

@@ -811,6 +811,8 @@ db.delete(users)
 # fn main() {}
 ```
 
+A `delete` or `update` without `.r#where(...)` does not compile, so a forgotten condition cannot empty or rewrite a table. To change every row on purpose, write `.r#where(true)`.
+
 ### Joins
 
 Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct. `#[from(Users)]` sets the default source table for unannotated fields:
