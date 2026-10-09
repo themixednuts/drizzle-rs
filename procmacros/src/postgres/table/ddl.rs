@@ -501,19 +501,12 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
                 };
                 modifiers.push(quote! { .default_value(#default_str) });
             }
-            if field.is_custom_type {
-                // Custom/enum types carry their OWN schema, not the table's:
-                // the `PostgresEnum` derive exposes it as
-                // `DrizzlePostgresColumn::SCHEMA` (default `public`, set via
-                // `#[postgres_enum(schema = "...")]`), which is a const
-                // expression and therefore fine inside the const DDL.
-                let base_type = &field.base_type;
-                let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
-                modifiers.push(quote! {
-                    .type_schema(<#base_type as #drizzle_postgres_column>::SCHEMA)
-                });
-            }
-            let enum_type_schema = if field.is_pgenum {
+            // A type the schema creates (a native enum) carries its OWN
+            // schema, not the table's: `DrizzlePostgresColumn::SCHEMA`
+            // (default `public`, set via `#[postgres_enum(schema = "...")]`).
+            // A custom Rust type stored as a built-in SQL type (`BYTEA`)
+            // keeps that type as written.
+            let enum_type_schema = if field.is_pgenum || field.is_custom_type {
                 let base_type = &field.base_type;
                 let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
                 Some(quote! {
