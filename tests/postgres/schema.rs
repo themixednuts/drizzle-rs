@@ -890,17 +890,20 @@ struct PgCycleSchema {
     c: PgCycleC,
 }
 
-#[test]
-fn postgres_cycle_reports_structured_error() {
-    let schema = PgCycleSchema::new();
-    let err = match schema.create_statements() {
-        Ok(_) => panic!("expected cycle detection error"),
-        Err(err) => err,
-    };
+/// Tables that reference each other in a cycle are a valid schema: each
+/// foreign key is added once both of its tables exist.
+#[drizzle::test]
+fn tables_referencing_each_other_create(db: &mut TestDb<PgCycleSchema>) {
+    let _ = db;
+    let statements: Vec<_> = schema
+        .create_statements()
+        .expect("create statements")
+        .collect();
     assert!(
-        err.to_string()
-            .contains("Cyclic table dependency detected in PostgresSchema"),
-        "unexpected error: {err}"
+        statements
+            .iter()
+            .any(|sql| sql.contains("ALTER TABLE") && sql.contains("FOREIGN KEY")),
+        "{statements:?}"
     );
 }
 

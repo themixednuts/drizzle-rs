@@ -482,7 +482,7 @@ fn postgres_macro_create_statements_run_in_a_non_public_schema() {
     assert_eq!(statements[0], format!("CREATE SCHEMA \"{DDL_SCHEMA}\";"));
     assert_eq!(
         statements[1],
-        format!("CREATE TYPE \"{DDL_SCHEMA}\".\"MacroDdlMood\" AS ENUM ('Happy', 'Sad')")
+        format!("CREATE TYPE \"{DDL_SCHEMA}\".\"MacroDdlMood\" AS ENUM ('Happy', 'Sad');")
     );
     let child = statements
         .iter()
