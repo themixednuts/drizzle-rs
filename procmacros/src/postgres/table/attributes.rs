@@ -74,6 +74,7 @@ pub struct CompositeForeignKeyAttr {
     /// or `{table}_{all_columns}_fkey` when another foreign key on the table
     /// starts with the same column.
     pub(crate) name: Option<String>,
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
     pub(crate) relation_names: RelationNames,
 }
 

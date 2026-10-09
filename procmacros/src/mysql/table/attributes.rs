@@ -32,6 +32,7 @@ pub struct CompositeForeignKeyAttr {
     /// Explicit constraint name; `None` derives one (see
     /// `MacroContext::composite_foreign_key_name`).
     pub(crate) name: Option<String>,
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
     pub(crate) relation_names: RelationNames,
 }
 

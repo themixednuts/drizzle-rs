@@ -81,6 +81,7 @@ pub trait ConstraintFieldInfo {
     /// Whether the field is an `Option<T>`.
     fn is_nullable(&self) -> bool;
     /// The `relation` and `many_to_many` names on the field's foreign key.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
     fn relation_names(&self) -> RelationNames;
 }
 
@@ -100,6 +101,7 @@ pub trait CompositeForeignKeyRef {
     fn source_columns(&self) -> &[Ident];
     fn target_columns(&self) -> &[Ident];
     /// The accessor names given in the `foreign_key(...)` attribute.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
     fn relation_names(&self) -> &RelationNames;
     /// The `ON DELETE` action in its SQL spelling (`"SET NULL"`).
     fn on_delete(&self) -> Option<&str>;

@@ -26,6 +26,7 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) target_columns: Vec<Ident>,
     pub(crate) on_delete: Option<String>,
     pub(crate) on_update: Option<String>,
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
     pub(crate) relation_names: RelationNames,
 }
 

@@ -18,6 +18,7 @@ pub mod mysql;
     feature = "turso",
     feature = "postgres-sync",
     feature = "tokio-postgres",
+    feature = "hyperdrive",
     feature = "mysql-sync",
     feature = "mysql-async"
 ))]
