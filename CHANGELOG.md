@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/themixednuts/drizzle-rs/compare/v0.3.1...v0.4.0) - 2026-10-09
+
+### Added
+
+- [**breaking**] require a WHERE on every UPDATE and DELETE
+- *(migrations)* [**breaking**] never guess whether a change is a rename
+- *(macros)* [**breaking**] name relations so schemas need no annotations
+
+### Fixed
+
+- build the push data-loss check under hyperdrive
+- *(core)* say why a bare join has no foreign key to use
+- *(mysql)* create tables that reference each other
+- *(macros)* let two tables have foreign keys to each other
+- *(schema)* create tables that reference each other
+- *(push)* stop before dropping a table or column that holds rows
+- *(postgres)* give foreign keys that share a first column distinct names
+- *(query)* reject meaningless relation options and fix PostgreSQL edge cases
+- *(macros)* catch schema and DDL mistakes at compile time
+- *(core)* explain common query mistakes instead of naming internal traits
+- *(macros)* update index and schema tests for NAME_SCOPE and the differ
+- *(postgres)* keep a custom column's built-in SQL type as written
+- *(postgres)* never create or drop an existing view
+
 ## [0.3.1](https://github.com/themixednuts/drizzle-rs/compare/v0.3.0...v0.3.1) - 2026-10-08
 
 ### Fixed
