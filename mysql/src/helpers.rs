@@ -46,6 +46,10 @@ where
 /// A source that can follow `JOIN`: a `MySQL` table, a derived table
 /// (subquery with an alias), or a table with an index hint.
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot follow JOIN",
+    label = "join a table, a view, or an aliased subquery"
+)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
 
@@ -203,6 +207,11 @@ impl IndexHintKind for IgnoreIndex {
 }
 
 /// One or more generated indexes belonging to the same MySQL table.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a list of `{Table}` indexes",
+    label = "an index hint names one or more indexes of the hinted table",
+    note = "pass one generated index of `{Table}`, or a tuple of them"
+)]
 #[doc(hidden)]
 pub trait IndexHintList<'a, Table>: index_hint_private::List<'a, Table> {
     fn names(&self) -> SQL<'a, MySQLValue<'a>>;

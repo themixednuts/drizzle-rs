@@ -24,6 +24,10 @@ pub use drizzle_core::Join;
 /// A source that can follow `JOIN`: a `SQLite` table or a derived table
 /// (subquery with an alias).
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot follow JOIN",
+    label = "join a table, a view, or an aliased subquery"
+)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
 

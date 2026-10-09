@@ -464,6 +464,11 @@ impl<E, Grouped, Proof> ScalarColumnsIn<Grouped, (Proof,)> for (E,) where
 
 /// GROUP BY check for one selected column: aggregates pass, scalars must be
 /// grouped.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is selected next to an aggregate but is not grouped",
+    label = "this query mixes aggregated and ungrouped columns",
+    note = "add the column to `.group_by(...)`, or wrap it in an aggregate such as `max(...)`"
+)]
 pub trait SingleColGroupCheck<Grouped, Proof> {}
 
 /// The column an expression is matched as when checking GROUP BY.

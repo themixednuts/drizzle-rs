@@ -12,6 +12,10 @@ use crate::{
 pub struct InsertColumnsSet<Columns>(PhantomData<Columns>);
 
 /// A generated table column that may appear in an INSERT target list.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a column of `{Table}`",
+    label = "the target columns belong to the table being inserted into"
+)]
 #[doc(hidden)]
 pub trait InsertColumn<Table> {
     /// The column type itself (the same type for a bare column).
@@ -70,6 +74,11 @@ pub trait InsertSelectAllColumns: InsertSelectTable {}
 impl<T> InsertSelectAllColumns for &T where T: InsertSelectAllColumns {}
 
 /// Pairwise compatibility between target columns and SELECT expressions.
+#[diagnostic::on_unimplemented(
+    message = "the SELECT does not provide one value of a matching type for each INSERT column",
+    label = "its columns do not line up with the target columns",
+    note = "select one value per target column, in the same order, each assignable to its column"
+)]
 #[doc(hidden)]
 pub trait InsertSelectColumns<'a, V: SQLParam, Source> {}
 
@@ -216,6 +225,11 @@ where
 }
 
 /// A checked SELECT projection for every insertable target column.
+#[diagnostic::on_unimplemented(
+    message = "this query cannot be the source of an INSERT into `{Target}`",
+    label = "the source must be a SELECT of the insertable columns",
+    note = "an UPDATE or DELETE, even with RETURNING, cannot feed an INSERT"
+)]
 #[doc(hidden)]
 pub trait InsertSelectCompatible<'a, V: SQLParam, Target, Row> {}
 

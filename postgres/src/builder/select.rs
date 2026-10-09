@@ -1848,6 +1848,11 @@ where
 /// A query that can be the right-hand side of `UNION`, `INTERSECT` or `EXCEPT`.
 ///
 /// Implemented by [`SelectBuilder`] and by the driver crates' query wrappers.
+#[diagnostic::on_unimplemented(
+    message = "this query does not select the columns the set operation needs",
+    label = "it selects different columns from the other side",
+    note = "both sides of UNION, INTERSECT and EXCEPT select the same number of columns, of matching types, in the same order"
+)]
 pub trait IntoSelect<'a, S, M, R> {
     /// The builder state of the converted query.
     type State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>;

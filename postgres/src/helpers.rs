@@ -23,6 +23,10 @@ pub use drizzle_core::Join;
 
 /// A table or derived table that can be joined.
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot follow JOIN",
+    label = "join a table, a view, or an aliased subquery"
+)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
 
