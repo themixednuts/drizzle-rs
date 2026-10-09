@@ -482,7 +482,6 @@ pub struct DiffOptions {
     pub mysql_catalog_defaults: Option<crate::mysql::MySQLCatalogDefaults>,
 }
 
-
 impl DiffOptions {
     /// Creates default options: no hints, non-strict.
     #[must_use]

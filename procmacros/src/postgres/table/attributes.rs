@@ -70,7 +70,9 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) on_update: Option<String>,
     pub(crate) deferrable: bool,
     pub(crate) initially_deferred: bool,
-    /// Explicit constraint name; `None` uses `{table}_{first_column}_fkey`.
+    /// Explicit constraint name. `None` derives `{table}_{first_column}_fkey`,
+    /// or `{table}_{all_columns}_fkey` when another foreign key on the table
+    /// starts with the same column.
     pub(crate) name: Option<String>,
     pub(crate) relation_names: RelationNames,
 }

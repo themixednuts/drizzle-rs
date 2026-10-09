@@ -1937,10 +1937,12 @@ impl FieldInfo {
         let fk_ref = self.foreign_key.as_ref()?;
         let table_to = fk_ref.table.to_string();
         let column_to = fk_ref.column.to_string();
-        let fk_name = fk_ref
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, self.column_name));
+        let fk_name = fk_ref.name.clone().unwrap_or_else(|| {
+            drizzle_types::postgres::names::foreign_key_name(
+                table_name,
+                &[self.column_name.as_str()],
+            )
+        });
 
         let mut fk = drizzle_types::postgres::ddl::ForeignKey::from_strings(
             schema.to_string(),

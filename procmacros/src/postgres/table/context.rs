@@ -1,7 +1,7 @@
-use super::attributes::TableAttributes;
+use super::attributes::{CompositeForeignKeyAttr, TableAttributes};
 use crate::common::rust_type_to_nullability;
 use crate::paths::postgres as pg_paths;
-use crate::postgres::field::FieldInfo;
+use crate::postgres::field::{FieldInfo, PostgreSQLReference};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Ident, Visibility};
@@ -37,6 +37,65 @@ pub struct MacroContext<'a> {
 }
 
 impl MacroContext<'_> {
+    /// SQL names of a table-level foreign key's source columns.
+    pub(crate) fn composite_foreign_key_columns(
+        &self,
+        foreign_key: &CompositeForeignKeyAttr,
+    ) -> Vec<String> {
+        foreign_key
+            .source_columns
+            .iter()
+            .map(|source| {
+                self.field_infos
+                    .iter()
+                    .find(|field| &field.ident == source)
+                    .map_or_else(|| source.to_string(), |field| field.column_name.clone())
+            })
+            .collect()
+    }
+
+    /// Name of `field`'s foreign key `reference`: its explicit name, else
+    /// `{table}_{column}_fkey`.
+    pub(crate) fn column_foreign_key_name(
+        &self,
+        field: &FieldInfo,
+        reference: &PostgreSQLReference,
+    ) -> String {
+        reference.name.clone().unwrap_or_else(|| {
+            drizzle_types::postgres::names::foreign_key_name(
+                &self.table_name,
+                &[field.column_name.as_str()],
+            )
+        })
+    }
+
+    /// Name of the `index`-th table-level foreign key: its explicit name,
+    /// else named after its first column unless another foreign key on this
+    /// table starts with the same column, then after all of its columns.
+    pub(crate) fn composite_foreign_key_name(&self, index: usize) -> String {
+        let foreign_key = &self.attrs.composite_foreign_keys[index];
+        if let Some(name) = &foreign_key.name {
+            return name.clone();
+        }
+        let columns = self.composite_foreign_key_columns(foreign_key);
+        let first = columns.first();
+        let collides =
+            self.field_infos
+                .iter()
+                .any(|field| field.foreign_key.is_some() && Some(&field.column_name) == first)
+                || self.attrs.composite_foreign_keys.iter().enumerate().any(
+                    |(other, foreign_key)| {
+                        other != index
+                            && self.composite_foreign_key_columns(foreign_key).first() == first
+                    },
+                );
+        let columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+        drizzle_types::postgres::names::foreign_key_name(
+            &self.table_name,
+            drizzle_types::postgres::names::composite_foreign_key_name_columns(&columns, collides),
+        )
+    }
+
     /// Determines if a field should be optional in the Insert model.
     /// A field is optional when it is nullable, has a database or runtime default,
     /// or is auto-generated (serial/bigserial, identity, generated column).

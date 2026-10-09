@@ -720,9 +720,12 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
                 let mut fk = ForeignKey::from_strings(
                     schema_name.clone(),
                     table_name.clone(),
-                    spec.fk_name
-                        .clone()
-                        .unwrap_or_else(|| format!("{table_name}_{col_name}_fkey")),
+                    spec.fk_name.clone().unwrap_or_else(|| {
+                        drizzle_types::postgres::names::foreign_key_name(
+                            &table_name,
+                            &[col_name.as_str()],
+                        )
+                    }),
                     vec![col_name.clone()],
                     schema_of(&reference.table),
                     maps.table(&reference.table),
@@ -764,19 +767,39 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
             snapshot.add_entity(PostgresEntity::PrimaryKey(pk));
         }
 
-        // Composite FOREIGN_KEY(...) attributes: `{table}_{first_col}_fkey`
-        // naming with source columns resolved through field names (Postgres
-        // macro behavior); actions pass through verbatim.
-        for cfk in &table.spec.composite_fks {
-            let source_columns: Vec<String> = cfk
-                .source_columns
-                .iter()
-                .map(|field| maps.field(&table.name, field))
-                .collect();
+        // Composite FOREIGN_KEY(...) attributes, with source columns resolved
+        // through field names; actions pass through verbatim.
+        let composite_columns: Vec<Vec<String>> = table
+            .spec
+            .composite_fks
+            .iter()
+            .map(|cfk| {
+                cfk.source_columns
+                    .iter()
+                    .map(|field| maps.field(&table.name, field))
+                    .collect()
+            })
+            .collect();
+        for (fk_index, cfk) in table.spec.composite_fks.iter().enumerate() {
+            let source_columns = composite_columns[fk_index].clone();
+            // Same rule as the table macro: `{table}_{first_col}_fkey`, or
+            // after all columns when another foreign key on this table
+            // starts with the same column.
             let fk_name = cfk.name.clone().unwrap_or_else(|| {
-                format!(
-                    "{table_name}_{}_fkey",
-                    source_columns.first().cloned().unwrap_or_default()
+                let first = source_columns.first();
+                let collides = table.fields.iter().any(|field| {
+                    field.spec.references.is_some()
+                        && Some(&maps.field(&table.name, &field.name)) == first
+                }) || composite_columns.iter().enumerate().any(
+                    |(other, other_columns)| other != fk_index && other_columns.first() == first,
+                );
+                let name_columns: Vec<&str> = source_columns.iter().map(String::as_str).collect();
+                drizzle_types::postgres::names::foreign_key_name(
+                    &table_name,
+                    drizzle_types::postgres::names::composite_foreign_key_name_columns(
+                        &name_columns,
+                        collides,
+                    ),
                 )
             });
             let mut fk = ForeignKey::from_strings(

@@ -377,6 +377,34 @@ mod postgres_parity {
     )]
     pub struct AccountsPolicy(Accounts);
 
+    #[PostgresTable]
+    pub struct Tenants {
+        #[column(primary)]
+        pub id: i64,
+    }
+
+    #[PostgresTable]
+    pub struct TenantUsers {
+        #[column(primary)]
+        pub tenant_id: i64,
+        #[column(primary)]
+        pub id: i64,
+    }
+
+    /// A key on `tenant_id` next to one on `(tenant_id, user_id)`: the
+    /// composite key is named after all its columns, so the two differ.
+    #[PostgresTable(FOREIGN_KEY(
+        columns(tenant_id, user_id),
+        references(TenantUsers, tenant_id, id)
+    ))]
+    pub struct TenantDocuments {
+        #[column(primary)]
+        pub id: i64,
+        #[column(references = Tenants::id)]
+        pub tenant_id: i64,
+        pub user_id: i64,
+    }
+
     #[derive(PostgresSchema)]
     pub struct PostgresParitySchema {
         pub account_status: AccountStatus,
@@ -389,6 +417,9 @@ mod postgres_parity {
         pub accounts_tier_idx: AccountsTierIdx,
         pub account_tiers: AccountTiers,
         pub accounts_policy: AccountsPolicy,
+        pub tenants: Tenants,
+        pub tenant_users: TenantUsers,
+        pub tenant_documents: TenantDocuments,
     }
 
     #[test]
@@ -436,6 +467,24 @@ mod postgres_parity {
         // macro side (parity extends them to the parser side).
         use drizzle::migrations::postgres::PostgresEntity;
         let ddl = &macro_snapshot.ddl;
+
+        let mut document_fks: Vec<&str> = ddl
+            .iter()
+            .filter_map(|e| match e {
+                PostgresEntity::ForeignKey(fk) if fk.table.as_ref() == "tenant_documents" => {
+                    Some(fk.name.as_ref())
+                }
+                _ => None,
+            })
+            .collect();
+        document_fks.sort_unstable();
+        assert_eq!(
+            document_fks,
+            [
+                "tenant_documents_tenant_id_fkey",
+                "tenant_documents_tenant_id_user_id_fkey"
+            ]
+        );
 
         // ONE composite PrimaryKey entity for account_events.
         let event_pks: Vec<_> = ddl

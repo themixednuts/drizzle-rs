@@ -170,10 +170,7 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     // Single-column foreign keys
     for field in field_infos {
         if let Some(ref fk) = field.foreign_key {
-            let fk_name = fk
-                .name
-                .clone()
-                .unwrap_or_else(|| format!("{}_{}_fkey", table_name, field.column_name));
+            let fk_name = ctx.column_foreign_key_name(field, fk);
             let ref_column_expr = ref_column_name_expr(&fk.table, &fk.column);
             let mut line = Vec::new();
             line.push(DdlPiece::Literal(format!(
@@ -208,27 +205,15 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     }
 
     // Composite foreign keys
-    for fk in &ctx.attrs.composite_foreign_keys {
-        let source_cols: Vec<String> = fk
-            .source_columns
-            .iter()
-            .map(|src| {
-                ctx.field_infos
-                    .iter()
-                    .find(|f| &f.ident == src)
-                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
-            })
-            .collect();
+    for (fk_index, fk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
+        let source_cols = ctx.composite_foreign_key_columns(fk);
         let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
             .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let fk_name = fk
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, source_cols[0]));
+        let fk_name = ctx.composite_foreign_key_name(fk_index);
         let src_str = source_cols
             .iter()
             .map(|c| format!("\"{c}\""))
@@ -659,9 +644,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
             field.foreign_key.as_ref().map(|fk_ref| {
                 let ref_table_ident = &fk_ref.table;
                 let ref_column_expr = ref_column_name_expr(&fk_ref.table, &fk_ref.column);
-                let fk_name = fk_ref.name.clone().unwrap_or_else(|| {
-                    format!("{}_{}_fkey", table_name, field.column_name)
-                });
+                let fk_name = ctx.column_foreign_key_name(field, fk_ref);
                 let column_name = &field.column_name;
 
                 let mut modifiers = Vec::new();
@@ -697,28 +680,16 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
         })
         .collect();
 
-    for fk in &ctx.attrs.composite_foreign_keys {
+    for (fk_index, fk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
         let ref_table_ident = &fk.target_table;
-        let source_columns: Vec<String> = fk
-            .source_columns
-            .iter()
-            .map(|src| {
-                ctx.field_infos
-                    .iter()
-                    .find(|f| &f.ident == src)
-                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
-            })
-            .collect();
+        let source_columns = ctx.composite_foreign_key_columns(fk);
         let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
             .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let fk_name = fk
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, source_columns[0]));
+        let fk_name = ctx.composite_foreign_key_name(fk_index);
         let explicit_name = fk.name.is_some().then(|| quote! { .explicit_name() });
         let fk_cols: Vec<TokenStream> = source_columns
             .iter()

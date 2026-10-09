@@ -5,8 +5,10 @@
 //! - [`TypeCategory`]: how a Rust field type maps to a `PostgreSQL` column.
 //! - [`PgTypeCategory`]: categories of SQL type names, used when parsing.
 //! - [`ddl`]: schema objects (tables, columns, indexes, ...) for migrations.
+//! - [`names`]: default constraint names.
 
 pub mod ddl;
+pub mod names;
 mod sql_type;
 mod type_category;
 

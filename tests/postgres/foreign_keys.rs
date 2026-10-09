@@ -102,3 +102,77 @@ fn test_set_default_sets_default_value(db: &mut TestDb<FkSetDefaultSchema>) {
         "Parent ID should be default (0) after SET DEFAULT"
     );
 }
+
+#[PostgresTable]
+pub struct FkTenant {
+    #[column(primary)]
+    pub id: i32,
+}
+
+#[PostgresTable]
+pub struct FkTenantUser {
+    #[column(primary)]
+    pub tenant_id: i32,
+    #[column(primary)]
+    pub id: i32,
+}
+
+/// One key on `tenant_id` and one on `(tenant_id, user_id)`. Both used to
+/// derive the name `fk_tenant_document_tenant_id_fkey`, so PostgreSQL
+/// rejected the table.
+#[PostgresTable(FOREIGN_KEY(columns(tenant_id, user_id), references(FkTenantUser, tenant_id, id)))]
+pub struct FkTenantDocument {
+    #[column(primary)]
+    pub id: i32,
+    #[column(references = FkTenant::id)]
+    pub tenant_id: i32,
+    pub user_id: i32,
+}
+
+#[derive(PostgresSchema)]
+pub struct FkTenantSchema {
+    pub tenant: FkTenant,
+    pub tenant_user: FkTenantUser,
+    pub tenant_document: FkTenantDocument,
+}
+
+#[test]
+fn foreign_keys_sharing_a_first_column_get_distinct_names() {
+    let sql = FkTenantDocument::create_table_sql();
+    assert!(
+        sql.contains(
+            "CONSTRAINT \"fk_tenant_document_tenant_id_fkey\" FOREIGN KEY (\"tenant_id\")"
+        ),
+        "{sql}"
+    );
+    assert!(
+        sql.contains(
+            "CONSTRAINT \"fk_tenant_document_tenant_id_user_id_fkey\" FOREIGN KEY (\"tenant_id\", \"user_id\")"
+        ),
+        "{sql}"
+    );
+}
+
+#[drizzle::test]
+fn foreign_keys_sharing_a_first_column_are_both_enforced(db: &mut TestDb<FkTenantSchema>) {
+    let FkTenantSchema {
+        tenant,
+        tenant_user,
+        tenant_document,
+    } = schema;
+
+    db.insert(tenant).values([InsertFkTenant::new(1)]).execute();
+    db.insert(tenant_user)
+        .values([InsertFkTenantUser::new(1, 10)])
+        .execute();
+    db.insert(tenant_document)
+        .values([InsertFkTenantDocument::new(1, 1, 10)])
+        .execute();
+
+    let missing_user = result!(
+        db.insert(tenant_document)
+            .values([InsertFkTenantDocument::new(2, 1, 11)])
+            .execute()
+    );
+    assert!(missing_user.is_err(), "the composite key must be enforced");
+}
