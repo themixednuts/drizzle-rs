@@ -210,3 +210,108 @@ fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>) {
     assert!(cat_names.contains(&"Tech"));
     assert!(cat_names.contains(&"Science"));
 }
+
+#[PostgresTable(NAME = "query_wide_parents")]
+struct WideParent {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+/// More columns than one `json_build_object` call takes (100 arguments, so
+/// 50 key-value pairs).
+#[PostgresTable(NAME = "query_wide_children")]
+struct WideChild {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = WideParent::id)]
+    wide_parent_id: i32,
+    c1: Option<i32>,
+    c2: Option<i32>,
+    c3: Option<i32>,
+    c4: Option<i32>,
+    c5: Option<i32>,
+    c6: Option<i32>,
+    c7: Option<i32>,
+    c8: Option<i32>,
+    c9: Option<i32>,
+    c10: Option<i32>,
+    c11: Option<i32>,
+    c12: Option<i32>,
+    c13: Option<i32>,
+    c14: Option<i32>,
+    c15: Option<i32>,
+    c16: Option<i32>,
+    c17: Option<i32>,
+    c18: Option<i32>,
+    c19: Option<i32>,
+    c20: Option<i32>,
+    c21: Option<i32>,
+    c22: Option<i32>,
+    c23: Option<i32>,
+    c24: Option<i32>,
+    c25: Option<i32>,
+    c26: Option<i32>,
+    c27: Option<i32>,
+    c28: Option<i32>,
+    c29: Option<i32>,
+    c30: Option<i32>,
+    c31: Option<i32>,
+    c32: Option<i32>,
+    c33: Option<i32>,
+    c34: Option<i32>,
+    c35: Option<i32>,
+    c36: Option<i32>,
+    c37: Option<i32>,
+    c38: Option<i32>,
+    c39: Option<i32>,
+    c40: Option<i32>,
+    c41: Option<i32>,
+    c42: Option<i32>,
+    c43: Option<i32>,
+    c44: Option<i32>,
+    c45: Option<i32>,
+    c46: Option<i32>,
+    c47: Option<i32>,
+    c48: Option<i32>,
+    c49: Option<i32>,
+    c50: Option<i32>,
+    c51: Option<i32>,
+    c52: Option<i32>,
+    c53: Option<i32>,
+    c54: Option<i32>,
+    c55: Option<i32>,
+}
+
+#[derive(PostgresSchema)]
+struct WideSchema {
+    wide_parent: WideParent,
+    wide_child: WideChild,
+}
+
+#[drizzle::test]
+fn relations_load_rows_wider_than_one_json_object_call(db: &mut TestDb<WideSchema>) {
+    let WideSchema {
+        wide_parent,
+        wide_child,
+    } = schema;
+    db.insert(wide_parent)
+        .values([InsertWideParent::new(1)])
+        .execute();
+    db.insert(wide_child)
+        .values([InsertWideChild::new(10, 1)
+            .with_c1(1)
+            .with_c50(50)
+            .with_c55(55)])
+        .execute();
+
+    let parents = db
+        .query(wide_parent)
+        .with(wide_parent.wide_children())
+        .find_many();
+    assert_eq!(parents.len(), 1);
+    let child = &parents[0].wide_children[0];
+    assert_eq!(
+        (child.id, child.c1, child.c50, child.c51, child.c55),
+        (10, Some(1), Some(50), None, Some(55))
+    );
+}
