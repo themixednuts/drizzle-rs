@@ -919,7 +919,13 @@ where
     pub fn create(&mut self) -> Result<()> {
         for statement in Schema::default().create_statements()? {
             self.ensure_session()?;
-            execute_request(&mut self.connection, &statement, &[])?;
+            if let Err(error) = execute_request(&mut self.connection, &statement, &[]) {
+                // Tables in a reference cycle are created with foreign-key
+                // checks off; never leave the session that way.
+                let restore = drizzle_mysql::common::RESTORE_FOREIGN_KEY_CHECKS;
+                let _ = execute_request(&mut self.connection, restore, &[]);
+                return Err(error);
+            }
         }
         Ok(())
     }

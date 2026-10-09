@@ -262,23 +262,14 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             }
         }
 
-        if ordered_names.len() != tables.len() {
-            let mut remaining: ::std::vec::Vec<_> = indegree
-                .iter()
-                .filter(|(_, degree)| **degree > 0)
-                .map(|(name, _)| name.clone())
-                .collect();
-            remaining.sort_unstable();
-            return ::std::result::Result::Err(
-                drizzle::error::DrizzleError::Statement(
-                    ::std::format!(
-                        "Cyclic table dependency detected in MySQLSchema: {}",
-                        remaining.join(", "),
-                    )
-                    .into(),
-                ),
-            );
-        }
+        // Tables in a reference cycle, and the tables that depend on them,
+        // have no creation order that satisfies every reference.
+        let mut cyclic: ::std::vec::Vec<_> = indegree
+            .iter()
+            .filter(|(_, degree)| **degree > 0)
+            .map(|(name, _)| name.clone())
+            .collect();
+        cyclic.sort_unstable();
 
         let mut table_sql = ::std::collections::HashMap::<
             ::std::string::String,
@@ -289,15 +280,26 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         }
 
         let mut statements = ::std::vec::Vec::<::std::string::String>::new();
-        for table_name in ordered_names {
+        let mut create = |statements: &mut ::std::vec::Vec<::std::string::String>, table_name: &::std::string::String| {
             statements.push(
                 table_sql
-                    .remove(&table_name)
+                    .remove(table_name)
                     .expect("ordered MySQL table must have SQL"),
             );
-            if let ::std::option::Option::Some(table_indexes) = indexes.get(&table_name) {
+            if let ::std::option::Option::Some(table_indexes) = indexes.get(table_name) {
                 statements.extend(table_indexes.iter().cloned());
             }
+        };
+        for table_name in &ordered_names {
+            create(&mut statements, table_name);
+        }
+        if !cyclic.is_empty() {
+            statements.push(drizzle::mysql::common::SAVE_FOREIGN_KEY_CHECKS.to_string());
+            statements.push(drizzle::mysql::common::DISABLE_FOREIGN_KEY_CHECKS.to_string());
+            for table_name in &cyclic {
+                create(&mut statements, table_name);
+            }
+            statements.push(drizzle::mysql::common::RESTORE_FOREIGN_KEY_CHECKS.to_string());
         }
         statements.extend(#order_schema_views(&views)?);
         statements

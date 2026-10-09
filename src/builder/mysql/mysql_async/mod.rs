@@ -1284,7 +1284,13 @@ where
     pub async fn create(&mut self) -> Result<()> {
         for statement in Schema::default().create_statements()? {
             self.ensure_session().await?;
-            execute_request(&mut self.connection, &statement, &[]).await?;
+            if let Err(error) = execute_request(&mut self.connection, &statement, &[]).await {
+                // Tables in a reference cycle are created with foreign-key
+                // checks off; never leave the session that way.
+                let restore = drizzle_mysql::common::RESTORE_FOREIGN_KEY_CHECKS;
+                let _ = execute_request(&mut self.connection, restore, &[]).await;
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -1302,7 +1308,13 @@ where
     pub async fn create(&self) -> Result<()> {
         let mut connection = self.checkout().await?;
         for statement in Schema::default().create_statements()? {
-            execute_request(&mut connection, &statement, &[]).await?;
+            if let Err(error) = execute_request(&mut connection, &statement, &[]).await {
+                // The connection returns to the pool: restore the foreign-key
+                // checks a reference cycle turned off.
+                let restore = drizzle_mysql::common::RESTORE_FOREIGN_KEY_CHECKS;
+                let _ = execute_request(&mut connection, restore, &[]).await;
+                return Err(error);
+            }
         }
         Ok(())
     }
