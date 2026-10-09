@@ -1048,6 +1048,40 @@ mod tests {
         assert!(renamed.data_loss.is_empty(), "{:?}", renamed.data_loss);
     }
 
+    /// A view marked `existing` is managed outside the schema, so PostgreSQL
+    /// migrations neither create nor drop it.
+    #[test]
+    fn postgres_never_creates_or_drops_an_existing_view() {
+        let snapshot = |view: Option<PgView>| {
+            let mut snapshot = PostgresSnapshot::new();
+            snapshot.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
+            if let Some(view) = view {
+                snapshot.add_entity(PostgresEntity::View(view));
+            }
+            Snapshot::Postgres(snapshot)
+        };
+        let existing = || {
+            let mut view = PgView::new("public", "reporting");
+            view.definition = Some(Cow::Borrowed("SELECT 1"));
+            view.is_existing = true;
+            view
+        };
+        let created = diff_with(
+            &snapshot(None),
+            &snapshot(Some(existing())),
+            &DiffOptions::new(),
+        )
+        .unwrap();
+        assert!(created.statements.is_empty(), "{:?}", created.statements);
+        let dropped = diff_with(
+            &snapshot(Some(existing())),
+            &snapshot(None),
+            &DiffOptions::new(),
+        )
+        .unwrap();
+        assert!(dropped.statements.is_empty(), "{:?}", dropped.statements);
+    }
+
     #[test]
     fn diff_never_guesses_a_rename() {
         let prev = sqlite(&[("users", &["id", "name"])]);
