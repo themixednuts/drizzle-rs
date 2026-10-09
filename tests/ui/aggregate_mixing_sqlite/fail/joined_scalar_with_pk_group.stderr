@@ -1,14 +1,15 @@
-error[E0277]: the trait bound `post::Title: drizzle_core::row::SingleColGroupCheck<PkGroup<User>, _>` is not satisfied
+error[E0277]: `post::Title` is selected next to an aggregate but is not grouped
   --> tests/ui/aggregate_mixing_sqlite/fail/joined_scalar_with_pk_group.rs:45:10
    |
 45 |         .all();
-   |          ^^^ unsatisfied trait bound
+   |          ^^^ this query mixes aggregated and ungrouped columns
    |
 help: the trait `drizzle_core::row::SingleColGroupCheck<PkGroup<User>, _>` is not implemented for `post::Title`
   --> tests/ui/aggregate_mixing_sqlite/fail/joined_scalar_with_pk_group.rs:12:1
    |
 12 | #[SQLiteTable]
    | ^^^^^^^^^^^^^^
+   = note: add the column to `.group_by(...)`, or wrap it in an aggregate such as `max(...)`
    = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`

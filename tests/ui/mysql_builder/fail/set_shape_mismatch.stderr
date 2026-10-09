@@ -1,11 +1,12 @@
-error[E0277]: the trait bound `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Name,)>, Cons<Users, Nil>>, (std::string::String,)>: drizzle::mysql::builder::IntoSelectQuery<'_, Schema, (u64,)>` is not satisfied
+error[E0277]: this query does not select the columns needed here
   --> tests/ui/mysql_builder/fail/set_shape_mismatch.rs:20:23
    |
 20 |     let _ = ids.union(names);
-   |                 ----- ^^^^^ unsatisfied trait bound
+   |                 ----- ^^^^^ it selects different columns
    |                 |
    |                 required by a bound introduced by this call
    |
+   = note: a set operand (UNION, INTERSECT, EXCEPT) and an INSERT ... SELECT source select the same number of columns, of matching types, in the same order
 help: the trait `IntoSelectQuery<'_, Schema, (u64,)>` is not implemented for `QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Name,)>, Cons<Users, Nil>>, (std::string::String,)>`
       but trait `IntoSelectQuery<'_, Schema, (std::string::String,)>` is implemented for it
   --> mysql/src/builder/select.rs

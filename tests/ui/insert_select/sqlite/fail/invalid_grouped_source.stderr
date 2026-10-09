@@ -1,8 +1,8 @@
-error[E0277]: the trait bound `sources::Id: drizzle_core::row::SingleColGroupCheck<Cons<sources::Name, Nil>, _>` is not satisfied
+error[E0277]: `sources::Id` is selected next to an aggregate but is not grouped
   --> tests/ui/insert_select/sqlite/fail/invalid_grouped_source.rs:28:44
    |
 28 |     let _ = builder.insert(targets).select(selected);
-   |                                     ------ ^^^^^^^^ unsatisfied trait bound
+   |                                     ------ ^^^^^^^^ this query mixes aggregated and ungrouped columns
    |                                     |
    |                                     required by a bound introduced by this call
    |
@@ -11,6 +11,7 @@ help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<sources::Name, Nil>
    |
  3 | #[SQLiteTable]
    | ^^^^^^^^^^^^^^
+   = note: add the column to `.group_by(...)`, or wrap it in an aggregate such as `max(...)`
    = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`

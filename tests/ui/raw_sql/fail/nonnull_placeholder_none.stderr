@@ -1,11 +1,13 @@
-error[E0277]: the trait bound `std::option::Option<i32>: drizzle_core::bind::BindValue<'_, _, drizzle::sqlite::types::Integer>` is not satisfied
+error[E0277]: `std::option::Option<i32>` cannot bind to a `drizzle::sqlite::types::Integer` placeholder
   --> tests/ui/raw_sql/fail/nonnull_placeholder_none.rs:23:60
    |
 23 |     let _rows: Vec<SelectUser> = q.all(db.conn(), [id.bind(None::<i32>)]).unwrap();
-   |                                                       ---- ^^^^^^^^^^^ the trait `ValueTypeForDialect<_>` is not implemented for `std::option::Option<i32>`
+   |                                                       ---- ^^^^^^^^^^^ bind a value of the placeholder column's type
    |                                                       |
    |                                                       required by a bound introduced by this call
    |
+   = help: the trait `ValueTypeForDialect<_>` is not implemented for `std::option::Option<i32>`
+   = note: `None` binds only to the placeholder of a nullable column
    = help: the following other types implement trait `ValueTypeForDialect<D>`:
              `&[u8]` implements `ValueTypeForDialect<MySQLDialect>`
              `&[u8]` implements `ValueTypeForDialect<PostgresDialect>`

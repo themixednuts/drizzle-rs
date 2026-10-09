@@ -1,11 +1,12 @@
-error[E0277]: the trait bound `SQL<'_, SQLiteValue<'_>>: drizzle::sqlite::helpers::JoinSource<'_>` is not satisfied
+error[E0277]: `SQL<'_, SQLiteValue<'_>>` cannot follow JOIN
  --> tests/ui/derived_tables/fail/arbitrary_join_source.rs:8:25
   |
 8 |     require_join_source(raw);
-  |     ------------------- ^^^ the trait `SQLiteTable<'_>` is not implemented for `SQL<'_, SQLiteValue<'_>>`
+  |     ------------------- ^^^ join a table, a view, or an aliased subquery
   |     |
   |     required by a bound introduced by this call
   |
+  = help: the trait `SQLiteTable<'_>` is not implemented for `SQL<'_, SQLiteValue<'_>>`
 help: the trait `SQLiteTable<'a>` is implemented for `&T`
  --> sqlite/src/traits/table.rs
   |

@@ -1,11 +1,13 @@
-error[E0277]: the trait bound `Float8: CastTarget<'_, Int4, PostgresDialect>` is not satisfied
+error[E0277]: `Float8` is not a cast target for `Int4` here
   --> tests/ui/cast_targets/postgres/fail/marker_target_mismatch.rs:13:68
    |
 13 |     let _ = cast::<_, _, drizzle::postgres::types::Int4>(user.age, drizzle::postgres::types::Float8);
-   |             --------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, Int4, PostgresDialect>` is not implemented for `Float8`
+   |             --------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a type marker target must be the cast's result type, from this dialect
    |             |
    |             required by a bound introduced by this call
    |
+   = help: the trait `CastTarget<'_, Int4, PostgresDialect>` is not implemented for `Float8`
+   = note: or pass the SQL type name as a string, such as `"VARCHAR(255)"`
 help: the trait `CastTarget<'a, T, D>` is implemented for `&'a str`
   --> core/src/expr/util.rs
    |

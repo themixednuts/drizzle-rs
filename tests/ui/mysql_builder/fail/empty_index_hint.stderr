@@ -1,11 +1,13 @@
-error[E0277]: the trait bound `(): drizzle::mysql::helpers::IndexHintList<'_, Users>` is not satisfied
+error[E0277]: `()` is not a list of `Users` indexes
   --> tests/ui/mysql_builder/fail/empty_index_hint.rs:16:60
    |
 16 |     let _ = builder.select(users.id).from(users).use_index(());
-   |                                                  --------- ^^ the trait `SQLIndex<'_, drizzle::mysql::prelude::MySQLSchemaType, drizzle::mysql::MySQLValue<'_>>` is not implemented for `()`
+   |                                                  --------- ^^ an index hint names one or more indexes of the hinted table
    |                                                  |
    |                                                  required by a bound introduced by this call
    |
+   = help: the trait `SQLIndex<'_, drizzle::mysql::prelude::MySQLSchemaType, drizzle::mysql::MySQLValue<'_>>` is not implemented for `()`
+   = note: pass one generated index of `Users`, or a tuple of them
    = help: the following other types implement trait `drizzle::mysql::helpers::IndexHintList<'a, Table>`:
              (T₁, T₂, …, Tₙ) for tuples of arity 2 up to and including 8
    = note: required for `()` to implement `drizzle::mysql::helpers::IndexHintList<'_, Users>`

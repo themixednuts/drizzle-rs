@@ -1,14 +1,15 @@
-error[E0277]: the trait bound `Name: drizzle_core::row::SingleColGroupCheck<Cons<Active, Nil>, _>` is not satisfied
+error[E0277]: `Name` is selected next to an aggregate but is not grouped
   --> tests/ui/mysql_builder/fail/invalid_group_prepare.rs:24:10
    |
 24 |         .prepare();
-   |          ^^^^^^^ unsatisfied trait bound
+   |          ^^^^^^^ this query mixes aggregated and ungrouped columns
    |
 help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<Active, Nil>, _>` is not implemented for `Name`
   --> tests/ui/mysql_builder/fail/invalid_group_prepare.rs:4:1
    |
  4 | #[MySQLTable]
    | ^^^^^^^^^^^^^
+   = note: add the column to `.group_by(...)`, or wrap it in an aggregate such as `max(...)`
    = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`

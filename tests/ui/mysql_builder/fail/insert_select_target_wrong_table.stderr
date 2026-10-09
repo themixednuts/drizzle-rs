@@ -1,8 +1,8 @@
-error[E0277]: the trait bound `users::Id: drizzle::core::InsertColumn<Posts>` is not satisfied
+error[E0277]: `users::Id` is not a column of `Posts`
   --> tests/ui/mysql_builder/fail/insert_select_target_wrong_table.rs:30:10
    |
 30 |         .columns((users.id, posts.title))
-   |          ^^^^^^^ unsatisfied trait bound
+   |          ^^^^^^^ the target columns belong to the table being inserted into
    |
 help: the trait `drizzle::core::InsertColumn<Posts>` is not implemented for `users::Id`
   --> tests/ui/mysql_builder/fail/insert_select_target_wrong_table.rs:3:1

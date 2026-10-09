@@ -1,11 +1,12 @@
-error[E0277]: the trait bound `drizzle::postgres::builder::QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>: IntoSelect<'_, Schema, _, SelectUsers>` is not satisfied
+error[E0277]: this query does not select the columns the set operation needs
   --> tests/ui/set_ops_postgres/fail/union_mismatched_markers.rs:25:16
    |
 25 |         .union(qb.select(right_user.id).from(right_user));
-   |          ----- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |          ----- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ it selects different columns from the other side
    |          |
    |          required by a bound introduced by this call
    |
+   = note: both sides of UNION, INTERSECT and EXCEPT select the same number of columns, of matching types, in the same order
 help: the trait `IntoSelect<'_, Schema, _, SelectUsers>` is not implemented for `drizzle::postgres::builder::QueryBuilder<'_, Schema, SelectFromSet, Users, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>`
       but trait `IntoSelect<'_, Schema, Scoped<SelectCols<(Id,)>, Cons<Users, Nil>>, (i32,)>` is implemented for it
   --> postgres/src/builder/select.rs
