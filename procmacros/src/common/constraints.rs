@@ -817,20 +817,11 @@ pub fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
                     }
                 }
             });
-
-            if struct_ident != target_ident {
-                tokens.extend(quote! {
-                    impl #relation_marker<#struct_ident> for #target_ident {}
-                    impl #joinable_marker<#struct_ident> for #target_ident {
-                        fn fk_columns() -> &'static [(&'static str, &'static str)] {
-                            const PAIRS: &[(&str, &str)] = &[#((#tgt_cols, #src_cols)),*];
-                            PAIRS
-                        }
-                    }
-                });
-            }
         }
     }
+    // Only the declaring table implements these, so two tables with keys to
+    // each other never emit the same impl; `JoinKey` derives the reverse
+    // join from this side's key.
 
     Ok(tokens)
 }

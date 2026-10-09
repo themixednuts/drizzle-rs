@@ -520,7 +520,10 @@ macro_rules! impl_join_arg_trait {
         value_type: $ValueType:ty $(,)?
     ) => {
         /// Trait for arguments accepted by `.join()` and related join methods.
-        pub trait JoinArg<'a, FromTable> {
+        ///
+        /// `Via` is inferred: which table's foreign key a bare table joins on
+        /// ([`JoinKey`]($crate::JoinKey)), or `JoinExplicit` for a condition.
+        pub trait JoinArg<'a, FromTable, Via> {
             /// Table added to the query scope by this join.
             type JoinedTable;
 
@@ -531,11 +534,11 @@ macro_rules! impl_join_arg_trait {
             fn into_join_sql(self, join: $crate::Join) -> $crate::SQL<'a, $ValueType>;
         }
 
-        /// Bare table: the ON condition matches the foreign-key columns from
-        /// `Joinable::fk_columns()`.
-        impl<'a, U, T> JoinArg<'a, T> for U
+        /// Bare table: the ON condition matches the columns of the one
+        /// foreign key between the two tables, whichever declares it.
+        impl<'a, U, T, Via> JoinArg<'a, T, Via> for U
         where
-            U: $TableTrait + $crate::Joinable<T>,
+            U: $TableTrait + $crate::JoinKey<T, Via>,
             T: $TableInfoTrait + ::core::default::Default,
         {
             type JoinedTable = U;
@@ -546,25 +549,26 @@ macro_rules! impl_join_arg_trait {
                 use $crate::ToSQL;
 
                 let from = T::default();
-                let cols = <U as $crate::Joinable<T>>::fk_columns();
+                let cols = <U as $crate::JoinKey<T, Via>>::pairs();
                 let join_name = self.name();
                 let from_name = from.name();
 
                 let mut condition = $crate::SQL::with_capacity_chunks(cols.len() * 7);
-                for (idx, (self_col, target_col)) in cols.iter().enumerate() {
+                for (idx, pair) in cols.iter().enumerate() {
+                    let (self_col, target_col) = <U as $crate::JoinKey<T, Via>>::pair(pair);
                     if idx > 0 {
                         condition.push_mut($crate::Token::AND);
                     }
                     condition.append_mut(
                         $crate::SQL::ident(join_name)
                             .push($crate::Token::DOT)
-                            .append($crate::SQL::ident(*self_col)),
+                            .append($crate::SQL::ident(self_col)),
                     );
                     condition.push_mut($crate::Token::EQ);
                     condition.append_mut(
                         $crate::SQL::ident(from_name)
                             .push($crate::Token::DOT)
-                            .append($crate::SQL::ident(*target_col)),
+                            .append($crate::SQL::ident(target_col)),
                     );
                 }
 
@@ -576,7 +580,7 @@ macro_rules! impl_join_arg_trait {
         }
 
         /// Tuple `(table, condition)`: explicit ON condition.
-        impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
+        impl<'a, U, C, T> JoinArg<'a, T, $crate::JoinExplicit> for (U, C)
         where
             U: $JoinSourceTrait,
             C: $ConditionTrait + $crate::expr::ExprSources,

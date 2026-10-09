@@ -111,7 +111,7 @@ macro_rules! join_impl {
             /// bare table to join on its foreign key to the previous table.
             /// See [`join`](Self::join) for an example.
             #[allow(clippy::type_complexity)]
-            pub fn [<$type _join>]<J: JoinArg<'a, T>>(
+            pub fn [<$type _join>]<J: JoinArg<'a, T, Via>, Via>(
                 self,
                 arg: J,
             ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Row, G>
@@ -506,7 +506,7 @@ where
     /// ```
     #[inline]
     #[allow(clippy::type_complexity)]
-    pub fn join<J: JoinArg<'a, T>>(
+    pub fn join<J: JoinArg<'a, T, Via>, Via>(
         self,
         arg: J,
     ) -> SelectBuilder<

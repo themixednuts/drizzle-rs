@@ -826,7 +826,7 @@ macro_rules! impl_select_methods {
         /// into scope. See also `left_join`, `right_join`, `full_join`, their
         /// `natural_`, `_outer`, and `_using` forms, and the lateral joins.
         #[inline]
-        pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
+        pub fn join<J: drizzle_postgres::helpers::JoinArg<'a, T, Via>, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<

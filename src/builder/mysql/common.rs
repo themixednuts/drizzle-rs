@@ -884,7 +884,7 @@ macro_rules! select_method {
         /// `FROM` table, or the table joined last), or a `(table, condition)` pair
         /// to give the `ON` condition yourself. The joined table's columns come
         /// into scope.
-        pub fn join<J>(
+        pub fn join<J, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<
@@ -913,14 +913,14 @@ macro_rules! select_method {
             SelectJoinSet,
         >
         where
-            J: drizzle_mysql::helpers::JoinArg<'q, T>,
+            J: drizzle_mysql::helpers::JoinArg<'q, T, Via>,
             M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>,
         {
             self.map(|builder| builder.join(arg))
         }
 
         /// Adds an `INNER JOIN`. Takes the same arguments as [`join`](Self::join).
-        pub fn inner_join<J>(
+        pub fn inner_join<J, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<
@@ -949,7 +949,7 @@ macro_rules! select_method {
             SelectJoinSet,
         >
         where
-            J: drizzle_mysql::helpers::JoinArg<'q, T>,
+            J: drizzle_mysql::helpers::JoinArg<'q, T, Via>,
             M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::InnerJoin, J::OnSources>,
         {
             self.map(|builder| builder.inner_join(arg))
@@ -1118,7 +1118,7 @@ macro_rules! select_method {
         /// Adds a `LEFT JOIN`. Takes the same arguments as [`join`](Self::join);
         /// the joined table's columns decode as `Option<T>`, which is checked when
         /// the query runs.
-        pub fn left_join<J>(
+        pub fn left_join<J, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<
@@ -1147,7 +1147,7 @@ macro_rules! select_method {
             SelectJoinSet,
         >
         where
-            J: drizzle_mysql::helpers::JoinArg<'q, T>,
+            J: drizzle_mysql::helpers::JoinArg<'q, T, Via>,
             M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>,
         {
             self.map(|builder| builder.left_join(arg))
@@ -1155,7 +1155,7 @@ macro_rules! select_method {
 
         /// Adds a `LEFT OUTER JOIN`, the same join as
         /// [`left_join`](Self::left_join).
-        pub fn left_outer_join<J>(
+        pub fn left_outer_join<J, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<
@@ -1184,7 +1184,7 @@ macro_rules! select_method {
             SelectJoinSet,
         >
         where
-            J: drizzle_mysql::helpers::JoinArg<'q, T>,
+            J: drizzle_mysql::helpers::JoinArg<'q, T, Via>,
             M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::LeftJoin, J::OnSources>,
         {
             self.map(|builder| builder.left_outer_join(arg))
@@ -1193,7 +1193,7 @@ macro_rules! select_method {
         /// Adds a `RIGHT JOIN`. Takes the same arguments as [`join`](Self::join);
         /// the columns of the tables before it decode as `Option<T>`, which is
         /// checked when the query runs.
-        pub fn right_join<J>(
+        pub fn right_join<J, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<
@@ -1222,7 +1222,7 @@ macro_rules! select_method {
             SelectJoinSet,
         >
         where
-            J: drizzle_mysql::helpers::JoinArg<'q, T>,
+            J: drizzle_mysql::helpers::JoinArg<'q, T, Via>,
             M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>,
         {
             self.map(|builder| builder.right_join(arg))
@@ -1230,7 +1230,7 @@ macro_rules! select_method {
 
         /// Adds a `RIGHT OUTER JOIN`, the same join as
         /// [`right_join`](Self::right_join).
-        pub fn right_outer_join<J>(
+        pub fn right_outer_join<J, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<
@@ -1259,7 +1259,7 @@ macro_rules! select_method {
             SelectJoinSet,
         >
         where
-            J: drizzle_mysql::helpers::JoinArg<'q, T>,
+            J: drizzle_mysql::helpers::JoinArg<'q, T, Via>,
             M: drizzle_core::JoinStep<R, J::JoinedTable, drizzle_core::RightJoin, J::OnSources>,
         {
             self.map(|builder| builder.right_outer_join(arg))

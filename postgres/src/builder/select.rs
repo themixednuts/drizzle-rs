@@ -126,7 +126,7 @@ macro_rules! join_impl {
             /// columns of its nullable side (the joined source for `LEFT`,
             /// the earlier sources for `RIGHT`, both for `FULL`) decode as
             /// `Option`.
-            pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T>>(
+            pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T, Via>, Via>(
                 self,
                 arg: J,
             ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Row, G>
@@ -531,7 +531,7 @@ where
     /// ```
     #[inline]
     #[allow(clippy::type_complexity)]
-    pub fn join<J: crate::helpers::JoinArg<'a, T>>(
+    pub fn join<J: crate::helpers::JoinArg<'a, T, Via>, Via>(
         self,
         arg: J,
     ) -> SelectBuilder<

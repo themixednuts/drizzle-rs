@@ -463,7 +463,7 @@ macro_rules! join_on_method {
         /// # "####;
         /// ```
         #[allow(clippy::type_complexity)]
-        pub fn $name<J: helpers::JoinArg<'a, T>>(
+        pub fn $name<J: helpers::JoinArg<'a, T, Via>, Via>(
             self,
             arg: J,
         ) -> SelectBuilder<

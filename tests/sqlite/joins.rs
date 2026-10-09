@@ -499,3 +499,72 @@ fn auto_fk_join_uses_declared_column_names(db: &mut TestDb<JoinRenamedSchema>) {
     assert_eq!(rows[0].member, "Ada");
     assert_eq!(rows[0].team, "Core");
 }
+
+/// `.join(table)` works from either side of a single key: here members hold
+/// the key, and the join starts from teams.
+#[drizzle::test]
+fn auto_fk_join_works_from_the_referenced_table(db: &mut TestDb<JoinRenamedSchema>) {
+    let JoinRenamedSchema { teams, members } = schema;
+    db.insert(teams)
+        .value(InsertJoinRenamedTeam::new("Core").with_id(7))
+        .execute();
+    db.insert(members)
+        .value(InsertJoinRenamedMember::new(7, "Ada").with_id(1))
+        .execute();
+
+    let rows: Vec<MemberTeam> = db
+        .select(MemberTeam::default())
+        .from(teams)
+        .join(members)
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].member, "Ada");
+}
+
+#[SQLiteTable(NAME = "mutual_users")]
+struct MutualUser {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(REFERENCES = MutualTeam::id)]
+    current_team_id: Option<i32>,
+}
+
+#[SQLiteTable(NAME = "mutual_teams")]
+struct MutualTeam {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(REFERENCES = MutualUser::id)]
+    owner_id: Option<i32>,
+}
+
+#[derive(SQLiteSchema)]
+struct MutualSchema {
+    users: MutualUser,
+    teams: MutualTeam,
+}
+
+/// Two tables with keys to each other compile and join; with two keys
+/// between them, the join names its condition.
+#[drizzle::test]
+fn tables_with_keys_to_each_other_join(db: &mut TestDb<MutualSchema>) {
+    let MutualSchema { users, teams } = schema;
+    db.insert(users)
+        .value(InsertMutualUser::new("Ada").with_id(1))
+        .execute();
+    db.insert(teams)
+        .value(InsertMutualTeam::new("Core").with_id(7).with_owner_id(1))
+        .execute();
+    db.update(users)
+        .set(UpdateMutualUser::default().with_current_team_id(7))
+        .r#where(eq(users.id, 1))
+        .execute();
+
+    let owners: Vec<(String, String)> = db
+        .select((teams.name, users.name))
+        .from(teams)
+        .join((users, eq(users.id, teams.owner_id)))
+        .all();
+    assert_eq!(owners, [("Core".to_string(), "Ada".to_string())]);
+}

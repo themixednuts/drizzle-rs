@@ -381,37 +381,39 @@ where
     SQL::raw(Kind::SQL).append(indexes.names().parens())
 }
 
-fn auto_join_condition<'a, Joined, From>() -> SQL<'a, MySQLValue<'a>>
+fn auto_join_condition<'a, Joined, From, Via>() -> SQL<'a, MySQLValue<'a>>
 where
-    Joined: MySQLTable<'a> + drizzle_core::Joinable<From> + Default,
+    Joined: MySQLTable<'a> + drizzle_core::JoinKey<From, Via> + Default,
     From: SQLTableInfo + Default,
 {
     let joined = Joined::default();
     let from = From::default();
-    let columns = <Joined as drizzle_core::Joinable<From>>::fk_columns();
+    let columns = <Joined as drizzle_core::JoinKey<From, Via>>::pairs();
     let mut condition = SQL::with_capacity_chunks(columns.len().saturating_mul(7));
-    for (index, (joined_column, from_column)) in columns.iter().enumerate() {
+    for (index, pair) in columns.iter().enumerate() {
+        let (joined_column, from_column) = <Joined as drizzle_core::JoinKey<From, Via>>::pair(pair);
         if index > 0 {
             condition.push_mut(Token::AND);
         }
         condition.append_mut(
             SQL::ident(joined.name())
                 .push(Token::DOT)
-                .append(SQL::ident(*joined_column)),
+                .append(SQL::ident(joined_column)),
         );
         condition.push_mut(Token::EQ);
         condition.append_mut(
             SQL::ident(from.name())
                 .push(Token::DOT)
-                .append(SQL::ident(*from_column)),
+                .append(SQL::ident(from_column)),
         );
     }
     condition
 }
 
-impl<'a, Joined, Indexes, Kind, From> JoinArg<'a, From> for IndexHintedTable<Joined, Indexes, Kind>
+impl<'a, Joined, Indexes, Kind, From, Via> JoinArg<'a, From, Via>
+    for IndexHintedTable<Joined, Indexes, Kind>
 where
-    Joined: MySQLTable<'a> + drizzle_core::Joinable<From> + Default,
+    Joined: MySQLTable<'a> + drizzle_core::JoinKey<From, Via> + Default,
     From: SQLTableInfo + Default,
     Indexes: IndexHintList<'a, Joined>,
     Kind: IndexHintKind,
@@ -423,7 +425,7 @@ where
         join.into_sql()
             .append(self.into_sql())
             .push(Token::ON)
-            .append(auto_join_condition::<Joined, From>())
+            .append(auto_join_condition::<Joined, From, Via>())
     }
 }
 

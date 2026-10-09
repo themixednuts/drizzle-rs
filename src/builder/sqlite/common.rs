@@ -1732,7 +1732,7 @@ macro_rules! impl_select_methods {
         /// # fn main() {}
         /// ```
         #[inline]
-        pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
+        pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T, Via>, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<

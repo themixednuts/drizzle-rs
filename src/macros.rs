@@ -53,7 +53,7 @@ macro_rules! drizzle_builder_join_impl {
             /// After a `LEFT`, `RIGHT`, or `FULL` join, the columns of a side
             /// that can be missing decode as `Option<T>`; this is checked when
             /// the query runs.
-            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
+            pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinArg<'a, T, Via>, Via>(
                 self,
                 arg: J,
             ) -> DrizzleBuilder<
@@ -211,7 +211,7 @@ macro_rules! drizzle_pg_builder_join_impl {
             /// After a `LEFT`, `RIGHT`, or `FULL` join, the columns of a side
             /// that can be missing decode as `Option<T>`; this is checked when
             /// the query runs.
-            pub fn [<$type _join>]<J: drizzle_postgres::helpers::JoinArg<'a, T>>(
+            pub fn [<$type _join>]<J: drizzle_postgres::helpers::JoinArg<'a, T, Via>, Via>(
                 self,
                 arg: J,
             ) -> DrizzleBuilder<
