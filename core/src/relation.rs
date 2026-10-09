@@ -27,6 +27,11 @@ pub trait Joinable<Target: ?Sized> {
 /// [`JoinForward`] when `Self` has the key to `From`, [`JoinReverse`] when
 /// `From` has the key to `Self`. When both do, the join is ambiguous and
 /// does not compile; pass the condition instead.
+#[diagnostic::on_unimplemented(
+    message = "no single foreign key joins `{Self}` to `{From}`",
+    label = "a bare table joins on the one foreign key between the two tables",
+    note = "with no key, or several, name the condition: `.join((table, eq(left, right)))`"
+)]
 pub trait JoinKey<From: ?Sized, Via> {
     /// `(joined_column, from_column)` pairs the ON condition matches, in
     /// key order, read through [`Self::pair`].

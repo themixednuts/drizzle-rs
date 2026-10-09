@@ -1,0 +1,16 @@
+error[E0283]: type annotations needed
+  --> tests/ui/query_scope_sqlite/fail/self_reference_join_needs_a_condition.rs:21:53
+   |
+21 |     let _ = qb.select(employees.id).from(employees).join(employees);
+   |                                                     ^^^^ cannot infer type of the type parameter `Via` declared on the method `join`
+   |
+   = note: multiple `impl`s satisfying `Employees: JoinKey<Employees, _>` found in the `drizzle_core` crate:
+           - impl<Joined, From> JoinKey<From, JoinForward> for Joined
+             where Joined: Joinable<From>, From: ?Sized;
+           - impl<Joined, From> JoinKey<From, JoinReverse> for Joined
+             where From: Joinable<Joined>, From: ?Sized;
+   = note: required for `Employees` to implement `JoinArg<'_, Employees, _>`
+help: consider specifying the generic arguments
+   |
+21 |     let _ = qb.select(employees.id).from(employees).join::<Employees, Via>(employees);
+   |                                                         ++++++++++++++++++

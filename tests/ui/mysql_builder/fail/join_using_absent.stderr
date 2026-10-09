@@ -11,7 +11,7 @@ error[E0599]: no method named `left_join_using` found for struct `QueryBuilder<'
 help: there is a method `left_join` with a similar name, but with different arguments
   --> mysql/src/builder/select.rs
    |
-   | /         pub fn $name<J: helpers::JoinArg<'a, T>>(
+   | /         pub fn $name<J: helpers::JoinArg<'a, T, Via>, Via>(
    | |             self,
    | |             arg: J,
    | |         ) -> SelectBuilder<
