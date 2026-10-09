@@ -568,3 +568,74 @@ fn tables_with_keys_to_each_other_join(db: &mut TestDb<MutualSchema>) {
         .all();
     assert_eq!(owners, [("Core".to_string(), "Ada".to_string())]);
 }
+
+#[SQLiteTable(NAME = "join_composite_parents")]
+struct JoinCompositeParent {
+    #[column(PRIMARY)]
+    region: i32,
+    #[column(PRIMARY)]
+    code: i32,
+    name: String,
+}
+
+#[SQLiteTable(
+    NAME = "join_composite_children",
+    FOREIGN_KEY(
+        columns(parent_region, parent_code),
+        references(JoinCompositeParent, region, code)
+    )
+)]
+struct JoinCompositeChild {
+    #[column(PRIMARY)]
+    id: i32,
+    parent_region: i32,
+    parent_code: i32,
+    label: String,
+}
+
+#[derive(SQLiteSchema)]
+struct JoinCompositeSchema {
+    parents: JoinCompositeParent,
+    children: JoinCompositeChild,
+}
+
+/// A bare join on a composite key matches each column to its own partner in
+/// both directions. Region and code differ, so a swapped pair would match
+/// nothing.
+#[drizzle::test]
+fn auto_fk_join_on_a_composite_key_pairs_each_column(db: &mut TestDb<JoinCompositeSchema>) {
+    let JoinCompositeSchema { parents, children } = schema;
+    db.insert(parents)
+        .value(InsertJoinCompositeParent::new(1, 2, "north"))
+        .execute();
+    db.insert(children)
+        .value(InsertJoinCompositeChild::new(1, 2, "first").with_id(10))
+        .execute();
+
+    let from_child: Vec<(String, String)> = db
+        .select((children.label, parents.name))
+        .from(children)
+        .join(parents)
+        .all();
+    let from_parent: Vec<(String, String)> = db
+        .select((children.label, parents.name))
+        .from(parents)
+        .join(children)
+        .all();
+    let expected = [("first".to_string(), "north".to_string())];
+    assert_eq!(from_child, expected);
+    assert_eq!(from_parent, expected);
+
+    let sql = db
+        .select(parents.name)
+        .from(parents)
+        .join(children)
+        .to_sql()
+        .sql();
+    assert!(
+        sql.ends_with(
+            r#"JOIN "join_composite_children" ON "join_composite_children"."parent_region" = "join_composite_parents"."region" AND "join_composite_children"."parent_code" = "join_composite_parents"."code""#
+        ),
+        "{sql}"
+    );
+}

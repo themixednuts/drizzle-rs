@@ -704,6 +704,15 @@ fn select_index_hints_are_tied_to_their_generated_table_metadata() {
         automatic_join.to_sql().sql(),
         "SELECT `users`.`id`, `posts`.`id` FROM `users` INNER JOIN `posts` FORCE INDEX (`posts_user_id_idx`) ON `posts`.`user_id` = `users`.`id`"
     );
+    // From the referenced side: the key is on the table joined from.
+    let reverse_join = builder()
+        .select((users.id, posts.id))
+        .from(posts)
+        .inner_join(users.force_index(UsersNameIdx::new()));
+    assert_eq!(
+        reverse_join.to_sql().sql(),
+        "SELECT `users`.`id`, `posts`.`id` FROM `posts` INNER JOIN `users` FORCE INDEX (`users_name_idx`) ON `users`.`id` = `posts`.`user_id`"
+    );
 }
 
 #[test]

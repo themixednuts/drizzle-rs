@@ -1078,8 +1078,18 @@ struct MacroCycleRoot {
     id: u64,
 }
 
+/// Depends on the cycle without being part of it.
+#[MySQLTable(NAME = "macro_cycle_leaf")]
+struct MacroCycleLeaf {
+    #[column(PRIMARY)]
+    id: u64,
+    #[column(REFERENCES = MacroCycleA::id)]
+    a_id: u64,
+}
+
 #[derive(MySQLSchema)]
 struct MacroCycleSchema {
+    leaf: MacroCycleLeaf,
     a: MacroCycleA,
     b: MacroCycleB,
     root: MacroCycleRoot,
@@ -1104,7 +1114,10 @@ fn schema_creates_a_reference_cycle_with_foreign_key_checks_off() {
     let disable = position(drizzle::mysql::common::DISABLE_FOREIGN_KEY_CHECKS);
     let a = position("CREATE TABLE `macro_cycle_a`");
     let b = position("CREATE TABLE `macro_cycle_b`");
+    let leaf = position("CREATE TABLE `macro_cycle_leaf`");
     let restore = position("@drizzle_foreign_key_checks = NULL");
     assert!(root < save && save < disable && disable < a && a < b && b < restore);
+    // A table that needs a cycle table exists only after the cycle does.
+    assert!(disable < leaf && leaf < restore);
     assert_eq!(restore, statements.len() - 1);
 }

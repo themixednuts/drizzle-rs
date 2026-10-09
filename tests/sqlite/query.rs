@@ -150,3 +150,72 @@ fn query_many_to_many_basic(db: &mut TestDb<M2MQuerySchema>) {
     assert!(cat_names.contains(&"Tech"));
     assert!(cat_names.contains(&"Science"));
 }
+
+#[SQLiteTable(NAME = "query_mutual_users")]
+struct Member {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(REFERENCES = Squad::id)]
+    current_squad_id: Option<i32>,
+}
+
+#[SQLiteTable(NAME = "query_mutual_squads")]
+struct Squad {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(REFERENCES = Member::id)]
+    owner_id: Option<i32>,
+}
+
+#[derive(SQLiteSchema)]
+struct MutualQuerySchema {
+    members: Member,
+    squads: Squad,
+}
+
+/// Members and squads have keys to each other: a member's current squad, a
+/// squad's owner. Every relation loads, nested through the cycle too.
+#[drizzle::test]
+fn relations_load_between_tables_keyed_to_each_other(db: &mut TestDb<MutualQuerySchema>) {
+    let MutualQuerySchema { members, squads } = schema;
+    db.insert(members)
+        .values([
+            InsertMember::new("Ada").with_id(1),
+            InsertMember::new("Bob").with_id(2),
+        ])
+        .execute();
+    db.insert(squads)
+        .value(InsertSquad::new("Core").with_id(7).with_owner_id(1))
+        .execute();
+    db.update(members)
+        .set(UpdateMember::default().with_current_squad_id(7))
+        .r#where(true)
+        .execute();
+
+    let ada = db
+        .query(members)
+        .with(members.current_squad().with(squads.owner()))
+        .with(members.owner_squads())
+        .r#where(eq(members.id, 1))
+        .find_first()
+        .expect("Ada");
+    let squad = ada.current_squad.as_ref().expect("Ada's squad");
+    assert_eq!(squad.name, "Core");
+    assert_eq!(squad.owner.as_ref().expect("an owner").name, "Ada");
+    assert_eq!(ada.owner_squads.len(), 1);
+
+    let core = db
+        .query(squads)
+        .with(squads.current_squad_members())
+        .find_first()
+        .expect("Core");
+    let mut names: Vec<_> = core
+        .current_squad_members
+        .iter()
+        .map(|member| member.name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["Ada", "Bob"]);
+}

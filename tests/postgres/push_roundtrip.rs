@@ -306,33 +306,47 @@ fn postgres_sync_second_push_of_a_macro_schema_plans_nothing() {
     db.push(&schema).expect("second push");
 }
 
+const DATA_LOSS_SCHEMA: &str = "push_data_loss_test";
+
+#[PostgresTable(name = "accounts", schema = "push_data_loss_test")]
+struct PushDataLossAccount {
+    #[column(primary)]
+    id: i32,
+    name: String,
+}
+
+#[derive(PostgresSchema)]
+struct PushDataLossSchema {
+    accounts: PushDataLossAccount,
+}
+
 /// Push drops a column the schema no longer has only while it holds no
 /// values.
 #[test]
 fn postgres_sync_push_refuses_to_drop_data() {
     let (mut db, schema) = crate::common::helpers::postgres_sync_setup::setup_empty_named_db(
-        PUSH_SCHEMA,
-        PushRoundtripSchema::default(),
+        DATA_LOSS_SCHEMA,
+        PushDataLossSchema::default(),
     );
     db.push(&schema).expect("first push");
 
     db.conn_mut()
         .batch_execute(&format!(
-            "ALTER TABLE \"{PUSH_SCHEMA}\".\"parents\" ADD COLUMN \"legacy\" integer; \
-             INSERT INTO \"{PUSH_SCHEMA}\".\"parents\" (\"code\", \"legacy\") VALUES ('a', 7);"
+            "ALTER TABLE \"{DATA_LOSS_SCHEMA}\".\"accounts\" ADD COLUMN \"legacy\" integer; \
+             INSERT INTO \"{DATA_LOSS_SCHEMA}\".\"accounts\" VALUES (1, 'a', 7);"
         ))
         .expect("add a column with a value");
     let error = db.push(&schema).expect_err("push must not drop values");
     assert!(
         error.to_string().contains(&format!(
-            "column `{PUSH_SCHEMA}.parents.legacy` holds 1 row(s)"
+            "column `{DATA_LOSS_SCHEMA}.accounts.legacy` holds 1 row(s)"
         )),
         "{error}"
     );
 
     db.conn_mut()
         .batch_execute(&format!(
-            "UPDATE \"{PUSH_SCHEMA}\".\"parents\" SET \"legacy\" = NULL"
+            "UPDATE \"{DATA_LOSS_SCHEMA}\".\"accounts\" SET \"legacy\" = NULL"
         ))
         .expect("clear the column");
     db.push(&schema).expect("an all-NULL column is dropped");

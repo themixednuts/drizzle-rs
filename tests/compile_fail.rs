@@ -267,6 +267,12 @@ fn mutation_scope_sqlite_ui() {
     must_fail("tests/ui/mutation_scope_sqlite/fail/*.rs");
 }
 
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn mutation_scope_postgres_ui() {
+    must_fail("tests/ui/mutation_scope_postgres/fail/*.rs");
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn pagination_sqlite_ui() {
