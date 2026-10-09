@@ -688,10 +688,12 @@ async fn run_migration_statements(
 async fn sqlite_foreign_keys_enabled(
     conn: &turso::Connection,
 ) -> drizzle_core::error::Result<bool> {
-    let mut rows = conn
-        .query("PRAGMA foreign_keys", ())
-        .await
-        .map_err(DrizzleError::from)?;
+    Ok(query_i64(conn, "PRAGMA foreign_keys").await? != 0)
+}
+
+/// Runs `sql` and reads the integer in its first row and column.
+async fn query_i64(conn: &turso::Connection, sql: &str) -> drizzle_core::error::Result<i64> {
+    let mut rows = conn.query(sql, ()).await.map_err(DrizzleError::from)?;
     let row = rows
         .next()
         .await
@@ -1115,6 +1117,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// than guess, and the error gives the hint for each answer;
     /// pass the answers to [`push_with`](Self::push_with).
     ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1145,6 +1151,12 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
         )
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let mut lost = Vec::with_capacity(generated.data_loss.len());
+        for drop in &generated.data_loss {
+            let sql = drop.count_sql(drizzle_types::Dialect::SQLite);
+            lost.push((drop.clone(), query_i64(&self.conn, &sql).await?));
+        }
+        crate::builder::refuse_data_loss(&lost)?;
         let operation =
             drizzle_migrations::Migration::with_hash("push", "", 0, generated.statements);
         let execution = operation

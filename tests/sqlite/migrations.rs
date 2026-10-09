@@ -919,6 +919,41 @@ fn rusqlite_push_asks_before_renaming() {
     assert_eq!(name, "Alice");
 }
 
+/// Push drops a table the schema no longer has only while it holds no rows.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_push_refuses_to_drop_data() {
+    let (db, schema) =
+        crate::common::helpers::rusqlite_setup::setup_empty_db(PushSchema::default());
+    db.push(&schema).expect("first push");
+
+    db.conn()
+        .execute_batch("CREATE TABLE `scratch` (`id` integer PRIMARY KEY);")
+        .expect("create an empty table");
+    db.push(&schema).expect("an empty table is dropped");
+    assert_eq!(
+        crate::common::helpers::rusqlite_setup::table_exists(db.conn(), "scratch"),
+        0
+    );
+
+    db.conn()
+        .execute_batch(
+            "CREATE TABLE `audit` (`id` integer PRIMARY KEY);
+             INSERT INTO `audit` VALUES (1), (2);",
+        )
+        .expect("create a table with rows");
+    let error = db.push(&schema).expect_err("push must not drop rows");
+    assert!(
+        error.to_string().contains("table `audit` holds 2 row(s)"),
+        "{error}"
+    );
+    assert_eq!(
+        crate::common::helpers::rusqlite_setup::table_exists(db.conn(), "audit"),
+        1,
+        "nothing was applied"
+    );
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_push_table_is_usable() {

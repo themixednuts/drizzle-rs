@@ -286,7 +286,17 @@ async fn apply(
 ) -> Result<()> {
     let catalog = catalog(connection).await?;
     let desired = schema.to_snapshot();
-    for statement in catalog.plan(&desired, renames)?.statements {
+    let plan = catalog.plan(&desired, renames)?;
+    let mut lost = Vec::with_capacity(plan.data_loss.len());
+    for drop in &plan.data_loss {
+        let sql = drop.count_sql(drizzle_types::Dialect::MySQL);
+        lost.push((
+            drop.clone(),
+            catalog_query(connection, &sql, &[], introspect::count).await?,
+        ));
+    }
+    crate::builder::refuse_data_loss(&lost)?;
+    for statement in plan.statements {
         if !statement.trim().is_empty() {
             execute_request(connection, &statement, &[]).await?;
         }
@@ -417,6 +427,10 @@ impl<Schema> Drizzle<Conn, Schema> {
     /// When a table, column or view may have been renamed, `push` fails
     /// rather than guess, and the error gives the hint for each answer; pass
     /// the answers to [`push_with`](Self::push_with).
+    ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
     ///
     /// # Errors
     ///
@@ -600,6 +614,10 @@ impl<Schema> Drizzle<Pool, Schema> {
     /// When a table, column or view may have been renamed, `push` fails
     /// rather than guess, and the error gives the hint for each answer; pass
     /// the answers to [`push_with`](Self::push_with).
+    ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
     ///
     /// # Errors
     ///

@@ -1367,6 +1367,10 @@ impl<Schema> Drizzle<Schema> {
     /// fails rather than guess, and the error gives the hint for each answer;
     /// pass the answers to [`push_with`](Self::push_with).
     ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1418,6 +1422,13 @@ impl<Schema> Drizzle<Schema> {
             &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
         )
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let mut lost = Vec::with_capacity(generated.data_loss.len());
+        for drop in &generated.data_loss {
+            let sql = drop.count_sql(drizzle_types::Dialect::PostgreSQL);
+            let rows: i64 = self.client.query_one(&*sql, &[])?.get(0);
+            lost.push((drop.clone(), rows));
+        }
+        crate::builder::refuse_data_loss(&lost)?;
         // The push changes tables, and PostgreSQL rejects a cached statement
         // whose result columns changed; drop the connection's statements.
         self.statement_cache().clear_client(self.client_id());

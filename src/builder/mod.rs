@@ -10,6 +10,38 @@ pub mod postgres;
 #[macro_use]
 pub mod mysql;
 
+/// Fails a push whose drops would lose rows, as drizzle-kit's push stops to
+/// ask before them. `lost` pairs each drop with the rows it holds.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "mysql-sync",
+    feature = "mysql-async"
+))]
+pub(crate) fn refuse_data_loss(
+    lost: &[(drizzle_migrations::DataLoss, i64)],
+) -> drizzle_core::error::Result<()> {
+    let lost: Vec<String> = lost
+        .iter()
+        .filter(|(_, rows)| *rows > 0)
+        .map(|(drop, rows)| format!("{drop} holds {rows} row(s)"))
+        .collect();
+    if lost.is_empty() {
+        return Ok(());
+    }
+    Err(drizzle_core::error::DrizzleError::Other(
+        format!(
+            "push would drop data, so nothing was applied: {}. Move or delete that data \
+             first, or run `drizzle push`, which asks before dropping it.",
+            lost.join("; ")
+        )
+        .into(),
+    ))
+}
+
 /// Maps a relational query runner to the detached prepared-query driver marker.
 ///
 /// Each dialect implements it for `&Drizzle<Conn, _>` (mapping to `Conn`) and

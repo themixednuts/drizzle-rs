@@ -83,6 +83,183 @@ pub struct Plan {
     pub warnings: Vec<String>,
     /// Schema snapshot after this migration is applied.
     pub snapshot: Snapshot,
+    /// The tables and columns the statements drop. Each loses data when the
+    /// database holds rows in it, which is why drizzle-kit's push asks first.
+    pub data_loss: Vec<DataLoss>,
+}
+
+/// A table or column a [`Plan`] drops.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DataLoss {
+    /// PostgreSQL schema or MySQL database; `None` for SQLite and an
+    /// unqualified MySQL table.
+    pub schema: Option<String>,
+    /// The table dropped, or the table the column is dropped from.
+    pub table: String,
+    /// The dropped column, or `None` when the whole table is dropped.
+    pub column: Option<String>,
+}
+
+impl DataLoss {
+    /// A query returning one integer: the rows of a dropped table, or the
+    /// rows where a dropped column is not NULL.
+    #[must_use]
+    pub fn count_sql(&self, dialect: drizzle_types::Dialect) -> String {
+        let quote = |ident: &str| match dialect {
+            drizzle_types::Dialect::MySQL => format!("`{}`", ident.replace('`', "``")),
+            drizzle_types::Dialect::SQLite | drizzle_types::Dialect::PostgreSQL => {
+                format!("\"{}\"", ident.replace('"', "\"\""))
+            }
+        };
+        let table = match &self.schema {
+            Some(schema) => format!("{}.{}", quote(schema), quote(&self.table)),
+            None => quote(&self.table),
+        };
+        match &self.column {
+            Some(column) => format!(
+                "SELECT COUNT(*) FROM {table} WHERE {} IS NOT NULL",
+                quote(column)
+            ),
+            None => format!("SELECT COUNT(*) FROM {table}"),
+        }
+    }
+}
+
+impl std::fmt::Display for DataLoss {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = if self.column.is_some() {
+            "column"
+        } else {
+            "table"
+        };
+        write!(f, "{kind} `")?;
+        if let Some(schema) = &self.schema {
+            write!(f, "{schema}.")?;
+        }
+        write!(f, "{}", self.table)?;
+        if let Some(column) = &self.column {
+            write!(f, ".{column}")?;
+        }
+        f.write_str("`")
+    }
+}
+
+/// The tables and columns of `prev` that `current` no longer has, once the
+/// rename hints are applied.
+fn data_loss(prev: &Snapshot, current: &Snapshot, renames: &RenameHints) -> Vec<DataLoss> {
+    type Table = (Option<String>, String);
+    fn shape(snapshot: &Snapshot) -> (Vec<Table>, Vec<(Table, String)>) {
+        let mut tables = Vec::new();
+        let mut columns = Vec::new();
+        match snapshot {
+            Snapshot::Sqlite(snapshot) => {
+                for entity in &snapshot.ddl {
+                    match entity {
+                        crate::sqlite::SqliteEntity::Table(table) => {
+                            tables.push((None, table.name.to_string()));
+                        }
+                        crate::sqlite::SqliteEntity::Column(column) => columns
+                            .push(((None, column.table.to_string()), column.name.to_string())),
+                        _ => {}
+                    }
+                }
+            }
+            Snapshot::Postgres(snapshot) => {
+                for entity in &snapshot.ddl {
+                    match entity {
+                        crate::postgres::PostgresEntity::Table(table) => {
+                            tables.push((Some(table.schema.to_string()), table.name.to_string()));
+                        }
+                        crate::postgres::PostgresEntity::Column(column) => columns.push((
+                            (Some(column.schema.to_string()), column.table.to_string()),
+                            column.name.to_string(),
+                        )),
+                        _ => {}
+                    }
+                }
+            }
+            Snapshot::MySQL(snapshot) => {
+                for entity in &snapshot.ddl {
+                    match entity {
+                        crate::mysql::MySQLEntity::Table(table) => tables.push((
+                            table.database.as_ref().map(ToString::to_string),
+                            table.name.to_string(),
+                        )),
+                        crate::mysql::MySQLEntity::Column(column) => columns.push((
+                            (
+                                column.database.as_ref().map(ToString::to_string),
+                                column.table.to_string(),
+                            ),
+                            column.name.to_string(),
+                        )),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        (tables, columns)
+    }
+    // A hint without a schema names the default one: `public`, or none.
+    let in_schema = |hint: Option<&String>, schema: &Option<String>| match hint {
+        Some(hint) => schema.as_ref() == Some(hint),
+        None => {
+            schema.as_deref().is_none_or(|schema| schema == "public")
+                || matches!(prev, Snapshot::MySQL(_))
+        }
+    };
+    let rename_table = |table: &mut Table| {
+        if let Some(hint) = renames
+            .schema_renames
+            .iter()
+            .find(|hint| table.0.as_ref() == Some(&hint.from))
+        {
+            table.0 = Some(hint.to.clone());
+        }
+        if let Some(hint) = renames
+            .table_renames
+            .iter()
+            .find(|hint| hint.from == table.1 && in_schema(hint.schema.as_ref(), &table.0))
+        {
+            table.1.clone_from(&hint.to);
+        }
+    };
+
+    let (mut prev_tables, mut prev_columns) = shape(prev);
+    let (tables, columns) = shape(current);
+    prev_tables.iter_mut().for_each(rename_table);
+    for (table, column) in &mut prev_columns {
+        rename_table(table);
+        if let Some(hint) = renames.column_renames.iter().find(|hint| {
+            hint.from == *column
+                && hint.table == table.1
+                && in_schema(hint.schema.as_ref(), &table.0)
+        }) {
+            column.clone_from(&hint.to);
+        }
+    }
+
+    let dropped_tables = prev_tables
+        .into_iter()
+        .filter(|table| !tables.contains(table))
+        .map(|(schema, table)| DataLoss {
+            schema,
+            table,
+            column: None,
+        });
+    let dropped_columns = prev_columns
+        .into_iter()
+        .filter(|(table, column)| {
+            tables.contains(table)
+                && !columns
+                    .iter()
+                    .any(|kept| kept.0 == *table && kept.1 == *column)
+        })
+        .map(|((schema, table), column)| DataLoss {
+            schema,
+            table,
+            column: Some(column),
+        });
+    dropped_tables.chain(dropped_columns).collect()
 }
 
 impl Plan {
@@ -851,6 +1028,7 @@ pub fn diff_with(
         statements,
         warnings,
         snapshot,
+        data_loss: data_loss(prev, current, &options.renames),
     })
 }
 

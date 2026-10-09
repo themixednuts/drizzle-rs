@@ -1803,7 +1803,7 @@ db.push_with(&schema, &renames)?;
 drizzle_migrations::diff_with(&prev, &next, &DiffOptions::new().with_renames(renames))?;
 ```
 
-A hint that matches nothing in a later diff is ignored, so it can stay in `build.rs`. An index, constraint, or view without an answer is dropped and created, which loses no data; the CLI does the same without a terminal. `drizzle_migrations::rename_questions` lists the questions, for tools that ask them their own way.
+A hint that matches nothing in a later diff is ignored, so it can stay in `build.rs`. `db.push` also stops before it drops a table or column that holds rows, applying nothing, where drizzle-kit's push would ask; dropping an empty one goes ahead. An index, constraint, or view without an answer is dropped and created, which loses no data; the CLI does the same without a terminal. `drizzle_migrations::rename_questions` lists the questions, for tools that ask them their own way.
 
 ## License
 

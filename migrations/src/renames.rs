@@ -1008,6 +1008,47 @@ mod tests {
     }
 
     #[test]
+    fn plans_list_the_tables_and_columns_they_drop() {
+        use crate::DataLoss;
+
+        let prev = sqlite(&[("users", &["id", "name", "nickname"]), ("logs", &["id"])]);
+        let cur = sqlite(&[("accounts", &["id", "full_name"])]);
+        let options = DiffOptions::new()
+            .rename_table("users", "accounts")
+            .rename_column("accounts", "name", "full_name");
+        let plan = diff_with(&prev, &cur, &options).unwrap();
+        assert_eq!(
+            plan.data_loss,
+            [
+                DataLoss {
+                    schema: None,
+                    table: "logs".into(),
+                    column: None,
+                },
+                DataLoss {
+                    schema: None,
+                    table: "accounts".into(),
+                    column: Some("nickname".into()),
+                },
+            ]
+        );
+        assert_eq!(plan.data_loss[0].to_string(), "table `logs`");
+        assert_eq!(
+            plan.data_loss[1].count_sql(drizzle_types::Dialect::SQLite),
+            r#"SELECT COUNT(*) FROM "accounts" WHERE "nickname" IS NOT NULL"#
+        );
+
+        // Renamed, not dropped: nothing is lost.
+        let renamed = diff_with(
+            &sqlite(&[("users", &["id"])]),
+            &sqlite(&[("accounts", &["id"])]),
+            &DiffOptions::new().rename_table("users", "accounts"),
+        )
+        .unwrap();
+        assert!(renamed.data_loss.is_empty(), "{:?}", renamed.data_loss);
+    }
+
+    #[test]
     fn diff_never_guesses_a_rename() {
         let prev = sqlite(&[("users", &["id", "name"])]);
         let cur = sqlite(&[("users", &["id", "full_name"])]);

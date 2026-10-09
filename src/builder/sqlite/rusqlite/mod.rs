@@ -1015,6 +1015,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// than guess, and the error gives the hint for each answer;
     /// pass the answers to [`push_with`](Self::push_with).
     ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1044,6 +1048,16 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
         )
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let lost = generated
+            .data_loss
+            .iter()
+            .map(|drop| {
+                let sql = drop.count_sql(drizzle_types::Dialect::SQLite);
+                let rows: i64 = self.conn.query_row(&sql, [], |row| row.get(0))?;
+                Ok((drop.clone(), rows))
+            })
+            .collect::<drizzle_core::error::Result<Vec<_>>>()?;
+        crate::builder::refuse_data_loss(&lost)?;
         let operation =
             drizzle_migrations::Migration::with_hash("push", "", 0, generated.statements);
         let execution = operation

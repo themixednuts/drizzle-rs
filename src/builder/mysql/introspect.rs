@@ -134,6 +134,14 @@ pub(super) fn database(rows: Vec<Row>) -> Result<RawDatabaseInfo> {
     })
 }
 
+/// Reads the single integer a `COUNT(*)` query returns.
+pub(super) fn count(rows: Vec<Row>) -> Result<i64> {
+    let row = rows
+        .first()
+        .ok_or_else(|| DrizzleError::Other("MySQL returned no row for COUNT(*)".into()))?;
+    value(row, 0, "COUNT(*)")
+}
+
 pub(super) fn tables(rows: Vec<Row>) -> Result<Vec<RawTableInfo>> {
     rows.iter()
         .map(|row| {
