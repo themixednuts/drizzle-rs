@@ -97,9 +97,14 @@ fn main() {
     let _ = builder
         .update(users)
         .set(UpdateUsers::default().with_name("Bob"))
+        .r#where(true)
         .order_by(asc(users.id))
         .limit(1);
-    let _ = builder.delete(users).order_by(asc(users.id)).limit(1);
+    let _ = builder
+        .delete(users)
+        .r#where(true)
+        .order_by(asc(users.id))
+        .limit(1);
     let _ = builder
         .select(users.id)
         .from(users)
