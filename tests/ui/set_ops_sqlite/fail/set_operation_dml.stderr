@@ -13,9 +13,9 @@ error[E0599]: the method `union` exists for struct `drizzle::sqlite::builder::Qu
            `DeleteReturningSet: drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Compound>`
 
 error[E0277]: builder state `UpdateReturningSet` does not allow `drizzle_core::builder::clause::Compound`
-  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:29:56
+  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:30:56
    |
-29 |     let _ = builder.select(users.id).from(users).union(update);
+30 |     let _ = builder.select(users.id).from(users).union(update);
    |                                                  ----- ^^^^^^ not available at this point of the query
    |                                                  |
    |                                                  required by a bound introduced by this call
@@ -43,9 +43,9 @@ note: required by a bound in `select::<impl drizzle::sqlite::builder::QueryBuild
    |                     ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::union`
 
 error[E0277]: builder state `DeleteReturningSet` does not allow `drizzle_core::builder::clause::Source`
-  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:35:40
+  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:36:40
    |
-35 |         .r#where(in_subquery(users.id, returning));
+36 |         .r#where(in_subquery(users.id, returning));
    |                  -----------           ^^^^^^^^^ not available at this point of the query
    |                  |
    |                  required by a bound introduced by this call
@@ -73,9 +73,9 @@ note: required by a bound in `drizzle::core::expr::in_subquery`
    |        ^^^^^^^^^^^ required by this bound in `in_subquery`
 
 error[E0277]: builder state `DeleteReturningSet` does not allow `drizzle_core::builder::clause::Source`
-  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:35:18
+  --> tests/ui/set_ops_sqlite/fail/set_operation_dml.rs:36:18
    |
-35 |         .r#where(in_subquery(users.id, returning));
+36 |         .r#where(in_subquery(users.id, returning));
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not available at this point of the query
    |
    = help: the trait `drizzle_core::builder::ClauseAllowed<drizzle_core::builder::clause::Source>` is not implemented for `DeleteReturningSet`

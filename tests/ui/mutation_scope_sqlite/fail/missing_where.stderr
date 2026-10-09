@@ -17,7 +17,7 @@ error[E0277]: this query is not complete yet: `DeleteInitial` cannot run
              InsertReturningSet
              InsertValuesSet
            and $N others
-note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::execute`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, drizzle::sqlite::builder::QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::execute`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
    |     pub fn execute(self) -> drizzle_core::error::Result<usize>
@@ -45,7 +45,7 @@ error[E0277]: this query is not complete yet: `UpdateSetClauseSet` cannot run
              InsertReturningSet
              InsertValuesSet
            and $N others
-note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::execute`
+note: required by a bound in `drizzle::builder::sqlite::rusqlite::<impl drizzle::builder::sqlite::common::DrizzleBuilder<'_, drizzle::builder::sqlite::common::Drizzle<Connection, S>, S, drizzle::sqlite::builder::QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::execute`
   --> src/builder/sqlite/rusqlite/mod.rs
    |
    |     pub fn execute(self) -> drizzle_core::error::Result<usize>

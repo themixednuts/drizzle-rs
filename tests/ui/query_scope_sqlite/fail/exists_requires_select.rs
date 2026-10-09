@@ -21,5 +21,5 @@ fn main() {
     let _ = qb
         .select(users.id)
         .from(users)
-        .r#where(exists(qb.delete(users).returning(users.id)));
+        .r#where(exists(qb.delete(users).r#where(true).returning(users.id)));
 }
