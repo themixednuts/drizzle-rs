@@ -248,21 +248,49 @@ pub fn generate_sql_table<D: Dialect>(config: SQLTableConfig<'_>) -> TokenStream
 }
 
 /// Generate `SQLSchema` trait implementation for a given dialect.
+///
+/// `name_scope` is the item's `NAME_SCOPE`; `None` keeps the default, for
+/// items that claim no name in a schema, such as aliases.
 pub fn generate_sql_schema<D: Dialect>(
     struct_ident: &impl ToTokens,
     name: &TokenStream,
     r#type: &TokenStream,
     const_sql: &TokenStream,
+    name_scope: Option<&TokenStream>,
 ) -> TokenStream {
     let sql_schema = core_paths::sql_schema();
     let schema_type = D::schema_type();
     let value_type = D::value_type();
+    let name_scope = name_scope.map(|scope| {
+        quote! {
+            const NAME_SCOPE: ::core::option::Option<(&'static str, &'static str)> = #scope;
+        }
+    });
 
     quote! {
         impl<'a> #sql_schema<'a, #schema_type, #value_type<'a>> for #struct_ident {
             const NAME: &'static str = #name;
             const TYPE: #schema_type = #r#type;
             const SQL: &'static str = #const_sql;
+            #name_scope
+        }
+    }
+}
+
+/// The `NAME_SCOPE` of a table or view: its schema (empty when it has none)
+/// and its name, from its `TABLE_REF`. Tables and views share that scope.
+pub fn table_name_scope(struct_ident: &impl ToTokens) -> TokenStream {
+    quote! {
+        {
+            const TABLE: &drizzle::core::TableRef =
+                &<#struct_ident as drizzle::core::DrizzleTable>::TABLE_REF;
+            ::core::option::Option::Some((
+                match TABLE.schema {
+                    ::core::option::Option::Some(schema) => schema,
+                    ::core::option::Option::None => "",
+                },
+                TABLE.name,
+            ))
         }
     }
 }

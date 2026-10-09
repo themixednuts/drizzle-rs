@@ -363,6 +363,12 @@ pub fn postgres_policy_attr_macro(
                 #postgres_schema_type::Policy(&POLICY_INSTANCE)
             };
             const SQL: &'static str = #const_sql;
+            // Policy names are unique per table.
+            const NAME_SCOPE: ::core::option::Option<(&'static str, &'static str)> =
+                ::core::option::Option::Some((
+                    <#table_type as drizzle::core::DrizzleTable>::TABLE_REF.qualified_name,
+                    #policy_name,
+                ));
         }
 
         impl<'a> #to_sql<'a, #postgres_value<'a>> for #struct_ident {

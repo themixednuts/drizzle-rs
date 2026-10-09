@@ -43,8 +43,8 @@ note: required by a bound in `drizzle::core::expr::exists`
 error[E0277]: builder state `DeleteReturningSet` does not allow `drizzle_core::builder::clause::Source`
   --> tests/ui/query_scope_sqlite/fail/exists_requires_select.rs:24:25
    |
-24 |         .r#where(exists(qb.delete(users).returning(users.id)));
-   |                  ------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not available at this point of the query
+24 |         .r#where(exists(qb.delete(users).r#where(true).returning(users.id)));
+   |                  ------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not available at this point of the query
    |                  |
    |                  required by a bound introduced by this call
    |

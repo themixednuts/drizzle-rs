@@ -111,7 +111,7 @@ macro_rules! join_impl {
             /// bare table to join on its foreign key to the previous table.
             /// See [`join`](Self::join) for an example.
             #[allow(clippy::type_complexity)]
-            pub fn [<$type _join>]<J: JoinArg<'a, T>>(
+            pub fn [<$type _join>]<J: JoinArg<'a, T, Via>, Via>(
                 self,
                 arg: J,
             ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Row, G>
@@ -506,7 +506,7 @@ where
     /// ```
     #[inline]
     #[allow(clippy::type_complexity)]
-    pub fn join<J: JoinArg<'a, T>>(
+    pub fn join<J: JoinArg<'a, T, Via>, Via>(
         self,
         arg: J,
     ) -> SelectBuilder<
@@ -1300,6 +1300,11 @@ where
 ///
 /// Implemented for completed [`SelectBuilder`]s and for the driver
 /// builders in the `drizzle` crate that wrap one.
+#[diagnostic::on_unimplemented(
+    message = "this query does not select the columns the set operation needs",
+    label = "it selects different columns from the other side",
+    note = "both sides of UNION, INTERSECT and EXCEPT select the same number of columns, of matching types, in the same order"
+)]
 pub trait IntoSelect<'a, S, M, R> {
     /// Builder state of the converted query.
     type State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>;

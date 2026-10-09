@@ -3,7 +3,7 @@ use drizzle_migrations::mysql::{
     IndexMethod, InlineEnum, InlineType, MySQLEntity, MySQLSnapshot, PrimaryKey, ReferentialAction,
     Table, UniqueConstraint,
 };
-use drizzle_migrations::{DiffOptions, Snapshot, diff, diff_with};
+use drizzle_migrations::{CreateHint, DiffOptions, RenameKind, Snapshot, diff, diff_with};
 use drizzle_types::Dialect;
 
 fn in_database(entity: &mut MySQLEntity, database: &'static str) {
@@ -173,7 +173,10 @@ fn destructive_changes_surface_structural_warnings() {
         MySQLEntity::Table(accounts),
         MySQLEntity::Column(Column::new("accounts", "display_name", "varchar(255)")),
     ]);
-    let plan = diff(&previous, &current).unwrap();
+    // `display_name` is new, not `id` renamed.
+    let options = DiffOptions::new()
+        .create(CreateHint::new(RenameKind::Column, "display_name").on_table("accounts"));
+    let plan = diff_with(&previous, &current, &options).unwrap();
     assert!(
         plan.warnings
             .iter()

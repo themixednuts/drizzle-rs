@@ -54,6 +54,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
     let fields = struct_fields(input, "SQLiteTable")?;
+    let struct_attrs = crate::common::forwarded_struct_attrs(input, "SQLiteTable")?;
 
     let primary_key_count = count_primary_keys(fields, |field| {
         Ok(FieldInfo::from_field(field, false)?.is_primary())
@@ -67,6 +68,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 
     validate_strict_affinity(&field_infos, attrs.strict)?;
     validation::validate_autoincrement(&field_infos, attrs.without_rowid)?;
+    crate::common::constraints::validate_keys(&field_infos, &attrs.composite_foreign_keys)?;
 
     // Calculate required fields pattern for const generic
     let required_fields_pattern = required_fields_pattern(&field_infos, |info| {
@@ -74,10 +76,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
             || info.has_default
             || info.default_fn.is_some()
             || info.generated_column.is_some()
-            || (info.is_primary()
-                && !attrs.without_rowid
-                && !info.is_enum
-                && matches!(info.column_type, crate::sqlite::field::SQLiteType::Integer))
+            || info.is_rowid_alias(attrs.without_rowid)
     });
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
@@ -163,6 +162,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         // Table marker const for IDE hover documentation
         #table_marker_const
 
+        #struct_attrs
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
          #column_fields
@@ -210,29 +210,22 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 /// Shared by both `#[SQLiteTable]` and `#[SQLiteView]`.
 #[cfg(feature = "query")]
 pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
-    use crate::common::query::{FieldJsonInfo, FkInfo, RowKeys, generate_query_api};
+    use crate::common::query::{FieldJsonInfo, TableKeys, generate_query_api};
     use crate::sqlite::field::SQLiteType;
 
     let struct_ident = ctx.struct_ident;
     let select_model_ident = &ctx.select_model_ident;
     let table_name = &ctx.table_name;
 
-    // Collect FK infos
-    let fk_infos: Vec<FkInfo> = ctx
-        .field_infos
-        .iter()
-        .filter_map(|f| {
-            let fk = f.foreign_key.as_ref()?;
-            Some(FkInfo {
-                source_column: f.column_name.clone(),
-                target_table_ident: fk.table_ident.clone(),
-                target_column_ident: fk.column_ident.clone(),
-                is_nullable: f.is_nullable,
-                relation_name: f.relation_name.clone(),
-                span: f.ident.span(),
-            })
-        })
-        .collect();
+    let keys = TableKeys::new(
+        ctx.field_infos,
+        &ctx.attrs.composite_foreign_keys,
+        ctx.attrs
+            .unique_constraints
+            .iter()
+            .map(|unique| unique.columns.as_slice()),
+        &crate::common::constraints::DialectTypes::sqlite(),
+    );
 
     let partial_select_model_ident = &ctx.select_model_partial_ident;
 
@@ -281,13 +274,6 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         })
         .collect();
 
-    // Collect column names
-    let column_names: Vec<String> = ctx
-        .field_infos
-        .iter()
-        .map(|f| f.column_name.clone())
-        .collect();
-
     generate_query_api(
         struct_ident,
         ctx.struct_vis,
@@ -295,16 +281,8 @@ pub fn generate_query_api_impls(ctx: &MacroContext) -> TokenStream {
         table_name,
         select_model_ident,
         partial_select_model_ident,
-        &fk_infos,
+        &keys,
         &field_json_infos,
-        &column_names,
-        &RowKeys::new(
-            ctx.field_infos,
-            ctx.attrs
-                .unique_constraints
-                .iter()
-                .map(|unique| unique.columns.as_slice()),
-        ),
     )
 }
 

@@ -1,0 +1,5 @@
+error: duplicate relation accessor `owner` on `Project`: the forward relation through `owner_id` and the forward relation through `owner`. Rename one of the columns: a forward accessor is named after its column, or a composite key after the table it references.
+  --> tests/ui/query_api_sqlite/fail/duplicate_forward_names.rs:23:5
+   |
+23 |     owner: i32,
+   |     ^^^^^

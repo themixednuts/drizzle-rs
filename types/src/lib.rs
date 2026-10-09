@@ -55,6 +55,8 @@ mod migration;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod mysql;
 #[cfg(any(feature = "std", feature = "alloc"))]
+mod names;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod postgres;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod serde_helpers;

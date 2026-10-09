@@ -491,7 +491,7 @@ impl<Schema> Drizzle<Schema> {
     /// Starts a relational query on `table` (requires the `query` feature).
     ///
     /// Relations come from foreign keys: `#[column(references = Users::id)]` on
-    /// `Posts::author_id` gives `users.posts()` (one-to-many) and
+    /// `Posts::author_id` gives `users.author_posts()` (one-to-many) and
     /// `posts.author()` (many-to-one). Results nest the related rows as fields.
     #[cfg(feature = "query")]
     pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
@@ -1457,6 +1457,14 @@ impl<Schema> Drizzle<Schema> {
     /// local development: nothing is recorded in the migration tracking
     /// table.
     ///
+    /// When a schema, enum, table or column may have been renamed, `push`
+    /// fails rather than guess, and the error gives the hint for each answer;
+    /// pass the answers to [`push_with`](Self::push_with).
+    ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1465,6 +1473,20 @@ impl<Schema> Drizzle<Schema> {
     pub async fn push<S: drizzle_migrations::Schema>(
         &self,
         schema: &S,
+    ) -> drizzle_core::error::Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+            .await
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub async fn push_with<S: drizzle_migrations::Schema>(
+        &self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
     ) -> drizzle_core::error::Result<()> {
         let desired = schema.to_snapshot();
         let target_schemas: Vec<String> = match &desired {
@@ -1488,8 +1510,19 @@ impl<Schema> Drizzle<Schema> {
             }
             (other, _) => other,
         };
-        let generated = drizzle_migrations::diff(&live, &desired)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let generated = drizzle_migrations::diff_with(
+            &live,
+            &desired,
+            &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
+        )
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let mut lost = Vec::with_capacity(generated.data_loss.len());
+        for drop in &generated.data_loss {
+            let sql = drop.count_sql(drizzle_types::Dialect::PostgreSQL);
+            let rows: i64 = self.client.query_one(&*sql, &[]).await?.get(0);
+            lost.push((drop.clone(), rows));
+        }
+        crate::builder::refuse_data_loss(&lost)?;
         // The push changes tables, and PostgreSQL rejects a cached statement
         // whose result columns changed; drop the connection's statements.
         self.statement_cache.clear();
@@ -1504,8 +1537,6 @@ impl<Schema> Drizzle<Schema> {
 
 impl<S, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it changed.
     ///
@@ -1518,7 +1549,10 @@ where
     /// Returns an error when the server rejects the statement, for example on
     /// a constraint violation. The error carries the SQL and its parameters
     /// ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.tokio", "builder.execute");
@@ -1563,6 +1597,7 @@ where
     /// - a raw `sql!` selection carries an explicit result type.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -1614,6 +1649,7 @@ where
     /// The same scope and grouping checks as [`all`](Self::all).
     pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::tokio_postgres::Row, Rw, Rw, Proof>,
@@ -1658,6 +1694,7 @@ where
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -1998,14 +2035,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let num_base_cols = T::COLUMN_NAMES.len();
         let (sql_str, bound_params) = self.inner.bind(params)?;
         let (lower, upper) = bound_params.size_hint();
@@ -2106,14 +2135,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let (sql_str, bound_params) = self.inner.bind(params)?;
         let (lower, upper) = bound_params.size_hint();
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =

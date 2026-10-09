@@ -1,0 +1,13 @@
+error[E0599]: the method `limit` exists for struct `QueryBuilder<'_, Schema, DeleteInitial, Users>`, but its trait bounds were not satisfied
+  --> tests/ui/mysql_builder/fail/limit_without_where.rs:19:35
+   |
+19 |     let _ = builder.delete(users).limit(1);
+   |                                   ^^^^^ method cannot be called on `QueryBuilder<'_, Schema, DeleteInitial, Users>` due to unsatisfied trait bounds
+   |
+  ::: core/src/builder/states.rs
+   |
+   | pub struct DeleteInitial;
+   | ------------------------ doesn't satisfy `_: SelectClause<Limit>`
+   |
+   = note: the following trait bounds were not satisfied:
+           `DeleteInitial: drizzle::mysql::builder::select::SelectClause<drizzle_core::builder::clause::Limit>`

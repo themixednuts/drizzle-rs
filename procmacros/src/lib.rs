@@ -253,7 +253,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// | `without_rowid` | Create a [WITHOUT ROWID table](https://sqlite.org/withoutrowid.html). Needs a primary key and rules out `autoincrement`. |
 /// | `unique(a, b)` or `unique(columns(a, b), name = "...")` | Table-level `UNIQUE` constraint over the named fields. |
 /// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
-/// | `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "CASCADE", on_update = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. The actions are SQL text, such as `"SET NULL"`. |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "CASCADE", on_update = "...", relation = "...", many_to_many = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. The actions are SQL text, such as `"SET NULL"`. `relation` and `many_to_many` name its relations (see [Relations](#relations)). |
 ///
 /// # Column attributes
 ///
@@ -272,7 +272,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// | `default_fn = path` | Rust function called to fill the field when an insert model is created. Cannot be combined with `default`. |
 /// | `references = Table::column` | Foreign key to another table's column. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
-/// | `relation = "name"` | Name of the accessor the referenced table gets through this column: the reverse relation, or on a link table the many-to-many one (see [Relations](#relations)). Needs `references`. |
+/// | `relation = "name"` | Name of the reverse accessor the referenced table gets through this column (see [Relations](#relations)). Needs `references`. |
+/// | `many_to_many = "name"` | Name of the many-to-many accessor the referenced table gets through this link table; also makes a table with two foreign keys a link (see [Relations](#relations)). Needs `references`. |
 /// | `collate = NOCASE` | Column collation: `BINARY`, `NOCASE`, `RTRIM`, or any name as a string. |
 /// | `check = "score >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
 /// | `generated(stored, "expr")` or `generated(virtual, "expr")` | Generated column. Never written by inserts. Cannot be combined with `default`. |
@@ -315,22 +316,28 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// for the relational query API:
 ///
 /// - Forward, on this table: the column name without its `_id` suffix
-///   (`author_id` gives `posts.author()`).
+///   (`author_id` gives `posts.author()`). A nullable key loads an `Option`.
 /// - Reverse, on the referenced table: this struct's name in plural
-///   `snake_case` (`Post` gives `users.posts()`, `Category` gives
-///   `categories()`).
-/// - A self-reference, or two or more foreign keys to the same table, name
-///   each reverse accessor `{forward}_{plural}` (`users.author_posts()`).
-/// - A link table, whose rows are a pair of foreign keys to two other
-///   tables, also links them many-to-many (`posts.tags()` and
-///   `tags.posts()`). The pair is its primary key or a `UNIQUE` constraint,
-///   or it has no other column except a single-column primary key.
-/// - `relation = "name"` names the accessor the referenced table gets through
-///   the column: the reverse one, or on a link table the many-to-many one. It
-///   is needed only when two accessors on the referenced table would still
-///   share a name, such as two links between the same tables. The macro asks
-///   for it when both come from one table; when they come from different
-///   tables, rustc reports a duplicate definition at both columns.
+///   `snake_case`, after the column's role. A column named after the table it
+///   references has none (`user_id` gives `users.posts()`); any other name is
+///   one (`author_id` gives `users.author_posts()`, `parent_id` on a
+///   self-reference gives `categories.parent_categories()`).
+/// - One-to-one: when the column alone is unique or the primary key, the
+///   reverse accessor takes the singular and loads an `Option`
+///   (`users.profile()`).
+/// - Many-to-many: a link table, whose rows are a pair of foreign keys, gives
+///   each side an accessor to the other, named after the other column
+///   (`posts.tags()` and `tags.posts()` through `PostTags`). The pair is its
+///   primary key or a `UNIQUE` constraint, or it has no other column except a
+///   single-column primary key, and neither key is unique alone. A link whose
+///   name adds to what it links appends it (`users.posts_via_likes()`
+///   through `PostLikes`), so two links between the same tables never clash.
+/// - A table-level `foreign_key(...)` gives the same relations; its forward
+///   accessor is the referenced struct's singular name.
+/// - `relation = "name"` and `many_to_many = "name"` choose other names, on
+///   the column or inside `foreign_key(...)`. The macro reports two accessors
+///   it generates with one name; two tables that give a third the same name
+///   get a duplicate definition from rustc at both columns.
 ///
 /// # Examples
 ///
@@ -475,8 +482,9 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// The macro also rejects, among others: `autoincrement` on a non-`INTEGER`
 /// or non-primary column, `autoincrement` with `without_rowid`, column types
-/// that `strict` does not allow, `on_delete`/`on_update`/`relation` without
-/// `references`, and a `default` whose literal does not fit the column type.
+/// that `strict` does not allow, `on_delete`, `on_update`, `relation` or
+/// `many_to_many` without `references`, and a `default` whose literal does
+/// not fit the column type.
 #[cfg(feature = "sqlite")]
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -880,10 +888,11 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 ///   the macro reports an error if they appear in a `#[derive]` on the struct.
 /// - `schema.items()`, a tuple of references to every field, and
 ///   `From<Schema>` for the tuple of fields.
-/// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
-///   statements: tables ordered so referenced tables come first, each table's
-///   indexes right after it, then views. A foreign key cycle or a duplicate
-///   table or index name is an error there.
+/// - `SQLSchemaImpl`, whose `create_statements()` returns the statements a
+///   migration from an empty database runs: each table followed by its
+///   indexes, then views. SQLite checks a foreign key when rows change, not
+///   when a table is created, so tables that reference each other need no
+///   particular order.
 /// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
 ///
 /// # Examples
@@ -914,16 +923,21 @@ pub fn postgres_from_row_derive(input: TokenStream) -> TokenStream {
 ///
 /// #[derive(SQLiteSchema)]
 /// struct Schema {
-///     // Field order does not matter: `users` is still created before `posts`.
 ///     posts: Posts,
 ///     users: Users,
 ///     users_email_idx: UsersEmailIdx,
 /// }
 ///
 /// let statements: Vec<String> = Schema::new().create_statements()?.collect();
-/// assert!(statements[0].starts_with("CREATE TABLE `users`"));
-/// assert_eq!(statements[1], r#"CREATE UNIQUE INDEX "users_email_idx" ON "users" ("email")"#);
-/// assert!(statements[2].starts_with("CREATE TABLE `posts`"));
+/// let position = |prefix: &str| {
+///     statements
+///         .iter()
+///         .position(|sql| sql.starts_with(prefix))
+///         .expect(prefix)
+/// };
+/// // Each index follows its table.
+/// assert!(position("CREATE TABLE `users`") < position("CREATE UNIQUE INDEX `users_email_idx`"));
+/// assert!(position("CREATE TABLE `posts`") < statements.len());
 ///
 /// // Destructure to get the handles used in queries.
 /// let Schema { users, posts, .. } = Schema::new();
@@ -994,11 +1008,11 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
 /// - `Clone`, `Copy` and `Debug`. Do not derive these (or `Default`) yourself:
 ///   the macro reports an error if they appear in a `#[derive]` on the struct.
 /// - `schema.items()` and `From<Schema>` for the tuple of fields.
-/// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
-///   statements in dependency order: enum types first, then each table
-///   (referenced tables first) followed by its `COMMENT ON` statements,
-///   indexes, row-level security switch and policies, then views. A foreign
-///   key cycle or a duplicate table or index name is an error there.
+/// - `SQLSchemaImpl`, whose `create_statements()` returns the statements a
+///   migration from an empty database runs: schemas and enum types first,
+///   then tables (referenced tables first) with their comments, indexes,
+///   row-level security and policies, then views. A foreign key that closes a
+///   cycle is added once both of its tables exist.
 /// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
 ///
 /// As with [`SQLiteSchema`], every table a foreign key points to must be in
@@ -1034,7 +1048,7 @@ pub fn sqlite_schema_derive(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// let statements: Vec<String> = Schema::new().create_statements()?.collect();
-/// assert_eq!(statements[0], r#"CREATE TYPE "Status" AS ENUM ('Open', 'Closed')"#);
+/// assert_eq!(statements[0], r#"CREATE TYPE "Status" AS ENUM ('Open', 'Closed');"#);
 /// assert!(statements[1].starts_with(r#"CREATE TABLE "tickets""#));
 /// # Ok(())
 /// # }
@@ -1337,7 +1351,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// | `rls` | Enable row-level security (see [`PostgresPolicy`]). |
 /// | `unique(a, b)` or `unique(columns(a, b), name = "...", nulls_not_distinct, deferrable, initially_deferred)` | Table-level `UNIQUE` constraint over the named fields. |
 /// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
-/// | `foreign_key(columns(a, b), references(Parent, x, y), name = "...", on_delete = "...", on_update = "...", deferrable, initially_deferred)` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. `name` defaults to `{table}_{a}_fkey`. |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), name = "...", on_delete = "...", on_update = "...", deferrable, initially_deferred, relation = "...", many_to_many = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. `name` defaults to `{table}_{a}_fkey`. `relation` and `many_to_many` name its relations (see [Relations](#relations)). |
 /// | `primary_key(name = "...")` | Name the primary key formed by the `primary` fields (default `{table}_pkey`). |
 ///
 /// # Column attributes
@@ -1360,7 +1374,8 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// | `fk_name = "..."` | Name of that foreign key constraint (default `{table}_{column}_fkey`). Needs `references`. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
 /// | `deferrable`, `initially_deferred` | Make the column's foreign key deferrable. Needs `references`. |
-/// | `relation = "name"` | Name of the accessor the referenced table gets through this column: the reverse relation, or on a link table the many-to-many one (see [Relations](#relations)). Needs `references`. |
+/// | `relation = "name"` | Name of the reverse accessor the referenced table gets through this column (see [Relations](#relations)). Needs `references`. |
+/// | `many_to_many = "name"` | Name of the many-to-many accessor the referenced table gets through this link table; also makes a table with two foreign keys a link (see [Relations](#relations)). Needs `references`. |
 /// | `collate = "C"` | Column collation, written quoted in the DDL. |
 /// | `check = "balance >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
 /// | `generated(stored, "expr")` or `generated(virtual, "expr")` | Generated column. Never written by inserts. `VIRTUAL` needs `PostgreSQL` 18 or later. |
@@ -1403,13 +1418,10 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 ///
 /// # Relations
 ///
-/// With the `query` feature, `references` also generates relation accessors
-/// for the relational query API. The naming rules are the same as for
-/// [`SQLiteTable`](SQLiteTable#relations): the forward accessor drops the
-/// `_id` suffix (`posts.author()`), the reverse one is this struct's name in
-/// plural `snake_case` (`users.posts()`), a link table gives a many-to-many
-/// pair, and `relation = "name"` names the accessor the referenced table gets
-/// through the column.
+/// With the `query` feature, `references` and table-level `foreign_key(...)`
+/// also generate relation accessors for the relational query API: forward
+/// and reverse ones, one-to-one and many-to-many. They are named as for
+/// [`SQLiteTable`](SQLiteTable#relations).
 ///
 /// # Examples
 ///
@@ -1813,7 +1825,7 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 /// | `comment = "..."` | Table `COMMENT`. Without it, the struct's doc comment is used. |
 /// | `unique(a, b)` or `unique(columns(a, b), name = "...")` | Table-level `UNIQUE` constraint over the named fields. |
 /// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
-/// | `foreign_key(columns(a, b), references(Parent, x, y), name = "...", on_delete = "CASCADE", on_update = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. `name` defaults to `{table}_{a}_fkey`. |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), name = "...", on_delete = "CASCADE", on_update = "...", relation = "...", many_to_many = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. `name` defaults to `{table}_{a}_fkey`. `relation` and `many_to_many` name its relations (see [Relations](#relations)). |
 ///
 /// `engine`, `charset` and `collate` take ASCII letters, digits and `_` only.
 ///
@@ -1837,7 +1849,8 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 /// | `on_update = "CURRENT_TIMESTAMP"` | Column `ON UPDATE` clause, given as a string. Only on `DATETIME` and `TIMESTAMP` columns. |
 /// | `references = Table::column` | Foreign key to another table's column. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`, as a bare identifier: `CASCADE`, `SET_NULL`, `RESTRICT` or `NO_ACTION`. InnoDB rejects `SET_DEFAULT`. |
-/// | `relation = "name"` | Name of the accessor the referenced table gets through this column: the reverse relation, or on a link table the many-to-many one (see [Relations](#relations)). Needs `references`. |
+/// | `relation = "name"` | Name of the reverse accessor the referenced table gets through this column (see [Relations](#relations)). Needs `references`. |
+/// | `many_to_many = "name"` | Name of the many-to-many accessor the referenced table gets through this link table; also makes a table with two foreign keys a link (see [Relations](#relations)). Needs `references`. |
 /// | `charset = "..."` (or `character_set`), `collate = "..."` | Column character set and collation, on character, text, `ENUM` and `SET` columns. |
 /// | `comment = "..."` | Column `COMMENT`. |
 /// | `check = "score >= 0"` | Column-level `CHECK` constraint. The expression is raw SQL. |
@@ -1869,25 +1882,9 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 /// # Relations
 ///
 /// `references = Table::column` declares a foreign key. With the `query`
-/// feature it also generates relation accessors:
-/// - forward, on this table: the column name without its `_id` suffix
-///   (`author_id` gives `posts.author()`)
-/// - reverse, on the referenced table: the plural `snake_case` name of this
-///   struct (`Post` gives `users.posts()`, `Category` gives `categories()`)
-/// - a self-reference, or two or more foreign keys to the same table, names
-///   each of those reverse accessors `{forward}_{plural}`
-///   (`users.author_posts()`)
-/// - a link table, whose rows are a pair of foreign keys to two other tables,
-///   also links them many-to-many (`posts.tags()` and `tags.posts()`); the
-///   pair is its primary key or a `UNIQUE` constraint, or it has no other
-///   column except a single-column primary key
-/// - `relation = "name"` names the accessor the referenced table gets through
-///   the column (the reverse one, or on a link table the many-to-many one)
-///   and leaves the forward one alone. It is required only when two
-///   accessors on the referenced table would still share a name, such as two
-///   links between the same tables: the macro's error asks for it when both
-///   come from one table, and rustc reports a duplicate definition at both
-///   columns when they come from different tables
+/// feature it and table-level `FOREIGN_KEY(...)` also generate relation
+/// accessors: forward and reverse ones, one-to-one and many-to-many. They are
+/// named as for [`SQLiteTable`](SQLiteTable#relations).
 ///
 /// # Examples
 ///
@@ -2099,9 +2096,9 @@ pub fn MySQLIndex(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `schema.items()` and `From<Schema>` for the tuple of fields.
 /// - `SQLSchemaImpl`, whose `create_statements()` returns the `CREATE`
 ///   statements: tables ordered so referenced tables come first, each table's
-///   indexes right after it, then views. A foreign key cycle, a duplicate
-///   table or index name, or an index whose table is not in the schema is an
-///   error there.
+///   indexes right after it, then views. Tables in a reference cycle are
+///   created with the session's foreign-key checks off, the way `mysqldump`
+///   does. An index whose table is not in the schema is an error there.
 /// - The migrations `Schema` trait, so the CLI and `migrate()` can snapshot it.
 ///
 /// As with [`SQLiteSchema`], every table a foreign key points to must be in

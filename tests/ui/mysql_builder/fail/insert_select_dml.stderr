@@ -1,12 +1,13 @@
-error[E0277]: the trait bound `(): drizzle_core::builder::insert_select::InsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Users, ()>` is not satisfied
+error[E0277]: this query cannot be the source of an INSERT into `Users`
   --> tests/ui/mysql_builder/fail/insert_select_dml.rs:20:42
    |
 20 |     let _ = builder.insert(users).select(delete);
-   |                                   ------ ^^^^^^ unsatisfied trait bound
+   |                                   ------ ^^^^^^ the source must be a SELECT of the insertable columns
    |                                   |
    |                                   required by a bound introduced by this call
    |
    = help: the trait `drizzle_core::builder::insert_select::InsertSelectCompatible<'_, drizzle::mysql::MySQLValue<'_>, Users, ()>` is not implemented for `()`
+   = note: an UPDATE or DELETE, even with RETURNING, cannot feed an INSERT
 help: the following other types implement trait `drizzle_core::builder::insert_select::InsertSelectCompatible<'a, V, Target, Row>`
   --> core/src/builder/insert_select.rs
    |

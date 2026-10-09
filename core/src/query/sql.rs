@@ -200,11 +200,9 @@ pub fn build_query_sql<'a, V: SQLParam>(
 
     if wrap_base_json {
         // Wrap base columns in json_object/json_build_object as "__base"
-        write_json_object_open(dialect, sql.buf_mut());
+        write_json_object_start(dialect, column_names.len(), sql.buf_mut());
         for (i, c) in column_names.iter().enumerate() {
-            if i > 0 {
-                sql.push_str(", ");
-            }
+            write_json_pair_separator(dialect, i, sql.buf_mut());
             write_json_key(dialect, c, sql.buf_mut());
             sql.push_str(", ");
             write_json_column(
@@ -216,7 +214,7 @@ pub fn build_query_sql<'a, V: SQLParam>(
                 sql.buf_mut(),
             );
         }
-        sql.push(')');
+        write_json_object_end(dialect, column_names.len(), sql.buf_mut());
         if dialect == Dialect::PostgreSQL {
             sql.push_str("::text");
         }
@@ -520,13 +518,10 @@ fn write_json_object_body<'a, V: SQLParam>(
     dialect: Dialect,
     ctx: &mut SubqueryCtx<'_, 'a, V>,
 ) {
-    write_json_object_open(dialect, ctx.sql.buf_mut());
-    let mut first_arg = true;
-    for c in target_columns {
-        if !first_arg {
-            ctx.sql.push_str(", ");
-        }
-        first_arg = false;
+    let pairs = target_columns.len() + nested.len();
+    write_json_object_start(dialect, pairs, ctx.sql.buf_mut());
+    for (index, c) in target_columns.iter().enumerate() {
+        write_json_pair_separator(dialect, index, ctx.sql.buf_mut());
         write_json_key(dialect, c, ctx.sql.buf_mut());
         ctx.sql.push_str(", ");
         write_json_column(
@@ -540,17 +535,14 @@ fn write_json_object_body<'a, V: SQLParam>(
     }
 
     // Nested relation subqueries as additional json_object args.
-    for nested_rel in nested {
-        if !first_arg {
-            ctx.sql.push_str(", ");
-        }
-        first_arg = false;
+    for (index, nested_rel) in nested.into_iter().enumerate() {
+        write_json_pair_separator(dialect, target_columns.len() + index, ctx.sql.buf_mut());
         write_json_key(dialect, nested_rel.rel_name, ctx.sql.buf_mut());
         ctx.sql.push_str(", ");
         write_relation_subquery::<V>(nested_rel, alias, ctx.alias_counter, ctx.sql);
     }
 
-    ctx.sql.push(')'); // close json_object / json_build_object
+    write_json_object_end(dialect, pairs, ctx.sql.buf_mut());
 }
 
 /// Allocates a fresh `"tN"`-style alias and increments the counter in place.
@@ -731,8 +723,16 @@ fn write_relation_subquery<'a, V: SQLParam>(
         && (limit.is_some() || offset.is_some() || (!pg_order_in_agg && has_order_by));
     let mysql_ordered_many =
         cardinality == RelCardinality::Many && dialect == Dialect::MySQL && has_order_by;
-    let materializer_order_by = mysql_ordered_many.then(|| order_by_sql.clone());
-    let mysql_order_column = alloc_internal_column_name(&target_columns, &extra_cols);
+    // With LIMIT or OFFSET, PostgreSQL orders inside the derived table, and
+    // an aggregate over a derived table keeps that order only "usually".
+    // Like MySQL, it aggregates by an ordinal projected there instead.
+    let pg_ordered_inner = cardinality == RelCardinality::Many
+        && dialect == Dialect::PostgreSQL
+        && has_order_by
+        && !pg_order_in_agg;
+    let materializer_order_by =
+        (mysql_ordered_many || pg_ordered_inner).then(|| order_by_sql.clone());
+    let order_column = alloc_internal_column_name(&target_columns, &extra_cols);
 
     let mut order_by_sql = Some(order_by_sql);
 
@@ -767,13 +767,16 @@ fn write_relation_subquery<'a, V: SQLParam>(
         if let Some(order_by_sql) = order_by_sql.take() {
             sql.push_fragment(order_by_sql, target_table, alias);
         }
+    } else if pg_ordered_inner {
+        sql.push_str(" ORDER BY ");
+        write_qualified_column(dialect, alias, &order_column, sql.buf_mut());
     }
 
     // close json_group_array / json_agg for Many
     if cardinality == RelCardinality::Many {
         if mysql_ordered_many {
             sql.push_str(") OVER (ORDER BY ");
-            write_qualified_column(dialect, alias, &mysql_order_column, sql.buf_mut());
+            write_qualified_column(dialect, alias, &order_column, sql.buf_mut());
             sql.push_str(" ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)");
         } else {
             write_json_array_agg_close(dialect, sql.buf_mut());
@@ -792,12 +795,13 @@ fn write_relation_subquery<'a, V: SQLParam>(
             sql.buf_mut(),
         );
         if let Some(materializer_order_by) = materializer_order_by {
-            // MySQL JSON_ARRAYAGG has no aggregate-local ORDER BY. Project a
-            // stable ordinal for the explicit ordered window aggregate above.
+            // MySQL JSON_ARRAYAGG has no aggregate-local ORDER BY, and a
+            // PostgreSQL aggregate does not keep a derived table's order.
+            // Project a stable ordinal for the aggregate above to order by.
             sql.push_str(", ROW_NUMBER() OVER (ORDER BY ");
             sql.push_fragment(materializer_order_by, target_table, alias);
             sql.push_str(") AS ");
-            write_dialect_quoted_ident(dialect, sql.buf_mut(), &mysql_order_column);
+            write_dialect_quoted_ident(dialect, sql.buf_mut(), &order_column);
         }
         sql.push_str(" FROM ");
         write_qualified_table(dialect, target, sql.buf_mut());
@@ -992,6 +996,47 @@ fn write_json_column(
 }
 
 /// Opens a JSON object constructor.
+/// The most key/value pairs one `PostgreSQL` `json_build_object` call takes:
+/// a function takes at most 100 arguments.
+const PG_JSON_OBJECT_PAIRS: usize = 50;
+
+/// Whether an object of `pairs` key/value pairs is built in pieces.
+fn json_object_is_split(dialect: Dialect, pairs: usize) -> bool {
+    dialect == Dialect::PostgreSQL && pairs > PG_JSON_OBJECT_PAIRS
+}
+
+/// Opens a JSON object of `pairs` key/value pairs. A `PostgreSQL` object
+/// past its argument limit is built as `(json_build_object(..)::jsonb ||
+/// json_build_object(..)::jsonb)::json`; values are read back by key, so the
+/// order `jsonb` gives them does not matter.
+fn write_json_object_start(dialect: Dialect, pairs: usize, sql: &mut String) {
+    if json_object_is_split(dialect, pairs) {
+        sql.push('(');
+    }
+    write_json_object_open(dialect, sql);
+}
+
+/// Writes what comes before pair `index` of a JSON object: nothing, a comma,
+/// or the start of the next `PostgreSQL` piece.
+fn write_json_pair_separator(dialect: Dialect, index: usize, sql: &mut String) {
+    if index == 0 {
+        return;
+    }
+    if dialect == Dialect::PostgreSQL && index.is_multiple_of(PG_JSON_OBJECT_PAIRS) {
+        sql.push_str(")::jsonb || json_build_object(");
+    } else {
+        sql.push_str(", ");
+    }
+}
+
+/// Closes a JSON object opened by [`write_json_object_start`].
+fn write_json_object_end(dialect: Dialect, pairs: usize, sql: &mut String) {
+    sql.push(')');
+    if json_object_is_split(dialect, pairs) {
+        sql.push_str("::jsonb)::json");
+    }
+}
+
 fn write_json_object_open(dialect: Dialect, sql: &mut String) {
     match dialect {
         Dialect::SQLite => sql.push_str("json_object("),
@@ -1047,6 +1092,46 @@ mod tests {
             name,
             column_names,
         }
+    }
+
+    /// Builds a JSON object of `pairs` numbered pairs as the renderers do.
+    fn json_object(dialect: Dialect, pairs: usize) -> String {
+        let mut sql = String::new();
+        write_json_object_start(dialect, pairs, &mut sql);
+        for index in 0..pairs {
+            write_json_pair_separator(dialect, index, &mut sql);
+            sql.push_str(&format!("'k{index}', {index}"));
+        }
+        write_json_object_end(dialect, pairs, &mut sql);
+        sql
+    }
+
+    #[test]
+    fn postgres_json_objects_split_past_the_argument_limit() {
+        assert_eq!(
+            json_object(Dialect::PostgreSQL, 2),
+            "json_build_object('k0', 0, 'k1', 1)"
+        );
+
+        let wide = json_object(Dialect::PostgreSQL, 120);
+        assert!(wide.starts_with("(json_build_object('k0', 0, "));
+        assert!(wide.ends_with("'k119', 119)::jsonb)::json"));
+        // Three calls of at most 50 pairs (100 arguments) each.
+        let calls: Vec<&str> = wide.split("json_build_object(").skip(1).collect();
+        assert_eq!(calls.len(), 3);
+        for call in calls {
+            let arguments = call
+                .split(')')
+                .next()
+                .unwrap_or_default()
+                .split(", ")
+                .count();
+            assert!(arguments <= 100, "{arguments} arguments in one call");
+        }
+
+        // Other dialects have no such limit.
+        let sqlite = json_object(Dialect::SQLite, 120);
+        assert_eq!(sqlite.matches("json_object(").count(), 1);
     }
 
     #[test]

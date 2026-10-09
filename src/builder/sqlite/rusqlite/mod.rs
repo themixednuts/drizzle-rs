@@ -1011,6 +1011,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// # fn main() {}
     /// ```
     ///
+    /// When a table or column may have been renamed, `push` fails rather
+    /// than guess, and the error gives the hint for each answer;
+    /// pass the answers to [`push_with`](Self::push_with).
+    ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1019,10 +1027,37 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         &self,
         schema: &S,
     ) -> drizzle_core::error::Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub fn push_with<S: drizzle_migrations::Schema>(
+        &self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> drizzle_core::error::Result<()> {
         let live = self.introspect()?;
         let desired = schema.to_snapshot();
-        let generated = drizzle_migrations::diff(&live, &desired)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let generated = drizzle_migrations::diff_with(
+            &live,
+            &desired,
+            &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
+        )
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let lost = generated
+            .data_loss
+            .iter()
+            .map(|drop| {
+                let sql = drop.count_sql(drizzle_types::Dialect::SQLite);
+                let rows: i64 = self.conn.query_row(&sql, [], |row| row.get(0))?;
+                Ok((drop.clone(), rows))
+            })
+            .collect::<drizzle_core::error::Result<Vec<_>>>()?;
+        crate::builder::refuse_data_loss(&lost)?;
         let operation =
             drizzle_migrations::Migration::with_hash("push", "", 0, generated.statements);
         let execution = operation
@@ -1451,14 +1486,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let num_base_cols = T::COLUMN_NAMES.len();
         let (sql_str, params) = self.inner.bind(params)?;
         let mut stmt = conn.prepare_cached(sql_str)?;
@@ -1547,14 +1574,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let (sql_str, params) = self.inner.bind(params)?;
         let mut stmt = conn.prepare_cached(sql_str)?;
         let mut raw_rows = stmt.query(params_from_iter(params))?;
@@ -1616,8 +1635,6 @@ impl<'a, T, Rels>
 
 impl<S, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it changed.
     ///
@@ -1655,7 +1672,10 @@ where
     /// Returns an error when SQLite cannot prepare or run the statement, for
     /// example on a constraint violation. The error carries the SQL and its
     /// parameters ([`DrizzleError::QueryFailed`]).
-    pub fn execute(self) -> drizzle_core::error::Result<usize> {
+    pub fn execute(self) -> drizzle_core::error::Result<usize>
+    where
+        State: builder::ExecutableState,
+    {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "builder.execute");
         let (sql_str, params) = self.builder.sql.build();
@@ -1732,6 +1752,7 @@ where
     /// ```
     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -1799,6 +1820,7 @@ where
     /// The same scope and grouping checks as [`all`](Self::all).
     pub fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::rusqlite::Row<'r>, Rw, Rw, Proof>,
@@ -1869,6 +1891,7 @@ where
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
     pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker

@@ -2,6 +2,27 @@ use crate::prelude::{String, Vec};
 use drizzle_core::{SQLIndexInfo, SQLSchemaType, SQLViewInfo, TableRef};
 use drizzle_types::mysql::ddl::{ViewAlgorithm, ViewCheckOption, ViewSqlSecurity};
 
+/// Saves the session's foreign-key check setting before
+/// [`DISABLE_FOREIGN_KEY_CHECKS`].
+///
+/// A schema whose tables reference each other in a cycle cannot create them
+/// one after another while `MySQL` checks that each reference exists, so its
+/// `create_statements` create those tables with the checks off, the way
+/// `mysqldump` does, and restore the setting after.
+pub const SAVE_FOREIGN_KEY_CHECKS: &str =
+    "SET @drizzle_foreign_key_checks = @@SESSION.foreign_key_checks";
+
+/// Turns foreign-key checks off for the session; see
+/// [`SAVE_FOREIGN_KEY_CHECKS`].
+pub const DISABLE_FOREIGN_KEY_CHECKS: &str = "SET FOREIGN_KEY_CHECKS = 0";
+
+/// Restores the setting [`SAVE_FOREIGN_KEY_CHECKS`] saved and forgets it.
+/// With nothing saved it leaves the setting as it is, so a failed `create`
+/// can always run it.
+pub const RESTORE_FOREIGN_KEY_CHECKS: &str = "SET FOREIGN_KEY_CHECKS = \
+     COALESCE(@drizzle_foreign_key_checks, @@SESSION.foreign_key_checks), \
+     @drizzle_foreign_key_checks = NULL";
+
 /// `MySQL`-specific options of a generated view.
 pub trait MySQLViewInfo: SQLViewInfo + core::fmt::Debug {
     /// The `ALGORITHM` option, if set.

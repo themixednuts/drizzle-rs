@@ -23,7 +23,8 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 ///
 /// # Clause order
 ///
-/// 1. Optionally `where`. Without it, every row is deleted.
+/// 1. `where` (required): the rows to delete. `r#where(true)` deletes every
+///    row.
 /// 2. Optionally [`returning`](Self::returning).
 ///
 /// The WHERE condition and the RETURNING columns may only reference the
@@ -129,7 +130,7 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 /// );
 /// ```
 ///
-/// Without WHERE, every row is deleted:
+/// `r#where(true)` deletes every row:
 ///
 /// ```rust
 /// # mod drizzle {
@@ -160,8 +161,8 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 /// # #[derive(SQLiteSchema)] struct Schema { log: Log }
 /// # let builder = QueryBuilder::new::<Schema>();
 /// # let Schema { log } = Schema::new();
-/// let query = builder.delete(log);
-/// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "logs""#);
+/// let query = builder.delete(log).r#where(true);
+/// assert_eq!(query.to_sql().sql(), r#"DELETE FROM "logs" WHERE ?"#);
 /// ```
 pub type DeleteBuilder<'a, Schema, State, Table, Marker = (), Row = ()> =
     super::QueryBuilder<'a, Schema, State, Table, Marker, Row>;
@@ -190,8 +191,9 @@ type ReturningBuilder<'a, S, T, Columns> = DeleteBuilder<
 impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
     /// Adds a WHERE clause that picks the rows to delete.
     ///
-    /// Without it, every row in the table is deleted. The condition must be a
-    /// boolean expression over the target table's columns.
+    /// A DELETE runs only with a WHERE clause, so a forgotten condition does
+    /// not empty the table; `r#where(true)` deletes every row. The condition
+    /// must be a boolean expression over the target table's columns.
     ///
     /// # Examples
     ///
@@ -255,34 +257,6 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
         let where_sql = crate::helpers::r#where(condition);
         DeleteBuilder {
             sql: self.sql.append(where_sql),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
-    /// Adds a RETURNING clause that reads columns of the deleted rows.
-    ///
-    /// Pass one column or expression, a tuple, or `()` for every column.
-    /// Only columns of the target table may be used.
-    #[inline]
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> ReturningBuilder<'a, S, T, Columns>
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources:
-            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'a, SQLiteValue<'a>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<T>,
-    {
-        let returning_sql = crate::helpers::returning(columns);
-        DeleteBuilder {
-            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

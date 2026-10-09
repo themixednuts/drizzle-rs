@@ -61,13 +61,9 @@ pub(super) fn generate_table_impls(
             }
         },
         &sql_const,
+        Some(&crate::common::generators::table_name_scope(&struct_ident)),
     );
-    let dialect_types = crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: postgres_paths::postgres_schema_type(),
-        value_type: postgres_paths::postgres_value(),
-        unique_constraint_suffix: "_key",
-    };
+    let dialect_types = crate::common::constraints::DialectTypes::postgres();
     let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
@@ -274,10 +270,7 @@ pub(super) fn generate_table_impls(
         .filter_map(|f| {
             f.foreign_key.as_ref().map(|fk| {
                 let target_table = &fk.table;
-                let fk_name = fk
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| format!("{}_{}_fkey", ctx.table_name, f.column_name));
+                let fk_name = ctx.column_foreign_key_name(f, fk);
                 let target_schema = quote! {
                     match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
                         ::core::option::Option::Some(schema) => schema,
@@ -307,22 +300,10 @@ pub(super) fn generate_table_impls(
             })
         })
         .collect();
-    for cfk in &ctx.attrs.composite_foreign_keys {
+    for (fk_index, cfk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
         let target_table = &cfk.target_table;
-        let source_columns: Vec<String> = cfk
-            .source_columns
-            .iter()
-            .map(|src| {
-                ctx.field_infos
-                    .iter()
-                    .find(|f| &f.ident == src)
-                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
-            })
-            .collect();
-        let fk_name = cfk
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("{}_{}_fkey", ctx.table_name, source_columns[0]));
+        let source_columns = ctx.composite_foreign_key_columns(cfk);
+        let fk_name = ctx.composite_foreign_key_name(fk_index);
         let target_schema = quote! {
             match <#target_table as drizzle::core::DrizzleTable>::SCHEMA {
                 ::core::option::Option::Some(schema) => schema,
@@ -450,6 +431,7 @@ pub(super) fn generate_table_impls(
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
         ctx.struct_ident,
+        &crate::common::constraints::DialectTypes::postgres(),
     )?;
     let has_check = ctx
         .field_infos

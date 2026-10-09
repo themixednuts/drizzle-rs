@@ -68,6 +68,8 @@ pub fn generate_enum_impl(
     // Optional `#[postgres_enum(schema = "...")]` — where the type is created.
     let enum_schema = parse_enum_schema(attrs)?;
     let type_schema = enum_schema.as_deref().unwrap_or("public");
+    // Types have a namespace of their own in each schema.
+    let enum_name_scope = format!("type in {type_schema}");
 
     // Build the CREATE TYPE SQL at macro time as a string literal. Like the
     // migration generator (and drizzle-kit), the type name is quoted — so a
@@ -784,6 +786,8 @@ pub fn generate_enum_impl(
                     #postgres_schema_type::Enum(&ENUM_INSTANCE)
                 };
                 const SQL: &'static str = #create_type_sql_literal;
+                const NAME_SCOPE: ::core::option::Option<(&'static str, &'static str)> =
+                    ::core::option::Option::Some((#enum_name_scope, stringify!(#name)));
             }
 
             // Snapshot DDL channel: carries the enum's schema into

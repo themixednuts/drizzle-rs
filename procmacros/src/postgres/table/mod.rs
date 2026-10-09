@@ -41,6 +41,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     let table_name = table_name_from_attrs(struct_ident, attrs.name.clone());
 
     let fields = struct_fields(input, "PostgresTable")?;
+    let struct_attrs = crate::common::forwarded_struct_attrs(input, "PostgresTable")?;
     let table_comment = doc_comment_from_attrs(&input.attrs);
 
     let primary_key_count = count_primary_keys(fields, |field| {
@@ -62,6 +63,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         .iter()
         .map(|field| FieldInfo::from_field(field, is_composite_pk))
         .collect::<Result<Vec<_>>>()?;
+    crate::common::constraints::validate_keys(&field_infos, &attrs.composite_foreign_keys)?;
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
     let table_meta_json = generate_table_meta_json(
@@ -147,6 +149,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         // Table marker const for IDE hover documentation
         #table_marker_const
 
+        #struct_attrs
         #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
          #struct_vis struct #struct_ident {
          #column_fields
@@ -223,7 +226,7 @@ fn doc_comment_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {
 /// Shared by both `#[PostgresTable]` and `#[PostgresView]`.
 #[cfg(feature = "query")]
 pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) -> TokenStream {
-    use crate::common::query::{EnumStorage, FieldJsonInfo, FkInfo, RowKeys, generate_query_api};
+    use crate::common::query::{EnumStorage, FieldJsonInfo, TableKeys, generate_query_api};
     use crate::common::type_is_uuid;
     use crate::postgres::field::PostgreSQLType;
 
@@ -232,22 +235,15 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
     let partial_select_model_ident = &ctx.select_model_partial_ident;
     let table_name = &ctx.table_name;
 
-    // Collect FK infos
-    let fk_infos: Vec<FkInfo> = ctx
-        .field_infos
-        .iter()
-        .filter_map(|f| {
-            let fk = f.foreign_key.as_ref()?;
-            Some(FkInfo {
-                source_column: f.column_name.clone(),
-                target_table_ident: fk.table.clone(),
-                target_column_ident: fk.column.clone(),
-                is_nullable: f.is_nullable,
-                relation_name: f.relation_name.clone(),
-                span: f.ident.span(),
-            })
-        })
-        .collect();
+    let keys = TableKeys::new(
+        ctx.field_infos,
+        &ctx.attrs.composite_foreign_keys,
+        ctx.attrs
+            .unique_constraints
+            .iter()
+            .map(|unique| unique.columns.as_slice()),
+        &crate::common::constraints::DialectTypes::postgres(),
+    );
 
     // Collect field info for JSON decoder generation
     let field_json_infos: Vec<FieldJsonInfo> = ctx
@@ -300,13 +296,6 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
         })
         .collect();
 
-    // Collect column names
-    let column_names: Vec<String> = ctx
-        .field_infos
-        .iter()
-        .map(|f| f.column_name.clone())
-        .collect();
-
     generate_query_api(
         struct_ident,
         ctx.struct_vis,
@@ -314,16 +303,8 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
         table_name,
         select_model_ident,
         partial_select_model_ident,
-        &fk_infos,
+        &keys,
         &field_json_infos,
-        &column_names,
-        &RowKeys::new(
-            ctx.field_infos,
-            ctx.attrs
-                .unique_constraints
-                .iter()
-                .map(|unique| unique.columns.as_slice()),
-        ),
     )
 }
 

@@ -294,6 +294,7 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
         )
     };
 
+    let table_name_scope = crate::common::generators::table_name_scope(&table_type);
     let mut expanded = quote! {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #struct_vis struct #struct_ident;
@@ -361,6 +362,13 @@ pub fn sqlite_index_attr_macro(attr: IndexAttributes, input: &DeriveInput) -> Re
                 #sqlite_schema_type::Index(&INDEX_INSTANCE)
             };
             const SQL: &'static str = #const_sql;
+            const NAME_SCOPE: ::core::option::Option<(&'static str, &'static str)> =
+                match #table_name_scope {
+                    ::core::option::Option::Some((scope, _)) => {
+                        ::core::option::Option::Some((scope, #index_name))
+                    }
+                    ::core::option::Option::None => ::core::option::Option::None,
+                };
         }
 
         impl<'a> #to_sql<'a, #sqlite_value<'a>> for #struct_ident
@@ -480,8 +488,9 @@ mod tests {
         };
         let expanded = sqlite_index_attr_macro(attrs, &input).unwrap().to_string();
 
-        // DDL SQL, DDL_INDEX, DrizzleIndex::INDEX_NAME, and SQLSchema::NAME.
-        assert_eq!(expanded.matches("users_by_email").count(), 4);
+        // DDL SQL, DDL_INDEX, DrizzleIndex::INDEX_NAME, SQLSchema::NAME and
+        // SQLSchema::NAME_SCOPE.
+        assert_eq!(expanded.matches("users_by_email").count(), 5);
         assert!(!expanded.contains("users_email_idx"));
     }
 

@@ -302,28 +302,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .all()?;
 
     // -------- Relational Queries --------
-    let user_rows = db.query(users).with(users.posts()).find_many()?;
+    let user_rows = db.query(users).with(users.author_posts()).find_many()?;
     for u in &user_rows {
-        let _ = u.posts.len();
+        let _ = u.author_posts.len();
     }
 
     let _found = db
         .query(users)
-        .with(users.posts())
+        .with(users.author_posts())
         .r#where(eq(users.name, "Alex Smith"))
         .find_first()?;
 
     let nested = db
         .query(users)
-        .with(users.posts().with(posts.comments()))
+        .with(users.author_posts().with(posts.comments()))
         .find_many()?;
     if let Some(first) = nested.first() {
-        let _ = first.posts.first().map(|p| p.comments.len());
+        let _ = first.author_posts.first().map(|p| p.comments.len());
     }
 
     let _paged = db
         .query(users)
-        .with(users.posts())
+        .with(users.author_posts())
         .r#where(gt(users.age, 25))
         .order_by(asc(users.name))
         .limit(10)
@@ -340,7 +340,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Type aliases used in function signatures (no body needed — just verify they exist).
-    fn _consume(_: &readme::UsersWithPosts) {}
+    fn _consume(_: &readme::UsersWithAuthorPosts) {}
 
     // -------- Transactions --------
     use drizzle::sqlite::TransactionConfig;

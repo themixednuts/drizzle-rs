@@ -33,6 +33,38 @@ pub struct DialectTypes {
     pub unique_constraint_suffix: &'static str,
 }
 
+impl DialectTypes {
+    #[cfg(feature = "sqlite")]
+    pub fn sqlite() -> Self {
+        Self {
+            sql_schema: core_paths::sql_schema(),
+            schema_type: crate::paths::sqlite::sqlite_schema_type(),
+            value_type: crate::paths::sqlite::sqlite_value(),
+            unique_constraint_suffix: "_unique",
+        }
+    }
+
+    #[cfg(feature = "postgres")]
+    pub fn postgres() -> Self {
+        Self {
+            sql_schema: core_paths::sql_schema(),
+            schema_type: crate::paths::postgres::postgres_schema_type(),
+            value_type: crate::paths::postgres::postgres_value(),
+            unique_constraint_suffix: "_key",
+        }
+    }
+
+    #[cfg(feature = "mysql")]
+    pub fn mysql() -> Self {
+        Self {
+            sql_schema: core_paths::sql_schema(),
+            schema_type: crate::paths::mysql::mysql_schema_type(),
+            value_type: crate::paths::mysql::mysql_value(),
+            unique_constraint_suffix: "_key",
+        }
+    }
+}
+
 // =============================================================================
 // Trait abstractions
 // =============================================================================
@@ -46,12 +78,21 @@ pub trait ConstraintFieldInfo {
     fn is_primary(&self) -> bool;
     fn is_unique(&self) -> bool;
     fn foreign_key(&self) -> Option<&Self::ForeignKey>;
+    /// Whether the field is an `Option<T>`.
+    fn is_nullable(&self) -> bool;
+    /// The `relation` and `many_to_many` names on the field's foreign key.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
+    fn relation_names(&self) -> RelationNames;
 }
 
 /// Foreign key reference abstraction over dialect-specific FK types.
 pub trait ForeignKeyRef {
     fn ref_table(&self) -> &Ident;
     fn ref_column(&self) -> &Ident;
+    /// The `ON DELETE` action in its SQL spelling (`"SET NULL"`).
+    fn on_delete(&self) -> Option<&str>;
+    /// The `ON UPDATE` action in its SQL spelling.
+    fn on_update(&self) -> Option<&str>;
 }
 
 /// Composite foreign key abstraction.
@@ -59,6 +100,131 @@ pub trait CompositeForeignKeyRef {
     fn target_table(&self) -> &Ident;
     fn source_columns(&self) -> &[Ident];
     fn target_columns(&self) -> &[Ident];
+    /// The accessor names given in the `foreign_key(...)` attribute.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
+    fn relation_names(&self) -> &RelationNames;
+    /// The `ON DELETE` action in its SQL spelling (`"SET NULL"`).
+    fn on_delete(&self) -> Option<&str>;
+    /// The `ON UPDATE` action in its SQL spelling.
+    fn on_update(&self) -> Option<&str>;
+}
+
+/// Rejects keys the database would reject or misuse at runtime: an
+/// `Option<T>` primary-key column, and `SET NULL` on a foreign key whose
+/// column cannot be null.
+pub fn validate_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
+    field_infos: &[F],
+    composite_fks: &[C],
+) -> Result<()> {
+    if let Some(field) = field_infos
+        .iter()
+        .find(|field| field.is_primary() && field.is_nullable())
+    {
+        return Err(syn::Error::new(
+            field.ident().span(),
+            "a primary-key column cannot be `Option<T>`: primary keys are never NULL",
+        ));
+    }
+    let sets_null = |on_delete: Option<&str>, on_update: Option<&str>| {
+        on_delete == Some("SET NULL") || on_update == Some("SET NULL")
+    };
+    for field in field_infos {
+        if let Some(reference) = field.foreign_key()
+            && sets_null(reference.on_delete(), reference.on_update())
+            && !field.is_nullable()
+        {
+            return Err(syn::Error::new(
+                field.ident().span(),
+                "SET_NULL needs a nullable foreign-key column: make the field an `Option<T>`, \
+                 or choose another action",
+            ));
+        }
+    }
+    for key in composite_fks {
+        if !sets_null(key.on_delete(), key.on_update()) {
+            continue;
+        }
+        for source in key.source_columns() {
+            let nullable = field_infos
+                .iter()
+                .find(|field| field.ident() == source)
+                .is_none_or(ConstraintFieldInfo::is_nullable);
+            if !nullable {
+                return Err(syn::Error::new(
+                    source.span(),
+                    "SET_NULL needs every column of the foreign key to be nullable: make the \
+                     field an `Option<T>`, or choose another action",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether a table-level argument's key is `key`, in any case, as the
+/// table and column attributes accept them.
+pub fn is_key(path: &syn::Path, key: &str) -> bool {
+    path.get_ident()
+        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case(key))
+}
+
+/// Reads a referential action, written as at the column level
+/// (`on_delete = SET_NULL`) or as a string (`on_delete = "SET NULL"`), and
+/// returns its SQL spelling. `key` names the argument in the error.
+pub fn referential_action(value: &syn::Expr, key: &str) -> Result<String> {
+    let text = match value {
+        syn::Expr::Path(path) => path.path.get_ident().map(ToString::to_string),
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(lit),
+            ..
+        }) => Some(lit.value()),
+        _ => None,
+    };
+    let action = text.map(|text| text.trim().to_ascii_uppercase().replace('_', " "));
+    match action.as_deref() {
+        Some(action @ ("CASCADE" | "SET NULL" | "SET DEFAULT" | "RESTRICT" | "NO ACTION")) => {
+            Ok(action.to_owned())
+        }
+        _ => Err(syn::Error::new_spanned(
+            value,
+            format!(
+                "{key} expects CASCADE, SET_NULL, SET_DEFAULT, RESTRICT or NO_ACTION, \
+                 as an identifier or a string"
+            ),
+        )),
+    }
+}
+
+/// Accessor names a foreign key declaration gives the relational query API.
+#[derive(Clone, Default)]
+pub struct RelationNames {
+    /// `relation = "..."`: the accessor that loads the declaring table's rows
+    /// from the referenced table.
+    pub relation: Option<String>,
+    /// `many_to_many = "..."`: the accessor the referenced table gets to the
+    /// other side of a link table.
+    pub many_to_many: Option<String>,
+}
+
+impl RelationNames {
+    /// Reads `relation = "..."` or `many_to_many = "..."` from a
+    /// `foreign_key(...)` argument. Returns whether `nv` was one of them.
+    pub fn parse_key(&mut self, nv: &syn::MetaNameValue) -> Result<bool> {
+        let Some(key) = nv
+            .path
+            .get_ident()
+            .map(|ident| ident.to_string().to_ascii_lowercase())
+        else {
+            return Ok(false);
+        };
+        let slot = match key.as_str() {
+            "relation" => &mut self.relation,
+            "many_to_many" => &mut self.many_to_many,
+            _ => return Ok(false),
+        };
+        *slot = Some(crate::common::parse_relation_name(&nv.value, &key)?);
+        Ok(true)
+    }
 }
 
 // =============================================================================
@@ -479,7 +645,9 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
             impl #has_constraint<#primary_key_kind> for #struct_ident {}
         });
 
-        for field in &pk_fields {
+        // A column of a composite key matches no constraint alone; the
+        // databases reject it as a conflict target. Only the whole key is one.
+        for field in pk_fields.iter().filter(|_| pk_fields.len() == 1) {
             let col_zst = column_type(struct_ident, field.ident());
             let col_name = field.column_name();
             tokens.extend(quote! {
@@ -563,12 +731,15 @@ pub fn generate_constraint_capabilities<F: ConstraintFieldInfo>(
     tokens
 }
 
-type FkTargetMap = HashMap<String, (Ident, Vec<(Vec<String>, Vec<String>)>)>;
+/// Per referenced table: its ident, and each key's declaring column names and
+/// constant expressions for the referenced columns' names.
+type FkTargetMap = HashMap<String, (Ident, Vec<(Vec<String>, Vec<TokenStream>)>)>;
 
 pub fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
     field_infos: &[F],
     composite_fks: &[C],
     struct_ident: &Ident,
+    dt: &DialectTypes,
 ) -> Result<TokenStream> {
     let relation_marker = core_paths::relation_marker();
     let joinable_marker = core_paths::joinable_marker();
@@ -583,7 +754,7 @@ pub fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
         let ref_table_name = ref_table_ident.to_string();
 
         let source_col = field.column_name().to_owned();
-        let target_col = fk.ref_column().to_string();
+        let target_col = cross_table_column_name_const(ref_table_ident, fk.ref_column(), dt);
 
         target_map
             .entry(ref_table_name)
@@ -614,10 +785,10 @@ pub fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
                     })
             })
             .collect::<Result<Vec<_>>>()?;
-        let target_cols: Vec<String> = comp_fk
+        let target_cols: Vec<TokenStream> = comp_fk
             .target_columns()
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(|column| cross_table_column_name_const(ref_table_ident, column, dt))
             .collect();
 
         target_map
@@ -643,23 +814,16 @@ pub fn generate_relations<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
             tokens.extend(quote! {
                 impl #joinable_marker<#target_ident> for #struct_ident {
                     fn fk_columns() -> &'static [(&'static str, &'static str)] {
-                        &[#((#src_cols, #tgt_cols)),*]
+                        const PAIRS: &[(&str, &str)] = &[#((#src_cols, #tgt_cols)),*];
+                        PAIRS
                     }
                 }
             });
-
-            if struct_ident != target_ident {
-                tokens.extend(quote! {
-                    impl #relation_marker<#struct_ident> for #target_ident {}
-                    impl #joinable_marker<#struct_ident> for #target_ident {
-                        fn fk_columns() -> &'static [(&'static str, &'static str)] {
-                            &[#((#tgt_cols, #src_cols)),*]
-                        }
-                    }
-                });
-            }
         }
     }
+    // Only the declaring table implements these, so two tables with keys to
+    // each other never emit the same impl; `JoinKey` derives the reverse
+    // join from this side's key.
 
     Ok(tokens)
 }

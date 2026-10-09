@@ -260,14 +260,28 @@ fn catalog<C: Queryable>(connection: &mut C) -> Result<introspect::Catalog> {
     introspect::Catalog::assemble(raw)
 }
 
-fn apply<C, S>(connection: &mut C, schema: &S) -> Result<()>
+fn apply<C, S>(
+    connection: &mut C,
+    schema: &S,
+    renames: &drizzle_migrations::RenameHints,
+) -> Result<()>
 where
     C: Queryable,
     S: drizzle_migrations::Schema,
 {
     let catalog = catalog(connection)?;
     let desired = schema.to_snapshot();
-    for statement in catalog.plan(&desired)?.statements {
+    let plan = catalog.plan(&desired, renames)?;
+    let mut lost = Vec::with_capacity(plan.data_loss.len());
+    for drop in &plan.data_loss {
+        let sql = drop.count_sql(drizzle_types::Dialect::MySQL);
+        lost.push((
+            drop.clone(),
+            catalog_query(connection, &sql, &[], introspect::count)?,
+        ));
+    }
+    crate::builder::refuse_data_loss(&lost)?;
+    for statement in plan.statements {
         if !statement.trim().is_empty() {
             execute_request(connection, &statement, &[])?;
         }
@@ -399,13 +413,34 @@ impl<Connection: Queryable, Schema> Drizzle<Connection, Schema> {
     /// MySQL can implicitly commit DDL. If a statement fails, earlier
     /// statements from this push may already be committed.
     ///
+    /// When a table, column or view may have been renamed, `push` fails
+    /// rather than guess, and the error gives the hint for each answer; pass
+    /// the answers to [`push_with`](Self::push_with).
+    ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
+    ///
     /// # Errors
     ///
     /// Returns an error if introspection, planning, or applying a generated
     /// statement fails.
     pub fn push<S: drizzle_migrations::Schema>(&mut self, schema: &S) -> Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub fn push_with<S: drizzle_migrations::Schema>(
+        &mut self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> Result<()> {
         self.ensure_session()?;
-        apply(&mut self.connection, schema)
+        apply(&mut self.connection, schema, renames)
     }
 
     pub(crate) fn execute_rendered<'q>(
@@ -884,7 +919,13 @@ where
     pub fn create(&mut self) -> Result<()> {
         for statement in Schema::default().create_statements()? {
             self.ensure_session()?;
-            execute_request(&mut self.connection, &statement, &[])?;
+            if let Err(error) = execute_request(&mut self.connection, &statement, &[]) {
+                // Tables in a reference cycle are created with foreign-key
+                // checks off; never leave the session that way.
+                let restore = drizzle_mysql::common::RESTORE_FOREIGN_KEY_CHECKS;
+                let _ = execute_request(&mut self.connection, restore, &[]);
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -900,7 +941,6 @@ impl<'db, 'q, Connection, Schema, State, Table, Mk, Rw, Grouped>
     >
 where
     Connection: Queryable,
-    State: builder::ExecutableState,
 {
     /// Executes this statement through MySQL's prepared/binary protocol.
     ///
@@ -910,7 +950,10 @@ where
     /// # Errors
     ///
     /// Returns an error if session initialization or execution fails.
-    pub fn execute(self) -> Result<MySQLMutationResult> {
+    pub fn execute(self) -> Result<MySQLMutationResult>
+    where
+        State: builder::ExecutableState,
+    {
         self.runner.execute_rendered(self.builder)
     }
 
@@ -921,6 +964,7 @@ where
     /// Returns an error if execution or row decoding fails.
     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -940,6 +984,7 @@ where
     /// Returns an error if execution or row decoding fails.
     pub fn rows<ScopeProof, AggProof>(self) -> Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         for<'row> Mk: MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
             + MarkerColumnCountValid<MySQLRow<'row, Row>, Rw, Rw, ScopeProof>,
@@ -956,6 +1001,7 @@ where
     /// Returns an error if execution or decoding fails, or no row is returned.
     pub fn get<R, ScopeProof, AggProof>(self) -> Result<R>
     where
+        State: builder::ExecutableState,
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
             + StrictDecodeMarker
@@ -969,7 +1015,10 @@ where
 
     /// Detaches a reusable prepared query from this runner.
     #[must_use]
-    pub fn prepare(self) -> prepared::PreparedStatement<'q, Mk, Rw, Grouped> {
+    pub fn prepare(self) -> prepared::PreparedStatement<'q, Mk, Rw, Grouped>
+    where
+        State: builder::ExecutableState,
+    {
         prepared::PreparedStatement::new(drizzle_core::prepared::prepare_render(
             &self.builder.into_sql(),
         ))

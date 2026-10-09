@@ -594,8 +594,6 @@ where
 
 impl<S, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it changed
     /// (`numberOfRecordsUpdated`).
@@ -604,7 +602,10 @@ where
     ///
     /// Returns an error when the Data API request fails or the database
     /// rejects the statement.
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let (sql_str, params) = {
             #[cfg(feature = "profiling")]
             drizzle_core::drizzle_profile_scope!("postgres.aws_data_api", "builder.execute");
@@ -634,6 +635,7 @@ where
     /// decoded into `R`.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'r> TryFrom<&'r Row>,
@@ -669,6 +671,7 @@ where
     /// surface per row.
     pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         Rw: for<'r> TryFrom<&'r Row>,
@@ -701,6 +704,7 @@ where
     /// when the Data API request fails or the row cannot be decoded into `R`.
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'r> TryFrom<&'r Row>,

@@ -474,8 +474,8 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 
     /// Starts an `UPDATE` of `table`.
     ///
-    /// Follow it with [`set`](DrizzleBuilder::set) and an `Update*` model. Without
-    /// `.r#where(..)`, every row is updated.
+    /// Follow it with [`set`](DrizzleBuilder::set) and an `Update*` model, then
+    /// `.r#where(..)`; `.r#where(true)` updates every row.
     ///
     /// # Examples
     ///
@@ -524,7 +524,8 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
 
     /// Starts a `DELETE` from `table`.
     ///
-    /// Without `.r#where(..)`, every row is deleted.
+    /// It runs once `.r#where(..)` picks the rows; `.r#where(true)` deletes
+    /// every row.
     ///
     /// # Examples
     ///
@@ -692,7 +693,7 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// Starts a relational query on `table` (requires the `query` feature).
     ///
     /// Relations come from foreign keys: `#[column(references = Users::id)]` on
-    /// `Posts::author_id` gives `users.posts()` (one-to-many) and
+    /// `Posts::author_id` gives `users.author_posts()` (one-to-many) and
     /// `posts.author()` (many-to-one). Results nest the related rows as fields.
     ///
     /// # Examples
@@ -708,16 +709,16 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
     /// use drizzle::core::expr::eq;
     ///
     /// // Each user, with their posts.
-    /// let everyone = db.query(users).with(users.posts()).find_many()?;
+    /// let everyone = db.query(users).with(users.author_posts()).find_many()?;
     /// assert_eq!(everyone.len(), 3);
     ///
     /// let alex = db
     ///     .query(users)
-    ///     .with(users.posts())
+    ///     .with(users.author_posts())
     ///     .r#where(eq(users.name, "Alex Smith"))
     ///     .find_first()?
     ///     .expect("Alex exists");
-    /// assert_eq!(alex.posts.len(), 2);
+    /// assert_eq!(alex.author_posts.len(), 2);
     /// # Ok(())
     /// # }
     /// # #[cfg(not(feature = "rusqlite"))]
@@ -800,7 +801,7 @@ where
     /// use drizzle::core::expr::eq;
     ///
     /// let name = users.name.placeholder("name");
-    /// let by_name = db.query(users).with(users.posts()).r#where(eq(users.name, name)).prepare();
+    /// let by_name = db.query(users).with(users.author_posts()).r#where(eq(users.name, name)).prepare();
     ///
     /// let alex = by_name.find_many(db.conn(), [name.bind("Alex Smith")])?;
     /// let bob = by_name.find_many(db.conn(), [name.bind("Bob")])?;
@@ -898,8 +899,8 @@ impl<'db, 'a, Runner, Schema, T, Rels, Cols, Cl>
     /// # let (db, Schema { users, posts, comments }) = app::database()?;
     /// # let _ = (&users, &posts, &comments);
     /// // Users with their posts, and each post with its comments.
-    /// let rows = db.query(users).with(users.posts().with(posts.comments())).find_many()?;
-    /// assert_eq!(rows[0].posts[0].comments.len(), 1);
+    /// let rows = db.query(users).with(users.author_posts().with(posts.comments())).find_many()?;
+    /// assert_eq!(rows[0].author_posts[0].comments.len(), 1);
     /// # Ok(())
     /// # }
     /// # #[cfg(not(feature = "rusqlite"))]
@@ -1731,7 +1732,7 @@ macro_rules! impl_select_methods {
         /// # fn main() {}
         /// ```
         #[inline]
-        pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T>>(
+        pub fn join<J: drizzle_sqlite::helpers::JoinArg<'a, T, Via>, Via>(
             self,
             arg: J,
         ) -> DrizzleBuilder<
@@ -2019,8 +2020,6 @@ where
 
 impl<Runner, Schema, State, T, M, R, G>
     DrizzleBuilder<'_, Runner, Schema, QueryBuilder<'_, Schema, State, T, M, R, G>, State>
-where
-    State: drizzle_sqlite::builder::ExecutableState,
 {
     /// Adds a free-form [sqlcommenter](https://google.github.io/sqlcommenter/)
     /// comment in front of the query. See [`QueryBuilder::comment`] for how the
@@ -2044,7 +2043,10 @@ where
     /// # fn main() {}
     /// ```
     #[inline]
-    pub fn comment(self, text: impl AsRef<str>) -> Self {
+    pub fn comment(self, text: impl AsRef<str>) -> Self
+    where
+        State: drizzle_sqlite::builder::ExecutableState,
+    {
         DrizzleBuilder {
             runner: self.runner,
             builder: self.builder.comment(text),
@@ -2058,6 +2060,7 @@ where
     #[inline]
     pub fn comment_tags<I, K, V>(self, pairs: I) -> Self
     where
+        State: drizzle_sqlite::builder::ExecutableState,
         I: IntoIterator<Item = (K, V)>,
         K: AsRef<str>,
         V: AsRef<str>,
@@ -2754,7 +2757,17 @@ impl<'a, 'b, Runner, Schema, Table>
             state: PhantomData,
         }
     }
+}
 
+impl<'a, 'b, Runner, Schema, Table>
+    DrizzleBuilder<
+        'a,
+        Runner,
+        Schema,
+        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
+        UpdateWhereSet,
+    >
+{
     /// Returns columns of the updated rows: `RETURNING ...`.
     ///
     /// # Examples
@@ -2781,48 +2794,6 @@ impl<'a, 'b, Runner, Schema, Table>
     /// # #[cfg(not(feature = "rusqlite"))]
     /// # fn main() {}
     /// ```
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> DrizzleBuilder<
-        'a,
-        Runner,
-        Schema,
-        UpdateBuilder<
-            'b,
-            Schema,
-            UpdateReturningSet,
-            Table,
-            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<Table, drizzle_core::Nil>>,
-            <Columns::Marker as drizzle_core::ResolveRow<Table>>::Row,
-        >,
-        UpdateReturningSet,
-    >
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources: drizzle_core::scope::SourcesIn<drizzle_core::Cons<Table, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<Table>,
-    {
-        let builder = self.builder.returning(columns);
-        DrizzleBuilder {
-            runner: self.runner,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'a, 'b, Runner, Schema, Table>
-    DrizzleBuilder<
-        'a,
-        Runner,
-        Schema,
-        UpdateBuilder<'b, Schema, UpdateWhereSet, Table>,
-        UpdateWhereSet,
-    >
-{
-    /// Returns columns of the updated rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,
@@ -2885,7 +2856,11 @@ where
             state: PhantomData,
         }
     }
+}
 
+impl<'a, 'b, Runner, Schema, T>
+    DrizzleBuilder<'a, Runner, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, T>, DeleteWhereSet>
+{
     /// Returns columns of the deleted rows: `RETURNING ...`.
     ///
     /// # Examples
@@ -2911,43 +2886,6 @@ where
     /// # #[cfg(not(feature = "rusqlite"))]
     /// # fn main() {}
     /// ```
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> DrizzleBuilder<
-        'a,
-        Runner,
-        Schema,
-        DeleteBuilder<
-            'b,
-            Schema,
-            DeleteReturningSet,
-            T,
-            drizzle_core::Scoped<Columns::Marker, drizzle_core::Cons<T, drizzle_core::Nil>>,
-            <Columns::Marker as drizzle_core::ResolveRow<T>>::Row,
-        >,
-        DeleteReturningSet,
-    >
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources:
-            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<T>,
-    {
-        let builder = self.builder.returning(columns);
-        DrizzleBuilder {
-            runner: self.runner,
-            builder,
-            state: PhantomData,
-        }
-    }
-}
-
-impl<'a, 'b, Runner, Schema, T>
-    DrizzleBuilder<'a, Runner, Schema, DeleteBuilder<'b, Schema, DeleteWhereSet, T>, DeleteWhereSet>
-{
-    /// Returns columns of the deleted rows: `RETURNING ...`.
     pub fn returning<Columns, ScopeProof>(
         self,
         columns: Columns,

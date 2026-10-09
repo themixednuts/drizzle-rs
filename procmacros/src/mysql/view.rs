@@ -269,6 +269,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
         struct_ident,
+        &crate::common::constraints::DialectTypes::mysql(),
     )?;
 
     let view_marker_const = generate_view_marker_const(struct_ident, &attrs.marker_exprs);
@@ -433,6 +434,7 @@ pub fn view_attr_macro(input: &DeriveInput, attrs: &ViewAttributes) -> Result<To
             &definition_lit,
             query_const_sql.as_ref(),
         ),
+        Some(&crate::common::generators::table_name_scope(&struct_ident)),
     );
     let to_sql_impl = generate_to_sql(
         struct_ident,

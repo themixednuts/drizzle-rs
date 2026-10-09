@@ -61,13 +61,9 @@ pub(super) fn generate_table_impls(
             }
         },
         &sql_const,
+        Some(&crate::common::generators::table_name_scope(&struct_ident)),
     );
-    let dialect_types = crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: mysql_paths::mysql_schema_type(),
-        value_type: mysql_paths::mysql_value(),
-        unique_constraint_suffix: "_key",
-    };
+    let dialect_types = crate::common::constraints::DialectTypes::mysql();
     let (foreign_key_impls, _sql_foreign_keys, foreign_keys_type, fk_constraint_idents) =
         crate::common::constraints::generate_foreign_keys(
             ctx.field_infos,
@@ -443,6 +439,7 @@ pub(super) fn generate_table_impls(
         ctx.field_infos,
         &ctx.attrs.composite_foreign_keys,
         ctx.struct_ident,
+        &crate::common::constraints::DialectTypes::mysql(),
     )?;
     let has_check = ctx
         .field_infos

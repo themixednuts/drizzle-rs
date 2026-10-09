@@ -166,7 +166,9 @@ pub use param::{OwnedParam, Param, ParamBind, ParamSet};
 pub use placeholder::*;
 #[cfg(feature = "query")]
 pub use relation::{AssembleRel, CardWrap, Many, One, OptionalOne, RelationDef};
-pub use relation::{Joinable, Relation, SchemaHasTable};
+pub use relation::{
+    JoinExplicit, JoinForward, JoinKey, JoinReverse, Joinable, Relation, SchemaHasTable,
+};
 pub use row::{
     DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy,
     IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerAggValidFor,

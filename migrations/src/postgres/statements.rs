@@ -1321,6 +1321,8 @@ impl Generator {
                 sequence: s.clone(),
             }),
             PostgresEntity::Role(r) => Some(JsonStatement::CreateRole { role: r.clone() }),
+            // An existing view is managed outside the schema: never created.
+            PostgresEntity::View(v) if v.is_existing => None,
             PostgresEntity::View(v) => Some(JsonStatement::CreateView { view: v.clone() }),
             PostgresEntity::Column(c) => {
                 let (is_pk, is_composite_pk) = Self::check_column_pk_status(c, diff_index);
@@ -1357,6 +1359,8 @@ impl Generator {
                 sequence: s.clone(),
             }),
             PostgresEntity::Role(r) => Some(JsonStatement::DropRole { role: r.clone() }),
+            // An existing view is managed outside the schema: never dropped.
+            PostgresEntity::View(v) if v.is_existing => None,
             PostgresEntity::View(v) => Some(JsonStatement::DropView { view: v.clone() }),
             PostgresEntity::Table(t) => Some(JsonStatement::DropTable {
                 table: t.clone(),

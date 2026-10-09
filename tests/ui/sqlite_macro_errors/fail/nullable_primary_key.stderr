@@ -1,0 +1,5 @@
+error: a primary-key column cannot be `Option<T>`: primary keys are never NULL
+ --> tests/ui/sqlite_macro_errors/fail/nullable_primary_key.rs:6:5
+  |
+6 |     email: Option<String>,
+  |     ^^^^^

@@ -1,14 +1,15 @@
-error[E0277]: the trait bound `user::Name: drizzle_core::row::SingleColGroupCheck<Cons<Email, Nil>, _>` is not satisfied
+error[E0277]: `user::Name` is selected next to an aggregate but is not grouped
   --> tests/ui/aggregate_mixing_sqlite/fail/mixed_without_group_by.rs:35:10
    |
 35 |         .all();
-   |          ^^^ unsatisfied trait bound
+   |          ^^^ this query mixes aggregated and ungrouped columns
    |
 help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<Email, Nil>, _>` is not implemented for `user::Name`
   --> tests/ui/aggregate_mixing_sqlite/fail/mixed_without_group_by.rs:5:1
    |
  5 | #[SQLiteTable]
    | ^^^^^^^^^^^^^^
+   = note: add the column to `.group_by(...)`, or wrap it in an aggregate such as `max(...)`
    = help: the following other types implement trait `drizzle_core::row::MarkerAggValidFor<Grouped, Proof>`:
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<Cons<Head, Tail>>`
              `Scoped<SelectAs<R>, Scope, Used>` implements `drizzle_core::row::MarkerAggValidFor<PkGroup<T>>`

@@ -447,3 +447,195 @@ fn natural_join_matches_columns_by_name(db: &mut TestDb<NaturalSchema>) {
         .all();
     assert_eq!(left_rows, ["a", "b"]);
 }
+
+#[SQLiteTable(NAME = "join_renamed_teams")]
+struct JoinRenamedTeam {
+    #[column(PRIMARY, NAME = "team_key")]
+    id: i32,
+    name: String,
+}
+
+#[SQLiteTable(NAME = "join_renamed_members")]
+struct JoinRenamedMember {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = JoinRenamedTeam::id)]
+    team_id: i32,
+    name: String,
+}
+
+#[derive(SQLiteSchema)]
+struct JoinRenamedSchema {
+    teams: JoinRenamedTeam,
+    members: JoinRenamedMember,
+}
+
+#[derive(Debug, SQLiteFromRow, Default)]
+struct MemberTeam {
+    #[column(JoinRenamedMember::name)]
+    member: String,
+    #[column(JoinRenamedTeam::name)]
+    team: String,
+}
+
+/// `.join(teams)` derives its ON clause from the foreign key, on the
+/// referenced column's declared name `team_key`.
+#[drizzle::test]
+fn auto_fk_join_uses_declared_column_names(db: &mut TestDb<JoinRenamedSchema>) {
+    let JoinRenamedSchema { teams, members } = schema;
+    db.insert(teams)
+        .value(InsertJoinRenamedTeam::new("Core").with_id(7))
+        .execute();
+    db.insert(members)
+        .value(InsertJoinRenamedMember::new(7, "Ada").with_id(1))
+        .execute();
+
+    let rows: Vec<MemberTeam> = db
+        .select(MemberTeam::default())
+        .from(members)
+        .join(teams)
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].member, "Ada");
+    assert_eq!(rows[0].team, "Core");
+}
+
+/// `.join(table)` works from either side of a single key: here members hold
+/// the key, and the join starts from teams.
+#[drizzle::test]
+fn auto_fk_join_works_from_the_referenced_table(db: &mut TestDb<JoinRenamedSchema>) {
+    let JoinRenamedSchema { teams, members } = schema;
+    db.insert(teams)
+        .value(InsertJoinRenamedTeam::new("Core").with_id(7))
+        .execute();
+    db.insert(members)
+        .value(InsertJoinRenamedMember::new(7, "Ada").with_id(1))
+        .execute();
+
+    let rows: Vec<MemberTeam> = db
+        .select(MemberTeam::default())
+        .from(teams)
+        .join(members)
+        .all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].member, "Ada");
+}
+
+#[SQLiteTable(NAME = "mutual_users")]
+struct MutualUser {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(REFERENCES = MutualTeam::id)]
+    current_team_id: Option<i32>,
+}
+
+#[SQLiteTable(NAME = "mutual_teams")]
+struct MutualTeam {
+    #[column(PRIMARY)]
+    id: i32,
+    name: String,
+    #[column(REFERENCES = MutualUser::id)]
+    owner_id: Option<i32>,
+}
+
+#[derive(SQLiteSchema)]
+struct MutualSchema {
+    users: MutualUser,
+    teams: MutualTeam,
+}
+
+/// Two tables with keys to each other compile and join; with two keys
+/// between them, the join names its condition.
+#[drizzle::test]
+fn tables_with_keys_to_each_other_join(db: &mut TestDb<MutualSchema>) {
+    let MutualSchema { users, teams } = schema;
+    db.insert(users)
+        .value(InsertMutualUser::new("Ada").with_id(1))
+        .execute();
+    db.insert(teams)
+        .value(InsertMutualTeam::new("Core").with_id(7).with_owner_id(1))
+        .execute();
+    db.update(users)
+        .set(UpdateMutualUser::default().with_current_team_id(7))
+        .r#where(eq(users.id, 1))
+        .execute();
+
+    let owners: Vec<(String, String)> = db
+        .select((teams.name, users.name))
+        .from(teams)
+        .join((users, eq(users.id, teams.owner_id)))
+        .all();
+    assert_eq!(owners, [("Core".to_string(), "Ada".to_string())]);
+}
+
+#[SQLiteTable(NAME = "join_composite_parents")]
+struct JoinCompositeParent {
+    #[column(PRIMARY)]
+    region: i32,
+    #[column(PRIMARY)]
+    code: i32,
+    name: String,
+}
+
+#[SQLiteTable(
+    NAME = "join_composite_children",
+    FOREIGN_KEY(
+        columns(parent_region, parent_code),
+        references(JoinCompositeParent, region, code)
+    )
+)]
+struct JoinCompositeChild {
+    #[column(PRIMARY)]
+    id: i32,
+    parent_region: i32,
+    parent_code: i32,
+    label: String,
+}
+
+#[derive(SQLiteSchema)]
+struct JoinCompositeSchema {
+    parents: JoinCompositeParent,
+    children: JoinCompositeChild,
+}
+
+/// A bare join on a composite key matches each column to its own partner in
+/// both directions. Region and code differ, so a swapped pair would match
+/// nothing.
+#[drizzle::test]
+fn auto_fk_join_on_a_composite_key_pairs_each_column(db: &mut TestDb<JoinCompositeSchema>) {
+    let JoinCompositeSchema { parents, children } = schema;
+    db.insert(parents)
+        .value(InsertJoinCompositeParent::new(1, 2, "north"))
+        .execute();
+    db.insert(children)
+        .value(InsertJoinCompositeChild::new(1, 2, "first").with_id(10))
+        .execute();
+
+    let from_child: Vec<(String, String)> = db
+        .select((children.label, parents.name))
+        .from(children)
+        .join(parents)
+        .all();
+    let from_parent: Vec<(String, String)> = db
+        .select((children.label, parents.name))
+        .from(parents)
+        .join(children)
+        .all();
+    let expected = [("first".to_string(), "north".to_string())];
+    assert_eq!(from_child, expected);
+    assert_eq!(from_parent, expected);
+
+    let sql = db
+        .select(parents.name)
+        .from(parents)
+        .join(children)
+        .to_sql()
+        .sql();
+    assert!(
+        sql.ends_with(
+            r#"JOIN "join_composite_children" ON "join_composite_children"."parent_region" = "join_composite_parents"."region" AND "join_composite_children"."parent_code" = "join_composite_parents"."code""#
+        ),
+        "{sql}"
+    );
+}

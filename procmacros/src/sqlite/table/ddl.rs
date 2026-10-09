@@ -40,23 +40,12 @@ fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -
     })
 }
 
-/// `DialectTypes` for compile-time column-name resolution on referenced
-/// tables (`SQLSchema::NAME` of the target column ZST).
-fn sqlite_dialect_types() -> crate::common::constraints::DialectTypes {
-    crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: sqlite_paths::sqlite_schema_type(),
-        value_type: sqlite_paths::sqlite_value(),
-        unique_constraint_suffix: "_unique",
-    }
-}
-
 /// Resolve a target column's SQL name at compile time via its `NAME` const.
 fn ref_column_name_expr(table: &syn::Ident, column: &syn::Ident) -> TokenStream {
     crate::common::constraints::cross_table_column_name_const(
         table,
         column,
-        &sqlite_dialect_types(),
+        &crate::common::constraints::DialectTypes::sqlite(),
     )
 }
 
@@ -813,6 +802,7 @@ mod tests {
             column_type: SQLiteType::Text,
             foreign_key: None,
             relation_name: None,
+            many_to_many_name: None,
             constraint: Constraint::None,
             collate: None,
             default: default

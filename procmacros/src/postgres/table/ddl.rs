@@ -87,13 +87,11 @@ fn table_check_name(ctx: &MacroContext, idx: usize, explicit: &Option<String>) -
 /// so explicit `#[column(name = "...")]` renames on the referenced table are
 /// honored in FK clauses.
 fn ref_column_name_expr(table: &Ident, column: &Ident) -> TokenStream {
-    let dt = crate::common::constraints::DialectTypes {
-        sql_schema: core_paths::sql_schema(),
-        schema_type: postgres_paths::postgres_schema_type(),
-        value_type: postgres_paths::postgres_value(),
-        unique_constraint_suffix: "_key",
-    };
-    crate::common::constraints::cross_table_column_name_const(table, column, &dt)
+    crate::common::constraints::cross_table_column_name_const(
+        table,
+        column,
+        &crate::common::constraints::DialectTypes::postgres(),
+    )
 }
 
 /// Generate a compile-time `const SQL: &'static str` value for `SQLSchema`.
@@ -172,10 +170,7 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     // Single-column foreign keys
     for field in field_infos {
         if let Some(ref fk) = field.foreign_key {
-            let fk_name = fk
-                .name
-                .clone()
-                .unwrap_or_else(|| format!("{}_{}_fkey", table_name, field.column_name));
+            let fk_name = ctx.column_foreign_key_name(field, fk);
             let ref_column_expr = ref_column_name_expr(&fk.table, &fk.column);
             let mut line = Vec::new();
             line.push(DdlPiece::Literal(format!(
@@ -210,27 +205,15 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     }
 
     // Composite foreign keys
-    for fk in &ctx.attrs.composite_foreign_keys {
-        let source_cols: Vec<String> = fk
-            .source_columns
-            .iter()
-            .map(|src| {
-                ctx.field_infos
-                    .iter()
-                    .find(|f| &f.ident == src)
-                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
-            })
-            .collect();
+    for (fk_index, fk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
+        let source_cols = ctx.composite_foreign_key_columns(fk);
         let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
             .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let fk_name = fk
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, source_cols[0]));
+        let fk_name = ctx.composite_foreign_key_name(fk_index);
         let src_str = source_cols
             .iter()
             .map(|c| format!("\"{c}\""))
@@ -518,19 +501,12 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
                 };
                 modifiers.push(quote! { .default_value(#default_str) });
             }
-            if field.is_custom_type {
-                // Custom/enum types carry their OWN schema, not the table's:
-                // the `PostgresEnum` derive exposes it as
-                // `DrizzlePostgresColumn::SCHEMA` (default `public`, set via
-                // `#[postgres_enum(schema = "...")]`), which is a const
-                // expression and therefore fine inside the const DDL.
-                let base_type = &field.base_type;
-                let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
-                modifiers.push(quote! {
-                    .type_schema(<#base_type as #drizzle_postgres_column>::SCHEMA)
-                });
-            }
-            let enum_type_schema = if field.is_pgenum {
+            // A type the schema creates (a native enum) carries its OWN
+            // schema, not the table's: `DrizzlePostgresColumn::SCHEMA`
+            // (default `public`, set via `#[postgres_enum(schema = "...")]`).
+            // A custom Rust type stored as a built-in SQL type (`BYTEA`)
+            // keeps that type as written.
+            let enum_type_schema = if field.is_pgenum || field.is_custom_type {
                 let base_type = &field.base_type;
                 let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
                 Some(quote! {
@@ -661,9 +637,7 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
             field.foreign_key.as_ref().map(|fk_ref| {
                 let ref_table_ident = &fk_ref.table;
                 let ref_column_expr = ref_column_name_expr(&fk_ref.table, &fk_ref.column);
-                let fk_name = fk_ref.name.clone().unwrap_or_else(|| {
-                    format!("{}_{}_fkey", table_name, field.column_name)
-                });
+                let fk_name = ctx.column_foreign_key_name(field, fk_ref);
                 let column_name = &field.column_name;
 
                 let mut modifiers = Vec::new();
@@ -699,28 +673,16 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
         })
         .collect();
 
-    for fk in &ctx.attrs.composite_foreign_keys {
+    for (fk_index, fk) in ctx.attrs.composite_foreign_keys.iter().enumerate() {
         let ref_table_ident = &fk.target_table;
-        let source_columns: Vec<String> = fk
-            .source_columns
-            .iter()
-            .map(|src| {
-                ctx.field_infos
-                    .iter()
-                    .find(|f| &f.ident == src)
-                    .map_or_else(|| src.to_string(), |f| f.column_name.clone())
-            })
-            .collect();
+        let source_columns = ctx.composite_foreign_key_columns(fk);
         let target_col_exprs: Vec<TokenStream> = fk
             .target_columns
             .iter()
             .map(|col| ref_column_name_expr(&fk.target_table, col))
             .collect();
 
-        let fk_name = fk
-            .name
-            .clone()
-            .unwrap_or_else(|| format!("{}_{}_fkey", table_name, source_columns[0]));
+        let fk_name = ctx.composite_foreign_key_name(fk_index);
         let explicit_name = fk.name.is_some().then(|| quote! { .explicit_name() });
         let fk_cols: Vec<TokenStream> = source_columns
             .iter()
@@ -961,6 +923,7 @@ mod tests {
             check_constraint: None,
             foreign_key: None,
             relation_name: None,
+            many_to_many_name: None,
             has_default: false,
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,
@@ -1012,6 +975,7 @@ mod tests {
                 name: None,
             }),
             relation_name: None,
+            many_to_many_name: None,
             has_default: false,
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,

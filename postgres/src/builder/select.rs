@@ -126,7 +126,7 @@ macro_rules! join_impl {
             /// columns of its nullable side (the joined source for `LEFT`,
             /// the earlier sources for `RIGHT`, both for `FULL`) decode as
             /// `Option`.
-            pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T>>(
+            pub fn [<$type _join>]<J: crate::helpers::JoinArg<'a, T, Via>, Via>(
                 self,
                 arg: J,
             ) -> SelectBuilder<'a, S, SelectJoinSet, J::JoinedTable, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Marker, <M as drizzle_core::JoinStep<R, J::JoinedTable, $kind, J::OnSources>>::Row, G>
@@ -531,7 +531,7 @@ where
     /// ```
     #[inline]
     #[allow(clippy::type_complexity)]
-    pub fn join<J: crate::helpers::JoinArg<'a, T>>(
+    pub fn join<J: crate::helpers::JoinArg<'a, T, Via>, Via>(
         self,
         arg: J,
     ) -> SelectBuilder<
@@ -1848,6 +1848,11 @@ where
 /// A query that can be the right-hand side of `UNION`, `INTERSECT` or `EXCEPT`.
 ///
 /// Implemented by [`SelectBuilder`] and by the driver crates' query wrappers.
+#[diagnostic::on_unimplemented(
+    message = "this query does not select the columns the set operation needs",
+    label = "it selects different columns from the other side",
+    note = "both sides of UNION, INTERSECT and EXCEPT select the same number of columns, of matching types, in the same order"
+)]
 pub trait IntoSelect<'a, S, M, R> {
     /// The builder state of the converted query.
     type State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound>;

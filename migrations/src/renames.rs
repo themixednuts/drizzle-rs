@@ -2,10 +2,12 @@
 //!
 //! When an entity disappears from the previous snapshot and another of the
 //! same kind appears in the current one, the diff alone cannot tell a rename
-//! from a drop plus a create. [`diff_with`](crate::diff_with) guesses by
-//! default ([`DiffOptions::infer_renames`]); [`rename_questions`] instead
-//! lists the decisions so a caller (the `drizzle` CLI) can ask a person, then
-//! diff with the answers and `infer_renames(false)`.
+//! from a drop plus a create, and nothing here guesses.
+//! [`rename_questions`] lists the decisions so a caller (the `drizzle` CLI)
+//! can ask a person, then diff with the answers.
+//! [`diff_with`](crate::diff_with) refuses to run while a question about a
+//! schema, enum, table or column has no answer
+//! ([`MigrationError::UnansweredRenames`]).
 //!
 //! Questions come in drizzle-kit's order: schemas, enums, tables, columns,
 //! indexes, views. Answers are recorded as [`RenameHints`]; ask again after
@@ -26,7 +28,7 @@
 //! let v1 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub name: String }");
 //! let v2 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub full_name: String }");
 //!
-//! let mut options = DiffOptions::new().infer_renames(false);
+//! let mut options = DiffOptions::new();
 //! loop {
 //!     let questions = rename_questions(&v1, &v2, &options)?;
 //!     let Some(question) = questions.first() else { break };
@@ -115,6 +117,15 @@ impl RenameKind {
             Self::ForeignKey => "foreign key",
             Self::View => "view",
         }
+    }
+
+    /// Whether answering "create" for an entity that was really renamed
+    /// loses data: schemas, tables and columns hold rows, and an enum's
+    /// values are stored in its columns. Indexes, constraints and views
+    /// hold none, so dropping and recreating one is safe.
+    #[must_use]
+    pub const fn holds_data(self) -> bool {
+        matches!(self, Self::Schema | Self::Enum | Self::Table | Self::Column)
     }
 
     /// Parses drizzle-kit's hint `kind` name (see [`as_str`](Self::as_str)).
@@ -208,7 +219,72 @@ pub enum RenameAnswer {
     RenameFrom(String),
 }
 
+impl fmt::Display for RenameQuestion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} `", self.kind)?;
+        for part in [self.schema.as_deref(), self.table.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            write!(f, "{part}.")?;
+        }
+        write!(f, "{}`", self.name)
+    }
+}
+
 impl RenameQuestion {
+    /// The PostgreSQL schema to name in a hint, or `None` for the default
+    /// (`public`), which hints leave out.
+    fn hint_schema(&self) -> Option<&str> {
+        self.schema
+            .as_deref()
+            .filter(|schema| *schema != "public" && self.kind != RenameKind::Schema)
+    }
+
+    /// The [`DiffOptions`] call that answers this question with a rename
+    /// from `from`, as Rust source.
+    fn rename_call(&self, from: &str) -> String {
+        let mut args = Vec::new();
+        let method = match self.kind {
+            RenameKind::Schema => "rename_schema",
+            RenameKind::Enum => "rename_enum",
+            RenameKind::Table => "rename_table",
+            RenameKind::Column => "rename_column",
+            RenameKind::Index => "rename_index",
+            RenameKind::View => "rename_view",
+            kind => {
+                let constraint = constraint_kind(kind).expect("every other kind is matched above");
+                args.push(format!("ConstraintKind::{constraint:?}"));
+                "rename_constraint"
+            }
+        };
+        let schema = self.hint_schema();
+        args.extend(schema.map(|schema| format!("{schema:?}")));
+        args.extend(self.table.as_ref().map(|table| format!("{table:?}")));
+        args.push(format!("{from:?}"));
+        args.push(format!("{:?}", self.name));
+        let suffix = if schema.is_some() { "_in" } else { "" };
+        format!(".{method}{suffix}({})", args.join(", "))
+    }
+
+    /// The [`DiffOptions`] call that answers this question with "create",
+    /// as Rust source.
+    fn create_call(&self) -> String {
+        let kind = format!("{:?}", self.kind);
+        let mut call = format!(
+            ".create(CreateHint::new(RenameKind::{kind}, {:?})",
+            self.name
+        );
+        if let Some(schema) = self.hint_schema() {
+            call.push_str(&format!(".in_schema({schema:?})"));
+        }
+        if let Some(table) = &self.table {
+            call.push_str(&format!(".on_table({table:?})"));
+        }
+        call.push(')');
+        call
+    }
+
     /// The [`CreateHint`] that answers this question with "create".
     #[must_use]
     pub fn create_hint(&self) -> CreateHint {
@@ -272,6 +348,35 @@ impl RenameQuestion {
     }
 }
 
+/// The message of [`MigrationError::UnansweredRenames`]: each question, and
+/// the [`DiffOptions`] call for each answer.
+pub(crate) fn unanswered_message(questions: &[RenameQuestion]) -> String {
+    let mut message = String::from(
+        "cannot tell a rename from a drop plus a create, and guessing wrong loses data. \
+         Answer each question with a hint on `RenameHints` or `DiffOptions` (the \
+         `drizzle` CLI asks them interactively):",
+    );
+    for question in questions {
+        let candidates = question
+            .candidates
+            .iter()
+            .map(|candidate| format!("`{candidate}`"))
+            .collect::<Vec<_>>()
+            .join(" or ");
+        message.push_str(&format!(
+            "\n  {question}: created, or renamed from {candidates}?"
+        ));
+        for candidate in &question.candidates {
+            message.push_str(&format!(
+                "\n    renamed from `{candidate}`: {}",
+                question.rename_call(candidate)
+            ));
+        }
+        message.push_str(&format!("\n    created: {}", question.create_call()));
+    }
+    message
+}
+
 /// Lists the rename-or-create questions between `prev` and `current`, given
 /// the hints already in `options`.
 ///
@@ -287,8 +392,7 @@ impl RenameQuestion {
 /// answered "create" (drizzle-kit's non-interactive behavior). To ask
 /// interactively, answer the first question
 /// ([`RenameQuestion::answer`]) and call this again; the list is empty once
-/// everything is decided. Then diff with the same options and
-/// [`infer_renames(false)`](DiffOptions::infer_renames).
+/// everything is decided. Then diff with the same options.
 ///
 /// Kinds per dialect, as drizzle-kit asks them: SQLite tables and columns;
 /// MySQL tables, columns, and views; PostgreSQL schemas, enums, tables,
@@ -755,10 +859,6 @@ mod tests {
         }
     }
 
-    fn no_inference() -> DiffOptions {
-        DiffOptions::new().infer_renames(false)
-    }
-
     /// Answers every question by renaming from its first candidate.
     fn rename_all(prev: &Snapshot, cur: &Snapshot, options: &mut DiffOptions) {
         while let Some(q) = rename_questions(prev, cur, options)
@@ -789,7 +889,7 @@ mod tests {
         let prev = sqlite(&[("users", &["id", "name"]), ("logs", &["id", "body"])]);
         let cur = sqlite(&[("accounts", &["id", "name"]), ("logs", &["id", "text"])]);
 
-        let questions = rename_questions(&prev, &cur, &no_inference()).unwrap();
+        let questions = rename_questions(&prev, &cur, &DiffOptions::new()).unwrap();
         assert_eq!(
             questions,
             [
@@ -803,7 +903,7 @@ mod tests {
     fn sqlite_column_questions_follow_a_table_rename() {
         let prev = sqlite(&[("users", &["id", "name"])]);
         let cur = sqlite(&[("accounts", &["id", "full_name"])]);
-        let mut options = no_inference();
+        let mut options = DiffOptions::new();
 
         let questions = rename_questions(&prev, &cur, &options).unwrap();
         assert_eq!(
@@ -852,7 +952,7 @@ mod tests {
     fn a_rename_consumes_its_candidate_and_create_is_not_asked_again() {
         let prev = sqlite(&[("a", &["id"]), ("b", &["id"])]);
         let cur = sqlite(&[("c", &["id"]), ("d", &["id"])]);
-        let mut options = no_inference();
+        let mut options = DiffOptions::new();
 
         let questions = rename_questions(&prev, &cur, &options).unwrap();
         assert_eq!(
@@ -897,7 +997,7 @@ mod tests {
     fn rename_hint_with_unknown_source_is_an_error() {
         let prev = sqlite(&[("users", &["id"])]);
         let cur = sqlite(&[("accounts", &["id"])]);
-        let options = no_inference().rename_table("missing", "accounts");
+        let options = DiffOptions::new().rename_table("missing", "accounts");
         let error = rename_questions(&prev, &cur, &options).unwrap_err();
         assert!(
             error
@@ -908,34 +1008,155 @@ mod tests {
     }
 
     #[test]
-    fn infer_renames_false_keeps_drop_and_create() {
+    fn plans_list_the_tables_and_columns_they_drop() {
+        use crate::DataLoss;
+
+        let prev = sqlite(&[("users", &["id", "name", "nickname"]), ("logs", &["id"])]);
+        let cur = sqlite(&[("accounts", &["id", "full_name"])]);
+        let options = DiffOptions::new()
+            .rename_table("users", "accounts")
+            .rename_column("accounts", "name", "full_name");
+        let plan = diff_with(&prev, &cur, &options).unwrap();
+        assert_eq!(
+            plan.data_loss,
+            [
+                DataLoss {
+                    schema: None,
+                    table: "logs".into(),
+                    column: None,
+                },
+                DataLoss {
+                    schema: None,
+                    table: "accounts".into(),
+                    column: Some("nickname".into()),
+                },
+            ]
+        );
+        assert_eq!(plan.data_loss[0].to_string(), "table `logs`");
+        assert_eq!(
+            plan.data_loss[1].count_sql(drizzle_types::Dialect::SQLite),
+            r#"SELECT COUNT(*) FROM "accounts" WHERE "nickname" IS NOT NULL"#
+        );
+
+        // Renamed, not dropped: nothing is lost.
+        let renamed = diff_with(
+            &sqlite(&[("users", &["id"])]),
+            &sqlite(&[("accounts", &["id"])]),
+            &DiffOptions::new().rename_table("users", "accounts"),
+        )
+        .unwrap();
+        assert!(renamed.data_loss.is_empty(), "{:?}", renamed.data_loss);
+    }
+
+    /// A view marked `existing` is managed outside the schema, so PostgreSQL
+    /// migrations neither create nor drop it.
+    #[test]
+    fn postgres_never_creates_or_drops_an_existing_view() {
+        let snapshot = |view: Option<PgView>| {
+            let mut snapshot = PostgresSnapshot::new();
+            snapshot.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
+            if let Some(view) = view {
+                snapshot.add_entity(PostgresEntity::View(view));
+            }
+            Snapshot::Postgres(snapshot)
+        };
+        let existing = || {
+            let mut view = PgView::new("public", "reporting");
+            view.definition = Some(Cow::Borrowed("SELECT 1"));
+            view.is_existing = true;
+            view
+        };
+        let created = diff_with(
+            &snapshot(None),
+            &snapshot(Some(existing())),
+            &DiffOptions::new(),
+        )
+        .unwrap();
+        assert!(created.statements.is_empty(), "{:?}", created.statements);
+        let dropped = diff_with(
+            &snapshot(Some(existing())),
+            &snapshot(None),
+            &DiffOptions::new(),
+        )
+        .unwrap();
+        assert!(dropped.statements.is_empty(), "{:?}", dropped.statements);
+    }
+
+    #[test]
+    fn diff_never_guesses_a_rename() {
         let prev = sqlite(&[("users", &["id", "name"])]);
         let cur = sqlite(&[("users", &["id", "full_name"])]);
 
-        let inferred = diff_with(&prev, &cur, &DiffOptions::new()).unwrap();
+        let error = diff_with(&prev, &cur, &DiffOptions::new()).unwrap_err();
+        let MigrationError::UnansweredRenames(questions) = &error else {
+            panic!("{error}");
+        };
         assert_eq!(
-            inferred.statements,
+            questions,
+            &[question(
+                RenameKind::Column,
+                None,
+                Some("users"),
+                "full_name",
+                &["name"]
+            )]
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains("column `users.full_name`: created, or renamed from `name`?"),
+            "{message}"
+        );
+        assert!(
+            message
+                .contains(r#"renamed from `name`: .rename_column("users", "name", "full_name")"#),
+            "{message}"
+        );
+        assert!(
+            message.contains(
+                r#"created: .create(CreateHint::new(RenameKind::Column, "full_name").on_table("users"))"#
+            ),
+            "{message}"
+        );
+
+        let renamed = diff_with(
+            &prev,
+            &cur,
+            &DiffOptions::new().rename_column("users", "name", "full_name"),
+        )
+        .unwrap();
+        assert_eq!(
+            renamed.statements,
             ["ALTER TABLE `users` RENAME COLUMN `name` TO `full_name`;"]
         );
 
-        let explicit = diff_with(&prev, &cur, &no_inference()).unwrap();
-        assert!(
-            !explicit.statements.iter().any(|s| s.contains("RENAME")),
-            "{:?}",
-            explicit.statements
-        );
-
-        let hinted = diff_with(
+        let created = diff_with(
             &prev,
             &cur,
-            &no_inference().rename_column("users", "name", "full_name"),
+            &DiffOptions::new()
+                .create(CreateHint::new(RenameKind::Column, "full_name").on_table("users")),
         )
         .unwrap();
-        assert_eq!(hinted.statements, inferred.statements);
+        assert!(
+            !created.statements.iter().any(|s| s.contains("RENAME")),
+            "{:?}",
+            created.statements
+        );
 
         let prev = sqlite(&[("users", &["id"])]);
         let cur = sqlite(&[("accounts", &["id"])]);
-        let tables = diff_with(&prev, &cur, &no_inference()).unwrap();
+        let error = diff_with(&prev, &cur, &DiffOptions::new()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(r#"renamed from `users`: .rename_table("users", "accounts")"#),
+            "{error}"
+        );
+        let tables = diff_with(
+            &prev,
+            &cur,
+            &DiffOptions::new().create(CreateHint::new(RenameKind::Table, "accounts")),
+        )
+        .unwrap();
         assert!(
             tables
                 .statements
@@ -968,7 +1189,7 @@ mod tests {
         let questions = rename_questions(
             &Snapshot::Sqlite(prev),
             &Snapshot::Sqlite(cur),
-            &no_inference(),
+            &DiffOptions::new(),
         )
         .unwrap();
         assert!(questions.is_empty());
@@ -1080,7 +1301,7 @@ mod tests {
             fk: "posts_user_id_fk",
             view: "v_new",
         });
-        let mut options = no_inference();
+        let mut options = DiffOptions::new();
 
         let questions = rename_questions(&prev, &cur, &options).unwrap();
         let users =
@@ -1177,7 +1398,7 @@ mod tests {
             Snapshot::Postgres(snapshot)
         };
         let (prev, cur) = (snapshot("users"), snapshot("accounts"));
-        let mut options = no_inference();
+        let mut options = DiffOptions::new();
         let questions = rename_questions(&prev, &cur, &options).unwrap();
         assert_eq!(
             questions,
@@ -1227,7 +1448,7 @@ mod tests {
             ("public", "events", &["id"]),
         ]);
 
-        let mut options = no_inference();
+        let mut options = DiffOptions::new();
         assert_eq!(
             rename_questions(&prev, &cur, &options).unwrap(),
             [
@@ -1280,31 +1501,76 @@ mod tests {
     }
 
     #[test]
-    fn postgres_infer_renames_false_keeps_drop_and_create() {
-        let table = |name: &'static str| {
+    fn postgres_diff_never_guesses_a_rename() {
+        let table = |schema: &'static str, name: &'static str| {
             let mut snapshot = PostgresSnapshot::new();
-            snapshot.add_entity(PostgresEntity::Schema(PgSchema::new("public")));
-            snapshot.add_entity(PostgresEntity::Table(PgTable::new("public", name)));
+            snapshot.add_entity(PostgresEntity::Schema(PgSchema::new(schema)));
+            snapshot.add_entity(PostgresEntity::Table(PgTable::new(schema, name)));
             snapshot.add_entity(PostgresEntity::Column(
-                PgColumn::new("public", name, "id", "integer").not_null(),
+                PgColumn::new(schema, name, "id", "integer").not_null(),
             ));
             Snapshot::Postgres(snapshot)
         };
-        let inferred = diff_with(&table("users"), &table("accounts"), &DiffOptions::new()).unwrap();
+        let error = diff_with(
+            &table("public", "users"),
+            &table("public", "accounts"),
+            &DiffOptions::new(),
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(r#"renamed from `users`: .rename_table("users", "accounts")"#),
+            "{error}"
+        );
+
+        let error = diff_with(
+            &table("app", "users"),
+            &table("app", "accounts"),
+            &DiffOptions::new(),
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("table `app.accounts`: created, or renamed from `users`?"),
+            "{message}"
+        );
+        assert!(
+            message.contains(r#".rename_table_in("app", "users", "accounts")"#),
+            "{message}"
+        );
+        assert!(
+            message.contains(
+                r#".create(CreateHint::new(RenameKind::Table, "accounts").in_schema("app"))"#
+            ),
+            "{message}"
+        );
+
+        let renamed = diff_with(
+            &table("public", "users"),
+            &table("public", "accounts"),
+            &DiffOptions::new().rename_table("users", "accounts"),
+        )
+        .unwrap();
         assert_eq!(
-            inferred.statements,
+            renamed.statements,
             ["ALTER TABLE \"users\" RENAME TO \"accounts\";"]
         );
-        let explicit = diff_with(&table("users"), &table("accounts"), &no_inference()).unwrap();
-        assert!(!explicit.statements.iter().any(|s| s.contains("RENAME")));
+        let created = diff_with(
+            &table("public", "users"),
+            &table("public", "accounts"),
+            &DiffOptions::new().create(CreateHint::new(RenameKind::Table, "accounts")),
+        )
+        .unwrap();
+        assert!(!created.statements.iter().any(|s| s.contains("RENAME")));
         assert!(
-            explicit
+            created
                 .statements
                 .iter()
                 .any(|s| s.starts_with("CREATE TABLE"))
         );
         assert!(
-            explicit
+            created
                 .statements
                 .iter()
                 .any(|s| s.starts_with("DROP TABLE"))
@@ -1328,7 +1594,7 @@ mod tests {
         };
         let prev = snapshot("users", "body", "v_old");
         let cur = snapshot("accounts", "text", "v_new");
-        let mut options = no_inference();
+        let mut options = DiffOptions::new();
 
         assert_eq!(
             rename_questions(&prev, &cur, &options).unwrap(),

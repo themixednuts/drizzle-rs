@@ -1,0 +1,5 @@
+error: duplicate relation accessor `post_likes` on `User`: the reverse relation through `user_id` and the many-to-many relation through `user_id`. Name one of them with `relation = "..."` or `many_to_many = "..."`.
+  --> tests/ui/query_api_sqlite/fail/many_to_many_reuses_link_rows_name.rs:20:5
+   |
+20 |     user_id: i32,
+   |     ^^^^^^^

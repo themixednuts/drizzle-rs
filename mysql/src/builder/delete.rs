@@ -19,10 +19,11 @@ impl drizzle_core::ExecutableState for DeleteLimitSet {}
 ///
 /// # Clause order
 ///
-/// 1. Optionally `where`. Without it, every row is deleted.
+/// 1. `where` (required): the rows to delete. `r#where(true)` deletes every
+///    row.
 /// 2. Optionally `order_by`, then optionally `limit`.
 ///
-/// `prepare()` is available in every state. The WHERE and ORDER BY may only
+/// `prepare()` is available once `where` is set. The WHERE and ORDER BY may only
 /// reference the target table; other tables do not compile. `MySQL` has no
 /// `RETURNING`.
 ///
@@ -82,7 +83,7 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
 
 mutation_builder_methods!(
     DeleteBuilder,
-    prepare: [DeleteInitial, DeleteWhereSet, DeleteOrderSet, DeleteLimitSet],
-    order_by: [DeleteInitial, DeleteWhereSet] => DeleteOrderSet,
-    limit: [DeleteInitial, DeleteWhereSet, DeleteOrderSet] => DeleteLimitSet,
+    prepare: [DeleteWhereSet, DeleteOrderSet, DeleteLimitSet],
+    order_by: [DeleteWhereSet] => DeleteOrderSet,
+    limit: [DeleteWhereSet, DeleteOrderSet] => DeleteLimitSet,
 );

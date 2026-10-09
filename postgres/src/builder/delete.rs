@@ -21,8 +21,8 @@ pub use drizzle_core::builder::{DeleteInitial, DeleteReturningSet, DeleteWhereSe
 /// A `PostgreSQL` `DELETE` being built: a [`QueryBuilder`](super::QueryBuilder)
 /// in one of the `Delete*` states.
 ///
-/// Optionally add `WHERE`, then `RETURNING`. Without `WHERE`, every row is
-/// deleted.
+/// Add `WHERE` (required; `r#where(true)` deletes every row), then
+/// optionally `RETURNING`.
 ///
 /// # Examples
 ///
@@ -211,31 +211,6 @@ impl<'a, S, T> DeleteBuilder<'a, S, DeleteInitial, T> {
         let where_sql = crate::helpers::r#where(condition);
         DeleteBuilder {
             sql: self.sql.append(where_sql),
-            schema: PhantomData,
-            state: PhantomData,
-            table: PhantomData,
-            marker: PhantomData,
-            row: PhantomData,
-            grouped: PhantomData,
-        }
-    }
-
-    /// Adds `RETURNING columns`, so the statement returns the deleted rows.
-    #[inline]
-    pub fn returning<Columns, ScopeProof>(
-        self,
-        columns: Columns,
-    ) -> ReturningBuilder<'a, S, T, Columns>
-    where
-        Columns: drizzle_core::expr::ExprSources,
-        Columns::Sources:
-            drizzle_core::scope::SourcesIn<drizzle_core::Cons<T, drizzle_core::Nil>, ScopeProof>,
-        Columns: ToSQL<'a, PostgresValue<'a>> + drizzle_core::IntoSelectTarget,
-        Columns::Marker: drizzle_core::ResolveRow<T>,
-    {
-        let returning_sql = crate::helpers::returning(columns);
-        DeleteBuilder {
-            sql: self.sql.append(returning_sql),
             schema: PhantomData,
             state: PhantomData,
             table: PhantomData,

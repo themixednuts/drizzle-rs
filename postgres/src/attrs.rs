@@ -357,13 +357,16 @@ pub const DEFAULT: ColumnMarker = ColumnMarker;
 /// See: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK>
 pub const REFERENCES: ColumnMarker = ColumnMarker;
 
-/// Sets the reverse relation accessor name on the referenced table.
+/// Names the accessor that loads this table's rows from the referenced table
+/// (the reverse relation).
 ///
-/// By default, reverse relations are named from the source table
-/// (`posts` for a `Post` table). When multiple foreign keys target the
-/// same table — or the FK is self-referential — the name is disambiguated
-/// as `{forward}_{plural}` (e.g. `author_posts`). Use `relation` to pick
-/// an explicit reverse name instead.
+/// By default it is the plural of this struct's name (`posts` for a `Post`
+/// table), or the singular when this column alone is unique, which loads an
+/// `Option` (`profile` for a `Profile` table). A column named for a role
+/// rather than the table it references starts the name with the role:
+/// `author_id` gives `users.author_posts()`, while `user_id` gives
+/// `users.posts()`. The name depends on this column alone, so `RELATION` is needed
+/// only to choose another one.
 ///
 /// The forward relation (on this table) is unchanged; only the reverse
 /// accessor on the referenced table is renamed.
@@ -374,15 +377,38 @@ pub const REFERENCES: ColumnMarker = ColumnMarker;
 /// // Users get `.authored()` instead of `.author_posts()`
 /// #[column(REFERENCES = User::id, RELATION = "authored")]
 /// author_id: i32,
-///
-/// // Still auto-disambiguated: Users get `.editor_posts()`
-/// #[column(REFERENCES = User::id)]
-/// editor_id: Option<i32>,
 /// # "####;
 /// ```
 ///
 /// Requires a `REFERENCES` attribute on the same column.
 pub const RELATION: ColumnMarker = ColumnMarker;
+
+/// Names the many-to-many accessor the referenced table gets through this
+/// link table.
+///
+/// A table is a link table when it has exactly two foreign keys and its rows
+/// are that pair: the pair is the primary key or a `UNIQUE` constraint, or
+/// the table has no other column besides a single-column primary key, and
+/// neither key is unique on its own. Each referenced table then gets an
+/// accessor to the other one, named after the other column: `post_id` and
+/// `tag_id` in `PostTags` give `posts.tags()` and `tags.posts()`. A link whose
+/// name adds to what it links appends it, so `PostLikes` gives
+/// `users.posts_via_likes()` and never clashes with another link.
+///
+/// `MANY_TO_MANY` chooses another name, and makes any table with two foreign keys a
+/// link table.
+///
+/// # Examples
+/// ```rust
+/// # let _ = r####"
+/// // users.liked_posts() instead of users.posts_via_likes()
+/// #[column(REFERENCES = User::id, MANY_TO_MANY = "liked_posts")]
+/// user_id: i32,
+/// # "####;
+/// ```
+///
+/// Requires a `REFERENCES` attribute on the same column.
+pub const MANY_TO_MANY: ColumnMarker = ColumnMarker;
 
 /// Specifies the ON DELETE action for foreign key references.
 ///

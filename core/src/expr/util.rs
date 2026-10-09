@@ -472,6 +472,11 @@ impl DefaultCastTypeName for drizzle_types::mysql::types::Year {
 
 /// The target argument of [`cast`]: a SQL type name such as `"VARCHAR(255)"`,
 /// or a type marker value whose [`DefaultCastTypeName`] is used.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a cast target for `{T}` here",
+    label = "a type marker target must be the cast's result type, from this dialect",
+    note = "or pass the SQL type name as a string, such as `\"VARCHAR(255)\"`"
+)]
 pub trait CastTarget<'a, T: DataType, D> {
     /// The SQL type name to cast to.
     fn cast_type_name(self) -> &'a str;

@@ -10,6 +10,39 @@ pub mod postgres;
 #[macro_use]
 pub mod mysql;
 
+/// Fails a push whose drops would lose rows, as drizzle-kit's push stops to
+/// ask before them. `lost` pairs each drop with the rows it holds.
+#[cfg(any(
+    feature = "rusqlite",
+    feature = "libsql",
+    feature = "turso",
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "hyperdrive",
+    feature = "mysql-sync",
+    feature = "mysql-async"
+))]
+pub(crate) fn refuse_data_loss(
+    lost: &[(drizzle_migrations::DataLoss, i64)],
+) -> drizzle_core::error::Result<()> {
+    let lost: Vec<String> = lost
+        .iter()
+        .filter(|(_, rows)| *rows > 0)
+        .map(|(drop, rows)| format!("{drop} holds {rows} row(s)"))
+        .collect();
+    if lost.is_empty() {
+        return Ok(());
+    }
+    Err(drizzle_core::error::DrizzleError::Other(
+        format!(
+            "push would drop data, so nothing was applied: {}. Move or delete that data \
+             first, or run `drizzle push`, which asks before dropping it.",
+            lost.join("; ")
+        )
+        .into(),
+    ))
+}
+
 /// Maps a relational query runner to the detached prepared-query driver marker.
 ///
 /// Each dialect implements it for `&Drizzle<Conn, _>` (mapping to `Conn`) and
@@ -33,8 +66,6 @@ macro_rules! drizzle_prepare_impl {
     () => {
         impl<'a: 'b, 'b, S, Schema, State, Table, Mk, Rw, Grouped>
             DrizzleBuilder<'a, S, QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>, State>
-        where
-            State: builder::ExecutableState,
         {
             /// Renders this query once into a reusable prepared statement.
             ///
@@ -50,7 +81,10 @@ macro_rules! drizzle_prepare_impl {
             /// prepare there. Reach for it to bind by name, or to move SQL
             /// rendering out of a hot loop.
             #[inline]
-            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
+            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw>
+            where
+                State: builder::ExecutableState,
+            {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))
             }
         }
@@ -77,8 +111,6 @@ macro_rules! drizzle_tx_prepare_impl {
                 QueryBuilder<'b, Schema, State, Table, Mk, Rw, Grouped>,
                 State,
             >
-        where
-            State: builder::ExecutableState,
         {
             /// Renders this transaction's query once into a reusable prepared
             /// statement.
@@ -95,7 +127,10 @@ macro_rules! drizzle_tx_prepare_impl {
             /// connection after the transaction ends; inside the transaction,
             /// use the builder's own `.execute()`/`.all()`/`.get()` instead.
             #[inline]
-            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw> {
+            pub fn prepare(self) -> prepared::PreparedStatement<'b, Mk, Rw>
+            where
+                State: builder::ExecutableState,
+            {
                 prepared::PreparedStatement::new(prepare_render(&self.to_sql()))
             }
         }

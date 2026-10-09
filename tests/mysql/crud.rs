@@ -216,3 +216,47 @@ fn column_type_does_not_take_the_name_of_its_enum(db: &mut TestDb<MemberSchema>)
     let column: member::Role = member.role;
     assert_eq!(column, member::Role);
 }
+
+#[MySQLTable(NAME = "mysql_cycle_a")]
+pub struct MySqlCycleA {
+    #[column(PRIMARY)]
+    pub id: u64,
+    #[column(REFERENCES = MySqlCycleB::id)]
+    pub b_id: Option<u64>,
+}
+
+#[MySQLTable(NAME = "mysql_cycle_b")]
+pub struct MySqlCycleB {
+    #[column(PRIMARY)]
+    pub id: u64,
+    #[column(REFERENCES = MySqlCycleA::id)]
+    pub a_id: Option<u64>,
+}
+
+#[derive(MySQLSchema)]
+pub struct MySqlCycleSchema {
+    pub a: MySqlCycleA,
+    pub b: MySqlCycleB,
+}
+
+/// Tables that reference each other in a cycle are a valid schema: they are
+/// created with foreign-key checks off, and the checks hold afterwards.
+#[drizzle::test]
+fn tables_referencing_each_other_create(db: &mut TestDb<MySqlCycleSchema>) {
+    let MySqlCycleSchema { a, b } = schema;
+    db.insert(a).value(InsertMySqlCycleA::new(1)).execute();
+    db.insert(b)
+        .value(InsertMySqlCycleB::new(1).with_a_id(1))
+        .execute();
+    db.update(a)
+        .set(UpdateMySqlCycleA::default().with_b_id(1))
+        .r#where(eq(a.id, 1_u64))
+        .execute();
+
+    let dangling = result!(
+        db.insert(b)
+            .value(InsertMySqlCycleB::new(2).with_a_id(99))
+            .execute()
+    );
+    assert!(dangling.is_err(), "foreign-key checks are back on");
+}

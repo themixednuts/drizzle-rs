@@ -688,16 +688,18 @@ async fn run_migration_statements(
 async fn sqlite_foreign_keys_enabled(
     conn: &turso::Connection,
 ) -> drizzle_core::error::Result<bool> {
-    let mut rows = conn
-        .query("PRAGMA foreign_keys", ())
-        .await
-        .map_err(DrizzleError::from)?;
+    Ok(query_i64(conn, "PRAGMA foreign_keys").await? != 0)
+}
+
+/// Runs `sql` and reads the integer in its first row and column.
+async fn query_i64(conn: &turso::Connection, sql: &str) -> drizzle_core::error::Result<i64> {
+    let mut rows = conn.query(sql, ()).await.map_err(DrizzleError::from)?;
     let row = rows
         .next()
         .await
         .map_err(DrizzleError::from)?
-        .ok_or_else(|| DrizzleError::Other("PRAGMA foreign_keys returned no row".into()))?;
-    Ok(row.get::<i64>(0).map_err(DrizzleError::from)? != 0)
+        .ok_or_else(|| DrizzleError::Other(format!("`{sql}` returned no row").into()))?;
+    row.get::<i64>(0).map_err(DrizzleError::from)
 }
 
 async fn set_sqlite_foreign_keys(
@@ -1111,6 +1113,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     /// local development: nothing is recorded in the migration tracking
     /// table.
     ///
+    /// When a table or column may have been renamed, `push` fails rather
+    /// than guess, and the error gives the hint for each answer;
+    /// pass the answers to [`push_with`](Self::push_with).
+    ///
+    /// A push that would drop a table or column holding rows fails and
+    /// applies nothing, the way drizzle-kit's push stops to ask; dropping an
+    /// empty one goes ahead.
+    ///
     /// # Errors
     ///
     /// Returns an error when introspection or diffing fails, or when a
@@ -1119,10 +1129,34 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         &self,
         schema: &S,
     ) -> drizzle_core::error::Result<()> {
+        self.push_with(schema, &drizzle_migrations::RenameHints::new())
+            .await
+    }
+
+    /// [`push`](Self::push), with answers to its rename-or-create questions.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`push`](Self::push).
+    pub async fn push_with<S: drizzle_migrations::Schema>(
+        &self,
+        schema: &S,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> drizzle_core::error::Result<()> {
         let live = self.introspect().await?;
         let desired = schema.to_snapshot();
-        let generated = drizzle_migrations::diff(&live, &desired)
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let generated = drizzle_migrations::diff_with(
+            &live,
+            &desired,
+            &drizzle_migrations::DiffOptions::new().with_renames(renames.clone()),
+        )
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let mut lost = Vec::with_capacity(generated.data_loss.len());
+        for drop in &generated.data_loss {
+            let sql = drop.count_sql(drizzle_types::Dialect::SQLite);
+            lost.push((drop.clone(), query_i64(&self.conn, &sql).await?));
+        }
+        crate::builder::refuse_data_loss(&lost)?;
         let operation =
             drizzle_migrations::Migration::with_hash("push", "", 0, generated.statements);
         let execution = operation
@@ -1574,14 +1608,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::Select>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let num_base_cols = T::COLUMN_NAMES.len();
         let (sql_str, params) = self.inner.bind(params)?;
         let mut driver_params = Vec::with_capacity(self.inner.params.len());
@@ -1673,14 +1699,6 @@ impl<'a, T, Rels>
         Rels: drizzle_core::query::BuildRow<<T as drizzle_core::query::QueryTable>::PartialSelect>,
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
-        debug_assert_eq!(
-            N,
-            self.inner.external_param_count(),
-            "parameter count mismatch: expected {} params but got {}",
-            self.inner.external_param_count(),
-            N
-        );
-
         let (sql_str, params) = self.inner.bind(params)?;
         let mut driver_params = Vec::with_capacity(self.inner.params.len());
         driver_params.extend(params.map(Into::into));
@@ -1747,8 +1765,6 @@ impl<'a, T, Rels>
 
 impl<S, Schema, State, Table, Mk, Rw, Grouped>
     DrizzleBuilder<'_, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement and returns the number of rows it changed.
     ///
@@ -1780,7 +1796,10 @@ where
     /// Returns an error when turso cannot prepare or run the statement, for
     /// example on a constraint violation. The error carries the SQL and its
     /// parameters ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let driver_params: Vec<turso::Value> = params
@@ -1835,6 +1854,7 @@ where
     /// - a raw `sql!` selection carries an explicit result type.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -1885,6 +1905,7 @@ where
     /// The same scope and grouping checks as [`all`](Self::all).
     pub async fn rows<Proof, AggProof>(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
             + drizzle_core::row::MarkerColumnCountValid<::turso::Row, Rw, Rw, Proof>,
@@ -1938,6 +1959,7 @@ where
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker

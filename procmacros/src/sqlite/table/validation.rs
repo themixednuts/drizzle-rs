@@ -208,6 +208,7 @@ mod tests {
             column_type,
             foreign_key: None,
             relation_name: None,
+            many_to_many_name: None,
             constraint,
             collate: None,
             default: None,

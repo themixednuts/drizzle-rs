@@ -69,9 +69,9 @@ fn main() -> drizzle::Result<()> {
     }
 
     println!("--- relations ---");
-    let loaded = db.query(users).with(users.posts()).find_many()?;
+    let loaded = db.query(users).with(users.author_posts()).find_many()?;
     for u in &loaded {
-        println!("{}: {} posts", u.name, u.posts.len());
+        println!("{}: {} posts", u.name, u.author_posts.len());
     }
 
     Ok(())

@@ -406,10 +406,11 @@ migrations you already ran stay applied:
 
 Snapshots describe the database, not the TypeScript around it:
 
-- `relations()`: drizzle-rs derives relations from foreign keys. A
+- `relations()`: drizzle-rs derives relations from foreign keys, including
+  one-to-one and many-to-many, and names them (see
+  [Relation Names](#relation-names)). An `author_id` column with
   `#[column(references = Users::id)]` gives `posts.author()` and
-  `users.posts()` in the relational query API; `relation = "..."` renames the
-  reverse side.
+  `users.author_posts()` in the relational query API.
 - `$type<T>()` and column modes (`{ mode: 'json' | 'timestamp' | 'bigint' }`):
   fields get the column's storage type. Switch to your Rust type, for example
   `#[column(json)]` with a `serde` type, or an enum deriving `SQLiteEnum`.
@@ -810,6 +811,8 @@ db.delete(users)
 # fn main() {}
 ```
 
+A `delete` or `update` without `.r#where(...)` does not compile, so a forgotten condition cannot empty or rewrite a table. To change every row on purpose, write `.r#where(true)`.
+
 ### Joins
 
 Use `#[derive(SQLiteFromRow)]` to map columns from multiple tables into a flat struct. `#[from(Users)]` sets the default source table for unannotated fields:
@@ -1039,7 +1042,7 @@ let ages: Vec<(f64,)> = db
 
 Requires the `query` feature. Fetches a table with its relations in a single query — no manual joins.
 
-Relation methods are generated from `#[column(references = ...)]`. Given `Posts.author_id → Users.id`, `users.posts()` is the reverse (one-to-many) and `posts.author()` is the forward (many-to-one). [Relation Names](#relation-names) explains how the names are chosen.
+Relation methods are generated from foreign keys. Given `Posts.author_id → Users.id`, `posts.author()` is the forward (many-to-one) and `users.author_posts()` the reverse (one-to-many). [Relation Names](#relation-names) explains how the names are chosen.
 
 ```rust
 # #[cfg(all(feature = "rusqlite", feature = "query"))]
@@ -1050,11 +1053,11 @@ Relation methods are generated from `#[column(references = ...)]`. Given `Posts.
 # use readme::*;
 # let (db, Schema { users, .. }) = readme::database()?;
 let users = db.query(users)
-    .with(users.posts())
+    .with(users.author_posts())
     .find_many()?;
 
 for user in &users {
-    println!("{}: {} posts", user.name, user.posts.len());
+    println!("{}: {} posts", user.name, user.author_posts.len());
 }
 # Ok(())
 # }
@@ -1074,7 +1077,7 @@ for user in &users {
 # use readme::*;
 # let (db, Schema { users, .. }) = readme::database()?;
 let user = db.query(users)
-    .with(users.posts())
+    .with(users.author_posts())
     .r#where(eq(users.name, "Alice"))
     .find_first()?;
 # Ok(())
@@ -1094,10 +1097,10 @@ Nest relations:
 # use readme::*;
 # let (db, Schema { users, posts, .. }) = readme::database()?;
 let users = db.query(users)
-    .with(users.posts().with(posts.comments()))
+    .with(users.author_posts().with(posts.comments()))
     .find_many()?;
 
-println!("{} comments", users[0].posts[0].comments.len());
+println!("{} comments", users[0].author_posts[0].comments.len());
 # Ok(())
 # }
 # #[cfg(not(all(feature = "rusqlite", feature = "query")))]
@@ -1117,7 +1120,7 @@ Filter and paginate the root query:
 # use readme::*;
 # let (db, Schema { users, .. }) = readme::database()?;
 let users = db.query(users)
-    .with(users.posts())
+    .with(users.author_posts())
     .r#where(gt(users.age, 25))
     .order_by(asc(users.name))
     .limit(10)
@@ -1130,44 +1133,55 @@ let users = db.query(users)
 
 ### Relation Names
 
-Each `#[column(references = Table::column)]` generates two accessors:
+Every foreign key gives relation accessors named from the schema, so you
+rarely name one yourself:
 
-- **Forward** (many-to-one), on the table that holds the foreign key: the
-  column name without its `_id` suffix. `Posts.author_id` gives
-  `posts.author()`. A column without the suffix keeps its name, so
-  `invited_by` gives `invited_by()`. A nullable foreign key loads an `Option`.
-- **Reverse** (one-to-many), on the referenced table: the plural `snake_case`
-  form of the referencing struct's name, so `Posts` gives `users.posts()` and
-  a `Category` struct would give `categories()`. The Rust struct name counts,
-  not the SQL table name.
+| Relation | Example | Loads | Named after |
+|---|---|---|---|
+| Forward, on the table with the key | `posts.author()` | the row, or an `Option` when the key is nullable | the column without `_id` (`author_id` gives `author`) |
+| Reverse, on the referenced table | `users.author_posts()` | a `Vec` | the plural of the struct, after the column's role |
+| One-to-one reverse, when the key alone is unique | `users.profile()` | an `Option` | the singular of the struct |
+| Many-to-many, through a link table | `posts.tags()` | a `Vec` | the plural of the other column, plus the link's own name |
 
-When a table references itself, or has two or more foreign keys to the same
-table, each of those reverse accessors is named `{forward}_{plural}` instead,
-for example `users.author_posts()` and `users.editor_posts()`.
+The struct name counts, not the SQL table name.
 
-A link table also gives a many-to-many pair: each side gets an accessor named
-after the plural of the other side, so `PostTags` gives `posts.tags()` and
-`tags.posts()`. The link keeps its own accessors as well: `post_tags.post()`,
-and `posts.post_tags()` for its rows.
+**Roles.** A column named after the table it references (`user_id` to
+`Users`, or to `AppUsers`) plays no role, so `Posts.user_id` gives
+`users.posts()`. Any other name is a role, and the reverse accessor starts
+with it: `author_id` and `editor_id` give `users.author_posts()` and
+`users.editor_posts()`, and a self-reference `parent_id` gives
+`categories.parent_categories()`. A reverse name depends only on its own
+column, so adding a foreign key never renames another accessor.
 
-A link table has exactly two foreign keys, pointing at two different tables
-other than itself, and its rows are that pair: the pair is its primary key or
-a `UNIQUE(columns(...))` constraint, or the table has no other column except a
-single-column primary key. A table that holds two foreign keys beside columns
-of its own, such as a comment with an author and a post, is an entity rather
-than a link. It gets the forward and reverse accessors of each foreign key and
-no many-to-many pair.
+**Link tables.** A table is a link when it has exactly two foreign keys and
+its rows are that pair: the pair is its primary key or a
+`UNIQUE(columns(...))` constraint, or the table has no other column except a
+single-column primary key. Neither key may be unique on its own, which would
+make it a one-to-one. A table with two foreign keys beside columns of its
+own, such as a comment with an author and a post, is an entity and gets no
+many-to-many pair, so its rows are never loaded twice.
 
-`relation = "..."` names the accessor the referenced table gets through the
-column and leaves the forward name alone. On most tables that is the reverse
-accessor. On a link table it is the many-to-many accessor, and the link's rows
-keep their plural name. You only need `relation` when two accessors on the
-referenced table would still share a name, such as two links between the same
-tables (likes and bookmarks would both give `users.posts()`), or a direct
-foreign key and a link that both give `tags.posts()`. If both come from one
-table, the macro's compile error asks for `relation`. If they come from
-different tables, rustc reports a duplicate definition at both columns, and
-`relation` on either one resolves it.
+Each side of a link gets an accessor to the other, named after the other
+column. Both keys may reference one table: `Fans` with `fan_id` and `idol_id`
+gives `users.idols()` and `users.fans()`. A link named only after what it
+links (`PostTags`, `UsersToGroups`, or `GroupMembers` with a `member_id`
+column) gives plain names, `posts.tags()` and `tags.posts()`. A link with a
+name of its own adds it, so two links between the same tables never clash:
+`PostLikes` and `PostBookmarks` give `users.posts_via_likes()` and
+`users.posts_via_bookmarks()`. The link's rows stay available as
+`users.post_likes()` and `post_likes.post()`.
+
+**Composite keys.** A table-level `foreign_key(columns(...), references(...))`
+gives the same relations. Its forward accessor is the singular of the
+referenced struct.
+
+**Naming by hand.** `relation = "..."` names the reverse accessor and
+`many_to_many = "..."` names a link side's many-to-many accessor; both also
+work inside `foreign_key(...)`, and `many_to_many` makes any table with two
+foreign keys a link. You need them only to choose another name, or when two
+tables still give a third the same accessor, as a direct key and a plain link
+between the same tables can (`Posts.tag_id` and `PostTags` both give
+`tags.posts()`). rustc then reports the duplicate at both columns.
 
 ```rust
 # #[cfg(all(feature = "rusqlite", feature = "query"))]
@@ -1184,15 +1198,25 @@ pub struct Users {
     pub invited_by: Option<i64>,
 }
 
+// One-to-one: users.profile() loads an Option, profiles.user() the user
+#[SQLiteTable]
+pub struct Profiles {
+    #[column(primary)]
+    pub id: i64,
+    #[column(unique, references = Users::id)]
+    pub user_id: i64,
+    pub bio: String,
+}
+
 #[SQLiteTable]
 pub struct Posts {
     #[column(primary)]
     pub id: i64,
-    // posts.author() and users.author_posts() (Posts has two FKs to Users)
+    // posts.author() and users.author_posts()
     #[column(references = Users::id)]
     pub author_id: i64,
-    // posts.editor() and users.edited_posts() instead of users.editor_posts()
-    #[column(references = Users::id, relation = "edited_posts")]
+    // posts.editor() and users.editor_posts()
+    #[column(references = Users::id)]
     pub editor_id: Option<i64>,
 }
 
@@ -1202,7 +1226,7 @@ pub struct Tags {
     pub id: i64,
 }
 
-// Junction table: posts.tags() and tags.posts()
+// A plain link: posts.tags() and tags.posts()
 #[SQLiteTable]
 pub struct PostTags {
     #[column(references = Posts::id)]
@@ -1211,46 +1235,61 @@ pub struct PostTags {
     pub tag_id: i64,
 }
 
-// A link with a payload, its pair unique. relation names the many-to-many
-// pair, users.liked_posts() and posts.likers(); a second link between users
-// and posts would need names too. Its rows stay users.post_likes().
+// A link with a name and a payload of its own: users.posts_via_likes() and
+// posts.users_via_likes(). Its rows stay users.post_likes().
 #[SQLiteTable(UNIQUE(columns(user_id, post_id)))]
 pub struct PostLikes {
     #[column(primary)]
     pub id: i64,
-    #[column(references = Users::id, relation = "liked_posts")]
+    #[column(references = Users::id)]
     pub user_id: i64,
-    #[column(references = Posts::id, relation = "likers")]
+    #[column(references = Posts::id)]
     pub post_id: i64,
     pub liked_at: i64,
+}
+
+// A second link between users and posts needs no names either:
+// users.posts_via_bookmarks() and posts.users_via_bookmarks()
+#[SQLiteTable]
+pub struct PostBookmarks {
+    #[column(references = Users::id)]
+    pub user_id: i64,
+    #[column(references = Posts::id)]
+    pub post_id: i64,
 }
 
 #[derive(SQLiteSchema)]
 pub struct Schema {
     pub users: Users,
+    pub profiles: Profiles,
     pub posts: Posts,
     pub tags: Tags,
     pub post_tags: PostTags,
     pub post_likes: PostLikes,
+    pub post_bookmarks: PostBookmarks,
 }
 
 # let conn = rusqlite::Connection::open_in_memory()?;
-# let (db, Schema { users, posts, tags, post_tags, .. }) = Drizzle::new(conn);
+# let (db, Schema { users, profiles, posts, tags, post_tags, post_likes, .. }) = Drizzle::new(conn);
 # db.create()?;
 let authors = db
     .query(users)
     .with(users.author_posts())
-    .with(users.edited_posts())
+    .with(users.editor_posts())
     .with(users.invited_by_users())
-    .with(users.liked_posts())
+    .with(users.profile())
+    .with(users.posts_via_likes())
+    .with(users.posts_via_bookmarks())
     .find_many()?;
 
 let tagged = db.query(posts).with(posts.author()).with(posts.tags()).find_many()?;
-# let _ = db.query(users).with(users.invited_by()).find_many()?;
+# let _ = db.query(users).with(users.invited_by()).with(users.post_likes()).find_many()?;
+# let _ = db.query(profiles).with(profiles.user()).find_many()?;
 # let _ = db.query(posts).with(posts.editor()).with(posts.post_tags()).find_many()?;
 # let _ = db.query(tags).with(tags.posts()).find_many()?;
-# let _ = db.query(posts).with(posts.likers()).with(posts.post_likes()).find_many()?;
+# let _ = db.query(posts).with(posts.users_via_likes()).with(posts.users_via_bookmarks()).find_many()?;
 # let _ = db.query(post_tags).with(post_tags.post()).with(post_tags.tag()).find_many()?;
+# let _ = db.query(post_likes).with(post_likes.user()).find_many()?;
 # Ok(())
 # }
 # #[cfg(not(all(feature = "rusqlite", feature = "query")))]
@@ -1285,7 +1324,7 @@ for u in &users {
 
 ### Result Types
 
-`.with(users.posts())` returns `UsersWithPosts` — base columns via deref, relation data on fields like `user.posts`:
+`.with(users.author_posts())` returns `UsersWithAuthorPosts` — base columns via deref, relation data on fields like `user.author_posts`:
 
 ```rust
 # #[cfg(all(feature = "rusqlite", feature = "query"))]
@@ -1293,9 +1332,9 @@ for u in &users {
 # mod readme {
 #     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs"));
 # }
-# use readme::UsersWithPosts;
-fn print_user_posts(user: &UsersWithPosts) {
-    println!("{} has {} posts", user.name, user.posts.len());
+# use readme::UsersWithAuthorPosts;
+fn print_user_posts(user: &UsersWithAuthorPosts) {
+    println!("{} has {} posts", user.name, user.author_posts.len());
 }
 # }
 # #[cfg(not(all(feature = "rusqlite", feature = "query")))]
@@ -1734,9 +1773,37 @@ drizzle push --hints-file hints.json
 ]
 ```
 
-`rename` turns a drop plus a create into a rename; `create` keeps them separate. Identifiers are `[name]` for schemas, `[schema, name]` for tables, views, and enums, and `[schema, table, name]` for columns, indexes, and constraints (`unique`, `check`, `primary_key`, `foreign key`). SQLite and MySQL use `public` as the schema, as drizzle-kit does. A column's table is its new name. Hints that match nothing in the current diff are ignored, so one file can be reused. If a question has no hint, the command changes nothing: it prints each unresolved decision with the hints that would answer it and exits with code 2.
+`rename` turns a drop plus a create into a rename; `create` keeps them separate. Identifiers are `[name]` for schemas, `[schema, name]` for tables, views, and enums, and `[schema, table, name]` for columns, indexes, and constraints (`unique`, `check`, `primary_key`, `foreign key`). SQLite and MySQL use `public` as the schema, as drizzle-kit does. A column's table is its new name. Hints that match nothing in the current diff are ignored, so one file can be reused. If a schema, enum, table, or column question has no hint, the command changes nothing: it prints each unresolved decision with the hints that would answer it and exits with code 2. An unhinted index, constraint, or view is dropped and created, which loses no data.
 
-The Rust API (`drizzle_migrations::diff`, `diff_with`, `build::run`, and the drivers' `db.push`) still infers renames of otherwise identical tables and columns on SQLite and PostgreSQL. Turn that off with `DiffOptions::infer_renames(false)`, and list the questions yourself with `drizzle_migrations::rename_questions`.
+The Rust API never guesses either. `drizzle_migrations::diff` and `diff_with`, `build::run`, and the drivers' `db.push` stop with `MigrationError::UnansweredRenames` when a schema, enum, table, or column may have been renamed, and the error gives the hint for each answer:
+
+```text
+cannot tell a rename from a drop plus a create, and guessing wrong loses data. Answer each question with a hint on `RenameHints` or `DiffOptions` (the `drizzle` CLI asks them interactively):
+  column `users.full_name`: created, or renamed from `name`?
+    renamed from `name`: .rename_column("users", "name", "full_name")
+    created: .create(CreateHint::new(RenameKind::Column, "full_name").on_table("users"))
+```
+
+Pass the answer where the diff runs:
+
+```rust,ignore
+use drizzle_migrations::RenameHints;
+
+let renames = RenameHints::new().rename_column("users", "name", "full_name");
+
+// build.rs
+let cfg = drizzle_migrations::build::Config::new(Dialect::SQLite)
+    .file("src/schema.rs")
+    .renames(renames.clone());
+
+// at runtime
+db.push_with(&schema, &renames)?;
+
+// in memory
+drizzle_migrations::diff_with(&prev, &next, &DiffOptions::new().with_renames(renames))?;
+```
+
+A hint that matches nothing in a later diff is ignored, so it can stay in `build.rs`. `db.push` also stops before it drops a table or column that holds rows, applying nothing, where drizzle-kit's push would ask; dropping an empty one goes ahead. An index, constraint, or view without an answer is dropped and created, which loses no data; the CLI does the same without a terminal. `drizzle_migrations::rename_questions` lists the questions, for tools that ask them their own way.
 
 ## License
 

@@ -46,6 +46,10 @@ where
 /// A source that can follow `JOIN`: a `MySQL` table, a derived table
 /// (subquery with an alias), or a table with an index hint.
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot follow JOIN",
+    label = "join a table, a view, or an aliased subquery"
+)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
 
@@ -203,6 +207,11 @@ impl IndexHintKind for IgnoreIndex {
 }
 
 /// One or more generated indexes belonging to the same MySQL table.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a list of `{Table}` indexes",
+    label = "an index hint names one or more indexes of the hinted table",
+    note = "pass one generated index of `{Table}`, or a tuple of them"
+)]
 #[doc(hidden)]
 pub trait IndexHintList<'a, Table>: index_hint_private::List<'a, Table> {
     fn names(&self) -> SQL<'a, MySQLValue<'a>>;
@@ -381,37 +390,39 @@ where
     SQL::raw(Kind::SQL).append(indexes.names().parens())
 }
 
-fn auto_join_condition<'a, Joined, From>() -> SQL<'a, MySQLValue<'a>>
+fn auto_join_condition<'a, Joined, From, Via>() -> SQL<'a, MySQLValue<'a>>
 where
-    Joined: MySQLTable<'a> + drizzle_core::Joinable<From> + Default,
+    Joined: MySQLTable<'a> + drizzle_core::JoinKey<From, Via> + Default,
     From: SQLTableInfo + Default,
 {
     let joined = Joined::default();
     let from = From::default();
-    let columns = <Joined as drizzle_core::Joinable<From>>::fk_columns();
+    let columns = <Joined as drizzle_core::JoinKey<From, Via>>::pairs();
     let mut condition = SQL::with_capacity_chunks(columns.len().saturating_mul(7));
-    for (index, (joined_column, from_column)) in columns.iter().enumerate() {
+    for (index, pair) in columns.iter().enumerate() {
+        let (joined_column, from_column) = <Joined as drizzle_core::JoinKey<From, Via>>::pair(pair);
         if index > 0 {
             condition.push_mut(Token::AND);
         }
         condition.append_mut(
             SQL::ident(joined.name())
                 .push(Token::DOT)
-                .append(SQL::ident(*joined_column)),
+                .append(SQL::ident(joined_column)),
         );
         condition.push_mut(Token::EQ);
         condition.append_mut(
             SQL::ident(from.name())
                 .push(Token::DOT)
-                .append(SQL::ident(*from_column)),
+                .append(SQL::ident(from_column)),
         );
     }
     condition
 }
 
-impl<'a, Joined, Indexes, Kind, From> JoinArg<'a, From> for IndexHintedTable<Joined, Indexes, Kind>
+impl<'a, Joined, Indexes, Kind, From, Via> JoinArg<'a, From, Via>
+    for IndexHintedTable<Joined, Indexes, Kind>
 where
-    Joined: MySQLTable<'a> + drizzle_core::Joinable<From> + Default,
+    Joined: MySQLTable<'a> + drizzle_core::JoinKey<From, Via> + Default,
     From: SQLTableInfo + Default,
     Indexes: IndexHintList<'a, Joined>,
     Kind: IndexHintKind,
@@ -423,7 +434,7 @@ where
         join.into_sql()
             .append(self.into_sql())
             .push(Token::ON)
-            .append(auto_join_condition::<Joined, From>())
+            .append(auto_join_condition::<Joined, From, Via>())
     }
 }
 
@@ -458,7 +469,19 @@ where
     Table: MySQLTable<'a>,
 {
     let rows: Vec<_> = rows.into_iter().collect();
-    assert!(!rows.is_empty(), "insert values requires at least one row");
+    if rows.is_empty() {
+        return match <Table as drizzle_core::SQLSchema<
+            'a,
+            crate::common::MySQLSchemaType,
+            MySQLValue<'a>,
+        >>::TYPE
+        {
+            crate::common::MySQLSchemaType::Table(table) => {
+                drizzle_core::helpers::insert_no_rows(table, "SELECT NULL FROM DUAL WHERE 1 = 0")
+            }
+            _ => SQL::from(Token::VALUES),
+        };
+    }
 
     let columns = rows[0].columns();
     // A `None` passed to a `with_*` setter leaves that column to its default

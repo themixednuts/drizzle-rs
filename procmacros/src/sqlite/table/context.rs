@@ -7,7 +7,7 @@
 use super::attributes::TableAttributes;
 use crate::common::rust_type_to_nullability;
 use crate::paths::sqlite as sqlite_paths;
-use crate::sqlite::field::{FieldInfo, SQLiteType};
+use crate::sqlite::field::FieldInfo;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 use syn::Visibility;
@@ -41,10 +41,7 @@ impl MacroContext<'_> {
 
     /// Determines if a field can auto-increment (INTEGER PRIMARY KEY in regular tables, excluding enums)
     pub(crate) fn can_field_autoincrement(&self, field: &FieldInfo) -> bool {
-        if !field.is_primary() || self.attrs.without_rowid || field.is_enum {
-            return false;
-        }
-        matches!(field.column_type, SQLiteType::Integer)
+        field.is_rowid_alias(self.attrs.without_rowid)
     }
 
     /// Determines if a field should be optional in the Insert model

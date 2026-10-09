@@ -300,14 +300,6 @@ fn generate_renames_an_explicitly_named_postgres_constraint() {
 
     cargo_bin_cmd!("drizzle")
         .current_dir(root)
-        .arg("generate")
-        .assert()
-        .code(2)
-        .stdout(contains(
-            r#"{ "type": "create", "kind": "unique", "entity": ["public", "users", "users_email_key"] }"#,
-        ));
-    cargo_bin_cmd!("drizzle")
-        .current_dir(root)
         .args([
             "generate",
             "--name",
@@ -320,6 +312,21 @@ fn generate_renames_an_explicitly_named_postgres_constraint() {
     assert_eq!(
         latest_sql(root).trim(),
         "ALTER TABLE \"users\" RENAME CONSTRAINT \"users_email_uq\" TO \"users_email_key\";"
+    );
+
+    // A constraint holds no data, so without a hint it is dropped and
+    // created rather than stopping the command.
+    fs::write(root.join("schema.rs"), schema("users_email_unique")).expect("rewrite schema");
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["generate", "--name", "recreated"])
+        .assert()
+        .success();
+    let sql = latest_sql(root);
+    assert!(sql.contains("DROP CONSTRAINT \"users_email_key\""), "{sql}");
+    assert!(
+        sql.contains("ADD CONSTRAINT \"users_email_unique\""),
+        "{sql}"
     );
 }
 

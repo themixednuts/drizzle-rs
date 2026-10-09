@@ -67,6 +67,7 @@ fn test_tokio_postgres_transaction_futures_are_send() {
                     .await?;
                 tx.update(simple)
                     .set(UpdateSimple::default().with_name("still sent"))
+                    .r#where(true)
                     .execute()
                     .await?;
                 let rows: Vec<SelectSimple> = tx.select(()).from(simple).all().await?;

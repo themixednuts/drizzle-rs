@@ -67,8 +67,8 @@ macro_rules! shared_relational_api_suite {
                 name: String,
             }
 
-            /// Junction table: gives `posts.shared_api_categories()` and
-            /// `categories.shared_api_posts()`.
+            /// Junction table: gives `posts.categories()` and
+            /// `categories.posts()`, named after the other column.
             #[$table(NAME = "shared_api_post_categories")]
             struct SharedApiPostCategory {
                 #[column(REFERENCES = SharedApiPost::id)]
@@ -91,8 +91,10 @@ macro_rules! shared_relational_api_suite {
             }
 
             /// A link with a payload: the foreign-key pair is unique, so it
-            /// is a link, and `relation` names its many-to-many pair,
-            /// `authors.followed_categories()` and `categories.followers()`.
+            /// is a link. Its name adds "follow" to the tables it links, so
+            /// its many-to-many accessors carry it: `categories.authors_via_follows()`.
+            /// `MANY_TO_MANY` names the other, `authors.followed_categories()`.
+            /// Its rows stay `authors.shared_api_author_follows()`.
             #[$table(
                 NAME = "shared_api_author_follows",
                 UNIQUE(columns(author_id, category_id))
@@ -100,16 +102,16 @@ macro_rules! shared_relational_api_suite {
             struct SharedApiAuthorFollow {
                 #[column(PRIMARY, DEFAULT = 0)]
                 id: i32,
-                #[column(REFERENCES = SharedApiAuthor::id, RELATION = "followed_categories")]
+                #[column(REFERENCES = SharedApiAuthor::id, MANY_TO_MANY = "followed_categories")]
                 author_id: i32,
-                #[column(REFERENCES = SharedApiCategory::id, RELATION = "followers")]
+                #[column(REFERENCES = SharedApiCategory::id)]
                 category_id: i32,
                 since: i32,
             }
 
-            /// A second link between the same tables keeps the default
-            /// names, `authors.shared_api_categories()` and
-            /// `categories.shared_api_authors()`.
+            /// A second link between the same tables needs no names:
+            /// `authors.categories_via_favorites()` and
+            /// `categories.authors_via_favorites()`.
             #[$table(NAME = "shared_api_author_favorites")]
             struct SharedApiAuthorFavorite {
                 #[column(REFERENCES = SharedApiAuthor::id)]
@@ -130,6 +132,77 @@ macro_rules! shared_relational_api_suite {
                 /// auto-disambiguation.
                 #[column(REFERENCES = SharedApiAuthor::id)]
                 editor_id: Option<i32>,
+            }
+
+            /// The key is unique, so each author has at most one profile:
+            /// `authors.shared_api_author_profile()` loads an `Option`.
+            #[$table(NAME = "shared_api_author_profiles")]
+            struct SharedApiAuthorProfile {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                #[column(UNIQUE, REFERENCES = SharedApiAuthor::id)]
+                author_id: i32,
+                bio: String,
+            }
+
+            /// A link from authors to authors: `authors.idols()` through
+            /// `fan_id`, and `authors.fans()` through `idol_id`.
+            #[$table(NAME = "shared_api_author_fans", UNIQUE(columns(fan_id, idol_id)))]
+            struct SharedApiAuthorFan {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                #[column(REFERENCES = SharedApiAuthor::id)]
+                fan_id: i32,
+                #[column(REFERENCES = SharedApiAuthor::id)]
+                idol_id: i32,
+            }
+
+            /// A table identified by a post and a number.
+            #[$table(NAME = "shared_api_editions", UNIQUE(columns(post_id, number)))]
+            struct SharedApiEdition {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                post_id: i32,
+                number: i32,
+                title: String,
+            }
+
+            /// A composite key is named after the column that sets it apart:
+            /// `edition_number` to `number` gives `notes.edition()`, and
+            /// editions get `shared_api_edition_notes()`.
+            #[$table(
+                                                NAME = "shared_api_edition_notes",
+                                                FOREIGN_KEY(
+                                                    COLUMNS(post_id, edition_number),
+                                                    REFERENCES(SharedApiEdition, post_id, number),
+                                                    ON_DELETE = CASCADE
+                                                )
+                                            )]
+            struct SharedApiEditionNote {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                post_id: i32,
+                edition_number: i32,
+                body: String,
+            }
+
+            /// The key column has its own SQL name, which relations must use.
+            #[$table(NAME = "shared_api_teams")]
+            struct SharedApiTeam {
+                #[column(PRIMARY, DEFAULT = 0, NAME = "team_key")]
+                id: i32,
+                name: String,
+            }
+
+            /// `teams.shared_api_members()` and `members.team()` join on
+            /// `team_key`.
+            #[$table(NAME = "shared_api_members")]
+            struct SharedApiMember {
+                #[column(PRIMARY, DEFAULT = 0)]
+                id: i32,
+                #[column(REFERENCES = SharedApiTeam::id)]
+                team_id: i32,
+                name: String,
             }
 
             /// A view that carries a forward relation of its own.
@@ -156,6 +229,12 @@ macro_rules! shared_relational_api_suite {
                 author_follows: SharedApiAuthorFollow,
                 author_favorites: SharedApiAuthorFavorite,
                 articles: SharedApiArticle,
+                profiles: SharedApiAuthorProfile,
+                fans: SharedApiAuthorFan,
+                editions: SharedApiEdition,
+                edition_notes: SharedApiEditionNote,
+                teams: SharedApiTeam,
+                members: SharedApiMember,
                 headlines: SharedApiPostHeadline,
             }
 
@@ -215,6 +294,14 @@ macro_rules! shared_relational_api_suite {
 
                 let first = db.query(authors).order_by(asc(authors.name)).find_first();
                 assert_eq!(first.map(|row| row.name).as_deref(), Some("Alice"));
+            }
+
+            #[drizzle::test($dialect)]
+            fn empty_insert_inserts_no_rows(db: &mut TestDb<SharedApiSchema>) {
+                let SharedApiSchema { authors, .. } = schema;
+                db.insert(authors).values(Vec::<AuthorRow>::new()).execute();
+                let rows = db.query(authors).find_many();
+                assert!(rows.is_empty());
             }
 
             #[drizzle::test($dialect)]
@@ -640,30 +727,30 @@ macro_rules! shared_relational_api_suite {
 
                 let tagged = db
                     .query(posts)
-                    .with(posts.shared_api_categories().order_by(asc(categories.id)))
+                    .with(posts.categories().order_by(asc(categories.id)))
                     .order_by(asc(posts.id))
                     .find_many();
                 assert_eq!(tagged.len(), 3);
                 assert_eq!(
                     tagged[0]
-                        .shared_api_categories
+                        .categories
                         .iter()
                         .map(|category| category.name.as_str())
                         .collect::<Vec<_>>(),
                     ["Tech", "Science", "Art"]
                 );
-                assert_eq!(tagged[1].shared_api_categories.len(), 1);
-                assert!(tagged[2].shared_api_categories.is_empty());
+                assert_eq!(tagged[1].categories.len(), 1);
+                assert!(tagged[2].categories.is_empty());
 
                 let reverse = db
                     .query(categories)
                     .r#where(eq(categories.id, 40))
-                    .with(categories.shared_api_posts().order_by(asc(posts.id)))
+                    .with(categories.posts().order_by(asc(posts.id)))
                     .find_first()
                     .unwrap();
                 assert_eq!(
                     reverse
-                        .shared_api_posts
+                        .posts
                         .iter()
                         .map(|post| post.title.as_str())
                         .collect::<Vec<_>>(),
@@ -673,10 +760,10 @@ macro_rules! shared_relational_api_suite {
                 let limited = db
                     .query(posts)
                     .r#where(eq(posts.id, 10))
-                    .with(posts.shared_api_categories().limit(2))
+                    .with(posts.categories().limit(2))
                     .find_first()
                     .unwrap();
-                assert_eq!(limited.shared_api_categories.len(), 2);
+                assert_eq!(limited.categories.len(), 2);
             }
 
             #[drizzle::test($dialect)]
@@ -711,7 +798,7 @@ macro_rules! shared_relational_api_suite {
                 let loaded = db
                     .query(authors)
                     .with(authors.followed_categories().order_by(asc(categories.id)))
-                    .with(authors.shared_api_categories())
+                    .with(authors.categories_via_favorites())
                     .with(authors.shared_api_author_follows())
                     .order_by(asc(authors.id))
                     .find_many();
@@ -722,20 +809,20 @@ macro_rules! shared_relational_api_suite {
                         .collect::<Vec<_>>()
                 };
                 assert_eq!(names(&loaded[0].followed_categories), ["Tech", "Science"]);
-                assert!(loaded[0].shared_api_categories.is_empty());
+                assert!(loaded[0].categories_via_favorites.is_empty());
                 assert_eq!(loaded[0].shared_api_author_follows.len(), 2);
                 assert_eq!(names(&loaded[1].followed_categories), ["Science"]);
-                assert_eq!(names(&loaded[1].shared_api_categories), ["Tech"]);
+                assert_eq!(names(&loaded[1].categories_via_favorites), ["Tech"]);
 
                 let science = db
                     .query(categories)
                     .r#where(eq(categories.id, 41))
-                    .with(categories.followers().order_by(asc(authors.id)))
-                    .with(categories.shared_api_authors())
+                    .with(categories.authors_via_follows().order_by(asc(authors.id)))
+                    .with(categories.authors_via_favorites())
                     .find_first()
                     .unwrap();
-                assert_eq!(science.followers.len(), 2);
-                assert!(science.shared_api_authors.is_empty());
+                assert_eq!(science.authors_via_follows.len(), 2);
+                assert!(science.authors_via_favorites.is_empty());
             }
 
             #[drizzle::test($dialect)]
@@ -790,6 +877,155 @@ macro_rules! shared_relational_api_suite {
                     .find_many();
                 assert_eq!(invitees[0].invited_by_shared_api_authors.len(), 2);
                 assert!(invitees[1].invited_by_shared_api_authors.is_empty());
+            }
+
+            #[drizzle::test($dialect)]
+            fn unique_key_gives_a_one_to_one_reverse(db: &mut TestDb<SharedApiSchema>) {
+                let SharedApiSchema {
+                    authors, profiles, ..
+                } = schema;
+                db.insert(authors)
+                    .values([author(ALICE, "Alice"), author(BOB, "Bob")])
+                    .execute();
+                db.insert(profiles)
+                    .value(InsertSharedApiAuthorProfile::new(ALICE, "Writes things").with_id(1))
+                    .execute();
+
+                let loaded: Vec<SharedApiAuthorWithSharedApiAuthorProfile> = db
+                    .query(authors)
+                    .with(authors.shared_api_author_profile())
+                    .order_by(asc(authors.id))
+                    .find_many();
+                assert_eq!(
+                    loaded[0]
+                        .shared_api_author_profile
+                        .as_ref()
+                        .map(|profile| profile.bio.as_str()),
+                    Some("Writes things")
+                );
+                assert!(loaded[1].shared_api_author_profile.is_none());
+
+                let owner = db
+                    .query(profiles)
+                    .with(profiles.author())
+                    .find_first()
+                    .unwrap();
+                assert_eq!(owner.author.name, "Alice");
+            }
+
+            #[drizzle::test($dialect)]
+            fn self_referencing_link_names_each_side_after_its_column(
+                db: &mut TestDb<SharedApiSchema>,
+            ) {
+                let SharedApiSchema { authors, fans, .. } = schema;
+                db.insert(authors)
+                    .values([
+                        author(ALICE, "Alice"),
+                        author(BOB, "Bob"),
+                        author(CHARLIE, "Charlie"),
+                    ])
+                    .execute();
+                // Bob and Charlie are fans of Alice; Charlie is a fan of Bob.
+                db.insert(fans)
+                    .values([
+                        InsertSharedApiAuthorFan::new(BOB, ALICE).with_id(1),
+                        InsertSharedApiAuthorFan::new(CHARLIE, ALICE).with_id(2),
+                        InsertSharedApiAuthorFan::new(CHARLIE, BOB).with_id(3),
+                    ])
+                    .execute();
+
+                let loaded = db
+                    .query(authors)
+                    .with(authors.fans().order_by(asc(authors.id)))
+                    .with(authors.idols().order_by(asc(authors.id)))
+                    .order_by(asc(authors.id))
+                    .find_many();
+                let names = |rows: &[SelectSharedApiAuthor]| {
+                    rows.iter().map(|row| row.name.clone()).collect::<Vec<_>>()
+                };
+                assert_eq!(names(&loaded[0].fans), ["Bob", "Charlie"]);
+                assert!(loaded[0].idols.is_empty());
+                assert_eq!(names(&loaded[1].fans), ["Charlie"]);
+                assert_eq!(names(&loaded[1].idols), ["Alice"]);
+                assert!(loaded[2].fans.is_empty());
+                assert_eq!(names(&loaded[2].idols), ["Alice", "Bob"]);
+            }
+
+            #[drizzle::test($dialect)]
+            fn relations_join_on_declared_column_names(db: &mut TestDb<SharedApiSchema>) {
+                let SharedApiSchema { teams, members, .. } = schema;
+                db.insert(teams)
+                    .value(InsertSharedApiTeam::new("Core").with_id(7))
+                    .execute();
+                db.insert(members)
+                    .values([
+                        InsertSharedApiMember::new(7, "Ada").with_id(1),
+                        InsertSharedApiMember::new(7, "Lin").with_id(2),
+                    ])
+                    .execute();
+
+                let team = db
+                    .query(teams)
+                    .with(teams.shared_api_members().order_by(asc(members.id)))
+                    .find_first()
+                    .unwrap();
+                assert_eq!(team.shared_api_members.len(), 2);
+
+                let member = db
+                    .query(members)
+                    .with(members.team())
+                    .r#where(eq(members.id, 2))
+                    .find_first()
+                    .unwrap();
+                assert_eq!(member.team.name, "Core");
+            }
+
+            #[drizzle::test($dialect)]
+            fn composite_foreign_key_gives_relations(db: &mut TestDb<SharedApiSchema>) {
+                let SharedApiSchema {
+                    editions,
+                    edition_notes,
+                    ..
+                } = schema;
+                db.insert(editions)
+                    .values([
+                        InsertSharedApiEdition::new(10, 1, "First").with_id(1),
+                        InsertSharedApiEdition::new(10, 2, "Second").with_id(2),
+                    ])
+                    .execute();
+                db.insert(edition_notes)
+                    .values([
+                        InsertSharedApiEditionNote::new(10, 2, "Typo fixed").with_id(1),
+                        InsertSharedApiEditionNote::new(10, 2, "New intro").with_id(2),
+                    ])
+                    .execute();
+
+                let loaded = db
+                    .query(editions)
+                    .with(
+                        editions
+                            .shared_api_edition_notes()
+                            .order_by(asc(edition_notes.id)),
+                    )
+                    .order_by(asc(editions.number))
+                    .find_many();
+                assert!(loaded[0].shared_api_edition_notes.is_empty());
+                assert_eq!(
+                    loaded[1]
+                        .shared_api_edition_notes
+                        .iter()
+                        .map(|note| note.body.as_str())
+                        .collect::<Vec<_>>(),
+                    ["Typo fixed", "New intro"]
+                );
+
+                let note = db
+                    .query(edition_notes)
+                    .with(edition_notes.edition())
+                    .r#where(eq(edition_notes.id, 1))
+                    .find_first()
+                    .unwrap();
+                assert_eq!(note.edition.title, "Second");
             }
 
             // ---------------------------------------------------------------- views

@@ -80,12 +80,9 @@ macro_rules! shared_foreign_key_suite {
 
             #[$table(NAME = "shared_fk_composite_parents")]
             struct CompositeFkParent {
-                // DEFAULT keeps both halves of the key optional in the insert
-                // model on every dialect (PostgreSQL would otherwise require
-                // them positionally while SQLite would not).
-                #[column(PRIMARY, DEFAULT = 0)]
+                #[column(PRIMARY)]
                 id_a: i32,
-                #[column(PRIMARY, DEFAULT = 0)]
+                #[column(PRIMARY)]
                 id_b: i32,
                 label: String,
             }
@@ -392,12 +389,8 @@ macro_rules! shared_foreign_key_suite {
                 } = schema;
                 db.insert(composite_parents)
                     .values([
-                        InsertCompositeFkParent::new("one-one")
-                            .with_id_a(1)
-                            .with_id_b(1),
-                        InsertCompositeFkParent::new("one-two")
-                            .with_id_a(1)
-                            .with_id_b(2),
+                        InsertCompositeFkParent::new(1, 1, "one-one"),
+                        InsertCompositeFkParent::new(1, 2, "one-two"),
                     ])
                     .execute();
                 db.insert(composite_children)

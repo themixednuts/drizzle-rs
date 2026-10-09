@@ -10,8 +10,10 @@
 //!   tables, columns, indexes, views). The first choice creates; each other
 //!   choice renames from one candidate. A rename consumes its candidate.
 //! - Without one, it answers from `--hints` / `--hints-file` (drizzle-kit's
-//!   JSON hint format). Questions no hint answers are listed and the command
-//!   exits with code 2 without changing anything.
+//!   JSON hint format). An unhinted index, constraint or view is dropped
+//!   and created, which loses nothing. Unhinted schemas, enums, tables and
+//!   columns are listed and the command exits with code 2 without changing
+//!   anything.
 //!
 //! Hints are consulted in interactive runs too, so a hinted question is not
 //! asked. `push --force` only skips the data-loss confirmation, not these
@@ -260,8 +262,8 @@ pub enum Mode<'a> {
 /// Result of [`resolve_renames`].
 #[derive(Debug)]
 pub struct Resolution {
-    /// The options to diff with: the base options, `infer_renames(false)`,
-    /// and one hint per decided question.
+    /// The options to diff with: the base options and one hint per decided
+    /// question.
     pub options: DiffOptions,
     /// Questions no hint answered (only in [`Mode::Hints`]).
     pub missing: Vec<RenameQuestion>,
@@ -282,7 +284,7 @@ pub fn resolve_renames(
     hints: &[Hint],
     mut mode: Mode<'_>,
 ) -> Result<Resolution, CliError> {
-    let mut options = base.infer_renames(false);
+    let mut options = base;
     let mut missing = Vec::new();
     let mut asked = HashSet::new();
     // drizzle-kit prints `--- all <kind> conflicts resolved ---` after each
@@ -311,8 +313,12 @@ pub fn resolve_renames(
             match &mut mode {
                 Mode::Interactive(prompt) => prompt.ask(&question)?,
                 Mode::Hints => {
+                    // Only a wrong answer about an entity that holds data
+                    // loses anything; the rest are dropped and created.
                     // Assume "create" so later questions are listed as well.
-                    missing.push(question.clone());
+                    if question.kind.holds_data() {
+                        missing.push(question.clone());
+                    }
                     question
                         .answer(&mut options.renames, &RenameAnswer::Create)
                         .map_err(|error| CliError::Other(error.to_string()))?;
@@ -791,7 +797,6 @@ mod tests {
             "b was consumed by the first answer"
         );
         assert!(resolution.missing.is_empty());
-        assert!(!resolution.options.infer_renames);
         let plan = drizzle_migrations::diff_with(&prev, &cur, &resolution.options).unwrap();
         assert!(
             plan.statements

@@ -18,6 +18,11 @@ pub trait ValueTypeForDialect<D> {
 /// Implemented for every `T` that converts into `V` and whose
 /// [`ValueTypeForDialect`] type can be stored in `Expected`. Used by
 /// [`TypedPlaceholder::bind`](crate::TypedPlaceholder::bind).
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot bind to a `{Expected}` placeholder",
+    label = "bind a value of the placeholder column's type",
+    note = "`None` binds only to the placeholder of a nullable column"
+)]
 pub trait BindValue<'a, V: SQLParam, Expected: DataType>: Sized {
     /// Converts the value into the dialect's value type.
     fn into_bind_value(self) -> V;

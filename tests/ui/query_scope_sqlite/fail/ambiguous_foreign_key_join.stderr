@@ -1,0 +1,16 @@
+error[E0283]: type annotations needed
+  --> tests/ui/query_scope_sqlite/fail/ambiguous_foreign_key_join.rs:30:45
+   |
+30 |     let _ = qb.select(users.id).from(users).join(teams);
+   |                                             ^^^^ cannot infer type of the type parameter `Via` declared on the method `join`
+   |
+   = note: multiple `impl`s satisfying `Teams: JoinKey<Users, _>` found in the `drizzle_core` crate:
+           - impl<Joined, From> JoinKey<From, JoinForward> for Joined
+             where Joined: Joinable<From>, From: ?Sized;
+           - impl<Joined, From> JoinKey<From, JoinReverse> for Joined
+             where From: Joinable<Joined>, From: ?Sized;
+   = note: required for `Teams` to implement `JoinArg<'_, Users, _>`
+help: consider specifying the generic arguments
+   |
+30 |     let _ = qb.select(users.id).from(users).join::<Teams, Via>(teams);
+   |                                                 ++++++++++++++

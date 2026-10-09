@@ -884,6 +884,76 @@ fn rusqlite_push_converges_on_constraints_collations_and_generated_columns() {
     );
 }
 
+/// A column that went away while another appeared may be a rename: push
+/// asks instead of guessing, and keeps the rows once told.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_push_asks_before_renaming() {
+    let (db, schema) =
+        crate::common::helpers::rusqlite_setup::setup_empty_db(PushSchema::default());
+    db.conn()
+        .execute_batch(
+            "CREATE TABLE `push_users` (`id` integer PRIMARY KEY NOT NULL, `display` text NOT NULL, `email` text);
+             INSERT INTO `push_users` VALUES (1, 'Alice', NULL);",
+        )
+        .expect("create old table");
+
+    let error = db.push(&schema).expect_err("push must not guess");
+    let message = error.to_string();
+    assert!(
+        message.contains(r#".rename_column("push_users", "display", "name")"#),
+        "{message}"
+    );
+
+    db.push_with(
+        &schema,
+        &drizzle_migrations::RenameHints::new().rename_column("push_users", "display", "name"),
+    )
+    .expect("push with the rename");
+    let name: String = db
+        .conn()
+        .query_row("SELECT name FROM push_users WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .expect("select renamed column");
+    assert_eq!(name, "Alice");
+}
+
+/// Push drops a table the schema no longer has only while it holds no rows.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_push_refuses_to_drop_data() {
+    let (db, schema) =
+        crate::common::helpers::rusqlite_setup::setup_empty_db(PushSchema::default());
+    db.push(&schema).expect("first push");
+
+    db.conn()
+        .execute_batch("CREATE TABLE `scratch` (`id` integer PRIMARY KEY);")
+        .expect("create an empty table");
+    db.push(&schema).expect("an empty table is dropped");
+    assert_eq!(
+        crate::common::helpers::rusqlite_setup::table_exists(db.conn(), "scratch"),
+        0
+    );
+
+    db.conn()
+        .execute_batch(
+            "CREATE TABLE `audit` (`id` integer PRIMARY KEY);
+             INSERT INTO `audit` VALUES (1), (2);",
+        )
+        .expect("create a table with rows");
+    let error = db.push(&schema).expect_err("push must not drop rows");
+    assert!(
+        error.to_string().contains("table `audit` holds 2 row(s)"),
+        "{error}"
+    );
+    assert_eq!(
+        crate::common::helpers::rusqlite_setup::table_exists(db.conn(), "audit"),
+        1,
+        "nothing was applied"
+    );
+}
+
 #[cfg(feature = "rusqlite")]
 #[test]
 fn rusqlite_push_table_is_usable() {

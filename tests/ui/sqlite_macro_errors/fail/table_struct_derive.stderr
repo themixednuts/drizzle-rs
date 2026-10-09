@@ -1,0 +1,5 @@
+error: #[SQLiteTable] derives Default, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd and Ord on the table itself; remove this derive
+ --> tests/ui/sqlite_macro_errors/fail/table_struct_derive.rs:5:1
+  |
+5 | #[derive(Debug)]
+  | ^

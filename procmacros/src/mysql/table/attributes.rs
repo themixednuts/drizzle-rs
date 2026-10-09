@@ -3,6 +3,7 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
+use crate::common::constraints::{RelationNames, is_key, referential_action};
 use crate::common::make_uppercase_path;
 use crate::mysql::string_value;
 
@@ -31,6 +32,8 @@ pub struct CompositeForeignKeyAttr {
     /// Explicit constraint name; `None` derives one (see
     /// `MacroContext::composite_foreign_key_name`).
     pub(crate) name: Option<String>,
+    #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
+    pub(crate) relation_names: RelationNames,
 }
 
 #[derive(Clone)]
@@ -82,21 +85,16 @@ fn option_identifier(meta: &syn::MetaNameValue, name: &str) -> Result<String> {
     Ok(value)
 }
 
-fn action(value: String, span: proc_macro2::Span) -> Result<String> {
-    match value.to_ascii_uppercase().replace('_', " ").as_str() {
-        "CASCADE" => Ok("CASCADE".into()),
-        "SET NULL" => Ok("SET NULL".into()),
-        "RESTRICT" => Ok("RESTRICT".into()),
-        "NO ACTION" => Ok("NO ACTION".into()),
-        "SET DEFAULT" => Err(syn::Error::new(
-            span,
+/// A referential action InnoDB accepts; it rejects `SET DEFAULT`.
+fn action(value: &syn::Expr, key: &str) -> Result<String> {
+    let action = referential_action(value, key)?;
+    if action == "SET DEFAULT" {
+        return Err(syn::Error::new_spanned(
+            value,
             "InnoDB rejects SET DEFAULT referential actions",
-        )),
-        _ => Err(syn::Error::new(
-            span,
-            "expected CASCADE, SET_NULL, RESTRICT, or NO_ACTION",
-        )),
+        ));
     }
+    Ok(action)
 }
 
 impl Parse for CompositeForeignKeyAttr {
@@ -107,18 +105,17 @@ impl Parse for CompositeForeignKeyAttr {
         let mut on_delete = None;
         let mut on_update = None;
         let mut name = None;
+        let mut relation_names = RelationNames::default();
         for meta in metas {
             match meta {
-                Meta::NameValue(value)
-                    if value.path.is_ident("name") || value.path.is_ident("NAME") =>
-                {
+                Meta::NameValue(value) if is_key(&value.path, "name") => {
                     let value_name = string_value(&value, "name")?;
                     if value_name.is_empty() {
                         return Err(syn::Error::new(value.span(), "name cannot be empty"));
                     }
                     name = Some(value_name);
                 }
-                Meta::List(list) if list.path.is_ident("columns") => {
+                Meta::List(list) if is_key(&list.path, "columns") => {
                     let cols = Punctuated::<Ident, Token![,]>::parse_terminated
                         .parse2(list.tokens.clone())?;
                     if cols.is_empty() {
@@ -126,25 +123,24 @@ impl Parse for CompositeForeignKeyAttr {
                     }
                     source_columns = Some(cols.into_iter().collect());
                 }
-                Meta::List(list) if list.path.is_ident("references") => {
+                Meta::List(list) if is_key(&list.path, "references") => {
                     target = Some(syn::parse2::<ReferencesArg>(list.tokens)?)
                 }
-                Meta::NameValue(value) if value.path.is_ident("on_delete") => {
-                    let span = value.span();
-                    on_delete = Some(action(string_value(&value, "on_delete")?, span)?);
+                Meta::NameValue(value) if is_key(&value.path, "on_delete") => {
+                    on_delete = Some(action(&value.value, "on_delete")?);
                 }
-                Meta::NameValue(value) if value.path.is_ident("on_update") => {
-                    let span = value.span();
-                    on_update = Some(action(string_value(&value, "on_update")?, span)?);
+                Meta::NameValue(value) if is_key(&value.path, "on_update") => {
+                    on_update = Some(action(&value.value, "on_update")?);
                 }
                 Meta::Path(path)
-                    if path.is_ident("deferrable") || path.is_ident("initially_deferred") =>
+                    if is_key(&path, "deferrable") || is_key(&path, "initially_deferred") =>
                 {
                     return Err(syn::Error::new(
                         path.span(),
                         "MySQL foreign keys are not deferrable",
                     ));
                 }
+                Meta::NameValue(value) if relation_names.parse_key(&value)? => {}
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
@@ -167,6 +163,7 @@ impl Parse for CompositeForeignKeyAttr {
             on_delete,
             on_update,
             name,
+            relation_names,
         })
     }
 }
@@ -329,5 +326,14 @@ impl crate::common::constraints::CompositeForeignKeyRef for CompositeForeignKeyA
     }
     fn target_columns(&self) -> &[Ident] {
         &self.target_columns
+    }
+    fn relation_names(&self) -> &RelationNames {
+        &self.relation_names
+    }
+    fn on_delete(&self) -> Option<&str> {
+        self.on_delete.as_deref()
+    }
+    fn on_update(&self) -> Option<&str> {
+        self.on_update.as_deref()
     }
 }

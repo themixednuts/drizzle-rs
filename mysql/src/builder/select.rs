@@ -463,7 +463,7 @@ macro_rules! join_on_method {
         /// # "####;
         /// ```
         #[allow(clippy::type_complexity)]
-        pub fn $name<J: helpers::JoinArg<'a, T>>(
+        pub fn $name<J: helpers::JoinArg<'a, T, Via>, Via>(
             self,
             arg: J,
         ) -> SelectBuilder<
@@ -1171,6 +1171,11 @@ pub trait CompletedSelect<'a, S, R>: private::SealedSelect {
 ///
 /// Implementations must unwrap to the sealed [`CompletedSelect`] type; they cannot
 /// manufacture an arbitrary SQL fragment or row marker.
+#[diagnostic::on_unimplemented(
+    message = "this query does not select the columns needed here",
+    label = "it selects different columns",
+    note = "a set operand (UNION, INTERSECT, EXCEPT) and an INSERT ... SELECT source select the same number of columns, of matching types, in the same order"
+)]
 #[doc(hidden)]
 pub trait IntoSelectQuery<'a, S, R> {
     type Marker;

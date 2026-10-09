@@ -23,6 +23,10 @@ pub use drizzle_core::Join;
 
 /// A table or derived table that can be joined.
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot follow JOIN",
+    label = "join a table, a view, or an aliased subquery"
+)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
 
@@ -375,7 +379,22 @@ where
     let rows: Vec<_> = rows.into_iter().collect();
 
     if rows.is_empty() {
-        return SQL::from(Token::VALUES);
+        return match <Table as drizzle_core::SQLSchema<
+            'a,
+            crate::common::PostgresSchemaType,
+            PostgresValue<'a>,
+        >>::TYPE
+        {
+            crate::common::PostgresSchemaType::Table(table) => {
+                // `OVERRIDING SYSTEM VALUE` lets the list name an identity
+                // column declared `GENERATED ALWAYS`.
+                drizzle_core::helpers::insert_no_rows(
+                    table,
+                    "OVERRIDING SYSTEM VALUE SELECT NULL WHERE 1 = 0",
+                )
+            }
+            _ => SQL::from(Token::VALUES),
+        };
     }
 
     let columns_info = rows[0].columns();

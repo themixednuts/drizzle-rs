@@ -37,7 +37,11 @@ impl Catalog {
         self.snapshot
     }
 
-    pub(super) fn plan(&self, desired: &Snapshot) -> Result<Plan> {
+    pub(super) fn plan(
+        &self,
+        desired: &Snapshot,
+        renames: &drizzle_migrations::RenameHints,
+    ) -> Result<Plan> {
         let live = match (&self.snapshot, desired) {
             (Snapshot::MySQL(live), Snapshot::MySQL(desired)) => Snapshot::MySQL(
                 live.prepare_for_push(desired, &self.database)
@@ -48,7 +52,9 @@ impl Catalog {
         drizzle_migrations::diff_with(
             &live,
             desired,
-            &DiffOptions::new().mysql_catalog_defaults(self.defaults.clone()),
+            &DiffOptions::new()
+                .with_renames(renames.clone())
+                .mysql_catalog_defaults(self.defaults.clone()),
         )
         .map_err(|error| DrizzleError::external("MySQL schema diff", error))
     }
@@ -126,6 +132,14 @@ pub(super) fn database(rows: Vec<Row>) -> Result<RawDatabaseInfo> {
         default_charset: optional_string(&row, 2, "default character set")?,
         default_collation: optional_string(&row, 3, "default collation")?,
     })
+}
+
+/// Reads the single integer a `COUNT(*)` query returns.
+pub(super) fn count(rows: Vec<Row>) -> Result<i64> {
+    let row = rows
+        .first()
+        .ok_or_else(|| DrizzleError::Other("MySQL returned no row for COUNT(*)".into()))?;
+    value(row, 0, "COUNT(*)")
 }
 
 pub(super) fn tables(rows: Vec<Row>) -> Result<Vec<RawTableInfo>> {

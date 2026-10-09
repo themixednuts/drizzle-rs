@@ -141,7 +141,7 @@ fn enum_names(e: &Enum, warnings: &mut Vec<String>) -> EnumNames {
 
 /// The macro's default name for a column-level foreign key.
 fn default_fk_name(table: &str, column: &str) -> String {
-    format!("{table}_{column}_fkey")
+    drizzle_types::postgres::names::foreign_key_name(table, &[column])
 }
 
 /// Whether a foreign key can be written as `#[column(references = ...)]`
@@ -547,13 +547,14 @@ fn format_table_attrs(ctx: &TableGenContext<'_>) -> Vec<String> {
         ));
     }
     for fk in ctx.table_fks {
-        attrs.push(format_table_fk_attr(fk, ctx.field_casing));
+        attrs.push(format_table_fk_attr(fk, ctx));
     }
     attrs
 }
 
 /// A table-level `foreign_key(...)` attribute (composite keys).
-fn format_table_fk_attr(fk: &ForeignKey, field_casing: FieldCasing) -> String {
+fn format_table_fk_attr(fk: &ForeignKey, ctx: &TableGenContext<'_>) -> String {
+    let field_casing = ctx.field_casing;
     let columns: Vec<String> = fk
         .columns
         .iter()
@@ -572,7 +573,25 @@ fn format_table_fk_attr(fk: &ForeignKey, field_casing: FieldCasing) -> String {
             target_columns.join(", ")
         ),
     ];
-    if fk.name != default_fk_name(&fk.table, &fk.columns[0]) {
+    // The macro names the key after its first column, or after all of them
+    // when another foreign key on the table starts with the same column.
+    let first = fk.columns.first();
+    let collides = first.is_some_and(|first| {
+        ctx.fk_map.contains_key(&(
+            fk.schema.to_string(),
+            fk.table.to_string(),
+            first.to_string(),
+        ))
+    }) || ctx
+        .table_fks
+        .iter()
+        .any(|other| other.name != fk.name && other.columns.first() == first);
+    let name_columns: Vec<&str> = fk.columns.iter().map(AsRef::as_ref).collect();
+    let default_name = drizzle_types::postgres::names::foreign_key_name(
+        &fk.table,
+        drizzle_types::postgres::names::composite_foreign_key_name_columns(&name_columns, collides),
+    );
+    if fk.name != default_name {
         args.push(format!("name = \"{}\"", escape_for_rust_literal(&fk.name)));
     }
     for (key, action) in [("on_delete", &fk.on_delete), ("on_update", &fk.on_update)] {

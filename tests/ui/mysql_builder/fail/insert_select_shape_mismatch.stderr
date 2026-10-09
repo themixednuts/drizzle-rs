@@ -1,11 +1,12 @@
-error[E0277]: the trait bound `Cons<Name, Nil>: drizzle_core::builder::insert_select::InsertSelectColumns<'_, drizzle::mysql::MySQLValue<'_>, Nil>` is not satisfied
+error[E0277]: the SELECT does not provide one value of a matching type for each INSERT column
   --> tests/ui/mysql_builder/fail/insert_select_shape_mismatch.rs:19:42
    |
 19 |     let _ = builder.insert(users).select(ids);
-   |                                   ------ ^^^ unsatisfied trait bound
+   |                                   ------ ^^^ its columns do not line up with the target columns
    |                                   |
    |                                   required by a bound introduced by this call
    |
+   = note: select one value per target column, in the same order, each assignable to its column
 help: the trait `InsertSelectColumns<'_, MySQLValue<'_>, Nil>` is not implemented for `Cons<Name, Nil>`
       but trait `InsertSelectColumns<'_, MySQLValue<'_>, Cons<_, Nil>>` is implemented for it
   --> core/src/builder/insert_select.rs

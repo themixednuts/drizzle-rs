@@ -241,6 +241,7 @@ mod tests {
             check_constraint: None,
             foreign_key: None,
             relation_name: None,
+            many_to_many_name: None,
             has_default: false,
             marker_exprs: Vec::new(),
             constraint: crate::common::Constraint::None,

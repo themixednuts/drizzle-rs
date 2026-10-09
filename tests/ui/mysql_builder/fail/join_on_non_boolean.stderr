@@ -1,15 +1,15 @@
-error[E0277]: the trait bound `(Posts, UserId): JoinArg<'_, Users>` is not satisfied
+error[E0277]: the trait bound `(Posts, UserId): JoinArg<'_, Users, _>` is not satisfied
   --> tests/ui/mysql_builder/fail/join_on_non_boolean.rs:28:21
    |
 28 |         .inner_join((posts, posts.user_id));
-   |          ---------- ^^^^^^^^^^^^^^^^^^^^^^ the trait `JoinArg<'_, Users>` is not implemented for `(Posts, UserId)`
+   |          ---------- ^^^^^^^^^^^^^^^^^^^^^^ the trait `JoinArg<'_, Users, _>` is not implemented for `(Posts, UserId)`
    |          |
    |          required by a bound introduced by this call
    |
-help: the trait `JoinArg<'_, T>` is conditionally implemented for `(U, C)`
+help: the trait `JoinArg<'_, T, JoinExplicit>` is conditionally implemented for `(U, C)`
   --> core/src/join.rs
    |
-   | /         impl<'a, U, C, T> JoinArg<'a, T> for (U, C)
+   | /         impl<'a, U, C, T> JoinArg<'a, T, $crate::JoinExplicit> for (U, C)
    | |         where
    | |             U: $JoinSourceTrait,
    | |             C: $ConditionTrait + $crate::expr::ExprSources,
@@ -30,8 +30,8 @@ help: the trait `JoinArg<'_, T>` is conditionally implemented for `(U, C)`
 note: required by a bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
   --> mysql/src/builder/select.rs
    |
-   |         pub fn $name<J: helpers::JoinArg<'a, T>>(
-   |                         ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
+   |         pub fn $name<J: helpers::JoinArg<'a, T, Via>, Via>(
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, State, T, M, R, G>>::inner_join`
 ...
    |     join_on_method!(inner_join, drizzle_core::Join::new().inner(), InnerJoin);
    |     -------------------------------------------------------------------------

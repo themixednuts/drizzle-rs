@@ -24,6 +24,10 @@ pub use drizzle_core::Join;
 /// A source that can follow `JOIN`: a `SQLite` table or a derived table
 /// (subquery with an alias).
 #[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot follow JOIN",
+    label = "join a table, a view, or an aliased subquery"
+)]
 pub trait JoinSource<'a>: join_source_private::Sealed {
     type JoinedTable;
 
@@ -149,7 +153,7 @@ drizzle_core::impl_join_helpers!(
 /// Renders `(columns) VALUES (...), (...)` for an INSERT.
 ///
 /// Takes the column list from the first row, so all rows must set the same
-/// columns. With no rows it renders a bare `VALUES`; with no columns it
+/// columns. With no rows it inserts none (see `insert_no_rows`); with no columns it
 /// renders `DEFAULT VALUES` (one row) or `(rowid) VALUES (NULL), ...`.
 pub(crate) fn values<'a, Table, T>(
     rows: impl IntoIterator<Item = Table::Insert<T>>,
@@ -160,7 +164,17 @@ where
     let rows: Vec<Table::Insert<T>> = rows.into_iter().collect();
 
     if rows.is_empty() {
-        return SQL::from(Token::VALUES);
+        return match <Table as drizzle_core::SQLSchema<
+            'a,
+            crate::common::SQLiteSchemaType,
+            SQLiteValue<'a>,
+        >>::TYPE
+        {
+            crate::common::SQLiteSchemaType::Table(table) => {
+                core_helpers::insert_no_rows(table, "SELECT NULL WHERE 1 = 0")
+            }
+            _ => SQL::from(Token::VALUES),
+        };
     }
 
     // Since all rows have the same PATTERN, they all have the same columns

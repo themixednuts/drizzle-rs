@@ -1,0 +1,11 @@
+error: `Users` is already in this schema as `users`; list each table, index and enum once
+  --> tests/ui/sqlite_macro_errors/fail/schema_lists_table_twice.rs:13:15
+   |
+13 |     accounts: Users,
+   |               ^^^^^
+
+error[E0080]: evaluation panicked: `accounts` (Users) in `Schema` has the same SQL name as an earlier item; give one of them another `name`
+  --> tests/ui/sqlite_macro_errors/fail/schema_lists_table_twice.rs:10:10
+   |
+10 | #[derive(SQLiteSchema)]
+   |          ^^^^^^^^^^^^ evaluation of `_` failed here

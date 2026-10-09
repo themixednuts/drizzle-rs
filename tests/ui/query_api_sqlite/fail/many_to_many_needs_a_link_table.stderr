@@ -1,0 +1,5 @@
+error: many_to_many needs a link table: exactly two foreign keys, both to other tables. `Pin` has 3 foreign key(s).
+  --> tests/ui/query_api_sqlite/fail/many_to_many_needs_a_link_table.rs:25:5
+   |
+25 |     user_id: i32,
+   |     ^^^^^^^

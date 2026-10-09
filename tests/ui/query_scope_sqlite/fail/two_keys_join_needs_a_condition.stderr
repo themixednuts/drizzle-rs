@@ -1,0 +1,67 @@
+error[E0277]: no single foreign key joins `Posts` to `Users`
+  --> tests/ui/query_scope_sqlite/fail/two_keys_join_needs_a_condition.rs:30:45
+   |
+30 |     let _ = qb.select(users.id).from(users).join(posts);
+   |                                             ^^^^ a bare table joins on the one foreign key between the two tables
+   |
+help: the trait `JoinKey<Users, _>` is not implemented for `Posts`
+  --> tests/ui/query_scope_sqlite/fail/two_keys_join_needs_a_condition.rs:10:1
+   |
+10 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^
+   = note: with no key, or several, name the condition: `.join((table, eq(left, right)))`
+help: the trait `JoinArg<'a, T, JoinExplicit>` is implemented for `(U, C)`
+  --> core/src/join.rs
+   |
+   | /         impl<'a, U, C, T> JoinArg<'a, T, $crate::JoinExplicit> for (U, C)
+   | |         where
+   | |             U: $JoinSourceTrait,
+   | |             C: $ConditionTrait + $crate::expr::ExprSources,
+   | |___________________________________________________________^
+   |
+  ::: sqlite/src/helpers.rs
+   |
+   | / drizzle_core::impl_join_arg_trait!(
+   | |     table_trait: SQLiteTable<'a>,
+   | |     table_info_trait: drizzle_core::SQLTableInfo,
+   | |     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
+   | |     join_source_trait: JoinSource<'a>,
+   | |     value_type: SQLiteValue<'a>,
+   | | );
+   | |_- in this macro invocation
+   = note: required for `Posts` to implement `JoinArg<'_, Users, _>`
+   = note: this error originates in the attribute macro `SQLiteTable` which comes from the expansion of the macro `drizzle_core::impl_join_arg_trait` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: no single foreign key joins `Users` to `Posts`
+  --> tests/ui/query_scope_sqlite/fail/two_keys_join_needs_a_condition.rs:31:45
+   |
+31 |     let _ = qb.select(posts.id).from(posts).join(users);
+   |                                             ^^^^ a bare table joins on the one foreign key between the two tables
+   |
+help: the trait `JoinKey<Posts, _>` is not implemented for `Users`
+  --> tests/ui/query_scope_sqlite/fail/two_keys_join_needs_a_condition.rs:4:1
+   |
+ 4 | #[SQLiteTable]
+   | ^^^^^^^^^^^^^^
+   = note: with no key, or several, name the condition: `.join((table, eq(left, right)))`
+help: the trait `JoinArg<'a, T, JoinExplicit>` is implemented for `(U, C)`
+  --> core/src/join.rs
+   |
+   | /         impl<'a, U, C, T> JoinArg<'a, T, $crate::JoinExplicit> for (U, C)
+   | |         where
+   | |             U: $JoinSourceTrait,
+   | |             C: $ConditionTrait + $crate::expr::ExprSources,
+   | |___________________________________________________________^
+   |
+  ::: sqlite/src/helpers.rs
+   |
+   | / drizzle_core::impl_join_arg_trait!(
+   | |     table_trait: SQLiteTable<'a>,
+   | |     table_info_trait: drizzle_core::SQLTableInfo,
+   | |     condition_trait: ToSQL<'a, SQLiteValue<'a>>,
+   | |     join_source_trait: JoinSource<'a>,
+   | |     value_type: SQLiteValue<'a>,
+   | | );
+   | |_- in this macro invocation
+   = note: required for `Users` to implement `JoinArg<'_, Posts, _>`
+   = note: this error originates in the attribute macro `SQLiteTable` which comes from the expansion of the macro `drizzle_core::impl_join_arg_trait` (in Nightly builds, run with -Z macro-backtrace for more info)

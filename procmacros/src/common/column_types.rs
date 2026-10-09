@@ -21,11 +21,12 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use std::fmt::Display;
+use syn::ext::IdentExt;
 
 /// The module holding `table`'s column types: its name in snake case, raw or
 /// suffixed when that is a keyword.
 pub fn columns_module(table: &Ident) -> Ident {
-    let name = table.to_string().to_snake_case();
+    let name = table.unraw().to_string().to_snake_case();
     if syn::parse_str::<Ident>(&name).is_ok() {
         return Ident::new(&name, table.span());
     }
@@ -39,7 +40,11 @@ pub fn columns_module(table: &Ident) -> Ident {
 /// The field's name in upper camel case, as every generated per-column type
 /// spells it.
 fn pascal(field: &impl Display) -> String {
-    field.to_string().to_upper_camel_case()
+    let field = field.to_string();
+    field
+        .strip_prefix("r#")
+        .unwrap_or(&field)
+        .to_upper_camel_case()
 }
 
 /// The column type's name inside `table`'s module: `Name` for `name`.

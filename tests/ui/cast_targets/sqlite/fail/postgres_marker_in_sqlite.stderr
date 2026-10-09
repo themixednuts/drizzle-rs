@@ -1,11 +1,13 @@
-error[E0277]: the trait bound `Int4: CastTarget<'_, drizzle::sqlite::types::Integer, SQLiteDialect>` is not satisfied
+error[E0277]: `Int4` is not a cast target for `drizzle::sqlite::types::Integer` here
   --> tests/ui/cast_targets/sqlite/fail/postgres_marker_in_sqlite.rs:13:69
    |
 13 |     let _ = cast::<_, _, drizzle::sqlite::types::Integer>(user.age, drizzle_types::postgres::types::Int4);
-   |             ---------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `CastTarget<'_, drizzle::sqlite::types::Integer, SQLiteDialect>` is not implemented for `Int4`
+   |             ---------------------------------------------           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a type marker target must be the cast's result type, from this dialect
    |             |
    |             required by a bound introduced by this call
    |
+   = help: the trait `CastTarget<'_, drizzle::sqlite::types::Integer, SQLiteDialect>` is not implemented for `Int4`
+   = note: or pass the SQL type name as a string, such as `"VARCHAR(255)"`
 help: the trait `CastTarget<'a, T, D>` is implemented for `&'a str`
   --> core/src/expr/util.rs
    |

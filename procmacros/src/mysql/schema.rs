@@ -49,6 +49,11 @@ pub fn generate_mysql_schema_derive_impl(input: &DeriveInput) -> Result<TokenStr
     let table_refs = generate_schema_table_refs_method(&fields);
     let items = generate_items_method(&fields);
     let schema_has_table_impls = generate_schema_has_table_impls(struct_name, &fields);
+    let schema_name_check = crate::common::schema_name_check(
+        struct_name,
+        &fields,
+        &crate::common::constraints::DialectTypes::mysql(),
+    );
     let foreign_key_assertions = generate_schema_fk_validation_asserts(
         &fields,
         struct_name,
@@ -116,6 +121,7 @@ pub fn generate_mysql_schema_derive_impl(input: &DeriveInput) -> Result<TokenStr
         }
 
         #schema_has_table_impls
+        #schema_name_check
         #foreign_key_assertions
         #migration_schema_impl
     })
@@ -178,15 +184,15 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         )*
 
         tables.sort_by(|left, right| left.0.cmp(&right.0));
+        if let ::core::option::Option::Some(pair) =
+            tables.windows(2).find(|pair| pair[0].0 == pair[1].0)
+        {
+            return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
+                ::std::format!("two tables in MySQLSchema are named `{}`", pair[0].0).into(),
+            ));
+        }
         let table_names: ::std::collections::HashSet<::std::string::String> =
             tables.iter().map(|(name, _, _)| name.clone()).collect();
-        if table_names.len() != tables.len() {
-            return ::std::result::Result::Err(
-                drizzle::error::DrizzleError::Statement(
-                    "Duplicate table names detected in MySQLSchema".into(),
-                ),
-            );
-        }
 
         if let ::std::option::Option::Some(orphan) =
             indexes.keys().find(|table_name| !table_names.contains(*table_name))
@@ -256,23 +262,14 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
             }
         }
 
-        if ordered_names.len() != tables.len() {
-            let mut remaining: ::std::vec::Vec<_> = indegree
-                .iter()
-                .filter(|(_, degree)| **degree > 0)
-                .map(|(name, _)| name.clone())
-                .collect();
-            remaining.sort_unstable();
-            return ::std::result::Result::Err(
-                drizzle::error::DrizzleError::Statement(
-                    ::std::format!(
-                        "Cyclic table dependency detected in MySQLSchema: {}",
-                        remaining.join(", "),
-                    )
-                    .into(),
-                ),
-            );
-        }
+        // Tables in a reference cycle, and the tables that depend on them,
+        // have no creation order that satisfies every reference.
+        let mut cyclic: ::std::vec::Vec<_> = indegree
+            .iter()
+            .filter(|(_, degree)| **degree > 0)
+            .map(|(name, _)| name.clone())
+            .collect();
+        cyclic.sort_unstable();
 
         let mut table_sql = ::std::collections::HashMap::<
             ::std::string::String,
@@ -283,15 +280,26 @@ fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> To
         }
 
         let mut statements = ::std::vec::Vec::<::std::string::String>::new();
-        for table_name in ordered_names {
+        let mut create = |statements: &mut ::std::vec::Vec<::std::string::String>, table_name: &::std::string::String| {
             statements.push(
                 table_sql
-                    .remove(&table_name)
+                    .remove(table_name)
                     .expect("ordered MySQL table must have SQL"),
             );
-            if let ::std::option::Option::Some(table_indexes) = indexes.get(&table_name) {
+            if let ::std::option::Option::Some(table_indexes) = indexes.get(table_name) {
                 statements.extend(table_indexes.iter().cloned());
             }
+        };
+        for table_name in &ordered_names {
+            create(&mut statements, table_name);
+        }
+        if !cyclic.is_empty() {
+            statements.push(drizzle::mysql::common::SAVE_FOREIGN_KEY_CHECKS.to_string());
+            statements.push(drizzle::mysql::common::DISABLE_FOREIGN_KEY_CHECKS.to_string());
+            for table_name in &cyclic {
+                create(&mut statements, table_name);
+            }
+            statements.push(drizzle::mysql::common::RESTORE_FOREIGN_KEY_CHECKS.to_string());
         }
         statements.extend(#order_schema_views(&views)?);
         statements
@@ -353,6 +361,7 @@ fn generate_schema_has_table_impls(
     fields: &[(&syn::Ident, &syn::Type)],
 ) -> TokenStream {
     let schema_has_table = core_paths::schema_has_table();
+    let duplicates = crate::common::duplicate_schema_fields(fields);
     let mut seen = HashSet::new();
     let unique_types: Vec<_> = fields
         .iter()
@@ -361,6 +370,7 @@ fn generate_schema_has_table_impls(
         .collect();
 
     quote! {
+        #duplicates
         #(impl #schema_has_table<#unique_types> for #schema {})*
     }
 }

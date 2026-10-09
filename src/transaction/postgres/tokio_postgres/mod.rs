@@ -693,8 +693,6 @@ impl<'db, 'a, 'conn, Schema, T, Rels, W, Ord>
 
 impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     TransactionBuilder<'tx, '_, S, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>
-where
-    State: builder::ExecutableState,
 {
     /// Runs the statement inside the transaction and returns the number of
     /// rows it changed.
@@ -704,7 +702,10 @@ where
     /// Returns an error when the server rejects the statement.
     /// A server error aborts a PostgreSQL transaction: later statements fail,
     /// and it rolls back instead of committing.
-    pub async fn execute(self) -> drizzle_core::error::Result<u64> {
+    pub async fn execute(self) -> drizzle_core::error::Result<u64>
+    where
+        State: builder::ExecutableState,
+    {
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = {
             #[cfg(feature = "profiling")]
@@ -746,6 +747,7 @@ where
     /// column in a selected tuple is grouped or aggregated.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker
@@ -795,6 +797,7 @@ where
     /// Returns an error when the query fails. Decoding errors surface per row.
     pub async fn rows(self) -> drizzle_core::error::Result<Rows<Rw>>
     where
+        State: builder::ExecutableState,
         Rw: for<'r> TryFrom<&'r Row>,
         for<'r> <Rw as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
     {
@@ -836,6 +839,7 @@ where
     /// The same checks as [`all`](Self::all).
     pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
     where
+        State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::StrictDecodeMarker

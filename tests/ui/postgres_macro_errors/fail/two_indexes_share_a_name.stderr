@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: `accounts_email` (AccountsEmailIdx) in `Schema` has the same SQL name as an earlier item; give one of them another `name`
+  --> tests/ui/postgres_macro_errors/fail/two_indexes_share_a_name.rs:24:10
+   |
+24 | #[derive(PostgresSchema)]
+   |          ^^^^^^^^^^^^^^ evaluation of `_` failed here

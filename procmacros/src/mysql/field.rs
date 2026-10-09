@@ -2,6 +2,7 @@ use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use std::fmt::Write as _;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
 use syn::{
@@ -10,7 +11,7 @@ use syn::{
 };
 
 use crate::common::{
-    Constraint, is_option_type, make_uppercase_path, option_inner_type,
+    Constraint, is_option_type, make_uppercase_path, option_inner_type, parse_relation_name,
     references_required_message, type_is_array_char, type_is_array_string, type_is_array_u8,
     type_is_arrayvec_u8, type_is_bool, type_is_datetime_tz, type_is_float, type_is_int,
     type_is_json_value, type_is_naive_date, type_is_naive_datetime, type_is_naive_time,
@@ -73,9 +74,15 @@ pub struct FieldInfo {
     pub default_fn: Option<TokenStream>,
     pub check_constraint: Option<String>,
     pub foreign_key: Option<MySQLReference>,
+    /// Optional name from `RELATION = "..."` for the accessor that loads this
+    /// table's rows from the referenced table.
     /// Only the relational query API (`query` feature) reads it.
     #[cfg_attr(not(feature = "query"), allow(dead_code))]
     pub relation_name: Option<String>,
+    /// Optional name from `MANY_TO_MANY = "..."` for the accessor the
+    /// referenced table gets to the other side of this link table.
+    #[cfg_attr(not(feature = "query"), allow(dead_code))]
+    pub many_to_many_name: Option<String>,
     pub has_default: bool,
     pub marker_exprs: Vec<ExprPath>,
     pub constraint: Constraint,
@@ -103,6 +110,7 @@ struct ParsedColumn {
     check: Option<String>,
     reference: Option<MySQLReference>,
     relation_name: Option<String>,
+    many_to_many_name: Option<String>,
     reference_on_delete: Option<String>,
     reference_on_update: Option<String>,
     name: Option<String>,
@@ -155,10 +163,17 @@ impl FieldInfo {
             .cloned()
             .unwrap_or_else(|| field_type.clone());
         let mut parsed = parse_column_attrs(field)?;
-        if parsed.relation_name.is_some() && parsed.reference.is_none() {
+        let relation_key = if parsed.relation_name.is_some() {
+            Some("relation")
+        } else {
+            parsed.many_to_many_name.as_ref().map(|_| "many_to_many")
+        };
+        if let Some(key) = relation_key
+            && parsed.reference.is_none()
+        {
             return Err(Error::new_spanned(
                 field,
-                crate::common::relation_requires_references_message(),
+                crate::common::relation_requires_references_message(key),
             ));
         }
         let rust_category = mysql_rust_category(&base_type);
@@ -274,7 +289,7 @@ impl FieldInfo {
         let column_name = parsed
             .name
             .clone()
-            .unwrap_or_else(|| ident.to_string().to_snake_case());
+            .unwrap_or_else(|| ident.unraw().to_string().to_snake_case());
         let sql_definition = build_sql_definition(SqlDefinition {
             name: &column_name,
             ty: &column_type,
@@ -315,6 +330,7 @@ impl FieldInfo {
             check_constraint: parsed.check,
             foreign_key: parsed.reference,
             relation_name: parsed.relation_name,
+            many_to_many_name: parsed.many_to_many_name,
             has_default,
             marker_exprs: parsed.marker_exprs,
             constraint,
@@ -540,6 +556,7 @@ const MYSQL_COLUMN_KEYS: &[&str] = &[
     "check",
     "references",
     "relation",
+    "many_to_many",
     "on_delete",
     "on_update",
     "collate",
@@ -692,14 +709,10 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
             "CHECK" => out.check = Some(expect_string(&value.value, "CHECK")?),
             "REFERENCES" => out.reference = Some(parse_reference_expr(&value.value)?),
             "RELATION" => {
-                let name = expect_string(&value.value, "RELATION")?;
-                if syn::parse_str::<Ident>(&name).is_err() {
-                    return Err(Error::new_spanned(
-                        value,
-                        format!("RELATION = \"{name}\" must be a valid Rust identifier"),
-                    ));
-                }
-                out.relation_name = Some(name);
+                out.relation_name = Some(parse_relation_name(&value.value, "RELATION")?);
+            }
+            "MANY_TO_MANY" => {
+                out.many_to_many_name = Some(parse_relation_name(&value.value, "MANY_TO_MANY")?);
             }
             "ON_DELETE" => {
                 out.reference_on_delete = Some(parse_referential_action(&value.value)?);
@@ -1280,6 +1293,14 @@ impl crate::common::constraints::ForeignKeyRef for MySQLReference {
     fn ref_column(&self) -> &Ident {
         &self.column
     }
+
+    fn on_delete(&self) -> Option<&str> {
+        self.on_delete.as_deref()
+    }
+
+    fn on_update(&self) -> Option<&str> {
+        self.on_update.as_deref()
+    }
 }
 
 impl crate::common::constraints::ConstraintFieldInfo for FieldInfo {
@@ -1303,6 +1324,17 @@ impl crate::common::constraints::ConstraintFieldInfo for FieldInfo {
 
     fn foreign_key(&self) -> Option<&Self::ForeignKey> {
         self.foreign_key.as_ref()
+    }
+
+    fn is_nullable(&self) -> bool {
+        self.is_nullable
+    }
+
+    fn relation_names(&self) -> crate::common::constraints::RelationNames {
+        crate::common::constraints::RelationNames {
+            relation: self.relation_name.clone(),
+            many_to_many: self.many_to_many_name.clone(),
+        }
     }
 }
 

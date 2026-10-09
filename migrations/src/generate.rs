@@ -83,6 +83,183 @@ pub struct Plan {
     pub warnings: Vec<String>,
     /// Schema snapshot after this migration is applied.
     pub snapshot: Snapshot,
+    /// The tables and columns the statements drop. Each loses data when the
+    /// database holds rows in it, which is why drizzle-kit's push asks first.
+    pub data_loss: Vec<DataLoss>,
+}
+
+/// A table or column a [`Plan`] drops.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DataLoss {
+    /// PostgreSQL schema or MySQL database; `None` for SQLite and an
+    /// unqualified MySQL table.
+    pub schema: Option<String>,
+    /// The table dropped, or the table the column is dropped from.
+    pub table: String,
+    /// The dropped column, or `None` when the whole table is dropped.
+    pub column: Option<String>,
+}
+
+impl DataLoss {
+    /// A query returning one integer: the rows of a dropped table, or the
+    /// rows where a dropped column is not NULL.
+    #[must_use]
+    pub fn count_sql(&self, dialect: drizzle_types::Dialect) -> String {
+        let quote = |ident: &str| match dialect {
+            drizzle_types::Dialect::MySQL => format!("`{}`", ident.replace('`', "``")),
+            drizzle_types::Dialect::SQLite | drizzle_types::Dialect::PostgreSQL => {
+                format!("\"{}\"", ident.replace('"', "\"\""))
+            }
+        };
+        let table = match &self.schema {
+            Some(schema) => format!("{}.{}", quote(schema), quote(&self.table)),
+            None => quote(&self.table),
+        };
+        match &self.column {
+            Some(column) => format!(
+                "SELECT COUNT(*) FROM {table} WHERE {} IS NOT NULL",
+                quote(column)
+            ),
+            None => format!("SELECT COUNT(*) FROM {table}"),
+        }
+    }
+}
+
+impl std::fmt::Display for DataLoss {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = if self.column.is_some() {
+            "column"
+        } else {
+            "table"
+        };
+        write!(f, "{kind} `")?;
+        if let Some(schema) = &self.schema {
+            write!(f, "{schema}.")?;
+        }
+        write!(f, "{}", self.table)?;
+        if let Some(column) = &self.column {
+            write!(f, ".{column}")?;
+        }
+        f.write_str("`")
+    }
+}
+
+/// The tables and columns of `prev` that `current` no longer has, once the
+/// rename hints are applied.
+fn data_loss(prev: &Snapshot, current: &Snapshot, renames: &RenameHints) -> Vec<DataLoss> {
+    type Table = (Option<String>, String);
+    fn shape(snapshot: &Snapshot) -> (Vec<Table>, Vec<(Table, String)>) {
+        let mut tables = Vec::new();
+        let mut columns = Vec::new();
+        match snapshot {
+            Snapshot::Sqlite(snapshot) => {
+                for entity in &snapshot.ddl {
+                    match entity {
+                        crate::sqlite::SqliteEntity::Table(table) => {
+                            tables.push((None, table.name.to_string()));
+                        }
+                        crate::sqlite::SqliteEntity::Column(column) => columns
+                            .push(((None, column.table.to_string()), column.name.to_string())),
+                        _ => {}
+                    }
+                }
+            }
+            Snapshot::Postgres(snapshot) => {
+                for entity in &snapshot.ddl {
+                    match entity {
+                        crate::postgres::PostgresEntity::Table(table) => {
+                            tables.push((Some(table.schema.to_string()), table.name.to_string()));
+                        }
+                        crate::postgres::PostgresEntity::Column(column) => columns.push((
+                            (Some(column.schema.to_string()), column.table.to_string()),
+                            column.name.to_string(),
+                        )),
+                        _ => {}
+                    }
+                }
+            }
+            Snapshot::MySQL(snapshot) => {
+                for entity in &snapshot.ddl {
+                    match entity {
+                        crate::mysql::MySQLEntity::Table(table) => tables.push((
+                            table.database.as_ref().map(ToString::to_string),
+                            table.name.to_string(),
+                        )),
+                        crate::mysql::MySQLEntity::Column(column) => columns.push((
+                            (
+                                column.database.as_ref().map(ToString::to_string),
+                                column.table.to_string(),
+                            ),
+                            column.name.to_string(),
+                        )),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        (tables, columns)
+    }
+    // A hint without a schema names the default one: `public`, or none.
+    let in_schema = |hint: Option<&String>, schema: &Option<String>| match hint {
+        Some(hint) => schema.as_ref() == Some(hint),
+        None => {
+            schema.as_deref().is_none_or(|schema| schema == "public")
+                || matches!(prev, Snapshot::MySQL(_))
+        }
+    };
+    let rename_table = |table: &mut Table| {
+        if let Some(hint) = renames
+            .schema_renames
+            .iter()
+            .find(|hint| table.0.as_ref() == Some(&hint.from))
+        {
+            table.0 = Some(hint.to.clone());
+        }
+        if let Some(hint) = renames
+            .table_renames
+            .iter()
+            .find(|hint| hint.from == table.1 && in_schema(hint.schema.as_ref(), &table.0))
+        {
+            table.1.clone_from(&hint.to);
+        }
+    };
+
+    let (mut prev_tables, mut prev_columns) = shape(prev);
+    let (tables, columns) = shape(current);
+    prev_tables.iter_mut().for_each(rename_table);
+    for (table, column) in &mut prev_columns {
+        rename_table(table);
+        if let Some(hint) = renames.column_renames.iter().find(|hint| {
+            hint.from == *column
+                && hint.table == table.1
+                && in_schema(hint.schema.as_ref(), &table.0)
+        }) {
+            column.clone_from(&hint.to);
+        }
+    }
+
+    let dropped_tables = prev_tables
+        .into_iter()
+        .filter(|table| !tables.contains(table))
+        .map(|(schema, table)| DataLoss {
+            schema,
+            table,
+            column: None,
+        });
+    let dropped_columns = prev_columns
+        .into_iter()
+        .filter(|(table, column)| {
+            tables.contains(table)
+                && !columns
+                    .iter()
+                    .any(|kept| kept.0 == *table && kept.1 == *column)
+        })
+        .map(|((schema, table), column)| DataLoss {
+            schema,
+            table,
+            column: Some(column),
+        });
+    dropped_tables.chain(dropped_columns).collect()
 }
 
 impl Plan {
@@ -142,10 +319,9 @@ pub struct RenameHints {
     pub constraint_renames: Vec<ConstraintRenameHint>,
     /// View rename hints.
     pub view_renames: Vec<ViewRenameHint>,
-    /// Entities declared newly created rather than renamed. They only affect
-    /// [`rename_questions`](crate::rename_questions), which stops asking
-    /// about them; the diff itself already treats an unhinted entity as a
-    /// create (unless [`DiffOptions::infer_renames`] pairs it heuristically).
+    /// Entities declared newly created rather than renamed, so
+    /// [`rename_questions`](crate::rename_questions) stops asking about them
+    /// and [`diff_with`] creates them.
     pub creates: Vec<CreateHint>,
 }
 
@@ -467,22 +643,14 @@ pub struct ConstraintRenameHint {
 }
 
 /// Generation options for [`diff_with`] and [`diff_schemas_with`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiffOptions {
-    /// Explicit rename hints applied before heuristic diffing.
+    /// Answers to the rename-or-create questions: renames, and entities
+    /// declared created.
     pub renames: RenameHints,
     /// When `true`, a hint that cannot be applied (unknown object, invalid
     /// name, unsupported for the dialect) is an error instead of being skipped.
     pub strict_renames: bool,
-    /// When `true` (the default), SQLite and PostgreSQL pair a dropped and a
-    /// created table, column, or (PostgreSQL) schema that are otherwise
-    /// identical into a rename. When `false`, only [`renames`](Self::renames)
-    /// produce renames; everything else is a drop plus a create. MySQL never
-    /// infers renames.
-    ///
-    /// The `drizzle` CLI turns this off and asks instead (see
-    /// [`rename_questions`](crate::rename_questions)).
-    pub infer_renames: bool,
     /// Typed data movement for SQLite table rebuilds, bound to the exact
     /// predecessor snapshot.
     pub sqlite_rebuild_data: Option<crate::sqlite::SqliteRebuildDataPlanRegistry>,
@@ -491,51 +659,11 @@ pub struct DiffOptions {
     pub mysql_catalog_defaults: Option<crate::mysql::MySQLCatalogDefaults>,
 }
 
-impl Default for DiffOptions {
-    fn default() -> Self {
-        Self {
-            renames: RenameHints::default(),
-            strict_renames: false,
-            infer_renames: true,
-            sqlite_rebuild_data: None,
-            mysql_catalog_defaults: None,
-        }
-    }
-}
-
 impl DiffOptions {
-    /// Creates default options: no hints, non-strict, renames inferred.
+    /// Creates default options: no hints, non-strict.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets [`infer_renames`](Self::infer_renames). Pass `false` to get
-    /// renames only from explicit hints.
-    ///
-    /// ```rust
-    /// use drizzle_migrations::{DiffOptions, Snapshot, diff_with, parser::SchemaParser};
-    /// use drizzle_types::Dialect;
-    ///
-    /// let snapshot = |src: &str| {
-    ///     Snapshot::from_parse_result(&SchemaParser::parse(src), Dialect::SQLite, None)
-    /// };
-    /// let v1 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub name: String }");
-    /// let v2 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub full_name: String }");
-    ///
-    /// // Inferred by default: one rename.
-    /// let inferred = diff_with(&v1, &v2, &DiffOptions::new())?;
-    /// assert_eq!(inferred.statements, ["ALTER TABLE `users` RENAME COLUMN `name` TO `full_name`;"]);
-    ///
-    /// // Without inference: add plus drop.
-    /// let explicit = diff_with(&v1, &v2, &DiffOptions::new().infer_renames(false))?;
-    /// assert_eq!(explicit.statements.len(), 2);
-    /// # Ok::<(), drizzle_migrations::MigrationError>(())
-    /// ```
-    #[must_use]
-    pub const fn infer_renames(mut self, infer: bool) -> Self {
-        self.infer_renames = infer;
-        self
     }
 
     /// See [`RenameHints::rename_enum`].
@@ -749,21 +877,28 @@ impl DiffOptions {
 /// # Errors
 ///
 /// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
-/// different dialects, or a [`MigrationError::ConfigError`] if snapshot
-/// validation, SQL rendering, or strict rename handling fails.
+/// different dialects, [`MigrationError::UnansweredRenames`] if a possible
+/// rename needs a hint (see [`diff_with`]), or a
+/// [`MigrationError::ConfigError`] if snapshot validation or SQL rendering
+/// fails.
 pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError> {
     diff_with(prev, current, &DiffOptions::default())
 }
 
 /// Diffs two snapshots using `options` (rename hints, strict mode, etc.).
 ///
-/// Rename hints make sure a renamed table or column becomes a rename
-/// instead of a drop + create.
+/// A diff never guesses a rename. When a schema, enum, table or column
+/// disappears and another of the same kind appears in the same scope, the
+/// snapshots alone cannot tell a rename from a drop plus a create, and the
+/// wrong answer loses data. Unless a hint in `options` answers that
+/// question, `diff_with` returns [`MigrationError::UnansweredRenames`],
+/// whose message gives the hint for each answer. An unhinted index,
+/// constraint or view is dropped and created, which loses nothing.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use drizzle_migrations::{DiffOptions, Snapshot, diff_with, parser::SchemaParser};
+/// use drizzle_migrations::{DiffOptions, MigrationError, Snapshot, diff_with, parser::SchemaParser};
 /// use drizzle_types::Dialect;
 ///
 /// let snapshot = |src: &str| {
@@ -771,6 +906,11 @@ pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError>
 /// };
 /// let v1 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub name: String }");
 /// let v2 = snapshot("#[SQLiteTable] pub struct Users { #[column(primary)] pub id: i64, pub full_name: String }");
+///
+/// // `name` went away and `full_name` appeared: a rename, or a new column?
+/// let error = diff_with(&v1, &v2, &DiffOptions::new()).unwrap_err();
+/// assert!(matches!(error, MigrationError::UnansweredRenames(_)));
+/// assert!(error.to_string().contains(r#".rename_column("users", "name", "full_name")"#));
 ///
 /// let plan = diff_with(&v1, &v2, &DiffOptions::new().rename_column("users", "name", "full_name"))?;
 /// assert_eq!(plan.statements, ["ALTER TABLE `users` RENAME COLUMN `name` TO `full_name`;"]);
@@ -780,13 +920,21 @@ pub fn diff(prev: &Snapshot, current: &Snapshot) -> Result<Plan, MigrationError>
 /// # Errors
 ///
 /// Returns [`MigrationError::DialectMismatch`] if the two snapshots use
-/// different dialects, or a [`MigrationError::ConfigError`] if snapshot
+/// different dialects, [`MigrationError::UnansweredRenames`] if a possible
+/// rename has no hint, or a [`MigrationError::ConfigError`] if snapshot
 /// validation, SQL rendering, or strict rename handling fails.
 pub fn diff_with(
     prev: &Snapshot,
     current: &Snapshot,
     options: &DiffOptions,
 ) -> Result<Plan, MigrationError> {
+    let unanswered = crate::rename_questions(prev, current, options)?
+        .into_iter()
+        .filter(|question| question.kind.holds_data())
+        .collect::<Vec<_>>();
+    if !unanswered.is_empty() {
+        return Err(MigrationError::UnansweredRenames(unanswered));
+    }
     let mut preserved_names = Vec::new();
     let (statements, warnings) = match (prev, current) {
         (Snapshot::Sqlite(p), Snapshot::Sqlite(c)) => {
@@ -798,11 +946,8 @@ pub fn diff_with(
             let mut prev_ddl = SQLiteDDL::from_entities(p.ddl.clone());
             let cur_ddl = crate::sqlite::collection::SQLiteDDL::from_entities(c.ddl.clone());
             let mut statements = apply_sqlite_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
-            let mut diff = crate::sqlite::diff::compute_migration_with_inference(
-                &prev_ddl,
-                &cur_ddl,
-                options.infer_renames,
-            );
+            let mut diff =
+                crate::sqlite::diff::compute_migration_with_inference(&prev_ddl, &cur_ddl, false);
             crate::sqlite::rebuild_data::apply_rebuild_data_plan(
                 prev.id(),
                 &prev_ddl,
@@ -831,11 +976,8 @@ pub fn diff_with(
             let mut prev_ddl = PostgresDDL::from_entities(p.ddl.clone());
             let cur_ddl = PostgresDDL::from_entities(c.ddl.clone());
             let mut statements = apply_postgres_rename_hints(&mut prev_ddl, &cur_ddl, options)?;
-            let diff = crate::postgres::diff::compute_migration_with_inference(
-                &prev_ddl,
-                &cur_ddl,
-                options.infer_renames,
-            );
+            let diff =
+                crate::postgres::diff::compute_migration_with_inference(&prev_ddl, &cur_ddl, false);
             statements.extend(diff.sql_statements);
             preserved_names = diff.preserved_names;
             (statements, diff.warnings)
@@ -886,6 +1028,7 @@ pub fn diff_with(
         statements,
         warnings,
         snapshot,
+        data_loss: data_loss(prev, current, &options.renames),
     })
 }
 

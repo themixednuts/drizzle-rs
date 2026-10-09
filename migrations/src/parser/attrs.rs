@@ -504,6 +504,7 @@ struct SqliteArgs {
     name: Option<String>,
     collate: Option<String>,
     relation: Option<String>,
+    many_to_many: Option<String>,
     named_values: Vec<(String, String)>,
 }
 
@@ -680,17 +681,23 @@ fn parse_sqlite_args(
                             ));
                         }
                     }
-                    "RELATION" => {
+                    "RELATION" | "MANY_TO_MANY" => {
+                        let slot = if key.eq_ignore_ascii_case("relation") {
+                            &mut args.relation
+                        } else {
+                            &mut args.many_to_many
+                        };
                         if let Expr::Lit(syn::ExprLit {
                             lit: Lit::Str(lit_str),
                             ..
                         }) = &*assign.right
                         {
-                            args.relation = Some(lit_str.value());
+                            *slot = Some(lit_str.value());
                         } else {
-                            diags
-                                .errors
-                                .push(format!("{field_desc}: relation requires a string literal"));
+                            diags.errors.push(format!(
+                                "{field_desc}: {} requires a string literal",
+                                key.to_ascii_lowercase()
+                            ));
                         }
                     }
                     "ON_DELETE" | "ON_UPDATE" => {
@@ -827,6 +834,24 @@ fn parse_sqlite_args(
     args
 }
 
+/// Reports `relation` or `many_to_many` without `references`, as the table
+/// macros do.
+fn push_relation_key_errors(spec: &ColumnSpec, field_desc: &str, diags: &mut Diags) {
+    if spec.references.is_some() {
+        return;
+    }
+    for (key, value) in [
+        ("relation", &spec.relation),
+        ("many_to_many", &spec.many_to_many),
+    ] {
+        if value.is_some() {
+            diags.errors.push(format!(
+                "{field_desc}: {key} requires a `references = Table::column` attribute"
+            ));
+        }
+    }
+}
+
 /// Interpret the attributes of a field on an `SQLite` table struct.
 pub(crate) fn sqlite_column_spec(
     field: &syn::Field,
@@ -923,21 +948,18 @@ pub(crate) fn sqlite_column_spec(
         spec.explicit_name = spec.explicit_name.take().or(args.name);
         spec.collate = spec.collate.take().or(args.collate);
         spec.relation = spec.relation.take().or(args.relation);
+        spec.many_to_many = spec.many_to_many.take().or(args.many_to_many);
         spec.named_values.extend(args.named_values);
     }
 
-    // on_delete / on_update / relation require `references` (macro compile
-    // errors).
+    // on_delete / on_update / relation / many_to_many require `references`
+    // (macro compile errors).
     if (spec.on_delete_raw.is_some() || spec.on_update_raw.is_some()) && spec.references.is_none() {
         diags.errors.push(format!(
             "{field_desc}: on_delete/on_update require a `references = Table::column` attribute"
         ));
     }
-    if spec.relation.is_some() && spec.references.is_none() {
-        diags.errors.push(format!(
-            "{field_desc}: relation requires a `references = Table::column` attribute"
-        ));
-    }
+    push_relation_key_errors(&spec, &field_desc, diags);
 
     // Resolve the SQLite storage type exactly like the macro: explicit type
     // wins; json/enum markers imply TEXT; unknown types fall back to ANY with
@@ -992,6 +1014,7 @@ struct MySqlArgs {
     on_update_raw: Option<String>,
     name: Option<String>,
     relation: Option<String>,
+    many_to_many: Option<String>,
     charset: Option<String>,
     collate: Option<String>,
     mysql_on_update: Option<String>,
@@ -1415,15 +1438,19 @@ pub(crate) fn mysql_column_spec(
                                 ));
                             }
                         }
-                        "RELATION" => {
-                            args.relation =
-                                mysql_string_value(&value.value, &field_desc, "RELATION", diags);
-                            if let Some(relation) = &args.relation
-                                && syn::parse_str::<Ident>(relation).is_err()
+                        "RELATION" | "MANY_TO_MANY" => {
+                            let name = mysql_string_value(&value.value, &field_desc, &upper, diags);
+                            if let Some(name) = &name
+                                && syn::parse_str::<Ident>(name).is_err()
                             {
                                 diags.errors.push(format!(
-                                    "{field_desc}: RELATION = \"{relation}\" must be a valid Rust identifier"
+                                    "{field_desc}: {upper} = \"{name}\" must be a valid Rust identifier"
                                 ));
+                            }
+                            if upper == "RELATION" {
+                                args.relation = name;
+                            } else {
+                                args.many_to_many = name;
                             }
                         }
                         "ON_DELETE" => {
@@ -1516,11 +1543,6 @@ pub(crate) fn mysql_column_spec(
     if (args.on_delete_raw.is_some() || args.on_update_raw.is_some()) && args.references.is_none() {
         diags.errors.push(format!(
             "{field_desc}: on_delete/on_update require a `references = Table::column` attribute"
-        ));
-    }
-    if args.relation.is_some() && args.references.is_none() {
-        diags.errors.push(format!(
-            "{field_desc}: relation requires a `references = Table::column` attribute"
         ));
     }
     if args.not_null && spec.nullable {
@@ -1621,6 +1643,8 @@ pub(crate) fn mysql_column_spec(
     spec.on_update_raw = args.on_update_raw;
     spec.explicit_name = args.name;
     spec.relation = args.relation;
+    spec.many_to_many = args.many_to_many;
+    push_relation_key_errors(&spec, &field_desc, diags);
     spec.charset = args.charset;
     spec.collate = args.collate;
     spec.mysql_on_update = args.mysql_on_update;
@@ -1906,15 +1930,20 @@ pub(crate) fn postgres_column_spec(
                         }
                     }
                 }
-                "RELATION" => {
+                "RELATION" | "MANY_TO_MANY" => {
                     if meta.input.peek(Token![=]) {
                         meta.input.parse::<Token![=]>()?;
                         let lit: Lit = meta.input.parse()?;
+                        let lower = key.to_ascii_lowercase();
                         let Lit::Str(s) = lit else {
-                            return Err(meta.error("relation requires a string literal"));
+                            return Err(meta.error(format!("{lower} requires a string literal")));
                         };
                         spec.named_values.push((key, format!("{:?}", s.value())));
-                        spec.relation = Some(s.value());
+                        if lower == "relation" {
+                            spec.relation = Some(s.value());
+                        } else {
+                            spec.many_to_many = Some(s.value());
+                        }
                     }
                 }
                 "ON_DELETE" | "ON_UPDATE" => {
@@ -1992,11 +2021,7 @@ pub(crate) fn postgres_column_spec(
                 "{field_desc}: default cannot be combined with identity or generated columns"
             ));
         }
-        if spec.relation.is_some() && spec.references.is_none() {
-            diags.errors.push(format!(
-                "{field_desc}: relation requires a `references = Table::column` attribute"
-            ));
-        }
+        push_relation_key_errors(&spec, &field_desc, diags);
         if spec.fk_name.is_some() && spec.references.is_none() {
             diags.errors.push(format!(
                 "{field_desc}: fk_name requires a `references = Table::column` attribute"
@@ -2116,6 +2141,44 @@ fn mysql_option_identifier(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
+/// Whether a `FOREIGN_KEY(...)` argument's key is `key`, in any case, as the
+/// table macros accept it.
+fn fk_key_is(path: &syn::Path, key: &str) -> bool {
+    path.get_ident()
+        .is_some_and(|ident| ident.to_string().eq_ignore_ascii_case(key))
+}
+
+/// Reads a `FOREIGN_KEY(...)` referential action the way the table macros
+/// do: an identifier (`SET_NULL`) or a string (`"SET NULL"`), in any case.
+/// MySQL rejects `SET DEFAULT`.
+fn composite_fk_action(
+    value: &Expr,
+    dialect: Dialect,
+    key: &str,
+    desc: &str,
+    diags: &mut Diags,
+) -> Option<String> {
+    let text = match value {
+        Expr::Path(path) => path.path.get_ident().map(ToString::to_string),
+        _ => lit_str_value(value),
+    };
+    let action = text
+        .map(|text| text.trim().to_ascii_uppercase().replace(' ', "_"))
+        .and_then(|text| normalize_referential_action(&text))
+        .filter(|action| dialect != Dialect::MySQL || action != "SET DEFAULT");
+    if action.is_none() {
+        let expected = if dialect == Dialect::MySQL {
+            "CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
+        } else {
+            "CASCADE, SET_NULL, SET_DEFAULT, RESTRICT, or NO_ACTION"
+        };
+        diags
+            .errors
+            .push(format!("{desc}: FOREIGN_KEY {key} expects {expected}"));
+    }
+    action
+}
+
 fn parse_composite_fk(
     tokens: proc_macro2::TokenStream,
     dialect: Dialect,
@@ -2154,7 +2217,7 @@ fn parse_composite_fk(
                     )),
                 }
             }
-            Meta::List(list) if list.path.is_ident("references") => {
+            Meta::List(list) if fk_key_is(&list.path, "references") => {
                 match parse_references_arg(list.tokens.clone()) {
                     Ok(r) => {
                         fk.target_table = r.table.to_string();
@@ -2166,46 +2229,30 @@ fn parse_composite_fk(
                     )),
                 }
             }
-            Meta::NameValue(nv) if nv.path.is_ident("on_delete") => {
-                if let Some(value) = lit_str_value(&nv.value) {
-                    if dialect == Dialect::MySQL {
-                        match mysql_referential_action(&value) {
-                            Some(action) => fk.on_delete = Some(action),
-                            None => diags.errors.push(format!(
-                                "{desc}: MySQL FOREIGN_KEY on_delete expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
-                            )),
-                        }
-                    } else {
-                        fk.on_delete = Some(value);
-                    }
-                } else {
-                    diags.errors.push(format!(
-                        "{desc}: FOREIGN_KEY on_delete must be a string literal"
-                    ));
-                }
+            Meta::NameValue(nv) if fk_key_is(&nv.path, "on_delete") => {
+                fk.on_delete = composite_fk_action(&nv.value, dialect, "on_delete", desc, diags);
             }
-            Meta::NameValue(nv) if nv.path.is_ident("on_update") => {
-                if let Some(value) = lit_str_value(&nv.value) {
-                    if dialect == Dialect::MySQL {
-                        match mysql_referential_action(&value) {
-                            Some(action) => fk.on_update = Some(action),
-                            None => diags.errors.push(format!(
-                                "{desc}: MySQL FOREIGN_KEY on_update expects CASCADE, SET_NULL, RESTRICT, or NO_ACTION"
-                            )),
-                        }
-                    } else {
-                        fk.on_update = Some(value);
-                    }
-                } else {
-                    diags.errors.push(format!(
-                        "{desc}: FOREIGN_KEY on_update must be a string literal"
-                    ));
-                }
+            Meta::NameValue(nv) if fk_key_is(&nv.path, "on_update") => {
+                fk.on_update = composite_fk_action(&nv.value, dialect, "on_update", desc, diags);
             }
             Meta::NameValue(nv)
-                if dialect != Dialect::SQLite
-                    && (nv.path.is_ident("name") || nv.path.is_ident("NAME")) =>
+                if nv.path.get_ident().is_some_and(|ident| {
+                    let key = ident.to_string();
+                    key.eq_ignore_ascii_case("relation") || key.eq_ignore_ascii_case("many_to_many")
+                }) =>
             {
+                // Accessor names for the relational query API; no DDL impact.
+                if lit_str_value(&nv.value).is_none() {
+                    diags.errors.push(format!(
+                        "{desc}: FOREIGN_KEY {} must be a string literal",
+                        nv.path
+                            .get_ident()
+                            .map(Ident::to_string)
+                            .unwrap_or_default()
+                    ));
+                }
+            }
+            Meta::NameValue(nv) if dialect != Dialect::SQLite && fk_key_is(&nv.path, "name") => {
                 match lit_str_value(&nv.value) {
                     Some(name) if !name.is_empty() => fk.name = Some(name),
                     _ => diags.errors.push(format!(
@@ -2213,18 +2260,21 @@ fn parse_composite_fk(
                     )),
                 }
             }
-            Meta::Path(path) if dialect == Dialect::PostgreSQL && path.is_ident("deferrable") => {
+            Meta::Path(path)
+                if dialect == Dialect::PostgreSQL && fk_key_is(&path, "deferrable") =>
+            {
                 fk.deferrable = true;
             }
             Meta::Path(path)
-                if dialect == Dialect::PostgreSQL && path.is_ident("initially_deferred") =>
+                if dialect == Dialect::PostgreSQL && fk_key_is(&path, "initially_deferred") =>
             {
                 fk.deferrable = true;
                 fk.initially_deferred = true;
             }
             Meta::Path(path)
                 if dialect == Dialect::MySQL
-                    && (path.is_ident("deferrable") || path.is_ident("initially_deferred")) =>
+                    && (fk_key_is(&path, "deferrable")
+                        || fk_key_is(&path, "initially_deferred")) =>
             {
                 diags
                     .errors

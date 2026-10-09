@@ -25,10 +25,11 @@ fn main() {
     let update = builder
         .update(users)
         .set(UpdateUsers::default().with_name("a"))
+        .r#where(true)
         .returning(users.id);
     let _ = builder.select(users.id).from(users).union(update);
     // Nor a subquery.
-    let returning = builder.delete(users).returning(users.id);
+    let returning = builder.delete(users).r#where(true).returning(users.id);
     let _ = builder
         .select(users.id)
         .from(users)

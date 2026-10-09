@@ -100,6 +100,7 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, Ord, Lim>
         condition: E,
     ) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<HasWhere, Ord, Lim>>
     where
+        R::Card: crate::relation::Filtered,
         E: crate::expr::Expr<'a, V>,
         E::Sources: crate::scope::SourcesIn<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
         E::SQLType: crate::types::BooleanLike,
@@ -146,7 +147,8 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Lim>
     }
 }
 
-/// LIMIT is only available when no LIMIT has been set yet.
+/// LIMIT is only available on a relation that loads many rows, and only
+/// when no LIMIT has been set yet.
 impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
     RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, NoLimit>>
 {
@@ -154,6 +156,7 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
     /// come before `.offset(...)`.
     pub fn limit<P>(self, n: P) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, HasLimit>>
     where
+        R::Card: crate::relation::Paginated,
         P: PaginationArg<'a, V>,
         V: 'a,
     {
@@ -170,9 +173,11 @@ impl<'a, V: SQLParam, R: RelationDef, Nested, Cols, W, Ord>
 
     /// Same as `.limit(1)`: loads at most one row.
     ///
-    /// The field keeps its type, so a many-relation is still a `Vec` (with at
-    /// most one element).
-    pub fn first(self) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, HasLimit>> {
+    /// The field keeps its type: still a `Vec`, with at most one element.
+    pub fn first(self) -> RelationHandle<'a, V, R, Nested, Cols, Clauses<W, Ord, HasLimit>>
+    where
+        R::Card: crate::relation::Paginated,
+    {
         self.limit(1u32)
     }
 }

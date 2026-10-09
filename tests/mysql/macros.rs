@@ -1055,3 +1055,69 @@ fn spillable_smallvec_types_infer_blob_storage() {
     assert!(InferredSmallVecStorage::create_table_sql().contains("`value` BLOB NOT NULL"));
     assert_mysql_expr::<smallvec::SmallVec<[u8; 16]>>();
 }
+
+#[MySQLTable(NAME = "macro_cycle_a")]
+struct MacroCycleA {
+    #[column(PRIMARY)]
+    id: u64,
+    #[column(REFERENCES = MacroCycleB::id)]
+    b_id: u64,
+}
+
+#[MySQLTable(NAME = "macro_cycle_b")]
+struct MacroCycleB {
+    #[column(PRIMARY)]
+    id: u64,
+    #[column(REFERENCES = MacroCycleA::id)]
+    a_id: u64,
+}
+
+#[MySQLTable(NAME = "macro_cycle_root")]
+struct MacroCycleRoot {
+    #[column(PRIMARY)]
+    id: u64,
+}
+
+/// Depends on the cycle without being part of it.
+#[MySQLTable(NAME = "macro_cycle_leaf")]
+struct MacroCycleLeaf {
+    #[column(PRIMARY)]
+    id: u64,
+    #[column(REFERENCES = MacroCycleA::id)]
+    a_id: u64,
+}
+
+#[derive(MySQLSchema)]
+struct MacroCycleSchema {
+    leaf: MacroCycleLeaf,
+    a: MacroCycleA,
+    b: MacroCycleB,
+    root: MacroCycleRoot,
+}
+
+/// A reference cycle is created with the session's foreign-key checks off,
+/// then restored; tables outside the cycle are created normally first.
+#[test]
+fn schema_creates_a_reference_cycle_with_foreign_key_checks_off() {
+    let statements: Vec<_> = MacroCycleSchema::new()
+        .create_statements()
+        .expect("a cyclic schema is valid")
+        .collect();
+    let position = |needle: &str| {
+        statements
+            .iter()
+            .position(|statement| statement.contains(needle))
+            .unwrap_or_else(|| panic!("{needle} missing: {statements:#?}"))
+    };
+    let root = position("CREATE TABLE `macro_cycle_root`");
+    let save = position(drizzle::mysql::common::SAVE_FOREIGN_KEY_CHECKS);
+    let disable = position(drizzle::mysql::common::DISABLE_FOREIGN_KEY_CHECKS);
+    let a = position("CREATE TABLE `macro_cycle_a`");
+    let b = position("CREATE TABLE `macro_cycle_b`");
+    let leaf = position("CREATE TABLE `macro_cycle_leaf`");
+    let restore = position("@drizzle_foreign_key_checks = NULL");
+    assert!(root < save && save < disable && disable < a && a < b && b < restore);
+    // A table that needs a cycle table exists only after the cycle does.
+    assert!(disable < leaf && leaf < restore);
+    assert_eq!(restore, statements.len() - 1);
+}

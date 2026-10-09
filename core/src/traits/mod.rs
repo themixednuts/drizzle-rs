@@ -51,6 +51,12 @@ pub trait SQLSchema<'a, T, V: SQLParam + 'a>: ToSQL<'a, V> {
     /// The statement that creates the item (`CREATE TABLE ...`), or an
     /// empty string when it has none.
     const SQL: &'static str;
+    /// The scope the item's name must be unique in, and the name: a schema
+    /// for a `PostgreSQL` table, or a table for a `MySQL` index. The schema
+    /// macros reject two items with one scope and name at compile time.
+    /// `None` for items that claim no name.
+    #[doc(hidden)]
+    const NAME_SCOPE: Option<(&'static str, &'static str)> = None;
 }
 
 impl<'a, S, T, V> SQLSchema<'a, T, V> for &S
@@ -61,6 +67,45 @@ where
     const NAME: &'static str = <S as SQLSchema<'a, T, V>>::NAME;
     const TYPE: T = <S as SQLSchema<'a, T, V>>::TYPE;
     const SQL: &'static str = <S as SQLSchema<'a, T, V>>::SQL;
+    const NAME_SCOPE: Option<(&'static str, &'static str)> = <S as SQLSchema<'a, T, V>>::NAME_SCOPE;
+}
+
+/// The index of the first item whose [`SQLSchema::NAME_SCOPE`] an earlier
+/// item already has, for the schema macros' compile-time check.
+#[doc(hidden)]
+#[must_use]
+pub const fn first_duplicate_name(names: &[Option<(&str, &str)>]) -> Option<usize> {
+    const fn same(a: &str, b: &str) -> bool {
+        let (a, b) = (a.as_bytes(), b.as_bytes());
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut i = 0;
+        while i < a.len() {
+            if a[i] != b[i] {
+                return false;
+            }
+            i += 1;
+        }
+        true
+    }
+    let mut later = 1;
+    while later < names.len() {
+        if let Some((scope, name)) = names[later] {
+            let mut earlier = 0;
+            while earlier < later {
+                if let Some((other_scope, other_name)) = names[earlier]
+                    && same(scope, other_scope)
+                    && same(name, other_name)
+                {
+                    return Some(later);
+                }
+                earlier += 1;
+            }
+        }
+        later += 1;
+    }
+    None
 }
 
 /// The tables a schema item adds to its schema, as a type-level list.

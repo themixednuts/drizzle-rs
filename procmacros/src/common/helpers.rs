@@ -33,6 +33,31 @@ pub fn make_uppercase_path(original_ident: &syn::Ident, uppercase_name: &str) ->
     }
 }
 
+/// Reads the accessor name of `relation = "..."` or `many_to_many = "..."`.
+///
+/// `key` is the attribute key, lowercase, for the error. The name becomes a
+/// generated method, so it must be a Rust identifier.
+pub fn parse_relation_name(value: &Expr, key: &str) -> Result<String> {
+    let Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(lit_str),
+        ..
+    }) = value
+    else {
+        return Err(Error::new_spanned(
+            value,
+            format!("{key} requires a string literal, e.g. {key} = \"authored\""),
+        ));
+    };
+    let name = lit_str.value();
+    if syn::parse_str::<syn::Ident>(&name).is_err() {
+        return Err(Error::new_spanned(
+            lit_str,
+            format!("{key} = \"{name}\" must be a valid Rust identifier"),
+        ));
+    }
+    Ok(name)
+}
+
 /// Parse column reference from field attributes, looking for `#[column(Table::field)]`.
 ///
 /// This is used by `FromRow` derives to map struct fields to specific table columns,

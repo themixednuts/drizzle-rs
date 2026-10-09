@@ -101,13 +101,13 @@ macro_rules! shared_relational_query_suite {
                             .r#where(eq(posts.rank, 1))
                             .order_by(asc(posts.rank))
                             .limit(1)
-                            .with(posts.shared_query_tags()),
+                            .with(posts.tags()),
                     )
                     .find_many();
                 assert_eq!(filtered.len(), 1);
                 assert_eq!(filtered[0].posts.len(), 1);
                 assert_eq!(filtered[0].posts[0].title, "A-2");
-                assert!(filtered[0].posts[0].shared_query_tags.is_empty());
+                assert!(filtered[0].posts[0].tags.is_empty());
 
                 let posts_with_authors = db
                     .query(posts)
@@ -163,10 +163,10 @@ macro_rules! shared_relational_query_suite {
                 let tagged = db
                     .query(posts)
                     .r#where(eq(posts.id, 10))
-                    .with(posts.shared_query_tags().order_by(asc(tags.id)))
+                    .with(posts.tags().order_by(asc(tags.id)))
                     .find_first()
                     .unwrap();
-                assert_eq!(tagged.shared_query_tags.len(), 2);
+                assert_eq!(tagged.tags.len(), 2);
 
                 let partial = db
                     .query(users)

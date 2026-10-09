@@ -74,8 +74,6 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
     let all_field_names: Box<_> = all_fields.iter().map(|(name, _)| *name).collect();
     let all_field_types: Box<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
 
-    let create_statements_impl = generate_create_statements_method(&all_fields);
-
     // For Schema trait to_snapshot
     let field_types_for_snapshot: Vec<_> = all_fields.iter().map(|(_, ty)| *ty).collect();
 
@@ -98,6 +96,11 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
 
     let schema_table_refs_method = generate_schema_table_refs_method(&all_fields);
     let schema_has_table_impls = generate_schema_has_table_impls(struct_name, &all_fields);
+    let schema_name_check = crate::common::schema_name_check(
+        struct_name,
+        &all_fields,
+        &crate::common::constraints::DialectTypes::postgres(),
+    );
     let schema_fk_validation_asserts = generate_schema_fk_validation_asserts(
         &all_fields,
         struct_name,
@@ -143,7 +146,16 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
             }
 
             fn create_statements(&self) -> ::std::result::Result<impl ::std::iter::Iterator<Item = ::std::string::String>, drizzle::error::DrizzleError> {
-                let statements: ::std::vec::Vec<::std::string::String> = { #create_statements_impl };
+                let statements: ::std::vec::Vec<::std::string::String> = {
+                    // The same differ as `drizzle generate`, from an empty database:
+                    // one source for DDL, and tables that reference each other get
+                    // their foreign keys after both exist.
+                    let empty = drizzle::migrations::Snapshot::empty(drizzle::Dialect::PostgreSQL);
+                    let current = <Self as drizzle::migrations::Schema>::to_snapshot(self);
+                    drizzle::migrations::diff(&empty, &current)
+                        .map_err(|error| drizzle::error::DrizzleError::Statement(error.to_string().into()))?
+                        .statements
+                };
                 ::std::result::Result::Ok(statements.into_iter())
             }
         }
@@ -156,6 +168,7 @@ pub fn generate_postgres_schema_derive_impl(input: &DeriveInput) -> Result<Token
         }
 
         #schema_has_table_impls
+        #schema_name_check
 
         #schema_fk_validation_asserts
 
@@ -429,334 +442,6 @@ fn generate_schema_fk_validation_asserts(
     }
 }
 
-fn generate_create_statements_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
-    // Get paths for fully-qualified types
-    let sql_schema = core_paths::sql_schema();
-    let sql_index_info = core_paths::sql_index_info();
-    let sql_policy_info = core_paths::sql_policy_info();
-    let sql_table_info = core_paths::sql_table_info();
-    let postgres_value = postgres_paths::postgres_value();
-    let postgres_schema_type = postgres_paths::postgres_schema_type();
-    let schema_item_tables = core_paths::schema_item_tables();
-    let policy_ddl = mig_paths::postgres::policy();
-    let postgres_item_ddl = crate::paths::ddl::postgres::postgres_item_ddl();
-
-    // Extract field names and types for easier iteration
-    #[allow(unused_variables)]
-    let field_names: Vec<_> = fields.iter().map(|(name, _)| *name).collect();
-    let field_types: Vec<_> = fields.iter().map(|(_, ty)| *ty).collect();
-
-    quote! {
-        let mut tables: ::std::vec::Vec<(
-            ::std::string::String,
-            ::std::string::String,
-            &'static drizzle::core::TableRef,
-            ::std::vec::Vec<::std::string::String>,
-            ::core::option::Option<::std::string::String>,
-        )> = ::std::vec::Vec::new();
-        let mut indexes: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
-        let mut index_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
-        let mut policies: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> = ::std::collections::HashMap::new();
-        let mut policy_keys: ::std::collections::HashSet<::std::string::String> = ::std::collections::HashSet::new();
-        let mut enums: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
-        let mut views: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
-        // Non-`public` schemas the tables, enums and views live in, in
-        // first-use order: each needs `CREATE SCHEMA` before anything in it.
-        let mut schema_names: ::std::vec::Vec<&'static str> = ::std::vec::Vec::new();
-
-        // Collect all tables, indexes, and enums
-        #(
-            match <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::TYPE {
-                #postgres_schema_type::Table(_table_info) => {
-                    let table_ref = <#field_types as #schema_item_tables>::TABLE_REF_CONST
-                        .expect("table must have TABLE_REF_CONST");
-                    let table_name = table_ref.qualified_name.to_string();
-                    let table_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
-                    let schema = table_ref.schema.unwrap_or("public");
-                    if schema != "public" && !schema_names.contains(&schema) {
-                        schema_names.push(schema);
-                    }
-                    let quote_ident = |ident: &str| -> ::std::string::String {
-                        ::std::format!("\"{}\"", ident.replace('"', "\"\""))
-                    };
-                    let quote_literal = |value: &str| -> ::std::string::String {
-                        ::std::format!("'{}'", value.replace('\'', "''"))
-                    };
-                    let qualified = if schema == "public" {
-                        quote_ident(table_ref.name)
-                    } else {
-                        ::std::format!("{}.{}", quote_ident(schema), quote_ident(table_ref.name))
-                    };
-                    let mut comment_sqls = ::std::vec::Vec::new();
-                    if let drizzle::core::TableDialect::PostgreSQL { comment: ::core::option::Option::Some(comment), .. } = table_ref.dialect {
-                        comment_sqls.push(::std::format!(
-                            "COMMENT ON TABLE {} IS {};",
-                            qualified,
-                            quote_literal(comment)
-                        ));
-                    }
-                    for column in table_ref.columns {
-                        if let drizzle::core::ColumnDialect::PostgreSQL { comment: ::core::option::Option::Some(comment), .. } = column.dialect {
-                            comment_sqls.push(::std::format!(
-                                "COMMENT ON COLUMN {}.{} IS {};",
-                                qualified,
-                                quote_ident(column.name),
-                                quote_literal(comment)
-                            ));
-                        }
-                    }
-                    let rls_sql = match table_ref.dialect {
-                        drizzle::core::TableDialect::PostgreSQL { is_rls_enabled: true, .. } => {
-                            ::core::option::Option::Some(
-                                ::std::format!("ALTER TABLE {} ENABLE ROW LEVEL SECURITY;", qualified)
-                            )
-                        }
-                        _ => ::core::option::Option::None,
-                    };
-                    tables.push((table_name, table_sql, table_ref, comment_sqls, rls_sql));
-                }
-                #postgres_schema_type::Index(index_info) => {
-                    let index_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
-                    let idx_table_ref = #sql_index_info::table(index_info);
-                    let table_name = idx_table_ref.qualified_name.to_string();
-                    let index_name = #sql_index_info::name(index_info);
-                    let index_key = ::std::format!("{}::{}", table_name, index_name);
-                    if !index_keys.insert(index_key) {
-                        return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
-                            ::std::format!("Duplicate index '{}' on table '{}' in PostgresSchema", index_name, table_name).into(),
-                        ));
-                    }
-                    indexes
-                        .entry(table_name)
-                        .or_insert_with(::std::vec::Vec::new)
-                        .push(index_sql);
-                }
-                #postgres_schema_type::Enum(_enum_info) => {
-                    let enum_schema = <#field_types as #postgres_item_ddl>::ENUM_SCHEMA;
-                    if enum_schema != "public" && !schema_names.contains(&enum_schema) {
-                        schema_names.push(enum_schema);
-                    }
-                    let enum_sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL.to_string();
-                    enums.push(enum_sql);
-                }
-                #postgres_schema_type::View(view_info) => {
-                    if !view_info.is_existing() {
-                        let view_schema = #sql_table_info::schema(view_info).unwrap_or("public");
-                        if view_schema != "public" && !schema_names.contains(&view_schema) {
-                            schema_names.push(view_schema);
-                        }
-                        let sql = <#field_types as #sql_schema<'_, #postgres_schema_type, #postgres_value<'_>>>::SQL;
-                        let view_sql = if sql.is_empty() {
-                            // Expression-based views have empty const SQL; reconstruct from view_info
-                            let view_schema = #sql_table_info::schema(view_info).unwrap_or("public");
-                            let view_name = #sql_table_info::name(view_info);
-                            let definition = view_info.definition_sql();
-                            let materialized_kw = if view_info.is_materialized() { "MATERIALIZED " } else { "" };
-                            let schema_prefix = if view_schema != "public" {
-                                ::std::format!("\"{}\".", view_schema)
-                            } else {
-                                ::std::string::String::new()
-                            };
-                            let mut view_sql = ::std::format!(
-                                "CREATE {}VIEW {}\"{}\"",
-                                materialized_kw, schema_prefix, view_name
-                            );
-                            if let ::std::option::Option::Some(using) = view_info.using_clause() {
-                                view_sql.push_str(&::std::format!(" USING {}", using));
-                            }
-                            if let ::std::option::Option::Some(tablespace) = view_info.tablespace() {
-                                view_sql.push_str(&::std::format!(" TABLESPACE \"{}\"", tablespace));
-                            }
-                            view_sql.push_str(" AS ");
-                            view_sql.push_str(&definition);
-                            if view_info.is_materialized() {
-                                if let ::std::option::Option::Some(true) = view_info.with_no_data() {
-                                    view_sql.push_str(" WITH NO DATA");
-                                }
-                            }
-                            view_sql
-                        } else {
-                            sql.to_string()
-                        };
-                        views.push(view_sql);
-                    }
-                }
-                #postgres_schema_type::Policy(policy_info) => {
-                    let table_ref = #sql_policy_info::table(policy_info);
-                    let table_name = table_ref.qualified_name.to_string();
-                    let policy_name = #sql_policy_info::name(policy_info);
-                    let policy_key = ::std::format!("{}::{}", table_name, policy_name);
-                    if !policy_keys.insert(policy_key) {
-                        return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
-                            ::std::format!("Duplicate policy '{}' on table '{}' in PostgresSchema", policy_name, table_name).into(),
-                        ));
-                    }
-                    let mut policy = #policy_ddl::new(
-                        table_ref.schema.unwrap_or("public"),
-                        table_ref.name,
-                        policy_name,
-                    );
-                    policy.as_clause = #sql_policy_info::as_clause(policy_info)
-                        .map(::std::borrow::Cow::Borrowed);
-                    policy.for_clause = #sql_policy_info::for_clause(policy_info)
-                        .map(::std::borrow::Cow::Borrowed);
-                    let roles = #sql_policy_info::to(policy_info);
-                    if !roles.is_empty() {
-                        policy.to = ::std::option::Option::Some(
-                            roles.iter().copied().map(::std::borrow::Cow::Borrowed).collect()
-                        );
-                    }
-                    policy.using = #sql_policy_info::using(policy_info)
-                        .map(::std::borrow::Cow::Borrowed);
-                    policy.with_check = #sql_policy_info::with_check(policy_info)
-                        .map(::std::borrow::Cow::Borrowed);
-                    let policy_sql = policy.create_policy_sql();
-                    policies
-                        .entry(table_name)
-                        .or_insert_with(::std::vec::Vec::new)
-                        .push(policy_sql);
-                }
-                #postgres_schema_type::Trigger => {
-                    // Triggers not implemented yet
-                }
-            }
-        )*
-
-        // Deterministic topological ordering via Kahn's algorithm.
-        // Guarantees dependency-safe order for DAGs in O(V + E), with
-        // lexical tie-breaking for stable output.
-        tables.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
-        let table_names: ::std::collections::HashSet<::std::string::String> =
-            tables.iter().map(|(name, _, _, _, _)| name.clone()).collect();
-
-        if table_names.len() != tables.len() {
-            return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
-                "Duplicate table names detected in PostgresSchema".into(),
-            ));
-        }
-
-        let mut indegree: ::std::collections::HashMap<::std::string::String, usize> =
-            ::std::collections::HashMap::with_capacity(tables.len());
-        let mut reverse_edges: ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>> =
-            ::std::collections::HashMap::new();
-
-        // Map unqualified name → qualified name for dependency resolution
-        let name_to_qualified: ::std::collections::HashMap<::std::string::String, ::std::string::String> =
-            tables.iter().map(|(qname, _, tref, _, _)| (tref.name.to_string(), qname.clone())).collect();
-
-        for (table_name, _, table_ref, _, _) in &tables {
-            indegree.entry(table_name.clone()).or_insert(0);
-
-            for dep_name in table_ref.dependency_names
-                .iter()
-                .filter_map(|dep| name_to_qualified.get(*dep))
-                .filter(|dep_name| *dep_name != table_name)
-                .filter(|dep_name| table_names.contains(*dep_name))
-                .cloned()
-            {
-                *indegree
-                    .get_mut(table_name)
-                    .expect("indegree is initialized for each table") += 1;
-                reverse_edges
-                    .entry(dep_name)
-                    .or_insert_with(::std::vec::Vec::new)
-                    .push(table_name.clone());
-            }
-        }
-
-        let mut ready: ::std::collections::BTreeSet<::std::string::String> = indegree
-            .iter()
-            .filter(|(_, degree)| **degree == 0)
-            .map(|(name, _)| name.clone())
-            .collect();
-        let mut ordered_names: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::with_capacity(tables.len());
-
-        while let ::std::option::Option::Some(next) = ready.pop_first() {
-            ordered_names.push(next.clone());
-
-            if let ::std::option::Option::Some(children) = reverse_edges.get(&next) {
-                for child in children {
-                    let degree = indegree
-                        .get_mut(child)
-                        .expect("child table must exist in indegree map");
-                    *degree -= 1;
-                    if *degree == 0 {
-                        ready.insert(child.clone());
-                    }
-                }
-            }
-        }
-
-        if ordered_names.len() != tables.len() {
-            let mut remaining: ::std::vec::Vec<::std::string::String> = indegree
-                .iter()
-                .filter(|(_, degree)| **degree > 0)
-                .map(|(name, _)| name.clone())
-                .collect();
-            remaining.sort_unstable();
-            return ::std::result::Result::Err(drizzle::error::DrizzleError::Statement(
-                ::std::format!(
-                    "Cyclic table dependency detected in PostgresSchema: {}",
-                    remaining.join(", ")
-                )
-                .into(),
-            ));
-        }
-
-        let mut table_by_name: ::std::collections::HashMap<
-            ::std::string::String,
-            (::std::string::String, ::std::vec::Vec<::std::string::String>, ::core::option::Option<::std::string::String>),
-        > = ::std::collections::HashMap::with_capacity(tables.len());
-        for (table_name, table_sql, _table_ref, comment_sqls, rls_sql) in tables {
-            table_by_name.insert(table_name, (table_sql, comment_sqls, rls_sql));
-        }
-
-        // Build final SQL statements: enums first, then tables in dependency order, then their indexes
-        let mut sql_statements = ::std::vec::Vec::<::std::string::String>::new();
-
-        // Schemas first, then enums (both must exist before the tables that
-        // use them).
-        for schema_name in schema_names {
-            sql_statements.push(::std::format!(
-                "CREATE SCHEMA \"{}\";",
-                schema_name.replace('"', "\"\"")
-            ));
-        }
-        sql_statements.extend(enums);
-
-        // Add tables and their indexes
-        for table_name in ordered_names {
-            let (table_sql, comment_sqls, rls_sql) = table_by_name
-                .remove(&table_name)
-                .expect("table exists after topological ordering");
-            sql_statements.push(table_sql);
-            sql_statements.extend(comment_sqls);
-
-            // Add indexes for this table
-            if let ::std::option::Option::Some(table_indexes) = indexes.get(&table_name) {
-                for index_sql in table_indexes {
-                    sql_statements.push(index_sql.clone());
-                }
-            }
-
-            if let ::core::option::Option::Some(rls_sql) = rls_sql {
-                sql_statements.push(rls_sql);
-            }
-
-            if let ::std::option::Option::Some(table_policies) = policies.get(&table_name) {
-                for policy_sql in table_policies {
-                    sql_statements.push(policy_sql.clone());
-                }
-            }
-        }
-
-        // Add views last (they depend on tables)
-        sql_statements.extend(views);
-
-        sql_statements
-    }
-}
-
 fn generate_items_method(fields: &[(&syn::Ident, &syn::Type)]) -> TokenStream {
     let (item_refs, item_types): (Vec<_>, Vec<_>) = fields
         .iter()
@@ -821,6 +506,7 @@ fn generate_schema_has_table_impls(
     fields: &[(&syn::Ident, &syn::Type)],
 ) -> TokenStream {
     let schema_has_table = core_paths::schema_has_table();
+    let duplicates = crate::common::duplicate_schema_fields(fields);
     let mut unique_types = Vec::new();
     let mut seen = HashSet::new();
     for (_, ty) in fields {
@@ -831,6 +517,7 @@ fn generate_schema_has_table_impls(
     }
 
     quote! {
+        #duplicates
         #(
             impl #schema_has_table<#unique_types> for #struct_name {}
         )*

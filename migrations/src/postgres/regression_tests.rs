@@ -777,9 +777,7 @@ fn hinted_rename_keeps_default_named_constraints_under_their_old_names() {
     pk(&mut cur, "accounts", &["id"]);
     posts(&mut cur, "accounts");
 
-    let options = DiffOptions::new()
-        .infer_renames(false)
-        .rename_table("users", "accounts");
+    let options = DiffOptions::new().rename_table("users", "accounts");
     let plan = diff_with(&snapshot(&prev), &snapshot(&cur), &options).expect("diff");
     assert_eq!(
         plan.statements,

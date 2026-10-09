@@ -305,18 +305,25 @@ where
     Self: for<'de> Deserialize<'de>,
 {
     fn from_json_column(json: Option<&str>, context: &str) -> Result<Self, DrizzleError> {
+        // A required relation reads SQL NULL when its foreign key refers to a
+        // row that does not exist, such as with foreign keys off.
+        let missing = || {
+            DrizzleError::Other(
+                format!(
+                    "required relation '{context}' found no row: its foreign key refers to a \
+                     row that does not exist"
+                )
+                .into(),
+            )
+        };
         let Some(json) = json else {
-            return Err(DrizzleError::Other(
-                format!("missing JSON column for {context}").into(),
-            ));
+            return Err(missing());
         };
 
         let row: Option<Self> = serde_json::from_str(json).map_err(|e| {
             DrizzleError::Other(format!("failed to parse {context} JSON: {e}").into())
         })?;
-        row.ok_or_else(|| {
-            DrizzleError::Other(format!("expected non-null relation '{context}'").into())
-        })
+        row.ok_or_else(missing)
     }
 }
 

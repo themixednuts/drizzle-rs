@@ -64,6 +64,7 @@ pub struct Config {
     /// Optional last-mile rewrite of the generated statements.
     transform: Option<StatementTransform>,
     sqlite_rebuild_data: Option<SqliteRebuildDataSource>,
+    renames: crate::RenameHints,
 }
 
 /// Boxed statement-transform callback.
@@ -109,6 +110,7 @@ impl Config {
             watched_env_vars: Vec::new(),
             transform: None,
             sqlite_rebuild_data: None,
+            renames: crate::RenameHints::default(),
         }
     }
 
@@ -334,6 +336,30 @@ impl Config {
     #[must_use]
     pub fn sqlite_rebuild_data_plan_file(mut self, path: impl Into<PathBuf>) -> Self {
         self.sqlite_rebuild_data = Some(SqliteRebuildDataSource::File(path.into()));
+        self
+    }
+
+    /// Answers the rename-or-create questions of this generation.
+    ///
+    /// When a schema, enum, table or column disappears and another of the
+    /// same kind appears, [`run`] fails with
+    /// [`MigrationError::UnansweredRenames`](crate::MigrationError::UnansweredRenames)
+    /// rather than guess, and the error gives the hint for each answer.
+    /// Hints that match nothing in a later diff are ignored, so they can stay
+    /// in `build.rs` after the migration is generated.
+    ///
+    /// ```rust,no_run
+    /// use drizzle_migrations::RenameHints;
+    /// use drizzle_migrations::build::Config;
+    /// use drizzle_types::Dialect;
+    ///
+    /// let cfg = Config::new(Dialect::SQLite)
+    ///     .file("src/schema.rs")
+    ///     .renames(RenameHints::new().rename_column("users", "name", "full_name"));
+    /// ```
+    #[must_use]
+    pub fn renames(mut self, renames: crate::RenameHints) -> Self {
+        self.renames = renames;
         self
     }
 
@@ -680,9 +706,10 @@ pub fn run(config: &Config) -> Result<Output, BuildError> {
         .as_ref()
         .map(load_sqlite_rebuild_data_plan)
         .transpose()?;
+    let options = DiffOptions::new().with_renames(config.renames.clone());
     let options = match sqlite_rebuild_data {
-        Some(registry) => DiffOptions::new().sqlite_rebuild_data_registry(registry),
-        None => DiffOptions::new(),
+        Some(registry) => options.sqlite_rebuild_data_registry(registry),
+        None => options,
     };
     let mut generated = diff_with(&previous_snapshot, &current_snapshot, &options)?;
     // After a branch merge the new snapshot follows every open head.
