@@ -36,13 +36,33 @@ const fn is_integer_column(col_type: &PostgreSQLType) -> bool {
     )
 }
 
+/// `row.try_get::<_, T>(idx)` with the driver error mapped into a
+/// `DrizzleError`. `Row::get` panics on a type mismatch, so generated code
+/// never calls it.
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn try_get(ty: &TokenStream, idx: &TokenStream) -> TokenStream {
+    let drizzle_error = paths::core::drizzle_error();
+    quote! {
+        row.try_get::<_, #ty>(#idx)
+            .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?
+    }
+}
+
 /// Generate field conversion for SELECT model (non-partial).
 ///
 /// The field type in the Select model matches the original table definition.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
-    let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
+    let value = generate_field_value(idx, info);
+    quote! { #name: #value, }
+}
+
+/// Decode one field's value at `idx`. Every path is fallible and returns a
+/// decode error rather than panicking.
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+fn generate_field_value(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
+    let drizzle_error = paths::core::drizzle_error();
     let base_type = &info.base_type;
     let field_type = &info.field_type;
     let type_category = TypeCategory::from_type(base_type);
@@ -56,8 +76,8 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
     // PostgresEnum owns its storage codec, including native and integer-backed enums.
     if info.is_pgenum {
         return quote! {
-            #name: <#field_type as drizzle::core::FromDrizzleRow<drizzle::postgres::Row>>
-                ::from_row_at(row, #idx)?,
+            <#field_type as drizzle::core::FromDrizzleRow<drizzle::postgres::Row>>
+                ::from_row_at(row, #idx)?
         };
     }
 
@@ -66,22 +86,17 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
         if info.is_nullable {
             // The probe accepts every wire type: a concrete probe such as
             // `Option<i32>` fails its type check on any other column type.
+            let probe = try_get(&quote!(Option<drizzle::core::AnyNullProbe>), idx);
             return quote! {
-                #name: {
-                    let is_null = row
-                        .try_get::<_, Option<drizzle::core::AnyNullProbe>>(#idx)
-                        .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?
-                        .is_none();
-                    if is_null {
-                        None
-                    } else {
-                        Some(<#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx)?)
-                    }
-                },
+                if #probe.is_none() {
+                    None
+                } else {
+                    Some(<#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx)?)
+                }
             };
         }
         return quote! {
-            #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx)?,
+            <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx)?
         };
     }
 
@@ -91,163 +106,76 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
     if info.is_enum {
         let is_integer_enum = is_integer_column(&info.column_type);
 
-        if is_integer_enum {
-            // Integer-stored enum: read as i32/i64 and use TryFrom
-            if info.is_nullable {
+        let (stored, decode) = if is_integer_enum {
+            (
+                quote!(i32),
                 quote! {
-                    #name: {
-                        let v: Option<i32> = row.get::<_, Option<i32>>(#idx);
-                        match v {
-                            Some(v) => Some(<#base_type as TryFrom<i32>>::try_from(v).map_err(|_| #drizzle_error::ConversionError(format!("Failed to convert {} to enum", v).into()))?),
-                            None => None,
-                        }
-                    },
-                }
-            } else {
+                    <#base_type as TryFrom<i32>>::try_from(v).map_err(|_| #drizzle_error::ConversionError(format!("Failed to convert {} to enum", v).into()))?
+                },
+            )
+        } else {
+            (
+                quote!(String),
                 quote! {
-                    #name: {
-                        let v: i32 = row.get::<_, i32>(#idx);
-                        <#base_type as TryFrom<i32>>::try_from(v).map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to convert {} to enum", v).into()))?
-                    },
+                    v.parse::<#base_type>().map_err(|_| #drizzle_error::ConversionError(format!("Failed to parse enum from '{}'", v).into()))?
+                },
+            )
+        };
+        if info.is_nullable {
+            let read = try_get(&quote!(Option<#stored>), idx);
+            quote! {
+                match #read {
+                    Some(v) => Some(#decode),
+                    None => None,
                 }
             }
         } else {
-            // Text-stored enum (non-native): read as String and use parse()
-            if info.is_nullable {
-                quote! {
-                    #name: {
-                        let s: Option<String> = row.get::<_, Option<String>>(#idx);
-                        match s {
-                            Some(s) => Some(s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?),
-                            None => None,
-                        }
-                    },
-                }
-            } else {
-                quote! {
-                    #name: {
-                        let s: String = row.get::<_, String>(#idx);
-                        s.parse::<#base_type>().map_err(|_| drizzle::error::DrizzleError::ConversionError(format!("Failed to parse enum from '{}'", s).into()))?
-                    },
-                }
-            }
+            let read = try_get(&stored, idx);
+            quote! {{
+                let v = #read;
+                #decode
+            }}
         }
     } else if needs_from_postgres_value {
-        // Use DrizzleRowByName::get_column_by_name with FromPostgresValue
-        if info.is_nullable {
-            quote! {
-                #name: {
-                    use drizzle::postgres::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx)?
-                },
-            }
+        let target = if info.is_nullable {
+            quote!(Option<#base_type>)
         } else {
-            quote! {
-                #name: {
-                    use drizzle::postgres::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<#base_type>(row, #idx)?
-                },
-            }
-        }
+            quote!(#base_type)
+        };
+        quote! {{
+            use drizzle::postgres::traits::DrizzleRowByIndex;
+            DrizzleRowByIndex::get_column::<#target>(row, #idx)?
+        }}
     } else if info.is_json && type_category != TypeCategory::Json {
         let json_type = driver_json_type();
-        // `try_get`, not `get`: a malformed document is a decode error, not a
-        // panic inside a fallible conversion.
         if info.is_nullable {
-            quote! {
-                #name: row
-                    .try_get::<_, ::std::option::Option<#json_type<#base_type>>>(#idx)
-                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?
-                    .map(|document| document.0),
-            }
+            let read = try_get(&quote!(::std::option::Option<#json_type<#base_type>>), idx);
+            quote! { #read.map(|document| document.0) }
         } else {
-            quote! {
-                #name: row
-                    .try_get::<_, #json_type<#base_type>>(#idx)
-                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?
-                    .0,
-            }
+            let read = try_get(&quote!(#json_type<#base_type>), idx);
+            quote! { #read.0 }
         }
     } else {
-        // Standard types: use native driver's get
-        let ty = &info.field_type;
-        quote! {
-            #name: row.get::<_, #ty>(#idx),
-        }
+        try_get(&quote!(#field_type), idx)
     }
 }
 
 /// Generate field conversion for PARTIAL SELECT model.
 ///
 /// In partial models, all fields are `Option<BaseType>` where `BaseType` is
-/// the unwrapped inner type (i.e. `Option<T>` fields use just `T`).
-/// We use `try_get` which returns Result<T, Error> and fall back to None on error.
+/// the unwrapped inner type (i.e. `Option<T>` fields use just `T`). A column
+/// past the end of the row is absent and decodes as `None`; a NULL cell is
+/// `None`; a cell that fails to decode is an error, not `None`.
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let base_type = &info.base_type;
-    let type_category = TypeCategory::from_type(base_type);
-
-    if info.is_pgenum {
-        return quote! {
-            #name: <#base_type as drizzle::core::FromDrizzleRow<drizzle::postgres::Row>>
-                ::from_row_at(row, #idx).ok(),
-        };
-    }
-
-    // Determine if we need special handling via FromPostgresValue
-    let needs_from_postgres_value = matches!(
-        type_category,
-        TypeCategory::ArrayString | TypeCategory::ArrayVec
-    );
-
-    // Custom types (auto-detected enums): use DrizzlePostgresColumn trait
-    if info.is_custom_type {
-        return quote! {
-            #name: <#base_type as drizzle::postgres::traits::DrizzlePostgresColumn>::decode(row, #idx).ok(),
-        };
-    }
-
-    // Handle enums - check column type for storage format
-    if info.is_enum {
-        let is_integer_enum = is_integer_column(&info.column_type);
-
-        if is_integer_enum {
-            quote! {
-                #name: {
-                    let v: Option<i32> = row.try_get::<_, i32>(#idx).ok();
-                    v.and_then(|v| <#base_type as TryFrom<i32>>::try_from(v).ok())
-                },
-            }
-        } else {
-            quote! {
-                #name: {
-                    let s: Option<String> = row.try_get::<_, String>(#idx).ok();
-                    s.and_then(|s| s.parse::<#base_type>().ok())
-                },
-            }
-        }
-    } else if needs_from_postgres_value {
-        quote! {
-            #name: {
-                use drizzle::postgres::traits::DrizzleRowByIndex;
-                DrizzleRowByIndex::get_column::<#base_type>(row, #idx).ok()
-            },
-        }
-    } else if info.is_json && type_category != TypeCategory::Json {
-        let json_type = driver_json_type();
-        quote! {
-            #name: {
-                row.try_get::<_, #json_type<#base_type>>(#idx)
-                    .ok()
-                    .map(|v| v.0)
-            },
-        }
-    } else {
-        // For standard types, always read as base_type wrapped in Option
-        quote! {
-            #name: row.try_get::<_, #base_type>(#idx).ok(),
-        }
+    let mut optional = info.clone();
+    optional.is_nullable = true;
+    optional.field_type = syn::parse_quote!(::std::option::Option<#base_type>);
+    let value = generate_field_value(&quote!(#idx), &optional);
+    quote! {
+        #name: if #idx < row.len() { #value } else { None },
     }
 }
 

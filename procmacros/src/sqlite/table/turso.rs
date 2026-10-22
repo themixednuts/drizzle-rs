@@ -2,58 +2,13 @@
 //!
 //! Generates `TryFrom` implementations for `turso::Row` using the shared driver infrastructure.
 
-use super::drivers::{self, DriverConfig};
-use super::errors;
-use super::{FieldInfo, MacroContext};
+use super::MacroContext;
+use super::drivers;
 use crate::common::is_option_type;
 use crate::paths;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Result;
-
-// =============================================================================
-// Turso Driver Configuration
-// =============================================================================
-
-/// Turso-specific driver configuration.
-pub struct TursoDriver;
-
-impl DriverConfig for TursoDriver {
-    fn row_type() -> TokenStream {
-        quote!(drizzle::sqlite::turso::Row)
-    }
-
-    fn integer_accessor(idx: &TokenStream) -> TokenStream {
-        quote!(row.get_value(#idx)?.as_integer())
-    }
-
-    fn text_accessor(idx: &TokenStream) -> TokenStream {
-        quote!(row.get_value(#idx)?.as_text())
-    }
-
-    fn blob_accessor(idx: &TokenStream) -> TokenStream {
-        quote!(row.get_value(#idx)?.as_blob())
-    }
-
-    fn real_accessor(idx: &TokenStream) -> TokenStream {
-        quote!(row.get_value(#idx)?.as_real())
-    }
-
-    fn wrap_required(inner: TokenStream, name: &syn::Ident) -> TokenStream {
-        let drizzle_error = paths::core::drizzle_error();
-        let error_msg = errors::conversion::required_field(&name.to_string());
-        quote! {
-            #name: #inner
-                .ok_or_else(|| #drizzle_error::ConversionError(#error_msg.to_string().into()))?,
-        }
-    }
-
-    fn wrap_optional(inner: TokenStream, name: &syn::Ident) -> TokenStream {
-        quote! {
-            #name: #inner,
-        }
-    }
-}
 
 // =============================================================================
 // Public API
@@ -80,7 +35,7 @@ pub fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
                 .map_or(info.is_nullable && !info.has_default, |ty| {
                     is_option_type(&ty)
                 });
-            generate_field_conversion(i, info, is_select_optional)
+            drivers::generate_field_conversion_with_index(&quote!(#i), info, is_select_optional)
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -93,7 +48,7 @@ pub fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
                 .map_or(info.is_nullable && !info.has_default, |ty| {
                     is_option_type(&ty)
                 });
-            drivers::generate_field_conversion_with_index::<TursoDriver>(
+            drivers::generate_field_conversion_with_index(
                 &quote!(offset + #i),
                 info,
                 is_select_optional,
@@ -101,7 +56,7 @@ pub fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let row_type = TursoDriver::row_type();
+    let row_type = quote!(drizzle::sqlite::turso::Row);
 
     let select_model_try_from_impl = quote! {
         impl ::std::convert::TryFrom<&#row_type> for #select_model_ident {
@@ -143,17 +98,4 @@ pub fn generate_turso_impls(ctx: &MacroContext) -> Result<TokenStream> {
         #from_drizzle_row_impl
         #row_column_list_impl
     })
-}
-
-// =============================================================================
-// Field Conversion (delegating to shared infrastructure)
-// =============================================================================
-
-fn generate_field_conversion(
-    idx: usize,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    // Use the shared driver infrastructure
-    drivers::generate_field_conversion::<TursoDriver>(idx, info, is_optional)
 }

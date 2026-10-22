@@ -3,7 +3,7 @@ pub mod attributes;
 pub mod column_definitions;
 pub mod context;
 mod ddl;
-#[cfg(feature = "turso")]
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 mod drivers;
 mod errors;
 mod json;

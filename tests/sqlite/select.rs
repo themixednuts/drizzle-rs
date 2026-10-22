@@ -232,3 +232,34 @@ fn feature_gated_select(db: &mut TestDb<ComplexSchema>) {
     assert_eq!(metadata_results.len(), 1);
     assert_eq!(metadata_results[0].name, "feature_user");
 }
+
+// NUMERIC affinity stores a whole-number REAL as INTEGER, so these cells come
+// back from SQLite with a different storage class than the field's type.
+#[SQLiteTable(NAME = "numeric_affinity")]
+struct NumericAffinity {
+    #[column(primary)]
+    id: i32,
+    #[column(numeric)]
+    price: f64,
+    #[column(numeric)]
+    discount: Option<f64>,
+}
+
+#[derive(SQLiteSchema)]
+struct NumericAffinitySchema {
+    numeric_affinity: NumericAffinity,
+}
+
+#[drizzle::test]
+fn numeric_affinity_reals_stored_as_integers_decode(db: &mut TestDb<NumericAffinitySchema>) {
+    let NumericAffinitySchema { numeric_affinity } = schema;
+
+    db.insert(numeric_affinity)
+        .values([InsertNumericAffinity::new(10.0).with_discount(4.0)])
+        .execute();
+
+    let rows: Vec<SelectNumericAffinity> = db.select(()).from(numeric_affinity).all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].price, 10.0);
+    assert_eq!(rows[0].discount, Some(4.0));
+}

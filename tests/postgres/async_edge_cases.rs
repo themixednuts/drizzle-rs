@@ -11,6 +11,51 @@ use drizzle::core::expr::*;
 #[cfg(feature = "tokio-postgres")]
 mod tokio_postgres_edge_cases {
     use super::*;
+    use drizzle::postgres::prelude::*;
+
+    #[PostgresTable(name = "mismatch_source")]
+    struct MismatchSource {
+        #[column(primary)]
+        id: i32,
+        n: i32,
+    }
+
+    // `avg(integer)` is NUMERIC, which does not decode as `f64`.
+    #[PostgresView(DEFINITION = "SELECT avg(n) AS mean FROM mismatch_source")]
+    struct MismatchView {
+        mean: Option<f64>,
+    }
+
+    #[derive(PostgresSchema)]
+    struct MismatchSchema {
+        mismatch_source: MismatchSource,
+        mismatch_view: MismatchView,
+    }
+
+    #[tokio::test]
+    async fn select_model_type_mismatch_is_an_error_not_a_panic() {
+        let (
+            db,
+            MismatchSchema {
+                mismatch_source,
+                mismatch_view,
+            },
+        ) = tokio_postgres_setup::setup_db::<MismatchSchema>().await;
+
+        db.insert(mismatch_source)
+            .values([InsertMismatchSource::new(1, 3)])
+            .execute()
+            .await
+            .unwrap();
+
+        let result: drizzle::Result<Vec<SelectMismatchView>> =
+            db.select(()).from(mismatch_view).all().await;
+        let error = result.expect_err("NUMERIC must not decode as f64");
+        assert!(
+            error.to_string().contains("error deserializing column 0"),
+            "unexpected error: {error}"
+        );
+    }
     use crate::common::helpers::tokio_postgres_setup;
     use tokio::time::{Duration, timeout};
 

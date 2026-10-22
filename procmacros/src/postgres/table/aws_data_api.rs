@@ -49,163 +49,102 @@ const fn is_integer_column(col_type: &PostgreSQLType) -> bool {
 /// Generate field conversion for the (non-partial) Select model.
 #[cfg(feature = "aws-data-api")]
 fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
-    let drizzle_error = paths::core::drizzle_error();
     let name = &info.ident;
+    let value = generate_field_value(idx, info);
+    quote! { #name: #value, }
+}
+
+/// Decode one field's value at `idx`, propagating every decode error.
+#[cfg(feature = "aws-data-api")]
+fn generate_field_value(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
+    let drizzle_error = paths::core::drizzle_error();
     let base_type = &info.base_type;
     let field_type = &info.field_type;
     let type_category = TypeCategory::from_type(base_type);
-
-    // Integer-stored enum: read as i64, narrow to i32, TryFrom<i32>.
-    if info.is_enum && is_integer_column(&info.column_type) {
-        if info.is_nullable {
-            return quote! {
-                #name: {
-                    let v: Option<i64> =
-                        <Option<i64> as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                            ::from_row_at(row, #idx)?;
-                    match v {
-                        Some(v) => Some(
-                            <#base_type as ::core::convert::TryFrom<i32>>::try_from(v as i32)
-                                .map_err(|_| #drizzle_error::ConversionError(
-                                    format!("AWS Data API: invalid integer enum {}", v).into()
-                                ))?
-                        ),
-                        None => None,
-                    }
-                },
-            };
+    let read = |ty: TokenStream| {
+        quote! {
+            <#ty as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
+                ::from_row_at(row, #idx)?
         }
-        return quote! {
-            #name: {
-                let v: i64 =
-                    <i64 as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                        ::from_row_at(row, #idx)?;
-                <#base_type as ::core::convert::TryFrom<i32>>::try_from(v as i32)
-                    .map_err(|_| #drizzle_error::ConversionError(
+    };
+    // Decode a stored value `v` (read as `stored`) into the field's base type.
+    let stored_and_decode = if info.is_enum && is_integer_column(&info.column_type) {
+        // Integer-stored enum: read as i64, narrow to i32 (checked: an `as`
+        // cast would wrap an out-of-range value onto another variant), then
+        // TryFrom<i32>.
+        Some((
+            quote!(i64),
+            quote! {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|n| <#base_type as ::core::convert::TryFrom<i32>>::try_from(n).ok())
+                    .ok_or_else(|| #drizzle_error::ConversionError(
                         format!("AWS Data API: invalid integer enum {}", v).into()
                     ))?
             },
-        };
-    }
-
-    // Legacy text-stored enums. PostgresEnum delegates through its type-owned
-    // FromDrizzleRow implementation in the default branch below.
-    if info.is_enum {
-        if info.is_nullable {
-            return quote! {
-                #name: {
-                    let s: Option<String> =
-                        <Option<String> as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                            ::from_row_at(row, #idx)?;
-                    match s {
-                        Some(s) => Some(
-                            s.parse::<#base_type>()
-                                .map_err(|_| #drizzle_error::ConversionError(
-                                    format!("AWS Data API: failed to parse enum from {:?}", s).into()
-                                ))?
-                        ),
-                        None => None,
-                    }
-                },
-            };
-        }
-        return quote! {
-            #name: {
-                let s: String =
-                    <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                        ::from_row_at(row, #idx)?;
-                s.parse::<#base_type>()
+        ))
+    } else if info.is_enum {
+        // Legacy text-stored enums. PostgresEnum delegates through its
+        // type-owned FromDrizzleRow implementation in the default branch.
+        Some((
+            quote!(String),
+            quote! {
+                v.parse::<#base_type>()
                     .map_err(|_| #drizzle_error::ConversionError(
-                        format!("AWS Data API: failed to parse enum from {:?}", s).into()
+                        format!("AWS Data API: failed to parse enum from {:?}", v).into()
                     ))?
             },
-        };
-    }
-
-    // JSON with custom target struct.
-    if info.is_json && type_category != TypeCategory::Json {
-        if info.is_nullable {
-            return quote! {
-                #name: {
-                    let s: Option<String> =
-                        <Option<String> as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                            ::from_row_at(row, #idx)?;
-                    match s {
-                        Some(s) => Some(
-                            drizzle::core::Json::<#base_type>::from_json_str(&s).map(drizzle::core::Json::into_inner)
-                                .map_err(|e| #drizzle_error::ConversionError(
-                                    format!("AWS Data API: JSON deserialize: {}", e).into()
-                                ))?
-                        ),
-                        None => None,
-                    }
-                },
-            };
-        }
-        return quote! {
-            #name: {
-                let s: String =
-                    <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                        ::from_row_at(row, #idx)?;
-                drizzle::core::Json::<#base_type>::from_json_str(&s).map(drizzle::core::Json::into_inner)
+        ))
+    } else if info.is_json && type_category != TypeCategory::Json {
+        // JSON with custom target struct.
+        Some((
+            quote!(String),
+            quote! {
+                drizzle::core::Json::<#base_type>::from_json_str(&v).map(drizzle::core::Json::into_inner)
                     .map_err(|e| #drizzle_error::ConversionError(
                         format!("AWS Data API: JSON deserialize: {}", e).into()
                     ))?
             },
-        };
-    }
+        ))
+    } else {
+        None
+    };
 
-    // Default: delegate to FromDrizzleRow for the field type (handles Option<T> etc).
-    quote! {
-        #name: <#field_type as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-            ::from_row_at(row, #idx)?,
+    match stored_and_decode {
+        Some((stored, decode)) if info.is_nullable => {
+            let read = read(quote!(Option<#stored>));
+            quote! {
+                match #read {
+                    Some(v) => Some(#decode),
+                    None => None,
+                }
+            }
+        }
+        Some((stored, decode)) => {
+            let read = read(stored);
+            quote! {{
+                let v = #read;
+                #decode
+            }}
+        }
+        // Default: delegate to FromDrizzleRow for the field type (handles Option<T> etc).
+        None => read(quote!(#field_type)),
     }
 }
 
-/// Field conversion for the Partial Select model. All fields are `Option<BaseType>`;
-/// errors fall back to `None` rather than propagating.
+/// Field conversion for the Partial Select model. All fields are
+/// `Option<BaseType>`. A column past the end of the row is absent and decodes
+/// as `None`; a NULL cell is `None`; a decode failure is an error.
 #[cfg(feature = "aws-data-api")]
 fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStream {
     let name = &info.ident;
     let base_type = &info.base_type;
-    let type_category = TypeCategory::from_type(base_type);
-
-    if info.is_enum && is_integer_column(&info.column_type) {
-        return quote! {
-            #name: {
-                let v: ::core::result::Result<i64, _> =
-                    <i64 as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                        ::from_row_at(row, #idx);
-                v.ok().and_then(|v| <#base_type as ::core::convert::TryFrom<i32>>::try_from(v as i32).ok())
-            },
-        };
-    }
-
-    if info.is_enum {
-        return quote! {
-            #name: {
-                let s: ::core::result::Result<String, _> =
-                    <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                        ::from_row_at(row, #idx);
-                s.ok().and_then(|s| s.parse::<#base_type>().ok())
-            },
-        };
-    }
-
-    if info.is_json && type_category != TypeCategory::Json {
-        return quote! {
-            #name: {
-                let s: ::core::result::Result<String, _> =
-                    <String as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-                        ::from_row_at(row, #idx);
-                s.ok().and_then(|s| drizzle::core::Json::<#base_type>::from_json_str(&s).map(drizzle::core::Json::into_inner).ok())
-            },
-        };
-    }
-
+    let mut optional = info.clone();
+    optional.is_nullable = true;
+    optional.field_type = syn::parse_quote!(::std::option::Option<#base_type>);
+    let value = generate_field_value(&quote!(#idx), &optional);
     quote! {
-        #name: <#base_type as drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row>>
-            ::from_row_at(row, #idx).ok(),
+        #name: if #idx < row.len() { #value } else { None },
     }
 }
 
