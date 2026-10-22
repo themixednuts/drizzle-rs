@@ -402,3 +402,47 @@ fn generate_rejects_conflicting_branches_unless_told_to_ignore_them() {
         .assert()
         .success();
 }
+
+#[test]
+fn generate_fix_conflicts_replaces_the_conflicting_branches() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let db_path = root.join("dev.db");
+    let migrations_dir = root.join("migrations");
+    write_config(root, &db_path, &migrations_dir);
+
+    // Both branches create the same table from an empty history.
+    write_tables(root, &["Users"]);
+    generate(root, "a_left", &migrations_dir);
+    let other_branch = root.join("other_branch");
+    generate(root, "b_right", &other_branch);
+    let right = migration_tags(&other_branch).pop().expect("right tag");
+    fs::create_dir_all(migrations_dir.join(&right)).expect("mkdir");
+    for file in ["migration.sql", "snapshot.json"] {
+        fs::copy(
+            other_branch.join(&right).join(file),
+            migrations_dir.join(&right).join(file),
+        )
+        .expect("merge right");
+    }
+
+    write_tables(root, &["Users", "Extra"]);
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["generate", "--name", "c_next", "--fix-conflicts"])
+        .assert()
+        .success()
+        .stdout(contains("Deleting conflicting migrations"));
+    let tags = migration_tags(&migrations_dir);
+    assert_eq!(tags.len(), 1, "{tags:?}");
+    assert!(tags[0].ends_with("c_next"), "{tags:?}");
+
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["migrate"])
+        .assert()
+        .success();
+    let conn = rusqlite::Connection::open(&db_path).expect("open sqlite");
+    assert_eq!(table_exists(&conn, "users"), 1);
+    assert_eq!(table_exists(&conn, "extra"), 1);
+}

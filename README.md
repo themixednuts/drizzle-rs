@@ -213,7 +213,10 @@ After a git merge brings in migrations generated on another branch,
 branches and records both as the new migration's parents (`prevIds`). If the
 branches changed the same objects it stops with a conflict report; regenerate
 one branch's migration on top of the other, or pass `--ignore-conflicts` to
-diff against the newest migration only.
+diff against the newest migration only. `--fix-conflicts` deletes the
+conflicting migrations on both branches (with every migration after them) and
+generates one migration in their place; use it only when no shared database
+ran them.
 
 If a change could be a rename, `drizzle generate` asks (or, without a terminal, reads `--hints`); see [Renames](#renames).
 

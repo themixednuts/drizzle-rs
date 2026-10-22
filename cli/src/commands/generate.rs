@@ -48,6 +48,13 @@ pub struct GenerateOptions {
     #[arg(long)]
     pub ignore_conflicts: bool,
 
+    /// When merged migration branches change the same objects, delete the
+    /// migrations that conflict (on both branches, with every migration
+    /// after them), then generate one migration in their place. Use it only
+    /// when no shared database ran them
+    #[arg(long, conflicts_with_all = ["ignore_conflicts", "custom"])]
+    pub fix_conflicts: bool,
+
     #[command(flatten)]
     pub hints: crate::commands::renames::HintArgs,
 }
@@ -76,7 +83,8 @@ pub struct GenerateOptions {
 /// Returns [`CliError`] if `db_name` does not match the config, the folder
 /// still uses the legacy `meta/_journal.json` layout (run `drizzle up`), no
 /// schema files are found or they have parse errors, merged migration
-/// branches conflict (unless `--ignore-conflicts`), the hints are invalid
+/// branches conflict (unless `--ignore-conflicts` or `--fix-conflicts`), a
+/// conflicting migration folder cannot be deleted, the hints are invalid
 /// ([`CliError::InvalidHints`]) or leave a rename question unanswered without
 /// a terminal ([`CliError::MissingHints`]), a prompt is aborted, the diff
 /// fails, or the migration folder cannot be written (including when its tag
@@ -156,16 +164,32 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     // Build current snapshot from parsed schema (use config dialect, not parser-detected)
     let current_snapshot = Snapshot::from_parse_result(&parse_result, dialect, effective_casing);
 
+    // `--fix-conflicts`: delete the conflicting migrations first.
+    let mut deleted_migrations = false;
+    if opts.fix_conflicts {
+        let folders =
+            drizzle_migrations::history::conflict_fix(&out_dir, dialect).map_err(history_error)?;
+        if !folders.is_empty() {
+            println!(
+                "{}",
+                output::warning(
+                    "Deleting conflicting migrations (reset any database that ran them):"
+                )
+            );
+            for folder in &folders {
+                println!("  {folder}");
+                std::fs::remove_dir_all(out_dir.join(folder))
+                    .map_err(|e| CliError::IoError(e.to_string()))?;
+            }
+            deleted_migrations = true;
+        }
+    }
+
     // The schema the existing migrations produce: the newest snapshot, or
     // every branch's changes merged after a git merge.
     let merge_base =
         drizzle_migrations::history::load_merge_base(&out_dir, dialect, opts.ignore_conflicts)
-            .map_err(|error| match error {
-                drizzle_migrations::history::HistoryError::Io(error) => {
-                    CliError::IoError(error.to_string())
-                }
-                conflicts => CliError::MigrationError(conflicts.to_string()),
-            })?;
+            .map_err(history_error)?;
 
     // Ask (or read hints) about ambiguous renames, then diff with the answers.
     let options = crate::commands::renames::resolve_for_command(
@@ -186,6 +210,9 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 
     if generated.is_empty() {
         println!("{}", output::warning("No schema changes detected 😴"));
+        if deleted_migrations && db.bundle_enabled() {
+            write_migrations_js(&out_dir)?;
+        }
         return Ok(());
     }
 
@@ -291,6 +318,15 @@ fn write_migration_files(
 }
 
 /// Generate an empty custom migration for manual SQL
+fn history_error(error: drizzle_migrations::history::HistoryError) -> CliError {
+    match error {
+        drizzle_migrations::history::HistoryError::Io(error) => {
+            CliError::IoError(error.to_string())
+        }
+        conflicts => CliError::MigrationError(conflicts.to_string()),
+    }
+}
+
 fn generate_custom_migration(
     out_dir: &Path,
     _breakpoints: bool,

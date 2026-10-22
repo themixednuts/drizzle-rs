@@ -80,9 +80,10 @@ pub enum HistoryError {
     /// The history has several leaves whose changes conflict.
     #[error(
         "non-commutative migrations detected: {} conflict(s) between migration branches\n  {}\n\
-         Regenerate one branch's migration on top of the other, or pass \
-         `ignore_conflicts` (CLI: `--ignore-conflicts`) to diff against the newest \
-         snapshot only.",
+         Regenerate one branch's migration on top of the other, pass \
+         `--fix-conflicts` to delete the conflicting migrations and generate one in \
+         their place, or pass `ignore_conflicts` (CLI: `--ignore-conflicts`) to diff \
+         against the newest snapshot only.",
         .0.len(),
         .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n  ")
     )]
@@ -112,7 +113,8 @@ type Changes = BTreeMap<EntityKey, Option<Value>>;
 /// lowest common ancestor, and [`MergeBase::prev_ids`] lists the leaves.
 ///
 /// With `ignore_conflicts`, conflicting branches fall back to the newest
-/// snapshot (drizzle-kit's `--ignore-conflicts`).
+/// snapshot (drizzle-kit's `--ignore-conflicts`). [`conflict_fix`] lists
+/// the migrations to delete instead.
 ///
 /// # Errors
 ///
@@ -136,11 +138,105 @@ pub fn load_merge_base(
         prev_ids: None,
     };
 
-    let mut by_id: HashMap<&str, &Node> = HashMap::new();
-    for node in &nodes {
+    let Some(analysis) = analyze(&nodes, dialect) else {
+        return Ok(newest);
+    };
+    if !analysis.conflicts.is_empty() {
+        if ignore_conflicts {
+            return Ok(newest);
+        }
+        return Err(HistoryError::Conflicts(
+            analysis
+                .conflicts
+                .into_iter()
+                .map(|conflict| conflict.report)
+                .collect(),
+        ));
+    }
+
+    Ok(MergeBase {
+        snapshot: with_entities(&latest.snapshot, analysis.merged)?,
+        prev_ids: Some(analysis.leaves.iter().map(ToString::to_string).collect()),
+    })
+}
+
+/// The migration folders to delete so that no branches of the history in
+/// `out_dir` conflict, sorted (drizzle-kit's `generate --fix-conflicts`).
+///
+/// For each conflict it takes, on both branches, the first migration whose
+/// changes take part in it, and every migration that follows those. Then it
+/// checks the rest again, until no conflict is left. Empty when nothing
+/// conflicts.
+///
+/// Delete them only when no shared database ran them: the migrator does
+/// not undo SQL that already ran.
+///
+/// # Errors
+///
+/// Returns [`HistoryError::Io`] when a snapshot cannot be read or parsed.
+pub fn conflict_fix(out_dir: &Path, dialect: Dialect) -> Result<Vec<String>, HistoryError> {
+    let mut nodes = load_nodes(out_dir, dialect)?;
+    let mut deleted = BTreeSet::new();
+    loop {
+        let doomed: HashSet<String> = {
+            let Some(analysis) = analyze(&nodes, dialect) else {
+                break;
+            };
+            if analysis.conflicts.is_empty() {
+                break;
+            }
+            let mut doomed = HashSet::new();
+            let mut stack: Vec<&str> = analysis
+                .conflicts
+                .iter()
+                .flat_map(|conflict| conflict.culprits)
+                .collect();
+            while let Some(id) = stack.pop() {
+                if doomed.insert(id.to_string())
+                    && let Some(kids) = analysis.children.get(id)
+                {
+                    stack.extend(kids.iter().copied());
+                }
+            }
+            doomed
+        };
+        nodes.retain(|node| {
+            let keep = !doomed.contains(node.snapshot.id());
+            if !keep {
+                deleted.insert(node.folder.clone());
+            }
+            keep
+        });
+    }
+    Ok(deleted.into_iter().collect())
+}
+
+/// A conflict between two branches, and the first migration on each one
+/// whose changes take part in it.
+struct Conflict<'a> {
+    report: BranchConflict,
+    culprits: [&'a str; 2],
+}
+
+/// The open branches of a history with several leaves.
+struct Analysis<'a> {
+    /// Leaf ids, sorted.
+    leaves: Vec<&'a str>,
+    /// Each snapshot's followers, sorted.
+    children: HashMap<&'a str, Vec<&'a str>>,
+    conflicts: Vec<Conflict<'a>>,
+    /// Every leaf's changes merged onto their lowest common ancestor.
+    merged: Entities,
+}
+
+/// Checks and merges the branches of `nodes`; `None` with fewer than two
+/// leaves.
+fn analyze<'a>(nodes: &'a [Node], dialect: Dialect) -> Option<Analysis<'a>> {
+    let mut by_id: HashMap<&'a str, &'a Node> = HashMap::new();
+    for node in nodes {
         by_id.insert(node.snapshot.id(), node);
     }
-    let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut children: HashMap<&'a str, Vec<&'a str>> = HashMap::new();
     for node in by_id.values() {
         for parent in &node.prev_ids {
             children
@@ -160,12 +256,32 @@ pub fn load_merge_base(
         .collect();
     leaves.sort_unstable();
     if leaves.len() <= 1 {
-        return Ok(newest);
+        return None;
     }
 
     let empty = Entities::new();
     let entities_of = |id: &str| by_id.get(id).map_or(&empty, |node| &node.entities);
     let folder_of = |id: &str| by_id.get(id).map(|node| node.folder.clone());
+    // The first migration after `parent` on the way to `leaf` whose changes
+    // conflict with `other`; `leaf` when none does on its own.
+    let culprit = |parent: Option<&'a str>, leaf: &'a str, other: &Changes| -> &'a str {
+        let before = parent
+            .map(|parent| ancestor_ids(&by_id, parent))
+            .unwrap_or_default();
+        let base = parent.map_or(&empty, |parent| entities_of(parent));
+        let mut path: Vec<&Node> = ancestor_ids(&by_id, leaf)
+            .into_iter()
+            .filter(|id| !before.contains(id))
+            .filter_map(|id| by_id.get(id).copied())
+            .collect();
+        path.sort_unstable_by(|left, right| left.folder.cmp(&right.folder));
+        path.into_iter()
+            .find(|node| {
+                conflict_reason(dialect, base, &diff_entities(base, &node.entities), other)
+                    .is_some()
+            })
+            .map_or(leaf, |node| node.snapshot.id())
+    };
 
     // Pairwise check at every fork, like drizzle-kit: leaves reached through
     // different children of a fork must not touch the same objects.
@@ -194,11 +310,18 @@ pub fn load_merge_base(
                         if let Some(reason) =
                             conflict_reason(dialect, base, &left_changes, &right_changes)
                         {
-                            conflicts.push(BranchConflict {
-                                parent: folder_of(parent),
-                                left: folder_of(left).unwrap_or_default(),
-                                right: folder_of(right).unwrap_or_default(),
-                                reason,
+                            let parent = by_id.contains_key(parent).then_some(parent);
+                            conflicts.push(Conflict {
+                                report: BranchConflict {
+                                    parent: parent.and_then(folder_of),
+                                    left: folder_of(left).unwrap_or_default(),
+                                    right: folder_of(right).unwrap_or_default(),
+                                    reason,
+                                },
+                                culprits: [
+                                    culprit(parent, left, &right_changes),
+                                    culprit(parent, right, &left_changes),
+                                ],
                             });
                         }
                     }
@@ -217,11 +340,19 @@ pub fn load_merge_base(
             if let Some((previous, other)) = applied.get(&key) {
                 // Inherited from a nested fork below the LCA: same change.
                 if *previous != change {
-                    conflicts.push(BranchConflict {
-                        parent: lca.and_then(folder_of),
-                        left: folder_of(other).unwrap_or_default(),
-                        right: folder_of(leaf).unwrap_or_default(),
-                        reason: format!("both change {}", describe(&key)),
+                    let other_changes = diff_entities(base, entities_of(other));
+                    let leaf_changes = diff_entities(base, entities_of(leaf));
+                    conflicts.push(Conflict {
+                        report: BranchConflict {
+                            parent: lca.and_then(folder_of),
+                            left: folder_of(other).unwrap_or_default(),
+                            right: folder_of(leaf).unwrap_or_default(),
+                            reason: format!("both change {}", describe(&key)),
+                        },
+                        culprits: [
+                            culprit(lca, other, &leaf_changes),
+                            culprit(lca, leaf, &other_changes),
+                        ],
                     });
                 }
                 continue;
@@ -233,18 +364,13 @@ pub fn load_merge_base(
             applied.insert(key, (change, leaf));
         }
     }
+    conflicts.dedup_by(|left, right| left.report == right.report);
 
-    if !conflicts.is_empty() {
-        conflicts.dedup();
-        if ignore_conflicts {
-            return Ok(newest);
-        }
-        return Err(HistoryError::Conflicts(conflicts));
-    }
-
-    Ok(MergeBase {
-        snapshot: with_entities(&latest.snapshot, merged)?,
-        prev_ids: Some(leaves.iter().map(ToString::to_string).collect()),
+    Some(Analysis {
+        leaves,
+        children,
+        conflicts,
+        merged,
     })
 }
 
@@ -540,7 +666,7 @@ fn lowest_common_ancestor<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{HistoryError, load_merge_base};
+    use super::{HistoryError, conflict_fix, load_merge_base};
     use crate::schema::Snapshot;
     use crate::version::ORIGIN_UUID;
     use drizzle_types::Dialect;
@@ -832,5 +958,73 @@ mod tests {
         let base = load_merge_base(dir.path(), Dialect::SQLite, false).expect("base");
         assert_eq!(base.snapshot.id(), "merge");
         assert_eq!(base.prev_ids, None);
+    }
+
+    // The fix deletes, on each branch, the first migration that conflicts
+    // and what follows it; an earlier migration on the branch stays.
+    #[test]
+    fn the_fix_deletes_the_conflicting_migrations_and_their_children() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let users = || table("users");
+        write(
+            dir.path(),
+            "20240101000000_base",
+            "base",
+            &[ORIGIN_UUID],
+            json!([users()]),
+        );
+        write(
+            dir.path(),
+            "20240102000000_left_x",
+            "left_x",
+            &["base"],
+            json!([users(), table("x")]),
+        );
+        write(
+            dir.path(),
+            "20240103000000_left_c",
+            "left_c",
+            &["left_x"],
+            json!([users(), table("x"), column("users", "c", "integer")]),
+        );
+        write(
+            dir.path(),
+            "20240104000000_left_y",
+            "left_y",
+            &["left_c"],
+            json!([
+                users(),
+                table("x"),
+                table("y"),
+                column("users", "c", "integer")
+            ]),
+        );
+        write(
+            dir.path(),
+            "20240102000001_right_c",
+            "right_c",
+            &["base"],
+            json!([users(), column("users", "c", "text")]),
+        );
+
+        assert_eq!(
+            conflict_fix(dir.path(), Dialect::SQLite).expect("fix"),
+            [
+                "20240102000001_right_c",
+                "20240103000000_left_c",
+                "20240104000000_left_y",
+            ]
+        );
+
+        for folder in conflict_fix(dir.path(), Dialect::SQLite).expect("fix") {
+            std::fs::remove_dir_all(dir.path().join(folder)).expect("delete");
+        }
+        let base = load_merge_base(dir.path(), Dialect::SQLite, false).expect("base");
+        assert_eq!(base.snapshot.id(), "left_x");
+        assert!(
+            conflict_fix(dir.path(), Dialect::SQLite)
+                .expect("fix")
+                .is_empty()
+        );
     }
 }
