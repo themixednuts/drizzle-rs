@@ -339,23 +339,29 @@ pub fn generate_all_driver_impls(ctx: &MacroContext) -> TokenStream {
     };
 
     // Generate NullProbeRow impl for LEFT JOIN support.
-    // Enables `Option<SelectModel>` via blanket impl in drizzle-core, which
-    // reads a LEFT JOIN miss off the first column. The probe accepts every
-    // wire type, so the check never depends on how that column is stored.
-    let null_probe_impl = field_infos.first().map_or_else(
-        || quote! {},
-        |_| {
-            quote! {
-                impl drizzle::core::NullProbeRow<drizzle::postgres::Row> for #select_model_ident {
-                    fn is_null_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<bool, #drizzle_error> {
-                        let first_col: Option<drizzle::core::AnyNullProbe> = row.try_get(offset)
+    // Enables `Option<SelectModel>` via blanket impl in drizzle-core. A LEFT
+    // JOIN miss leaves every column NULL, while a match may hold NULL in any
+    // nullable column, so the model is absent only when all of them are.
+    // The probe accepts every wire type, so the check never depends on how
+    // a column is stored.
+    let null_probe_impl = if field_infos.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            impl drizzle::core::NullProbeRow<drizzle::postgres::Row> for #select_model_ident {
+                fn is_null_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<bool, #drizzle_error> {
+                    for column in offset..offset + #field_count {
+                        let cell: Option<drizzle::core::AnyNullProbe> = row.try_get(column)
                             .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?;
-                        Ok(first_col.is_none())
+                        if cell.is_some() {
+                            return Ok(false);
+                        }
                     }
+                    Ok(true)
                 }
             }
-        },
-    );
+        }
+    };
 
     quote! { #base_impls #fdr_impl #null_probe_impl }
 }

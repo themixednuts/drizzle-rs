@@ -315,7 +315,14 @@ pub fn generate_aws_data_api_impls(ctx: &MacroContext) -> TokenStream {
                     row: &drizzle::postgres::aws_data_api::Row,
                     offset: usize,
                 ) -> ::std::result::Result<bool, #drizzle_error> {
-                    drizzle::postgres::aws_data_api::is_null_at(row, offset)
+                    // Absent only when every column is NULL, as on the
+                    // native drivers.
+                    for column in offset..offset + #field_count {
+                        if !drizzle::postgres::aws_data_api::is_null_at(row, column)? {
+                            return ::std::result::Result::Ok(false);
+                        }
+                    }
+                    ::std::result::Result::Ok(true)
                 }
             }
         }

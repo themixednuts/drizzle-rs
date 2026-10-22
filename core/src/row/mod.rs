@@ -1282,7 +1282,11 @@ pub trait FromDrizzleRow<Row: ?Sized>: Sized {
 /// The table macros implement this for each select model. Single-column
 /// types (`i32`, `String`, ...) have their own `Option<T>` impls instead.
 pub trait NullProbeRow<Row: ?Sized>: FromDrizzleRow<Row> {
-    /// Returns `true` if the column at `offset` is NULL.
+    /// Returns `true` if the value starting at `offset` is absent.
+    ///
+    /// A select model is absent only when every one of its columns is NULL:
+    /// a LEFT JOIN miss nulls them all, while a matched row may hold NULL in
+    /// any nullable column.
     ///
     /// # Errors
     ///

@@ -135,7 +135,12 @@ pub fn generate_select_model(ctx: &MacroContext) -> TokenStream {
                 row: &drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>,
                 offset: usize,
             ) -> ::std::result::Result<bool, drizzle::error::DrizzleError> {
-                row.is_null_at(offset)
+                for column in offset..offset + #field_count {
+                    if !row.is_null_at(column)? {
+                        return ::std::result::Result::Ok(false);
+                    }
+                }
+                ::std::result::Result::Ok(true)
             }
         }
 

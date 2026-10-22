@@ -87,7 +87,7 @@ struct PgCustomJoinOwner {
 }
 
 // The custom BYTEA column comes first: `Option<SelectPgCustomJoinTag>` probes
-// the first column to tell a LEFT JOIN miss from a match.
+// every column, whatever its wire type, to tell a LEFT JOIN miss from a match.
 #[PostgresTable(name = "pg_custom_join_tag")]
 struct PgCustomJoinTag {
     payload: PgU32Be,
