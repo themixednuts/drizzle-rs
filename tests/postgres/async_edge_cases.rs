@@ -100,6 +100,52 @@ mod tokio_postgres_edge_cases {
         assert!(<[u8; 4] as FromDrizzleRow<tokio_postgres::Row>>::from_row_at(&row, 1).is_err());
     }
 
+    #[PostgresTable(name = "error_message_accounts")]
+    struct ErrorMessageAccount {
+        #[column(primary)]
+        email: String,
+    }
+
+    #[derive(PostgresSchema)]
+    struct ErrorMessageSchema {
+        error_message_account: ErrorMessageAccount,
+    }
+
+    // The server's message and SQLSTATE reach the error message; the bound
+    // value does not, neither through the parameter list nor through the
+    // DETAIL line (`Key (email)=(...) already exists.`).
+    #[tokio::test]
+    async fn postgres_errors_show_the_server_message_without_values() {
+        let (
+            db,
+            ErrorMessageSchema {
+                error_message_account,
+            },
+        ) = tokio_postgres_setup::setup_db::<ErrorMessageSchema>().await;
+
+        db.insert(error_message_account)
+            .values([InsertErrorMessageAccount::new("ada@example.com")])
+            .execute()
+            .await
+            .unwrap();
+        let error = db
+            .insert(error_message_account)
+            .values([InsertErrorMessageAccount::new("ada@example.com")])
+            .execute()
+            .await
+            .expect_err("duplicate primary key");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("duplicate key value violates unique constraint")
+                && message.contains("(23505)"),
+            "{message}"
+        );
+        assert!(message.contains("params: 1 bound"), "{message}");
+        assert!(!message.contains("ada@example.com"), "{message}");
+        assert!(!message.contains("db error"), "{message}");
+    }
+
     #[tokio::test]
     async fn select_model_type_mismatch_is_an_error_not_a_panic() {
         let (
