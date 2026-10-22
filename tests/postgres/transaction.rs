@@ -195,7 +195,7 @@ fn an_imported_snapshot_reads_the_exporters_data_sync() {
 
     exporter
         .transaction(repeatable_read, |tx| {
-            let snapshot = tx.export_snapshot()?;
+            let snapshot = tx.snapshot()?;
             writer
                 .execute("INSERT INTO snapshot_probe_sync VALUES (2)", &[])
                 .unwrap();
@@ -248,7 +248,7 @@ async fn an_imported_snapshot_reads_the_exporters_data_tokio() {
 
     exporter
         .transaction(repeatable_read, async |tx| {
-            let snapshot = tx.export_snapshot().await?;
+            let snapshot = tx.snapshot().await?;
             writer
                 .execute("INSERT INTO snapshot_probe_tokio VALUES (2)", &[])
                 .await

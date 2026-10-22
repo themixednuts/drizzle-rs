@@ -141,7 +141,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// # let (mut other, _) = Drizzle::<S>::new(client2);
     /// let config = TransactionConfig::builder().repeatable_read().build();
     /// db.transaction(config, async |tx| {
-    ///     let snapshot = tx.export_snapshot().await?;
+    ///     let snapshot = tx.snapshot().await?;
     ///
     ///     let config = TransactionConfig::builder()
     ///         .repeatable_read()
@@ -163,7 +163,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// Returns an error when the transaction was already consumed or the
     /// query fails.
-    pub async fn export_snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+    pub async fn snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
         self.savepoints.ensure_usable()?;
         let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
         let row = tx

@@ -146,7 +146,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// Returns an error when the transaction was already consumed or the
     /// query fails.
-    pub fn export_snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+    pub fn snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
         let mut tx_ref = self.tx.borrow_mut();
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
         let row = tx

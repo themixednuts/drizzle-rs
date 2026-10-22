@@ -175,7 +175,7 @@ impl<Schema> Transaction<Schema> {
     ///
     /// Returns an error when the transaction was already consumed or the
     /// Data API request fails.
-    pub async fn export_snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+    pub async fn snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
         let out = self.run_statement(EXPORT_SNAPSHOT_SQL, Vec::new()).await?;
         let row = decode_rows(out)
             .into_iter()

@@ -50,7 +50,7 @@ impl core::fmt::Display for AccessMode {
 /// for another transaction to read the same data with
 /// [`ConfigBuilder::snapshot`].
 ///
-/// Get one from a transaction's `export_snapshot()`, or parse the text form
+/// Get one from a transaction's `snapshot()`, or parse the text form
 /// with [`SnapshotId::new`]. It stays importable only while the exporting
 /// transaction is open; after that `PostgreSQL` rejects it. The id is a
 /// small `Copy` value, so it can be handed to other threads and tasks.
