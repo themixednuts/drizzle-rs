@@ -96,6 +96,7 @@ impl ExecutableState for CTEInit {}
 /// #         impl Row {
 /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
 /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+/// #             pub fn len(&self) -> usize { unimplemented!() }
 /// #         }
 /// #         pub mod prelude {
 /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -216,6 +217,7 @@ where
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -302,6 +304,7 @@ where
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -394,6 +397,7 @@ impl<'a> QueryBuilder<'a> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -485,6 +489,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -582,6 +587,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -675,6 +681,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -940,6 +947,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -1030,6 +1038,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -1130,6 +1139,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
@@ -1226,6 +1236,7 @@ impl<'a, Schema> QueryBuilder<'a, Schema, BuilderInit> {
     /// #         impl Row {
     /// #             pub fn get<'a, I, T>(&'a self, _: I) -> T { unimplemented!() }
     /// #             pub fn try_get<'a, I, T>(&'a self, _: I) -> Result<T, Box<dyn std::error::Error + Sync + Send>> { unimplemented!() }
+    /// #             pub fn len(&self) -> usize { unimplemented!() }
     /// #         }
     /// #         pub mod prelude {
     /// #             pub use drizzle_macros::{PostgresTable, PostgresSchema, PostgresIndex};
