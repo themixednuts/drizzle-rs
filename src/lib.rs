@@ -472,6 +472,9 @@ pub mod core {
     #[doc(hidden)]
     pub use drizzle_core::schema::SQLEnumInfo;
 
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    #[doc(hidden)]
+    pub use drizzle_core::AnyNullProbe;
     #[doc(hidden)]
     pub use drizzle_core::{
         InsertColumn, InsertSelectAllColumns, InsertSelectTable, MaybeNull, ProjectionIn,

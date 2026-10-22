@@ -169,6 +169,9 @@ pub use relation::{AssembleRel, CardWrap, Many, One, OptionalOne, RelationDef};
 pub use relation::{
     JoinExplicit, JoinForward, JoinKey, JoinReverse, Joinable, Relation, SchemaHasTable,
 };
+#[cfg(any(feature = "tokio-postgres", feature = "postgres-sync"))]
+#[doc(hidden)]
+pub use row::AnyNullProbe;
 pub use row::{
     DecodeSelectedRef, ExprValueType, FromDrizzleRow, GroupByIdentity, HasSelectModel, IntoGroupBy,
     IntoSelectTarget, JoinedStarRow, LeftLateralSelection, MarkerAggValidFor,

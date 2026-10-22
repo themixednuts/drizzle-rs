@@ -33,6 +33,9 @@
 mod libsql;
 #[cfg(any(feature = "tokio-postgres", feature = "postgres-sync"))]
 mod postgres;
+#[cfg(any(feature = "tokio-postgres", feature = "postgres-sync"))]
+#[doc(hidden)]
+pub use postgres::AnyNullProbe;
 #[cfg(feature = "rusqlite")]
 mod rusqlite;
 // Shared blanket impls for SQLite-flavored drivers whose cells are tagged

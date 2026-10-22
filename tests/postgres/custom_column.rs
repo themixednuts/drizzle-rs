@@ -55,6 +55,17 @@ impl drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row> for PgU
     }
 }
 
+// `Option<PgU32Be>` columns decode through the `Option<T: NullProbeRow>` impl.
+#[cfg(feature = "aws-data-api")]
+impl drizzle::core::NullProbeRow<drizzle::postgres::aws_data_api::Row> for PgU32Be {
+    fn is_null_at(
+        row: &drizzle::postgres::aws_data_api::Row,
+        offset: usize,
+    ) -> Result<bool, DrizzleError> {
+        drizzle::postgres::aws_data_api::is_null_at(row, offset)
+    }
+}
+
 #[test]
 fn custom_postgres_column_from_bytes_rejects_invalid_length() {
     assert!(PgU32Be::from_bytes(&[1, 2, 3]).is_err());
@@ -67,6 +78,53 @@ fn custom_postgres_column_encode_uses_bytea() {
     };
 
     assert_eq!(bytes.as_ref(), &[0x0a, 0x0b, 0x0c, 0x0d]);
+}
+
+#[PostgresTable(name = "pg_custom_join_owner")]
+struct PgCustomJoinOwner {
+    #[column(primary)]
+    id: i32,
+}
+
+// The custom BYTEA column comes first: `Option<SelectPgCustomJoinTag>` probes
+// the first column to tell a LEFT JOIN miss from a match.
+#[PostgresTable(name = "pg_custom_join_tag")]
+struct PgCustomJoinTag {
+    payload: PgU32Be,
+    #[column(primary)]
+    owner_id: i32,
+}
+
+#[derive(PostgresSchema)]
+struct PgCustomJoinSchema {
+    owner: PgCustomJoinOwner,
+    tag: PgCustomJoinTag,
+}
+
+#[drizzle::test]
+fn custom_postgres_column_first_in_left_join(db: &mut TestDb<PgCustomJoinSchema>) {
+    let PgCustomJoinSchema { owner, tag } = schema;
+
+    db.insert(owner)
+        .values([
+            InsertPgCustomJoinOwner::new(1),
+            InsertPgCustomJoinOwner::new(2),
+        ])
+        .execute();
+    db.insert(tag)
+        .values([InsertPgCustomJoinTag::new(PgU32Be(7), 1)])
+        .execute();
+
+    let rows: Vec<(SelectPgCustomJoinOwner, Option<SelectPgCustomJoinTag>)> = db
+        .select(())
+        .from(owner)
+        .left_join((tag, eq(tag.owner_id, owner.id)))
+        .order_by(owner.id)
+        .all();
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1.as_ref().map(|t| t.payload), Some(PgU32Be(7)));
+    assert!(rows[1].1.is_none());
 }
 
 #[PostgresTable(name = "pg_custom_u32_be_test")]
