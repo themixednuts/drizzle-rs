@@ -51,10 +51,7 @@ use ::tokio_postgres::types::Json as DriverJson;
 pub struct AnyNullProbe;
 
 impl<'a> FromSql<'a> for AnyNullProbe {
-    fn from_sql(
-        _: &Type,
-        _: &'a [u8],
-    ) -> Result<Self, Box<dyn core::error::Error + Sync + Send>> {
+    fn from_sql(_: &Type, _: &'a [u8]) -> Result<Self, Box<dyn core::error::Error + Sync + Send>> {
         Ok(Self)
     }
 
