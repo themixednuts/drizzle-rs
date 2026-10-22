@@ -279,7 +279,9 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
                 let owned = matches!(
                     &f.base_type,
                     syn::Type::Path(path)
-                        if path.path.segments.last().is_some_and(|last| last.ident == "Bytes")
+                        if path.path.segments.last().is_some_and(|last| {
+                            last.ident == "Bytes" || last.ident == "Vec"
+                        })
                 );
                 crate::common::query::FieldStorageKind::PostgresBytea { owned }
             } else {

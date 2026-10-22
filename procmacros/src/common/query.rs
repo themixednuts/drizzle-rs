@@ -44,8 +44,9 @@ pub enum FieldStorageKind {
     Blob,
     /// PostgreSQL `bytea`, which the JSON projection renders as hex text.
     /// The bytes convert into the field through `TryFrom<&[u8]>` (which
-    /// checks a fixed length), or through `From<Vec<u8>>` when `owned`
-    /// (`bytes::Bytes` only converts from a `'static` slice).
+    /// checks a fixed length), or through `From<Vec<u8>>` when `owned`:
+    /// `Vec<u8>` takes the decoded buffer as is, and `bytes::Bytes` only
+    /// converts from a `'static` slice.
     PostgresBytea { owned: bool },
     /// Binary MySQL value read from the tagged hexadecimal JSON projection.
     MySQLBlob,

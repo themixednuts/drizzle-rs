@@ -556,18 +556,25 @@ pub fn decode_postgres_bytea<E: de::Error>(raw: RawJson, column: &str) -> Result
     let serde_json::Value::String(text) = raw else {
         return Err(invalid());
     };
-    let hex = text.strip_prefix("\\x").ok_or_else(invalid)?.as_bytes();
-    if hex.len() % 2 != 0 {
+    // Decode in place: byte `i` is read from `2 + 2i` and `3 + 2i`, never
+    // behind where it is written, so the text's buffer becomes the bytes.
+    let mut buffer = text.into_bytes();
+    let Some(hex_len) = buffer
+        .strip_prefix(b"\\x")
+        .map(<[u8]>::len)
+        .filter(|len| len % 2 == 0)
+    else {
         return Err(invalid());
-    }
+    };
     let nibble = |digit: u8| char::from(digit).to_digit(16).ok_or_else(invalid);
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for &[high, low] in hex.as_chunks::<2>().0 {
+    for i in 0..hex_len / 2 {
         // A hex digit is below 16, so a pair fits a byte.
         #[allow(clippy::cast_possible_truncation)]
-        bytes.push((nibble(high)? << 4 | nibble(low)?) as u8);
+        let byte = (nibble(buffer[2 + 2 * i])? << 4 | nibble(buffer[3 + 2 * i])?) as u8;
+        buffer[i] = byte;
     }
-    Ok(bytes)
+    buffer.truncate(hex_len / 2);
+    Ok(buffer)
 }
 
 /// Decodes an enum projected either as a JSON string (a native enum stored

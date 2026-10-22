@@ -1837,8 +1837,8 @@ fn encode_field(value: &PostgresValue<'_>) -> (Field, Option<TypeHint>) {
 ///
 /// The Data API rejects array parameters ("Array parameters are not
 /// supported"), so the array goes as a string, which the server parses into
-/// the column's array type. Each element is encoded as a scalar parameter
-/// would be, then quoted.
+/// the column's array type. Numbers and booleans are written bare; other
+/// elements are encoded as a scalar parameter would be, then quoted.
 fn encode_array(items: &[PostgresValue<'_>]) -> Field {
     let mut literal = String::new();
     write_array_literal(&mut literal, items);
@@ -1863,28 +1863,52 @@ fn write_array_literal(out: &mut String, items: &[PostgresValue<'_>]) {
         if i > 0 {
             out.push(delimiter);
         }
-        if let PostgresValue::Array(inner) = item {
-            write_array_literal(out, inner);
-            continue;
-        }
-        match encode_field(item).0 {
-            Field::IsNull(_) => out.push_str("NULL"),
-            Field::StringValue(text) => push_array_element(out, &text),
-            Field::LongValue(v) => push_array_element(out, &v.to_string()),
-            Field::DoubleValue(v) => push_array_element(out, &v.to_string()),
-            Field::BooleanValue(v) => out.push_str(if v { "t" } else { "f" }),
-            Field::BlobValue(blob) => {
-                let mut hex = String::with_capacity(2 + blob.as_ref().len() * 2);
-                hex.push_str("\\x");
-                for byte in blob.as_ref() {
-                    let _ = write!(hex, "{byte:02x}");
-                }
-                push_array_element(out, &hex);
+        // Common element types are written straight from the borrowed value;
+        // the rest go through their scalar encoder.
+        match item {
+            PostgresValue::Array(inner) => write_array_literal(out, inner),
+            PostgresValue::Null => out.push_str("NULL"),
+            PostgresValue::Smallint(v) => {
+                let _ = write!(out, "{v}");
             }
-            other => unreachable!("scalar encoders never produce {other:?}"),
+            PostgresValue::Integer(v) => {
+                let _ = write!(out, "{v}");
+            }
+            PostgresValue::Bigint(v) => {
+                let _ = write!(out, "{v}");
+            }
+            PostgresValue::Boolean(v) => out.push(if *v { 't' } else { 'f' }),
+            PostgresValue::Text(text) => push_array_element(out, text),
+            PostgresValue::Bytea(bytes) => push_bytea_element(out, bytes),
+            _ => match encode_field(item).0 {
+                Field::IsNull(_) => out.push_str("NULL"),
+                Field::StringValue(text) => push_array_element(out, &text),
+                Field::LongValue(v) => {
+                    let _ = write!(out, "{v}");
+                }
+                Field::DoubleValue(v) => {
+                    let _ = write!(out, "{v}");
+                }
+                Field::BooleanValue(v) => out.push(if v { 't' } else { 'f' }),
+                Field::BlobValue(blob) => push_bytea_element(out, blob.as_ref()),
+                other => unreachable!("scalar encoders never produce {other:?}"),
+            },
         }
     }
     out.push('}');
+}
+
+/// Push a `bytea` element as quoted hex text (`"\\x0102"`).
+fn push_bytea_element(out: &mut String, bytes: &[u8]) {
+    use core::fmt::Write as _;
+
+    out.reserve(4 + bytes.len() * 2);
+    // The `\x` prefix, its backslash escaped inside the quotes.
+    out.push_str("\"\\\\x");
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out.push('"');
 }
 
 /// Push one array element, double-quoted with `\` and `"` escaped.
@@ -2021,7 +2045,7 @@ mod tests {
                 PostgresValue::Null,
                 PostgresValue::Integer(-3),
             ])),
-            Some(Field::StringValue(r#"{"1",NULL,"-3"}"#.to_string()))
+            Some(Field::StringValue("{1,NULL,-3}".to_string()))
         );
         assert_eq!(
             encode(PostgresValue::Array(vec![
@@ -2038,7 +2062,7 @@ mod tests {
                 PostgresValue::Array(vec![PostgresValue::Bigint(1), PostgresValue::Bigint(2)]),
                 PostgresValue::Array(vec![PostgresValue::Bigint(3), PostgresValue::Bigint(4)]),
             ])),
-            Some(Field::StringValue(r#"{{"1","2"},{"3","4"}}"#.to_string()))
+            Some(Field::StringValue("{{1,2},{3,4}}".to_string()))
         );
         assert_eq!(
             encode(PostgresValue::Array(Vec::new())),
