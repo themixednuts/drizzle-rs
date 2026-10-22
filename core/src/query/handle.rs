@@ -16,6 +16,16 @@ use super::builder::{
 /// Created by the relation methods the table macros generate (for example
 /// `users.posts()`) and passed to `.with(...)`.
 ///
+/// A handle without nested relations is also the related rows as a
+/// correlated subquery, usable in any query's `where` or `order_by`:
+///
+/// - `exists(users.posts())` / `not_exists(users.posts())`: whether a user
+///   has posts; the handle's `where` narrows the rows that count, as in
+///   `exists(users.posts().r#where(eq(posts.published, true)))`.
+/// - [`select`](Self::select): a scalar over the related rows, such as
+///   `users.posts().select(count(()))`, or a column of a to-one relation,
+///   such as `posts.author().select(users.name)`.
+///
 /// - `Nested` holds nested relation handles: `()` when empty,
 ///   `(RelationHandle<...>, Rest)` otherwise, so the whole tree is part of
 ///   the type.
@@ -252,4 +262,107 @@ where
             _marker: PhantomData,
         }
     }
+}
+
+// =============================================================================
+// The relation's rows as a correlated subquery
+// =============================================================================
+
+/// The alias a relation's target table takes in its subquery.
+fn subquery_alias<R: RelationDef>() -> String {
+    format!("r_{}", R::NAME)
+}
+
+impl<'a, V, R, Cols, Cl> RelationHandle<'a, V, R, (), Cols, Cl>
+where
+    V: SQLParam + 'a,
+    R: RelationDef,
+    R::Source: QueryTable,
+{
+    fn subquery_sql(self, select: SQL<'a, V>) -> SQL<'a, V> {
+        super::sql::relation_subquery_sql(
+            select,
+            <R::Target as QueryTable>::TABLE,
+            <R::Source as QueryTable>::TABLE_NAME,
+            &subquery_alias::<R>(),
+            R::junction(),
+            R::fk_columns(),
+            self.where_sql,
+            self.order_by_sql,
+            self.limit,
+            self.offset,
+        )
+    }
+
+    /// The related rows' `expr`, as a scalar subquery correlated with the
+    /// source row: an aggregate over them, or a column of a one-relation.
+    ///
+    /// The relation's `where`, `order_by` and `limit` apply first, so
+    /// `users.posts().order_by(desc(posts.created_at)).first().select(posts.title)`
+    /// is the newest post's title. Use it wherever an expression of the
+    /// source table goes, such as a relational query's `order_by`:
+    /// `db.query(users).order_by(desc(users.posts().select(count(()))))`.
+    ///
+    /// The result is nullable: with no related row, a subquery reads NULL.
+    #[allow(clippy::type_complexity)]
+    pub fn select<E, ScopeProof>(
+        self,
+        expr: E,
+    ) -> crate::expr::SQLExpr<
+        'a,
+        V,
+        E::SQLType,
+        crate::expr::Null,
+        crate::expr::Scalar,
+        crate::Src<R::Source>,
+    >
+    where
+        E: crate::expr::Expr<'a, V>,
+        E::Sources: crate::scope::SourcesIn<crate::Cons<R::Target, crate::Nil>, ScopeProof>,
+    {
+        crate::expr::SQLExpr::new(self.subquery_sql(expr.into_expr_sql()).parens())
+    }
+}
+
+/// The relation's rows as a subquery, for [`exists`](crate::expr::exists)
+/// and [`not_exists`](crate::expr::not_exists): `exists(users.posts())` is
+/// true for a user with a post, and the relation's `where` narrows the rows
+/// that count.
+impl<'a, V, R, Cols, Cl> crate::ToSQL<'a, V> for RelationHandle<'a, V, R, (), Cols, Cl>
+where
+    V: SQLParam + 'a,
+    R: RelationDef,
+    R::Source: QueryTable,
+{
+    fn to_sql(&self) -> SQL<'a, V> {
+        RelationHandle::<'a, V, R, (), AllColumns, Cl> {
+            where_sql: self.where_sql.clone(),
+            order_by_sql: self.order_by_sql.clone(),
+            limit: self.limit.clone(),
+            offset: self.offset.clone(),
+            nested: (),
+            cols: AllColumns,
+            _marker: PhantomData,
+        }
+        .into_sql()
+    }
+
+    fn into_sql(self) -> SQL<'a, V> {
+        self.subquery_sql(SQL::raw("1"))
+    }
+}
+
+impl<'a, V, R, Cols, Cl> crate::expr::ExprSources for RelationHandle<'a, V, R, (), Cols, Cl>
+where
+    V: SQLParam,
+    R: RelationDef,
+{
+    type Sources = crate::Src<R::Source>;
+}
+
+impl<'a, V, R, Cols, Cl> crate::expr::SelectQuery for RelationHandle<'a, V, R, (), Cols, Cl>
+where
+    V: SQLParam,
+    R: RelationDef,
+{
 }

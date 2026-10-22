@@ -274,6 +274,116 @@ macro_rules! shared_relational_api_suite {
                     .with_author_id(author_id)
             }
 
+            // ---------------------------------------------- relations as subqueries
+
+            /// A relation handle is a correlated subquery over the related
+            /// rows: `exists` / `not_exists` filter by it, and `.select(..)`
+            /// orders by an aggregate of it or by a to-one relation's column.
+            #[drizzle::test($dialect)]
+            fn relations_filter_and_order_as_subqueries(db: &mut TestDb<SharedApiSchema>) {
+                use drizzle::core::expr::{count, exists, not_exists};
+
+                let SharedApiSchema {
+                    authors,
+                    posts,
+                    categories,
+                    post_categories,
+                    ..
+                } = schema;
+                db.insert(authors)
+                    .values([
+                        author(ALICE, "Alice"),
+                        author(BOB, "Bob"),
+                        author(CHARLIE, "Charlie"),
+                    ])
+                    .execute();
+                db.insert(authors)
+                    .values([InsertSharedApiAuthor::new("Dave")
+                        .with_id(DAVE)
+                        .with_invited_by(ALICE)])
+                    .execute();
+                db.insert(posts)
+                    .values([
+                        post(10, "a1", true, ALICE),
+                        post(11, "a2", false, ALICE),
+                        post(12, "a3", false, ALICE),
+                        post(20, "b1", false, BOB),
+                        post(30, "c1", true, CHARLIE),
+                        post(31, "c2", true, CHARLIE),
+                    ])
+                    .execute();
+                db.insert(categories)
+                    .values([InsertSharedApiCategory::new("Tech").with_id(1)])
+                    .execute();
+                db.insert(post_categories)
+                    .values([InsertSharedApiPostCategory::new(30, 1)])
+                    .execute();
+                let ids = |rows: Vec<SelectSharedApiAuthor>| {
+                    rows.into_iter().map(|row| row.id).collect::<Vec<_>>()
+                };
+
+                let with_published = db
+                    .query(authors)
+                    .r#where(exists(
+                        authors.posts().r#where(eq(posts.published, true)),
+                    ))
+                    .order_by(asc(authors.id))
+                    .find_many();
+                assert_eq!(ids(with_published), [ALICE, CHARLIE]);
+
+                let without_posts = db
+                    .query(authors)
+                    .r#where(not_exists(authors.posts()))
+                    .find_many();
+                assert_eq!(ids(without_posts), [DAVE]);
+
+                // From a table to itself: authors who invited someone.
+                let inviters = db
+                    .query(authors)
+                    .r#where(exists(authors.invited_by_shared_api_authors()))
+                    .find_many();
+                assert_eq!(ids(inviters), [ALICE]);
+
+                // Many-to-many, through the junction table.
+                let categorized: Vec<SelectSharedApiPost> = db
+                    .query(posts)
+                    .r#where(exists(posts.categories()))
+                    .find_many();
+                assert_eq!(
+                    categorized.iter().map(|row| row.id).collect::<Vec<_>>(),
+                    [30]
+                );
+
+                let by_post_count = db
+                    .query(authors)
+                    .order_by((
+                        desc(authors.posts().select(count(()))),
+                        asc(authors.id),
+                    ))
+                    .find_many();
+                assert_eq!(ids(by_post_count), [ALICE, CHARLIE, BOB, DAVE]);
+
+                let by_author_name: Vec<SelectSharedApiPost> = db
+                    .query(posts)
+                    .r#where(gt(posts.id, 11))
+                    .order_by((desc(posts.author().select(authors.name)), asc(posts.id)))
+                    .find_many();
+                assert_eq!(
+                    by_author_name.iter().map(|row| row.id).collect::<Vec<_>>(),
+                    [30, 31, 20, 12]
+                );
+
+                // Outside relational queries too.
+                let plain: Vec<i32> = db
+                    .select(authors.id)
+                    .from(authors)
+                    .r#where(exists(authors.posts()))
+                    .order_by(asc(authors.id))
+                    .all();
+                assert_eq!(plain, [ALICE, BOB, CHARLIE]);
+            }
+
+            // ---------------------------------------------------------------- roots
             // ---------------------------------------------------------------- roots
 
             #[drizzle::test($dialect)]
