@@ -107,14 +107,22 @@ sqlite_value_int_impl!(i8, i16, i32, isize, u8, u16, u32);
 // `u64`/`usize` are stored with their bits reinterpreted as `i64` (drizzle's
 // `From<u64> for SQLiteValue`), so a negative INTEGER is a value above
 // `i64::MAX` and decodes back to it.
+fn unsigned_from_stored_bits<T>(stored: i64) -> Result<T, DrizzleError>
+where
+    T: TryFrom<u64>,
+    T::Error: core::fmt::Display,
+{
+    T::try_from(stored.cast_unsigned())
+        .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))
+}
+
 macro_rules! sqlite_value_unsigned64_impl {
     ($($ty:ty),*) => { $(
         impl<R: SqliteValueRow> FromDrizzleRow<R> for $ty {
             const COLUMN_COUNT: usize = 1;
             fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
                 match row.cell_at(offset)? {
-                    SqliteCell::Integer(i) => <$ty>::try_from(i.cast_unsigned())
-                        .map_err(|e| DrizzleError::ConversionError(e.to_string().into())),
+                    SqliteCell::Integer(i) => unsigned_from_stored_bits(i),
                     SqliteCell::Null => Err(DrizzleError::ConversionError(
                         "unexpected NULL for integer".into(),
                     )),

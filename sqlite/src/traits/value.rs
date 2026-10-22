@@ -442,11 +442,7 @@ macro_rules! impl_from_sqlite_value_int {
         $(
             impl FromSQLiteValue for $ty {
                 fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
-                    <$ty>::try_from(value.cast_unsigned()).map_err(|e| {
-                        DrizzleError::ConversionError(
-                            format!("i64 {} out of range for {}: {}", value, stringify!($ty), e).into(),
-                        )
-                    })
+                    unsigned_from_stored_bits(value, stringify!($ty))
                 }
 
                 fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
@@ -501,6 +497,18 @@ macro_rules! impl_from_sqlite_value_int {
             }
         )+
     };
+}
+
+/// Reads a `u64`/`usize` INTEGER, whose bits were stored reinterpreted as
+/// `i64`.
+fn unsigned_from_stored_bits<T>(value: i64, name: &str) -> Result<T, DrizzleError>
+where
+    T: TryFrom<u64>,
+    T::Error: core::fmt::Display,
+{
+    T::try_from(value.cast_unsigned()).map_err(|e| {
+        DrizzleError::ConversionError(format!("i64 {value} out of range for {name}: {e}").into())
+    })
 }
 
 /// IEEE 754 `f64` representation of an `i64` built from two exact halves via
