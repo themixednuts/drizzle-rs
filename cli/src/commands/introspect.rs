@@ -42,7 +42,8 @@ pub struct IntrospectOptions {
 /// The migrations tracking table is left out, and the table, schema,
 /// extension, and role filters are applied. With `--init`, the baseline is
 /// also recorded as applied in the database, which is allowed only when the
-/// tracking table is empty and the folder holds no other migration.
+/// tracking table is empty and the folder holds no other migration. Without
+/// it, the baseline's SQL is commented out, as drizzle-kit writes it.
 ///
 /// # Errors
 ///

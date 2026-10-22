@@ -14,7 +14,8 @@ use drizzle_migrations::{
         collection::diff_ddl,
         ddl::{
             CheckConstraint, Column, Enum, ForeignKey, Generated, GeneratedType, Identity,
-            IdentityType, Index, IndexColumn, Policy, PrimaryKey, Table, UniqueConstraint,
+            IdentityType, Index, IndexColumn, Policy, PrimaryKey, Sequence, Table,
+            UniqueConstraint,
         },
         introspect::{
             RawColumnInfo, RawForeignKeyInfo, RawIndexColumnInfo, RawIndexInfo, RawPrimaryKeyInfo,
@@ -254,6 +255,70 @@ fn test_generate_postgres_schema() {
     );
 }
 
+/// A `nextval` default marks a serial column only when the column owns the
+/// sequence; the serial kind follows the integer type.
+#[test]
+fn test_nextval_defaults_on_standalone_sequences_stay_defaults() {
+    let column = |name: &'static str, sql_type: &'static str, default: &'static str| Column {
+        schema: "public".into(),
+        table: "orders".into(),
+        name: name.into(),
+        sql_type: sql_type.into(),
+        type_schema: None,
+        not_null: true,
+        default: Some(default.into()),
+        generated: None,
+        identity: None,
+        dimensions: None,
+        comment: None,
+        collate: None,
+        ordinal_position: None,
+    };
+    let mut ddl = PostgresDDL::new();
+    ddl.tables.push(Table {
+        schema: "public".into(),
+        name: "orders".into(),
+        ..Default::default()
+    });
+    ddl.columns
+        .push(column("id", "int8", "nextval('orders_id_seq'::regclass)"));
+    ddl.columns.push(column(
+        "number",
+        "int4",
+        "nextval('order_numbers'::regclass)",
+    ));
+    ddl.sequences.push(Sequence {
+        schema: "public".into(),
+        name: "order_numbers".into(),
+        increment_by: None,
+        min_value: None,
+        max_value: None,
+        start_with: None,
+        cache_size: None,
+        cycle: None,
+    });
+
+    let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+    assert!(
+        generated.code.contains("#[column(bigserial)]"),
+        "{}",
+        generated.code
+    );
+    assert!(
+        generated
+            .code
+            .contains(r#"#[column(default = nextval("order_numbers"))]"#),
+        "{}",
+        generated.code
+    );
+    assert!(
+        !generated.code.contains("#[column(serial)]"),
+        "{}",
+        generated.code
+    );
+}
+
 #[test]
 fn test_parse_generated_postgres_code() {
     let ddl = create_test_ddl();
@@ -427,6 +492,19 @@ fn test_postgres_codegen_new_macro_surfaces() {
         concurrently: true,
     });
 
+    ddl.indexes.push(Index {
+        schema: "public".into(),
+        table: "accounts".into(),
+        name: "accounts_email_lower_idx".into(),
+        name_explicit: true,
+        columns: vec![IndexColumn::expression(r#"lower(("Email")::text)"#)],
+        is_unique: false,
+        where_clause: None,
+        method: None,
+        with: None,
+        concurrently: false,
+    });
+
     let generated = generate_rust_schema(
         &ddl,
         &CodegenOptions {
@@ -436,6 +514,14 @@ fn test_postgres_codegen_new_macro_surfaces() {
         },
     );
 
+    // An expression's quotes are escaped in the generated string literal.
+    assert!(
+        generated
+            .code
+            .contains(r#"struct AccountsEmailLowerIdx("lower((\"Email\")::text)");"#),
+        "{}",
+        generated.code
+    );
     assert!(generated.code.contains("unlogged"));
     assert!(generated.code.contains("tablespace = \"fast_space\""));
     assert!(generated.code.contains("rls"));

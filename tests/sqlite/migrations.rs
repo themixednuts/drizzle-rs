@@ -884,6 +884,62 @@ fn rusqlite_push_converges_on_constraints_collations_and_generated_columns() {
     );
 }
 
+#[cfg(feature = "rusqlite")]
+#[SQLiteTable(NAME = "implicit_parents")]
+struct ImplicitParent {
+    #[column(PRIMARY)]
+    id: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[SQLiteTable(NAME = "implicit_children")]
+struct ImplicitChild {
+    #[column(PRIMARY)]
+    id: i64,
+    #[column(references = ImplicitParent::id)]
+    parent: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[derive(SQLiteSchema)]
+struct ImplicitReferenceSchema {
+    parent: ImplicitParent,
+    child: ImplicitChild,
+}
+
+/// `REFERENCES parent` without a column targets the parent's primary key.
+/// SQLite reports no target column for it; introspection resolves it.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_introspects_a_reference_to_the_parent_primary_key() {
+    use drizzle_migrations::Schema as _;
+
+    let (db, schema) =
+        crate::common::helpers::rusqlite_setup::setup_empty_db(ImplicitReferenceSchema::default());
+    db.push(&schema).expect("push");
+
+    let explicit: String = db
+        .conn()
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name = 'implicit_children'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("child DDL");
+    let implicit = explicit.replace(
+        "REFERENCES `implicit_parents`(`id`)",
+        "REFERENCES `implicit_parents`",
+    );
+    assert_ne!(implicit, explicit, "{explicit}");
+    db.conn()
+        .execute_batch(&format!("DROP TABLE `implicit_children`; {implicit};"))
+        .expect("recreate the child with an implicit reference");
+
+    let live = db.introspect().expect("introspect");
+    let plan = drizzle_migrations::diff(&live, &schema.to_snapshot()).expect("diff");
+    assert!(plan.statements.is_empty(), "{:#?}", plan.statements);
+}
+
 /// A column that went away while another appeared may be a rename: push
 /// asks instead of guessing, and keeps the rows once told.
 #[cfg(feature = "rusqlite")]

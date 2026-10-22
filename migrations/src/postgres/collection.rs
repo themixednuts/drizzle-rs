@@ -743,7 +743,8 @@ fn is_numeric_literal(value: &str) -> bool {
 
 /// Strip one trailing `::type` cast if — and only if — the `::` sits outside
 /// any single-quoted literal and everything after it is a plain type name
-/// (identifier characters, spaces, digits, parentheses, and `[]`).
+/// (identifier characters, spaces, digits, parentheses, and `[]`, plus any
+/// character inside a double-quoted name such as `"mood-enum"`).
 fn strip_trailing_cast(value: &str) -> Option<&str> {
     let bytes = value.as_bytes();
     let mut in_quotes = false;
@@ -763,10 +764,16 @@ fn strip_trailing_cast(value: &str) -> Option<&str> {
 
     let cast_pos = cast_pos?;
     let suffix = &value[cast_pos + 2..];
+    let mut in_name = false;
     let is_type_name = !suffix.is_empty()
         && suffix.chars().all(|c| {
-            c.is_ascii_alphanumeric()
-                || matches!(c, '_' | ' ' | '(' | ')' | ',' | '[' | ']' | '"' | '.')
+            if c == '"' {
+                in_name = !in_name;
+                return true;
+            }
+            in_name
+                || c.is_alphanumeric()
+                || matches!(c, '_' | ' ' | '(' | ')' | ',' | '[' | ']' | '.')
         });
     if is_type_name {
         Some(value[..cast_pos].trim_end())
@@ -1078,6 +1085,21 @@ mod tests {
 
     fn column_with_type(sql_type: &str) -> Column {
         Column::new("public", "users", "value", sql_type.to_string())
+    }
+
+    /// PostgreSQL casts an enum default to its type; a quoted type name may
+    /// hold any character.
+    #[test]
+    fn enum_default_casts_strip_quoted_type_names() {
+        assert_eq!(
+            normalize_default_for_compare("'ok'::\"mood-enum2\""),
+            "'ok'"
+        );
+        assert_eq!(
+            normalize_default_for_compare("'ok'::\"app\".\"Mood Kind\""),
+            "'ok'"
+        );
+        assert_eq!(normalize_default_for_compare("'ok'::mood"), "'ok'");
     }
 
     /// What drizzle-kit writes and what the macros write for the same

@@ -238,11 +238,12 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             // the user can recreate the index manually.
             // TODO: support expression columns once the index macro can
             // represent them.
-            let expressions: Vec<&str> = index
+            // One line each, so a multi-line expression stays in the comment.
+            let expressions: Vec<String> = index
                 .columns
                 .iter()
                 .filter(|c| c.is_expression)
-                .map(|c| c.value.as_ref())
+                .map(|c| c.value.split_whitespace().collect::<Vec<_>>().join(" "))
                 .collect();
             let _ = writeln!(
                 code,
@@ -590,7 +591,11 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
     if let Some(default) = &column.default
         && column.generated.is_none()
     {
-        if let Some(d) = format_default_value(default, &column.sql_type) {
+        if is_bool_column(column)
+            && let Some(value) = bool_default(default)
+        {
+            attrs.push(format!("default = {value}"));
+        } else if let Some(d) = format_default_value(default, &column.sql_type) {
             attrs.push(format!("default = {d}"));
         } else if !default.trim().eq_ignore_ascii_case("null") {
             match default_expression(default) {
@@ -739,6 +744,24 @@ fn inferred_view_columns(view: &View, ddl: &SQLiteDDL, warnings: &mut Vec<String
         }
     }
     columns
+}
+
+/// A column generated as a `bool` field: declared `BOOLEAN`, or an INTEGER
+/// with a `true`/`false` default.
+fn is_bool_column(column: &Column) -> bool {
+    column.sql_type.eq_ignore_ascii_case("boolean") || is_boolean_default(column)
+}
+
+/// A `bool` field's default: `true`/`false` (bare or quoted, any case) or
+/// `1`/`0`.
+fn bool_default(default: &str) -> Option<&'static str> {
+    let default = default.trim();
+    let value = unquote_sql_string(default).unwrap_or_else(|| default.to_string());
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" => Some("true"),
+        "false" | "0" => Some("false"),
+        _ => None,
+    }
 }
 
 /// An INTEGER column whose default is the SQL boolean `true` or `false`.
@@ -1327,12 +1350,15 @@ pub struct AppSchema {
             "users",
             "users_email_lower_idx",
             vec![IndexColumn {
-                value: "lower(email)".into(),
+                value: "lower(\n    email\n)".into(),
                 is_expression: true,
             }],
         ));
 
         let result = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        // A multi-line expression stays inside the comment.
+        assert!(result.code.contains("(lower( email ))"), "{}", result.code);
 
         assert!(
             result
@@ -1352,6 +1378,36 @@ pub struct AppSchema {
                 .iter()
                 .any(|w| w.contains("users_email_lower_idx")),
             "expected a warning for the skipped index"
+        );
+    }
+
+    /// A `BOOLEAN` column pulls as a `bool` field, with its default as a
+    /// Rust boolean however SQL spelled it.
+    #[test]
+    fn test_boolean_column_defaults_become_rust_booleans() {
+        let mut ddl = SQLiteDDL::new();
+        ddl.tables.push(Table::new("flags"));
+        ddl.columns.push(
+            Column::new("flags", "archived", "BOOLEAN")
+                .not_null()
+                .default_value("'FALSE'"),
+        );
+        ddl.columns
+            .push(Column::new("flags", "active", "boolean").default_value("TRUE"));
+
+        let result = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            result.code.contains("#[column(default = false)]")
+                && result.code.contains("archived: bool,"),
+            "{}",
+            result.code
+        );
+        assert!(
+            result.code.contains("#[column(default = true)]")
+                && result.code.contains("active: Option<bool>,"),
+            "{}",
+            result.code
         );
     }
 

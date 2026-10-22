@@ -8,6 +8,7 @@ use super::ddl::{
     CheckConstraint, Column, Enum, ForeignKey, Index, Policy, PrimaryKey, Table, UniqueConstraint,
     View,
 };
+use super::grammar::{extract_nextval_sequence, is_serial_expression};
 use crate::utils::{
     ViewSelectItem, default_expression, escape_for_rust_literal, macro_default_name_matches,
     rust_ident, unsupported_default_comment, view_select_columns,
@@ -303,6 +304,12 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
         enum_types.push(names.type_name.clone());
     }
 
+    let standalone_sequences: HashSet<(String, String)> = ddl
+        .sequences
+        .list()
+        .iter()
+        .map(|sequence| (sequence.schema.to_string(), sequence.name.to_string()))
+        .collect();
     for sequence in ddl.sequences.list() {
         result.warnings.push(format!(
             "sequence `{}.{}` has no Rust schema equivalent and was not generated; `drizzle generate` would drop it",
@@ -343,6 +350,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
                     .map_or(&[][..], std::vec::Vec::as_slice),
                 fk_map: &maps.fk_map,
                 enum_map: &maps.enum_map,
+                standalone_sequences: &standalone_sequences,
                 use_pub: options.use_pub,
                 field_casing: options.field_casing,
             },
@@ -447,6 +455,8 @@ struct TableGenContext<'a> {
     table_fks: &'a [&'a ForeignKey],
     fk_map: &'a HashMap<(String, String, String), (&'a ForeignKey, usize)>,
     enum_map: &'a HashMap<(String, String), String>,
+    /// `(schema, name)` of sequences no column owns.
+    standalone_sequences: &'a HashSet<(String, String)>,
     use_pub: bool,
     field_casing: FieldCasing,
 }
@@ -844,14 +854,24 @@ fn generate_column_field(
     let should_add_primary = is_pk;
 
     // Serial columns: drizzle-kit records the `serial` type; a database
-    // reports the integer type with a `nextval(...)` default.
+    // reports the integer type with a default reading the column's own
+    // sequence. A default on a standalone sequence stays a default.
     let serial_kind = serial_attr(&column.sql_type).or_else(|| {
-        (column
-            .default
-            .as_ref()
-            .is_some_and(|d| d.contains("nextval"))
-            && column.identity.is_none())
-        .then_some("serial")
+        let default = column.default.as_deref()?;
+        let owned = is_serial_expression(default, &column.schema)
+            && !extract_nextval_sequence(default).is_some_and(|sequence| {
+                ctx.standalone_sequences
+                    .contains(&(column.schema.to_string(), sequence))
+            });
+        if !owned || column.identity.is_some() {
+            return None;
+        }
+        match column.sql_type.trim().to_ascii_lowercase().as_str() {
+            "int2" | "smallint" => Some("smallserial"),
+            "int4" | "integer" => Some("serial"),
+            "int8" | "bigint" => Some("bigserial"),
+            _ => None,
+        }
     });
     let is_serial = serial_kind.is_some();
 
@@ -1474,7 +1494,8 @@ fn generate_index_struct(
         .iter()
         .map(|c| {
             if c.is_expression {
-                format!("\"{}\"", c.value) // Expression indexes use string literals
+                // Expression indexes use string literals.
+                format!("\"{}\"", escape_for_rust_literal(&c.value))
             } else {
                 format!(
                     "{}::{}",

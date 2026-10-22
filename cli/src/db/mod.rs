@@ -3322,7 +3322,9 @@ pub struct IntrospectResult {
 /// creates the whole schema).
 ///
 /// The tracking table is excluded and `filters` applied before anything is
-/// written. With `init_metadata`, the baseline is then recorded as applied.
+/// written. With `init_metadata`, the baseline is then recorded as applied;
+/// without it, the baseline's SQL is commented out, so `migrate` does not
+/// try to create what the database already has.
 ///
 /// # Errors
 ///
@@ -3407,9 +3409,18 @@ pub fn run_introspection(
     let sql_statements =
         generate_introspect_migration(&empty_snapshot, &result.snapshot, breakpoints)?;
 
-    // Write migration.sql: {out}/{tag}/migration.sql
+    // Write migration.sql: {out}/{tag}/migration.sql. Without `--init` the
+    // database is not marked as migrated, so the SQL is commented out (as
+    // drizzle-kit does): `migrate` would otherwise create what exists.
     let migration_sql_path = migration_dir.join("migration.sql");
-    let sql_content = format_migration_sql(&sql_statements, breakpoints);
+    let mut sql_content = format_migration_sql(&sql_statements, breakpoints);
+    if !init_metadata {
+        sql_content = format!(
+            "-- Current sql file was generated after introspecting the database\n\
+             -- If you want to run this migration please uncomment this code before executing migrations\n\
+             /*\n{sql_content}\n*/"
+        );
+    }
     std::fs::write(&migration_sql_path, &sql_content).map_err(|e| {
         CliError::Other(format!(
             "Failed to write migration file '{}': {}",

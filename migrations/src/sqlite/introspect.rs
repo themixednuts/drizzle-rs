@@ -671,6 +671,9 @@ fn parse_index_item(item: &str) -> IndexColumn {
 #[must_use]
 pub fn parse_index_sql(sql: &str) -> ParsedIndexSql {
     let mut parsed = ParsedIndexSql::default();
+    // Comments can hold parentheses, commas or `WHERE`.
+    let sql = super::table_sql::blank_comments(sql);
+    let sql = sql.as_str();
 
     // Find the first '(' outside quoted identifiers/strings, then its
     // balanced closing paren.
@@ -1159,6 +1162,10 @@ pub mod queries {
     "#;
 
     /// Query all foreign keys in one round trip.
+    ///
+    /// `REFERENCES parent` without a column list targets the parent's
+    /// primary key, and the pragma reports its `to` as NULL; the key's
+    /// `seq`-th column is then the parent's `seq`-th primary key column.
     pub const FOREIGN_KEYS_QUERY: &str = r#"
         SELECT
             m.name AS "table",
@@ -1166,7 +1173,10 @@ pub mod queries {
             p.seq,
             p."table" AS to_table,
             p."from" AS from_column,
-            p."to" AS to_column,
+            COALESCE(
+                p."to",
+                (SELECT t.name FROM pragma_table_info(p."table") AS t WHERE t.pk = p.seq + 1)
+            ) AS to_column,
             p.on_update,
             p.on_delete,
             p."match"
@@ -1190,11 +1200,14 @@ pub mod queries {
 /// `CREATE VIEW v(a, b) AS ...` is skipped over).
 #[must_use]
 pub fn parse_view_sql(sql: &str) -> Option<String> {
-    let bytes = sql.as_bytes();
+    // Find `AS` with comments blanked out, then return the original text
+    // after it.
+    let blanked = super::table_sql::blank_comments(sql);
+    let bytes = blanked.as_bytes();
     let mut in_quote: Option<char> = None;
     let mut depth = 0i32;
 
-    for (i, ch) in sql.char_indices() {
+    for (i, ch) in blanked.char_indices() {
         match (in_quote, ch) {
             (Some(q), _) if quote_closer(q) == ch => in_quote = None,
             (Some(_), _) => {}
@@ -1203,10 +1216,10 @@ pub fn parse_view_sql(sql: &str) -> Option<String> {
             (None, ')') => depth -= 1,
             (None, 'a' | 'A') if depth == 0 => {
                 let end = i + 2;
-                if end <= sql.len()
-                    && sql[i..end].eq_ignore_ascii_case("as")
+                if end <= blanked.len()
+                    && blanked[i..end].eq_ignore_ascii_case("as")
                     && (i == 0 || !is_ident_byte(bytes[i - 1]))
-                    && (end == sql.len() || !is_ident_byte(bytes[end]))
+                    && (end == blanked.len() || !is_ident_byte(bytes[end]))
                 {
                     let definition = sql[end..].trim().trim_end_matches(';').trim();
                     if definition.is_empty() {
@@ -1256,6 +1269,14 @@ mod tests {
         assert_eq!(
             definition,
             Some("SELECT * FROM users WHERE active = 1".to_string())
+        );
+
+        // An `as` in a comment before the real one is not the definition's
+        // start.
+        let sql = "CREATE VIEW v /* as before */ AS SELECT 1 -- as after";
+        assert_eq!(
+            parse_view_sql(sql),
+            Some("SELECT 1 -- as after".to_string())
         );
     }
 
@@ -1342,6 +1363,14 @@ CREATE TABLE users (
         assert!(parsed.where_clause.is_none());
         assert_eq!(parsed.columns.len(), 1);
         assert!(parsed.columns[0].is_expression);
+
+        // Nor inside a comment, which can also hold parentheses and commas.
+        let parsed =
+            parse_index_sql("CREATE INDEX i /* on (x) */ ON t(a, -- where, b\n c) -- where d > 0");
+        assert!(parsed.where_clause.is_none(), "{:?}", parsed.where_clause);
+        assert_eq!(parsed.columns.len(), 2);
+        assert_eq!(parsed.columns[0].value, "a");
+        assert_eq!(parsed.columns[1].value, "c");
     }
 
     #[test]
