@@ -1,5 +1,5 @@
 use crate::common::enum_utils::{
-    has_explicit_discriminants, has_integer_repr, resolve_discriminants,
+    has_explicit_discriminants, has_integer_repr, resolve_discriminants, validate_marker_attribute,
 };
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use proc_macro2::TokenStream;
@@ -26,6 +26,11 @@ pub fn generate_enum_impl(
     let sqlite_value = sqlite_paths::sqlite_value();
     let sqlite_value_ref = sqlite_paths::sqlite_value_ref();
     let sqlite_types = sqlite_paths::types();
+    let core_expr = core_paths::expr();
+
+    // `#[sqlite_enum]` marks an enum that also derives `PostgresEnum` or
+    // `MySQLEnum`; those then leave the dialect-neutral impls to this derive.
+    validate_marker_attribute(attrs, "sqlite_enum")?;
 
     let display_variants = data.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
@@ -569,6 +574,10 @@ pub fn generate_enum_impl(
 
         impl #schema_item_tables for #name {
             type Tables = #type_set_nil;
+        }
+
+        impl #core_expr::ExprSources for #name {
+            type Sources = ();
         }
     })
 }

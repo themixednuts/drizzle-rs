@@ -103,3 +103,34 @@ pub fn resolve_discriminants(data: &DataEnum) -> syn::Result<Vec<(&syn::Ident, i
 
     Ok(results)
 }
+
+/// Whether the enum carries the `#[name]` helper attribute of another enum
+/// derive.
+///
+/// An enum can derive more than one dialect's enum (`SQLiteEnum`,
+/// `PostgresEnum`, `MySQLEnum`). Each derive generates the same
+/// dialect-neutral impls (`Display`, `FromStr`, `TryFrom<&str>`, ...), and a
+/// derive cannot see which other derives sit on the enum, so the impls are
+/// emitted by one of them only: SQLite first, then Postgres, then MySQL. A
+/// derive leaves them to a higher-priority derive whose helper attribute
+/// (`#[sqlite_enum]`, `#[postgres_enum]`) is on the enum. A helper attribute
+/// only compiles when its derive is present, so its presence proves the
+/// other derive will emit them.
+#[cfg_attr(not(any(feature = "postgres", feature = "mysql")), allow(dead_code))]
+pub fn has_helper_attribute(attrs: &[Attribute], name: &str) -> bool {
+    attrs.iter().any(|attr| attr.path().is_ident(name))
+}
+
+/// Rejects arguments on a marker attribute such as `#[sqlite_enum]`.
+#[cfg_attr(not(feature = "sqlite"), allow(dead_code))]
+pub fn validate_marker_attribute(attrs: &[Attribute], name: &str) -> syn::Result<()> {
+    for attr in attrs {
+        if attr.path().is_ident(name) && !matches!(attr.meta, syn::Meta::Path(_)) {
+            return Err(syn::Error::new_spanned(
+                attr,
+                format!("#[{name}] takes no arguments"),
+            ));
+        }
+    }
+    Ok(())
+}

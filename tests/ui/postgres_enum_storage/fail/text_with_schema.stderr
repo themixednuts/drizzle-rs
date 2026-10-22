@@ -1,0 +1,5 @@
+error: #[postgres_enum(schema = "...")] requires a native PostgreSQL enum; #[postgres_enum(text)] enums are stored in TEXT columns and create no type
+ --> tests/ui/postgres_enum_storage/fail/text_with_schema.rs:5:6
+  |
+5 | enum Channel {
+  |      ^^^^^^^
