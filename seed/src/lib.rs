@@ -79,14 +79,14 @@
 //! }
 //!
 //! let schema = AppSchema::new();
-//! let statements = SeedConfig::sqlite(&schema)
+//! let config = SeedConfig::sqlite(&schema)
 //!     .seed(42)
 //!     .count(&schema.users, 5)                     // 5 users
 //!     .relation(&schema.users, &schema.posts, 3)   // 3 posts per user: 15 posts
-//!     .generator(&schema.users.age, generators::int(18..=90).nullable(0.1))
-//!     .generate();
+//!     .generator(&schema.users.age, generators::int(18..=90).nullable(0.1));
 //!
-//! for statement in statements {
+//! // Made one table at a time as the loop runs.
+//! for statement in config.generate() {
 //!     db.execute(statement)?; // parents first
 //! }
 //! ```
@@ -130,8 +130,9 @@
 //! assert_eq!(reset.len(), 2);
 //!
 //! // A typo is an error, which lists the names that do exist.
-//! let error = SeedConfig::postgres(&schema).count_by_name("user", 5).try_generate();
-//! assert!(matches!(error, Err(SeedError::UnknownTable { .. })));
+//! let typo = SeedConfig::postgres(&schema).count_by_name("user", 5);
+//! let mut statements = typo.try_generate();
+//! assert!(matches!(statements.next(), Some(Err(SeedError::UnknownTable { .. }))));
 //! # }
 //! # Ok::<(), drizzle_seed::SeedError>(())
 //! ```
@@ -516,6 +517,184 @@ struct GeneratedChunk<'a> {
     rows: Vec<Vec<SeedValue>>,
 }
 
+/// The per-table iterator of [`Seeder::table_chunks`].
+struct TableChunks<'a, D, S> {
+    seeder: Seeder<'a, D, S>,
+    param_limit: usize,
+    /// Tables still to generate, parents first.
+    order: std::vec::IntoIter<TableId>,
+    /// A planning error, returned as the first item.
+    error: Option<SeedError>,
+    table_map: HashMap<TableId, &'static TableRef>,
+    table_name_counts: HashMap<&'static str, usize>,
+    /// For each parent, how many tables still to generate read its values.
+    readers: HashMap<TableId, usize>,
+    /// For each parent, the columns its children's foreign keys read.
+    read_columns: HashMap<TableId, HashSet<&'static str>>,
+    generated_values: HashMap<ColumnId, Vec<SeedValue>>,
+    generated_counts: HashMap<TableId, usize>,
+}
+
+impl<'a, D, S> TableChunks<'a, D, S>
+where
+    S: drizzle_core::SQLSchemaImpl,
+{
+    /// Generates one table's rows; `None` when it gets none.
+    fn generate_table(
+        &mut self,
+        table: &'static TableRef,
+    ) -> Result<Option<Vec<GeneratedChunk<'a>>>, SeedError> {
+        let table_id = TableId::from_ref(table);
+        let columns = table.columns;
+        if columns.is_empty() {
+            return Ok(None);
+        }
+
+        let count = self.seeder.derived_count_for(table, &self.generated_counts);
+        if count == 0 {
+            self.generated_counts.insert(table_id, 0);
+            return Ok(None);
+        }
+
+        let generators = self.seeder.build_generators(table);
+        let col_index_map: HashMap<&'static str, usize> = columns
+            .iter()
+            .enumerate()
+            .map(|(idx, col)| (col.name, idx))
+            .collect();
+        let relation_specs = self.seeder.relation_specs_for(table);
+
+        let mut all_rows: Vec<Vec<SeedValue>> = Vec::with_capacity(count);
+        let mut col_rngs: Vec<StdRng> = columns
+            .iter()
+            .map(|column| {
+                rng::table_column_rng(
+                    table_id,
+                    column.name,
+                    self.seeder.config.seed,
+                    self.table_name_counts.get(table.name).copied().unwrap_or(0) > 1,
+                )
+            })
+            .collect();
+
+        let mut unique_seen: Vec<Option<HashSet<String>>> = columns
+            .iter()
+            .map(|column| unique_column(table, column).then(HashSet::new))
+            .collect();
+
+        for row_idx in 0..count {
+            let mut row = Vec::with_capacity(columns.len());
+            for (col_idx, generator) in generators.iter().enumerate() {
+                let column = &columns[col_idx];
+                let rng = &mut col_rngs[col_idx];
+                let mut val = generator.generate(rng, row_idx, column.sql_type);
+                if let Some(seen) = unique_seen[col_idx].as_mut() {
+                    val = unique_value(
+                        val,
+                        seen,
+                        row_idx,
+                        column,
+                        |rng| generator.generate(rng, row_idx, column.sql_type),
+                        rng,
+                    );
+                }
+                row.push(val);
+            }
+
+            Seeder::<D, S>::apply_many_to_one_relations(
+                &mut row,
+                row_idx,
+                &RelationContext {
+                    source_table: table,
+                    column_indexes: &col_index_map,
+                    specs: &relation_specs,
+                    generated_values: &self.generated_values,
+                    generated_counts: &self.generated_counts,
+                    active_tables: &self.table_map,
+                },
+            )?;
+
+            all_rows.push(row);
+        }
+
+        // Foreign key values come from the parent rows, so two rows can
+        // repeat a composite key (`(user_id, post_id)` in a join table).
+        // Drop the repeats instead of emitting an INSERT that fails.
+        drop_composite_key_repeats(table, &col_index_map, &mut all_rows);
+        let count = all_rows.len();
+
+        // Keep the values later tables' foreign keys read.
+        if let Some(read) = self.read_columns.get(&table_id) {
+            for (col_idx, col) in columns.iter().enumerate() {
+                if read.contains(col.name) {
+                    let vals: Vec<SeedValue> =
+                        all_rows.iter().map(|row| row[col_idx].clone()).collect();
+                    self.generated_values
+                        .insert(ColumnId::new(table_id, col.name), vals);
+                }
+            }
+        }
+
+        self.generated_counts.insert(table_id, count);
+
+        let param_limit = self.param_limit;
+        let ranges = batch_ranges_by_param_limit(&all_rows, param_limit).map_err(|required| {
+            SeedError::ParameterLimitTooLow {
+                table: table_id.to_string(),
+                required,
+                limit: param_limit,
+            }
+        })?;
+        let mut chunks = Vec::with_capacity(ranges.len());
+        for &(start, _) in ranges.iter().rev() {
+            chunks.push(GeneratedChunk {
+                table,
+                rows: all_rows.split_off(start),
+            });
+        }
+        chunks.reverse();
+        Ok(Some(chunks))
+    }
+}
+
+impl<'a, D, S> Iterator for TableChunks<'a, D, S>
+where
+    S: drizzle_core::SQLSchemaImpl,
+{
+    type Item = Result<Vec<GeneratedChunk<'a>>, SeedError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(error) = self.error.take() {
+            return Some(Err(error));
+        }
+        loop {
+            let table_id = self.order.next()?;
+            let Some(&table) = self.table_map.get(&table_id) else {
+                continue;
+            };
+            let generated = self.generate_table(table);
+            // Drop the values of parents no table still to come reads.
+            for parent in Seeder::<D, S>::parent_table_ids(table) {
+                if let Some(readers) = self.readers.get_mut(&parent) {
+                    *readers -= 1;
+                    if *readers == 0 {
+                        self.generated_values
+                            .retain(|column, _| column.table != parent);
+                    }
+                }
+            }
+            match generated {
+                Ok(Some(chunks)) => return Some(Ok(chunks)),
+                Ok(None) => {}
+                Err(error) => {
+                    self.order = Vec::new().into_iter();
+                    return Some(Err(error));
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 struct RelationSpec {
     target_table: TableId,
@@ -549,181 +728,97 @@ where
         Self { config }
     }
 
-    fn generate_chunks(
-        &self,
-        dialect_max_params: usize,
-    ) -> Result<Vec<GeneratedChunk<'a>>, SeedError> {
-        self.config.check_names()?;
-        let active_tables = self.config.active_tables();
-        let order = topology::seeding_order(&active_tables).map_err(|error| {
-            SeedError::CyclicForeignKeys {
-                tables: error
-                    .tables
-                    .into_iter()
-                    .map(|table| table.to_string())
-                    .collect(),
+    /// Generates the rows table by table, parents first: one item per
+    /// table, split into chunks that stay under `dialect_max_params` (or the
+    /// configured limit). The iterator ends after the first error.
+    fn table_chunks(self, dialect_max_params: usize) -> TableChunks<'a, D, S> {
+        let config = self.config;
+        let param_limit = config
+            .max_params_per_batch
+            .unwrap_or(dialect_max_params)
+            .max(1);
+        let mut chunks = TableChunks {
+            seeder: self,
+            param_limit,
+            order: Vec::new().into_iter(),
+            error: None,
+            table_map: HashMap::new(),
+            table_name_counts: HashMap::new(),
+            readers: HashMap::new(),
+            read_columns: HashMap::new(),
+            generated_values: HashMap::new(),
+            generated_counts: HashMap::new(),
+        };
+        if let Err(error) = config.check_names() {
+            chunks.error = Some(error);
+            return chunks;
+        }
+        let active_tables = config.active_tables();
+        let order = match topology::seeding_order(&active_tables) {
+            Ok(order) => order,
+            Err(error) => {
+                chunks.error = Some(SeedError::CyclicForeignKeys {
+                    tables: error
+                        .tables
+                        .into_iter()
+                        .map(|table| table.to_string())
+                        .collect(),
+                });
+                return chunks;
             }
-        })?;
-        let table_map: HashMap<TableId, &TableRef> = active_tables
+        };
+        chunks.table_map = active_tables
             .iter()
             .map(|table| (TableId::from_ref(table), *table))
             .collect();
-        let mut table_name_counts: HashMap<&'static str, usize> = HashMap::new();
         for table in &active_tables {
-            *table_name_counts.entry(table.name).or_default() += 1;
+            *chunks.table_name_counts.entry(table.name).or_default() += 1;
         }
-
-        let mut generated_values: HashMap<ColumnId, Vec<SeedValue>> = HashMap::new();
-        let mut generated_counts: HashMap<TableId, usize> = HashMap::new();
-        let mut chunks_out = Vec::new();
-
-        for table_id in order {
-            let Some(&table) = table_map.get(&table_id) else {
-                continue;
-            };
-
-            let columns = table.columns;
-            if columns.is_empty() {
-                continue;
-            }
-
-            let count = self.derived_count_for(table, &generated_counts);
-            if count == 0 {
-                generated_counts.insert(table_id, 0);
-                continue;
-            }
-
-            let generators = self.build_generators(table);
-            let col_index_map: HashMap<&'static str, usize> = columns
-                .iter()
-                .enumerate()
-                .map(|(idx, col)| (col.name, idx))
-                .collect();
-            let relation_specs = self.relation_specs_for(table);
-
-            let mut all_rows: Vec<Vec<SeedValue>> = Vec::with_capacity(count);
-            let mut col_rngs: Vec<StdRng> = columns
-                .iter()
-                .map(|column| {
-                    rng::table_column_rng(
-                        table_id,
-                        column.name,
-                        self.config.seed,
-                        table_name_counts.get(table.name).copied().unwrap_or(0) > 1,
-                    )
-                })
-                .collect();
-
-            let mut unique_seen: Vec<Option<HashSet<String>>> = columns
-                .iter()
-                .map(|column| unique_column(table, column).then(HashSet::new))
-                .collect();
-
-            for row_idx in 0..count {
-                let mut row = Vec::with_capacity(columns.len());
-                for (col_idx, generator) in generators.iter().enumerate() {
-                    let column = &columns[col_idx];
-                    let rng = &mut col_rngs[col_idx];
-                    let mut val = generator.generate(rng, row_idx, column.sql_type);
-                    if let Some(seen) = unique_seen[col_idx].as_mut() {
-                        val = unique_value(
-                            val,
-                            seen,
-                            row_idx,
-                            column,
-                            |rng| generator.generate(rng, row_idx, column.sql_type),
-                            rng,
-                        );
-                    }
-                    row.push(val);
+        // A parent's values are kept until the last table that reads them
+        // through a foreign key is generated.
+        for table in &active_tables {
+            for parent in Self::parent_table_ids(table) {
+                if !chunks.table_map.contains_key(&parent) {
+                    continue;
                 }
-
-                Self::apply_many_to_one_relations(
-                    &mut row,
-                    row_idx,
-                    &RelationContext {
-                        source_table: table,
-                        column_indexes: &col_index_map,
-                        specs: &relation_specs,
-                        generated_values: &generated_values,
-                        generated_counts: &generated_counts,
-                        active_tables: &table_map,
-                    },
-                )?;
-
-                all_rows.push(row);
-            }
-
-            // Foreign key values come from the parent rows, so two rows can
-            // repeat a composite key (`(user_id, post_id)` in a join table).
-            // Drop the repeats instead of emitting an INSERT that fails.
-            drop_composite_key_repeats(table, &col_index_map, &mut all_rows);
-            let count = all_rows.len();
-
-            // Store generated values for all columns for FK/composite resolution
-            for (col_idx, col) in columns.iter().enumerate() {
-                let vals: Vec<SeedValue> =
-                    all_rows.iter().map(|row| row[col_idx].clone()).collect();
-                generated_values.insert(ColumnId::new(table_id, col.name), vals);
-            }
-
-            generated_counts.insert(table_id, count);
-
-            let param_limit = self
-                .config
-                .max_params_per_batch
-                .unwrap_or(dialect_max_params)
-                .max(1);
-
-            for (start, end) in
-                batch_ranges_by_param_limit(&all_rows, param_limit).map_err(|required| {
-                    SeedError::ParameterLimitTooLow {
-                        table: table_id.to_string(),
-                        required,
-                        limit: param_limit,
+                *chunks.readers.entry(parent).or_default() += 1;
+                let columns = chunks.read_columns.entry(parent).or_default();
+                for foreign_key in table.foreign_keys {
+                    if TableId::foreign_target(table, foreign_key) == parent {
+                        columns.extend(foreign_key.target_columns.iter().copied());
                     }
-                })?
-            {
-                chunks_out.push(GeneratedChunk {
-                    table,
-                    rows: all_rows[start..end].to_vec(),
-                });
+                }
             }
         }
-
-        Ok(chunks_out)
+        chunks.order = order.into_iter();
+        chunks
     }
 
-    fn generate_rows(&self) -> Result<Vec<SeedRows>, SeedError> {
+    fn generate_rows(self) -> Result<Vec<SeedRows>, SeedError> {
         let mut out: Vec<SeedRows> = Vec::new();
-        for chunk in self.generate_chunks(usize::MAX)? {
-            let kept: Vec<usize> = chunk
-                .table
-                .columns
-                .iter()
-                .enumerate()
-                .filter(|(_, column)| generated_expression(column).is_none())
-                .map(|(index, _)| index)
-                .collect();
-            let rows = chunk
-                .rows
-                .into_iter()
-                .map(|row| kept.iter().map(|&index| row[index].clone()).collect());
-            match out.last_mut() {
-                Some(last)
-                    if last.table == chunk.table.name && last.schema == chunk.table.schema =>
-                {
-                    last.rows.extend(rows);
-                }
-                _ => out.push(SeedRows {
+        for chunks in self.table_chunks(usize::MAX) {
+            for chunk in chunks? {
+                let kept: Vec<usize> = chunk
+                    .table
+                    .columns
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, column)| generated_expression(column).is_none())
+                    .map(|(index, _)| index)
+                    .collect();
+                out.push(SeedRows {
                     schema: chunk.table.schema,
                     table: chunk.table.name,
                     columns: kept
                         .iter()
                         .map(|&index| chunk.table.columns[index].name)
                         .collect(),
-                    rows: rows.collect(),
-                }),
+                    rows: chunk
+                        .rows
+                        .into_iter()
+                        .map(|row| kept.iter().map(|&index| row[index].clone()).collect())
+                        .collect(),
+                });
             }
         }
         Ok(out)
@@ -971,13 +1066,18 @@ impl<S> Seeder<'_, Sqlite, S>
 where
     S: drizzle_core::SQLSchemaImpl,
 {
-    fn generate_sqlite(&self) -> Result<Vec<SQLiteSeedStatement>, SeedError> {
-        let chunks = self.generate_chunks(batch::SQLITE_MAX_PARAMS)?;
-        let mut statements = Vec::with_capacity(chunks.len());
-        for chunk in &chunks {
-            build_sqlite_statements(chunk, &mut statements);
-        }
-        Ok(statements)
+    fn generate_sqlite(self) -> impl Iterator<Item = Result<SQLiteSeedStatement, SeedError>> {
+        self.table_chunks(batch::SQLITE_MAX_PARAMS)
+            .flat_map(|chunks| match chunks {
+                Ok(chunks) => {
+                    let mut statements = Vec::with_capacity(chunks.len());
+                    for chunk in &chunks {
+                        build_sqlite_statements(chunk, &mut statements);
+                    }
+                    statements.into_iter().map(Ok).collect()
+                }
+                Err(error) => vec![Err(error)],
+            })
     }
 
     fn reset_sqlite(&self) -> Result<Vec<SQLiteResetStatement>, SeedError> {
@@ -997,23 +1097,18 @@ impl<S> Seeder<'_, Postgres, S>
 where
     S: drizzle_core::SQLSchemaImpl,
 {
-    fn generate_postgres(&self) -> Result<Vec<PostgresSeedStatement>, SeedError> {
-        let chunks = self.generate_chunks(batch::POSTGRES_MAX_PARAMS)?;
-        let mut statements = Vec::with_capacity(chunks.len());
-        let mut table_chunks: Vec<&GeneratedChunk<'_>> = Vec::new();
-        for chunk in &chunks {
-            if table_chunks
-                .first()
-                .is_some_and(|first| !std::ptr::eq(first.table, chunk.table))
-            {
-                statements.extend(build_postgres_sequence_sync(&table_chunks));
-                table_chunks.clear();
-            }
-            statements.push(build_postgres_statement(chunk));
-            table_chunks.push(chunk);
-        }
-        statements.extend(build_postgres_sequence_sync(&table_chunks));
-        Ok(statements)
+    fn generate_postgres(self) -> impl Iterator<Item = Result<PostgresSeedStatement, SeedError>> {
+        self.table_chunks(batch::POSTGRES_MAX_PARAMS)
+            .flat_map(|chunks| match chunks {
+                Ok(chunks) => {
+                    let mut statements: Vec<_> =
+                        chunks.iter().map(build_postgres_statement).collect();
+                    let chunks: Vec<&GeneratedChunk<'_>> = chunks.iter().collect();
+                    statements.extend(build_postgres_sequence_sync(&chunks));
+                    statements.into_iter().map(Ok).collect()
+                }
+                Err(error) => vec![Err(error)],
+            })
     }
 
     fn reset_postgres(&self) -> Result<Vec<PostgresResetStatement>, SeedError> {
@@ -1033,11 +1128,12 @@ impl<S> Seeder<'_, MySql, S>
 where
     S: drizzle_core::SQLSchemaImpl,
 {
-    fn generate_mysql(&self) -> Result<Vec<MySQLSeedStatement>, SeedError> {
-        self.generate_chunks(batch::MYSQL_MAX_PARAMS)?
-            .iter()
-            .map(mysql_seed::build_statement)
-            .collect()
+    fn generate_mysql(self) -> impl Iterator<Item = Result<MySQLSeedStatement, SeedError>> {
+        self.table_chunks(batch::MYSQL_MAX_PARAMS)
+            .flat_map(|chunks| match chunks {
+                Ok(chunks) => chunks.iter().map(mysql_seed::build_statement).collect(),
+                Err(error) => vec![Err(error)],
+            })
     }
 
     fn reset_mysql(&self) -> Result<Vec<MySQLResetStatement>, SeedError> {

@@ -112,7 +112,7 @@ impl SeedContract for PostgresSeedContract {
             NameGenerator::Constant => config.generator(&ContractSimple::name, ConstantName),
             NameGenerator::Column => config.generator(&ContractSimple::name, &ContractSimple::name),
         };
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn related(options: RelatedOptions) -> Vec<Statement> {
@@ -133,7 +133,7 @@ impl SeedContract for PostgresSeedContract {
         if options.skip_child {
             config = config.skip(&schema.child);
         }
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn reset_related() -> Vec<String> {
@@ -162,7 +162,8 @@ impl SeedContract for PostgresSeedContract {
             .count(&schema.simple, 1)
             .max_params(1)
             .try_generate()
-            .unwrap_err()
+            .find_map(Result::err)
+            .unwrap()
     }
 
     fn unsafe_reset_error() -> SeedError {
@@ -179,7 +180,6 @@ impl SeedContract for PostgresSeedContract {
             .seed(seed)
             .default_count(count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -190,7 +190,6 @@ impl SeedContract for PostgresSeedContract {
             .seed(seed)
             .count(&schema.profile, count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -227,7 +226,8 @@ fn schema_qualified_tables_with_the_same_name_keep_distinct_counts() {
     let statements = SeedConfig::postgres(&schema)
         .count(&schema.first, 1)
         .count(&schema.second, 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     assert_eq!(statements.len(), 2);
     assert!(
@@ -385,7 +385,6 @@ mod executed {
             .relation(&schema.typed, &schema.child, 2)
             .generator(&schema.typed.level, generators::one_of([1, 5]))
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 
@@ -396,7 +395,6 @@ mod executed {
             .relation_by_name("public.seed_typed", "seed_typed_children", 2)
             .generator_by_name("seed_typed", "level", generators::one_of([1, 5]))
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 

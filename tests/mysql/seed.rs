@@ -180,7 +180,7 @@ impl SeedContract for MySQLSeedContract {
             NameGenerator::Constant => config.generator(&ContractSimple::name, ConstantName),
             NameGenerator::Column => config.generator(&ContractSimple::name, &ContractSimple::name),
         };
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn related(options: RelatedOptions) -> Vec<Statement> {
@@ -201,7 +201,7 @@ impl SeedContract for MySQLSeedContract {
         if options.skip_child {
             config = config.skip(&schema.child);
         }
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn reset_related() -> Vec<String> {
@@ -230,7 +230,8 @@ impl SeedContract for MySQLSeedContract {
             .count(&schema.simple, 1)
             .max_params(1)
             .try_generate()
-            .unwrap_err()
+            .find_map(Result::err)
+            .unwrap()
     }
 
     fn unsafe_reset_error() -> SeedError {
@@ -247,7 +248,6 @@ impl SeedContract for MySQLSeedContract {
             .seed(seed)
             .default_count(count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -258,7 +258,6 @@ impl SeedContract for MySQLSeedContract {
             .seed(seed)
             .count(&schema.profile, count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -299,7 +298,8 @@ fn mysql_seed_uses_native_rendering_and_values() {
         .seed(42)
         .count(&schema.specific, 3)
         .generator(&MySQLSpecific::founded_year, FixedYear)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
     let (sql, params) = statements[0].build();
 
     assert!(sql.starts_with("INSERT INTO `seed_specific`"));
@@ -357,7 +357,9 @@ fn mysql_seed_binds_temporal_fsp_columns_as_native_values() {
     let params = SeedConfig::mysql(&schema)
         .seed(42)
         .count(&schema.temporal, 2)
-        .generate()[0]
+        .generate()
+        .next()
+        .unwrap()
         .build()
         .1;
 
@@ -383,7 +385,8 @@ fn mysql_schema_qualified_tables_with_the_same_name_keep_distinct_counts() {
     let statements = SeedConfig::mysql(&schema)
         .count(&schema.first, 1)
         .count(&schema.second, 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     assert_eq!(statements.len(), 2);
     assert!(
@@ -578,7 +581,6 @@ fn mysql_runtime_schema_and_names_match_the_macro_schema() {
             .count(&schema.specific, 12)
             .generator(&MySQLSpecific::founded_year, FixedYear)
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 
@@ -589,7 +591,6 @@ fn mysql_runtime_schema_and_names_match_the_macro_schema() {
             .count_by_name("seed_specific", 12)
             .generator_by_name("seed_specific", "founded_year", FixedYear)
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 
@@ -603,7 +604,8 @@ fn mysql_table_names_in_two_databases_must_be_qualified() {
     let error = SeedConfig::mysql(&schema)
         .count_by_name("duplicate", 1)
         .try_generate()
-        .unwrap_err();
+        .find_map(Result::err)
+        .unwrap();
     assert!(
         matches!(&error, SeedError::AmbiguousTable { candidates, .. }
             if candidates == &["seed_a.duplicate", "seed_b.duplicate"]),
@@ -613,7 +615,8 @@ fn mysql_table_names_in_two_databases_must_be_qualified() {
     let statements = SeedConfig::mysql(&schema)
         .count_by_name("seed_a.duplicate", 1)
         .count_by_name("seed_b.duplicate", 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
     let mut param_counts: Vec<usize> = statements
         .iter()
         .map(|statement| statement.build().1.len())
@@ -654,7 +657,6 @@ fn mysql_snapshot_schema_matches_the_macro_schema() {
         .count_by_name("seed_specific", 9)
         .generator_by_name("seed_specific", "founded_year", FixedYear)
         .generate()
-        .iter()
         .map(|statement| statement.build())
         .collect();
     let snapshot: Vec<_> = SeedConfig::mysql(&from_snapshot)
@@ -662,7 +664,6 @@ fn mysql_snapshot_schema_matches_the_macro_schema() {
         .count_by_name("seed_specific", 9)
         .generator_by_name("seed_specific", "founded_year", FixedYear)
         .generate()
-        .iter()
         .map(|statement| statement.build())
         .collect();
     assert!(!typed.is_empty());

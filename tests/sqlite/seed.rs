@@ -98,7 +98,7 @@ impl SeedContract for SQLiteSeedContract {
             NameGenerator::Constant => config.generator(&ContractSimple::name, ConstantName),
             NameGenerator::Column => config.generator(&ContractSimple::name, &ContractSimple::name),
         };
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn related(options: RelatedOptions) -> Vec<Statement> {
@@ -119,7 +119,7 @@ impl SeedContract for SQLiteSeedContract {
         if options.skip_child {
             config = config.skip(&schema.child);
         }
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn reset_related() -> Vec<String> {
@@ -148,7 +148,8 @@ impl SeedContract for SQLiteSeedContract {
             .count(&schema.simple, 1)
             .max_params(1)
             .try_generate()
-            .unwrap_err()
+            .find_map(Result::err)
+            .unwrap()
     }
 
     fn unsafe_reset_error() -> SeedError {
@@ -165,7 +166,6 @@ impl SeedContract for SQLiteSeedContract {
             .seed(seed)
             .default_count(count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -176,7 +176,6 @@ impl SeedContract for SQLiteSeedContract {
             .seed(seed)
             .count(&schema.profile, count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -205,6 +204,30 @@ crate::common::seed::seed_contract_tests!(SQLiteSeedContract);
 // SeedConfig type-safe builder tests
 // ---------------------------------------------------------------------------
 
+// Statements come table by table, parents first; an error ends them.
+#[test]
+fn generate_yields_tables_in_order_and_stops_at_an_error() {
+    let schema = ContractRelatedSchema::new();
+    let config = SeedConfig::sqlite(&schema)
+        .count(&schema.parent, 3)
+        .count(&schema.child, 2);
+    let tables: Vec<String> = config
+        .generate()
+        .map(|statement| statement.table().to_string())
+        .collect();
+    assert_eq!(tables, ["seed_parent", "seed_child"]);
+
+    let config = SeedConfig::sqlite(&schema)
+        .count(&schema.parent, 0)
+        .count(&schema.child, 2);
+    let mut statements = config.try_generate();
+    assert!(matches!(
+        statements.next(),
+        Some(Err(SeedError::MissingParentRows { .. }))
+    ));
+    assert!(statements.next().is_none());
+}
+
 #[test]
 fn config_count_extracts_table_name() {
     let schema = FkCascadeSchema::new();
@@ -212,7 +235,8 @@ fn config_count_extracts_table_name() {
     let stmts = SeedConfig::sqlite(&schema)
         .count(&schema.fk_parent, 50)
         .count(&schema.fk_cascade, 200)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     // Count rows in parent INSERT
     let parent_sql = stmts
@@ -234,7 +258,8 @@ fn config_kind_override_via_column_ref() {
         .seed(42)
         .count(&schema.simple, 5)
         .kind(&Simple::name, GeneratorKind::Email)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let (sql, params) = stmts[0].build();
     assert!(sql.starts_with("INSERT INTO") && sql.contains("simple"));
@@ -258,7 +283,8 @@ fn config_kind_override_via_schema_config() {
         .seed(42)
         .count(&schema.simple, 5)
         .kind(&Simple::name, GeneratorKind::Email)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let (_sql, params) = stmts[0].build();
     for name_param in params.iter().skip(1).step_by(2) {
@@ -289,7 +315,8 @@ fn config_custom_generator_via_column_ref() {
         .seed(1)
         .count(&schema.simple, 4)
         .generator(&Simple::name, ConstGen)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let (_sql, params) = stmts[0].build();
     let fixed_count = params
@@ -313,7 +340,8 @@ fn config_generator_accepts_column_generator() {
         .seed(1)
         .count(&schema.simple, 4)
         .generator(&Simple::name, &Simple::name)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let (_sql, params) = stmts[0].build();
     let generated_text_count = params
@@ -331,7 +359,8 @@ fn config_skip_parent_allows_explicit_unconstrained_generation() {
     let stmts = SeedConfig::sqlite(&schema)
         .skip(&schema.fk_parent)
         .count(&schema.fk_cascade, 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
     assert!(
@@ -347,7 +376,8 @@ fn config_skip_child_is_allowed() {
     let stmts = SeedConfig::sqlite(&schema)
         .skip(&schema.fk_cascade)
         .count(&schema.fk_parent, 3)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
     assert!(
@@ -380,7 +410,8 @@ fn config_relation_derives_child_count_when_unset() {
         .seed(7)
         .count(&schema.fk_parent, 4)
         .relation(&schema.fk_parent, &schema.fk_cascade, 3)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let child_sql = stmts
         .iter()
@@ -406,7 +437,8 @@ fn config_schema_config_includes_all_schema_tables() {
         .count(&schema.post, 2)
         .count(&schema.category, 2)
         .count(&schema.post_category, 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
     for table in [
@@ -430,7 +462,8 @@ fn fk_child_count_derives_automatically_without_relation() {
     let stmts = SeedConfig::sqlite(&schema)
         .seed(7)
         .count(&schema.fk_parent, 4)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let child_sql = stmts
         .iter()
@@ -453,7 +486,8 @@ fn config_relation_groups_fk_values_per_parent() {
         .seed(7)
         .count(&schema.fk_parent, 3)
         .relation(&schema.fk_parent, &schema.fk_cascade, 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let (_sql, params) = stmts
         .iter()
@@ -479,7 +513,8 @@ fn config_relation_groups_composite_fk_values_per_parent() {
         .seed(11)
         .count(&schema.composite_fk_parent, 3)
         .relation(&schema.composite_fk_parent, &schema.composite_fk_child, 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let (_sql, params) = stmts
         .iter()
@@ -514,7 +549,8 @@ fn seeder_simple_table_pk_sequential_and_name_inferred() {
     let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.simple, 5)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     assert_eq!(stmts.len(), 1);
     let (sql, params) = stmts[0].build();
@@ -546,8 +582,8 @@ fn seeder_deterministic_output() {
         .seed(123)
         .count(&schema.simple, 20);
 
-    let sql_a: Vec<String> = config.generate().iter().map(|s| s.sql()).collect();
-    let sql_b: Vec<String> = config.generate().iter().map(|s| s.sql()).collect();
+    let sql_a: Vec<String> = config.generate().map(|s| s.sql()).collect();
+    let sql_b: Vec<String> = config.generate().map(|s| s.sql()).collect();
 
     assert_eq!(sql_a, sql_b, "same seed must produce identical output");
 }
@@ -559,11 +595,13 @@ fn seeder_different_seeds_produce_different_output() {
     let stmts_a = SeedConfig::sqlite(&schema)
         .seed(1)
         .count(&schema.simple, 10)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
     let stmts_b = SeedConfig::sqlite(&schema)
         .seed(2)
         .count(&schema.simple, 10)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let params_a = stmts_a[0].build().1;
     let params_b = stmts_b[0].build().1;
@@ -581,7 +619,8 @@ fn seeder_fk_parent_before_child() {
         .seed(42)
         .count(&schema.fk_parent, 3)
         .count(&schema.fk_cascade, 10)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
 
@@ -605,7 +644,8 @@ fn seeder_fk_values_are_valid_parent_pks() {
         .seed(42)
         .count(&schema.fk_parent, 5)
         .count(&schema.fk_cascade, 30)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     // Parent PKs are sequential 1..=5
     let valid_pks: Vec<i64> = (1..=5).collect();
@@ -632,7 +672,8 @@ fn seeder_complex_table_column_heuristics() {
     let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.complex, 10)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     assert!(!stmts.is_empty(), "should produce at least one statement");
 
@@ -657,7 +698,8 @@ fn seeder_zero_count_produces_nothing() {
     let stmts = SeedConfig::sqlite(&schema)
         .seed(1)
         .count(&schema.simple, 0)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     assert!(stmts.is_empty(), "count=0 should produce no statements");
 }
@@ -669,7 +711,8 @@ fn seeder_default_count_used_when_not_overridden() {
     let stmts = SeedConfig::sqlite(&schema)
         .seed(1)
         .default_count(7)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let sql = stmts[0].sql();
     let value_section = &sql[sql.find("VALUES ").unwrap() + 7..];
@@ -690,7 +733,8 @@ fn seeder_multi_table_blog_schema() {
         .count(&schema.post, 10)
         .count(&schema.category, 4)
         .count(&schema.post_category, 15)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let sqls: Vec<String> = stmts.iter().map(|s| s.sql()).collect();
 
@@ -731,7 +775,8 @@ fn seeder_statements_return_sql_and_params() {
     let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.simple, 3)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     assert_eq!(stmts.len(), 1);
 
@@ -748,7 +793,8 @@ fn seeder_respects_max_params() {
         .seed(42)
         .count(&schema.simple, 10)
         .max_params(4)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     // simple has 2 params/row => limit 4 means 2 rows per statement => 5 statements
     assert_eq!(stmts.len(), 5);
@@ -764,7 +810,8 @@ fn seeder_email_column_produces_emails() {
     let stmts = SeedConfig::sqlite(&schema)
         .seed(42)
         .count(&schema.complex, 10)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     let (_sql, params) = stmts[0].build();
     let mut email_count = 0;
@@ -1019,7 +1066,6 @@ mod executed {
             .relation(&schema.member, &schema.membership, 2)
             .generator(&schema.typed.status, generators::one_of([-1, 3, 4]))
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 
@@ -1032,7 +1078,6 @@ mod executed {
             .relation_by_name("seed_member", "seed_membership", 2)
             .generator_by_name("seed_typed", "status", generators::one_of([-1, 3, 4]))
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 
@@ -1085,7 +1130,8 @@ mod executed {
         let error = SeedConfig::sqlite(&runtime)
             .count_by_name("seed_typo", 3)
             .try_generate()
-            .unwrap_err();
+            .find_map(Result::err)
+            .unwrap();
         assert!(
             matches!(&error, SeedError::UnknownTable { table, known }
                 if table == "seed_typo" && known.contains(&"seed_member".to_string())),
@@ -1123,7 +1169,7 @@ mod executed {
             SeedConfig::sqlite(&schema)
                 .count_by_name("seed_member", 2)
                 .try_generate()
-                .is_ok()
+                .all(|statement| statement.is_ok())
         );
     }
     /// The snapshot of a macro schema gives the same seed as the macro
@@ -1153,9 +1199,12 @@ mod executed {
                 .map(|statement| statement.build())
                 .collect::<Vec<_>>()
         };
-        let expected = build(configure(&macro_schema).generate());
+        let expected = build(configure(&macro_schema).generate().collect());
         assert!(!expected.is_empty());
-        assert_eq!(build(configure(&from_snapshot).generate()), expected);
+        assert_eq!(
+            build(configure(&from_snapshot).generate().collect()),
+            expected
+        );
     }
 
     const LIVE_TABLES: &str = r"
@@ -1322,7 +1371,6 @@ fn rows_output_matches_generated_statements() {
     // Same values, in the same order, as the bound parameters.
     let params: Vec<OwnedSQLiteValue> = config
         .generate()
-        .into_iter()
         .flat_map(|statement| statement.build().1)
         .collect();
     let values: Vec<&SeedValue> = tables
@@ -1350,7 +1398,8 @@ fn generators_module_plugs_into_columns() {
             &schema.simple.name,
             generators::one_of(["ada", "grace"]).nullable(0.0),
         )
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
     let (_, params) = statements[0].build();
     let names: Vec<&OwnedSQLiteValue> = params.iter().skip(1).step_by(2).collect();
     assert_eq!(names.len(), 4);
