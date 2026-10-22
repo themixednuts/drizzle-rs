@@ -28,7 +28,7 @@ pub use deser::{
     JsonOptionalBool, JsonQueryRow, RawJson,
 };
 #[doc(hidden)]
-pub use deser::{decode_enum_value, decode_json_bytes, decode_json_text};
+pub use deser::{decode_enum_value, decode_json_bytes, decode_json_text, decode_postgres_bytea};
 pub use handle::RelationHandle;
 pub use row::QueryRow;
 pub use sql::{RelCardinality, RenderRelations, RenderedRelation, build_query_sql};

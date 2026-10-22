@@ -161,9 +161,17 @@ fn is_provider_role(provider: &str, role_name: &str) -> bool {
                 | "pgsodium_keyiduser"
                 | "pgsodium_keymaker"
         ),
+        // Neon's reserved role names:
+        // https://neon.com/docs/manage/roles#reserved-role-names
         "neon" => matches!(
             role_name,
-            "neon_superuser" | "cloud_admin" | "authenticated" | "anonymous"
+            "neon_superuser"
+                | "cloud_admin"
+                | "zenith_admin"
+                | "none"
+                | "neon_service"
+                | "authenticated"
+                | "anonymous"
         ),
         _ => false,
     }
@@ -2195,6 +2203,24 @@ mod tests {
         assert!(db2.roles_enabled());
         assert!(!db2.should_include_role("anon")); // Supabase built-in
         assert!(db2.should_include_role("my_custom_role"));
+
+        // Neon's reserved role names
+        let cfg3 = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [entities.roles]
+            provider = "neon"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db3 = cfg3.default_database().unwrap();
+        for reserved in ["neon_superuser", "neon_service", "zenith_admin", "none"] {
+            assert!(!db3.should_include_role(reserved), "{reserved}");
+        }
+        assert!(db3.should_include_role("my_custom_role"));
     }
 
     #[test]

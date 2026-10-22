@@ -713,6 +713,7 @@ impl<'a> GenContext<'a> {
     /// to be created again afterwards.
     fn collect_recreate_extras(&self) -> RecreateExtras {
         let mut extras = RecreateExtras::default();
+        self.collect_dropped_column_extras(&mut extras);
         let Some(cur) = self.cur else {
             return extras;
         };
@@ -818,6 +819,90 @@ impl<'a> GenContext<'a> {
             }
         }
         extras
+    }
+
+    /// `DROP COLUMN` also drops every index and constraint on the column.
+    /// One that is altered in the same diff (same name, new definition, as
+    /// when a key moves to another column) is already gone when its
+    /// recreate would drop it, so it is only created.
+    fn collect_dropped_column_extras(&self, extras: &mut RecreateExtras) {
+        let dropped: HashSet<(&str, &str, &str)> = self
+            .diff
+            .iter()
+            .filter(|d| {
+                d.kind == EntityKind::Column
+                    && d.diff_type == DiffType::Drop
+                    && !self.on_dropped_table(d)
+            })
+            .filter_map(|d| match &d.left {
+                Some(PostgresEntity::Column(c)) => Some((&*c.schema, &*c.table, &*c.name)),
+                _ => None,
+            })
+            .collect();
+        if dropped.is_empty() {
+            return;
+        }
+        let uses_dropped = |schema: &str, table: &str, columns: Vec<&str>| {
+            columns
+                .into_iter()
+                .any(|column| dropped.contains(&(schema, table, column)))
+        };
+
+        for d in self.diff.iter().filter(|d| d.diff_type == DiffType::Alter) {
+            let (kind, schema, name, removed) = match &d.left {
+                Some(PostgresEntity::Index(index)) => (
+                    EntityKind::Index,
+                    &index.schema,
+                    &index.name,
+                    uses_dropped(
+                        &index.schema,
+                        &index.table,
+                        index
+                            .columns
+                            .iter()
+                            .filter(|c| !c.is_expression)
+                            .map(|c| &*c.value)
+                            .collect(),
+                    ),
+                ),
+                Some(PostgresEntity::UniqueConstraint(unique)) => (
+                    EntityKind::UniqueConstraint,
+                    &unique.schema,
+                    &unique.name,
+                    uses_dropped(
+                        &unique.schema,
+                        &unique.table,
+                        unique.columns.iter().map(|c| &**c).collect(),
+                    ),
+                ),
+                Some(PostgresEntity::PrimaryKey(pk)) => (
+                    EntityKind::PrimaryKey,
+                    &pk.schema,
+                    &pk.name,
+                    uses_dropped(
+                        &pk.schema,
+                        &pk.table,
+                        pk.columns.iter().map(|c| &**c).collect(),
+                    ),
+                ),
+                Some(PostgresEntity::ForeignKey(fk)) => (
+                    EntityKind::ForeignKey,
+                    &fk.schema,
+                    &fk.name,
+                    uses_dropped(
+                        &fk.schema,
+                        &fk.table,
+                        fk.columns.iter().map(|c| &**c).collect(),
+                    ),
+                ),
+                _ => continue,
+            };
+            if removed {
+                extras
+                    .implicitly_dropped
+                    .insert((kind, format!("{schema}.{name}")));
+            }
+        }
     }
 }
 

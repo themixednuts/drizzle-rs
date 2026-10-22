@@ -42,6 +42,12 @@ pub enum FieldStorageKind {
     Bool,
     /// Raw blob (`Vec<u8>`).
     Blob,
+    /// PostgreSQL `bytea`, which the JSON projection renders as hex text.
+    /// The bytes convert into the field through `TryFrom<&[u8]>` (which
+    /// checks a fixed length), or through `From<Vec<u8>>` when `owned`:
+    /// `Vec<u8>` takes the decoded buffer as is, and `bytes::Bytes` only
+    /// converts from a `'static` slice.
+    PostgresBytea { owned: bool },
     /// Binary MySQL value read from the tagged hexadecimal JSON projection.
     MySQLBlob,
     /// MySQL text decoded through the same checked codec as a wire row.
@@ -333,6 +339,13 @@ fn generate_json_decoder(
                 FieldStorageKind::Blob => {
                     generate_blob_decode(ident, col_name, &f.base_type, is_nullable, f.is_json)
                 }
+                FieldStorageKind::PostgresBytea { owned } => generate_postgres_bytea_decode(
+                    ident,
+                    col_name,
+                    &f.base_type,
+                    is_nullable,
+                    owned,
+                ),
                 FieldStorageKind::MySQLBlob => {
                     generate_mysql_blob_decode(ident, col_name, &f.base_type, is_nullable)
                 }
@@ -707,6 +720,33 @@ fn generate_blob_decode(
                 )
             );
         };
+        #convert
+    };
+
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
+}
+
+fn generate_postgres_bytea_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+    owned: bool,
+) -> TokenStream {
+    let convert = if owned {
+        quote! { <#base_type as ::core::convert::From<::std::vec::Vec<u8>>>::from(bytes) }
+    } else {
+        quote! {
+            <#base_type as ::core::convert::TryFrom<&[u8]>>::try_from(bytes.as_slice())
+                .map_err(|e| {
+                    <__A::Error as drizzle::core::serde::de::Error>::custom(
+                        ::std::format!("field '{}': {e}", #col_name)
+                    )
+                })?
+        }
+    };
+    let decode = quote! {
+        let bytes = drizzle::core::query::decode_postgres_bytea::<__A::Error>(raw, #col_name)?;
         #convert
     };
 

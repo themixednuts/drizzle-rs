@@ -692,11 +692,14 @@ fn columns_equivalent(
 /// The schema code generator maps every SQLite TEXT-affinity declaration to
 /// Rust `String`, which parses back to the canonical `TEXT` declaration.
 /// SQLite does not enforce the width of `VARCHAR(n)`, so TEXT-affinity spelling
-/// differences do not require a table rebuild.
+/// differences do not require a table rebuild. Likewise a `BOOLEAN` column
+/// pulls as a `bool` field, which the schema declares `integer`.
 fn canonical_sqlite_type(sql_type: &str) -> String {
     let normalized = sql_type.to_ascii_lowercase();
     if SQLTypeCategory::from_sql_type(&normalized) == SQLTypeCategory::Text {
         "text".to_string()
+    } else if normalized == "boolean" {
+        "integer".to_string()
     } else {
         normalized
     }

@@ -1072,3 +1072,33 @@ fn cached_statements_survive_a_column_type_change(db: &mut TestDb<SimpleSchema>)
     let prepared_names: Vec<String> = prepared.all(drizzle_client!(), []);
     assert_eq!(prepared_names, ["a"]);
 }
+
+/// No matching row is `DrizzleError::NotFound`, as on every other driver;
+/// more than one row is still an error.
+#[drizzle::test]
+fn get_without_a_matching_row_is_not_found(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    let missing: drizzle::Result<SelectSimple> =
+        result!(db.select(()).from(simple).r#where(eq(simple.id, 999)).get());
+    assert!(
+        matches!(missing, Err(drizzle::error::DrizzleError::NotFound)),
+        "{missing:?}"
+    );
+
+    let raw: drizzle::Result<SelectSimple> =
+        result!(db.get(SQL::raw("SELECT id, name FROM simple WHERE id = 999")));
+    assert!(
+        matches!(raw, Err(drizzle::error::DrizzleError::NotFound)),
+        "{raw:?}"
+    );
+
+    db.insert(simple)
+        .values([InsertSimple::new("a"), InsertSimple::new("b")])
+        .execute();
+    let several: drizzle::Result<SelectSimple> = result!(db.select(()).from(simple).get());
+    assert!(
+        several.is_err() && !matches!(several, Err(drizzle::error::DrizzleError::NotFound)),
+        "{several:?}"
+    );
+}

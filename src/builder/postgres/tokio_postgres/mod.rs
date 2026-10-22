@@ -458,8 +458,9 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// # Errors
     ///
-    /// Returns an error when the query does not return exactly one row (none
-    /// or several), when it fails, or when the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
+    /// error when it returns several, when it fails, or when the row cannot be
+    /// decoded into `R`.
     pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -480,10 +481,11 @@ impl<Schema> Drizzle<Schema> {
 
         let row = self
             .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.query_one(&statement, param_refs).await
+                client.query_opt(&statement, param_refs).await
             })
             .await
-            .with_query(|| QueryContext::new(&sql_str, &params))?;
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+            .ok_or(drizzle_core::error::DrizzleError::NotFound)?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -1689,8 +1691,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns an error when the query returns no row or more than one, when
-    /// it fails, or when the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
+    /// error when it returns more than one, when it fails, or when the row
+    /// cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///
@@ -1718,10 +1721,11 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let row = self
             .runner
             .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.query_one(&statement, param_refs).await
+                client.query_opt(&statement, param_refs).await
             })
             .await
-            .with_query(|| QueryContext::new(&sql_str, &params))?;
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+            .ok_or(drizzle_core::error::DrizzleError::NotFound)?;
         <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
     }
 }

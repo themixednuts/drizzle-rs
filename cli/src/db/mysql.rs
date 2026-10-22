@@ -129,6 +129,51 @@ pub(super) fn execute_statements(
     }
 }
 
+/// Runs queries that each return one integer (push's data-loss counts) with
+/// the explicitly selected adapter.
+pub(super) fn query_counts(
+    driver: Driver,
+    creds: &MySQLCreds,
+    queries: &[String],
+) -> Result<Vec<i64>, CliError> {
+    let _ = (creds, queries);
+    match driver {
+        Driver::MysqlSync => {
+            #[cfg(feature = "mysql-sync")]
+            {
+                let mut connection = connect_sync(creds)?;
+                queries
+                    .iter()
+                    .map(|query| decode_count(query_sync_rows(&mut connection, query)?, query))
+                    .collect()
+            }
+            #[cfg(not(feature = "mysql-sync"))]
+            {
+                Err(missing_sync_driver())
+            }
+        }
+        Driver::MysqlAsync => {
+            #[cfg(feature = "mysql-async")]
+            {
+                new_async_runtime()?.block_on(async {
+                    let mut connection = connect_async(creds).await?;
+                    let mut counts = Vec::with_capacity(queries.len());
+                    for query in queries {
+                        let rows = query_async_rows(&mut connection, query).await?;
+                        counts.push(decode_count(rows, query)?);
+                    }
+                    Ok(counts)
+                })
+            }
+            #[cfg(not(feature = "mysql-async"))]
+            {
+                Err(missing_async_driver())
+            }
+        }
+        _ => Err(unexpected_driver(driver)),
+    }
+}
+
 /// Seed MySQL migration metadata for `drizzle introspect --init`.
 pub(super) fn init_metadata(
     driver: Driver,
@@ -1273,6 +1318,15 @@ where
             "MySQL result is missing required column {field}"
         ))),
     }
+}
+
+/// The integer a `SELECT COUNT(*)` query returned.
+#[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
+fn decode_count(rows: Vec<MySqlRow>, query: &str) -> Result<i64, CliError> {
+    let row = rows.into_iter().next().ok_or_else(|| {
+        CliError::MigrationError(format!("MySQL count query returned no row\n{query}"))
+    })?;
+    row_value(&row, 0, query)
 }
 
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]

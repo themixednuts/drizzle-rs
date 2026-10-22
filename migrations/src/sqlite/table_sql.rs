@@ -95,6 +95,34 @@ fn skip_comment(bytes: &[u8], start: usize) -> usize {
     }
 }
 
+/// `sql` with every comment outside quotes replaced by spaces, so offsets
+/// into it are offsets into `sql`.
+pub(crate) fn blank_comments(sql: &str) -> String {
+    let bytes = sql.as_bytes();
+    let mut out = bytes.to_vec();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\'' => i = skip_quoted(bytes, i, b'\''),
+            b'"' => i = skip_quoted(bytes, i, b'"'),
+            b'`' => i = skip_quoted(bytes, i, b'`'),
+            b'[' => i = skip_quoted(bytes, i, b']'),
+            b'-' | b'/' if skip_comment(bytes, i) != i => {
+                let end = skip_comment(bytes, i);
+                for byte in &mut out[i..end] {
+                    if *byte != b'\n' {
+                        *byte = b' ';
+                    }
+                }
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    // Only whole comments were replaced, each byte by an ASCII space.
+    String::from_utf8(out).unwrap_or_else(|_| sql.to_string())
+}
+
 /// Index of the `)` closing the `(` at `open`, skipping quotes and comments.
 fn matching_paren(text: &str, open: usize) -> Option<usize> {
     let bytes = text.as_bytes();

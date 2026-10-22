@@ -132,8 +132,10 @@ pub struct PushPlan {
     pub sql_statements: Vec<String>,
     /// Warnings from diffing (for example possible data loss).
     pub warnings: Vec<String>,
-    /// `true` when the plan may lose data, so
-    /// [`apply_push`] asks for confirmation unless forced.
+    /// `true` when the plan loses data, so [`apply_push`] asks for
+    /// confirmation unless forced: a dropped table that holds rows, a dropped
+    /// column that holds values, a column dropped and added back, a
+    /// `TRUNCATE`, or (MySQL) any diff warning.
     pub destructive: bool,
 }
 
@@ -169,8 +171,9 @@ impl SnapshotFilters {
 ///
 /// The tracking table and anything `filters` excludes are removed from the
 /// live side first; the caller filters `desired`. `breakpoints` is unused.
-/// The plan is destructive when a statement drops or truncates something,
-/// or (MySQL) when the diff emits any warning.
+/// Each table and column the plan drops is counted in the live database: one
+/// that holds data adds a warning and makes the plan destructive (see
+/// [`PushPlan::destructive`]).
 ///
 /// # Errors
 ///
@@ -232,8 +235,25 @@ pub fn plan_push_with_renames(
     }
     // Ask about renames on exactly the snapshots the diff compares.
     let options = resolve_renames(&current, desired, options)?;
-    let (sql_statements, warnings) = generate_push_sql(&current, desired, breakpoints, &options)?;
-    let destructive = push_requires_confirmation(connection.dialect, &sql_statements, &warnings);
+    let drizzle_migrations::Plan {
+        statements: sql_statements,
+        mut warnings,
+        data_loss,
+        ..
+    } = generate_push_sql(&current, desired, breakpoints, &options)?;
+    let lost = count_data_loss(connection, data_loss)?;
+    let destructive =
+        push_requires_confirmation(connection.dialect, &sql_statements, &warnings, &lost);
+    warnings.extend(lost.iter().filter_map(|(drop, rows)| match rows {
+        Some(0) => None,
+        Some(rows) if drop.column.is_some() => Some(format!(
+            "{drop} holds {rows} non-NULL value(s); push drops it"
+        )),
+        Some(rows) => Some(format!("{drop} holds {rows} row(s); push drops it")),
+        None => Some(format!(
+            "push drops {drop}, which could not be checked for data"
+        )),
+    }));
 
     Ok(PushPlan {
         sql_statements,
@@ -1702,36 +1722,68 @@ async fn ensure_postgres_tracking_table_async(
     Ok(())
 }
 
-fn is_destructive_statement(sql: &str) -> bool {
-    let s = sql.trim().to_uppercase();
-    s.contains("DROP TABLE")
-        || s.contains("DROP COLUMN")
-        || s.contains("DROP INDEX")
-        || s.contains("DROP VIEW")
-        || s.contains("DROP MATERIALIZED VIEW")
-        || s.contains("DROP TYPE")
-        || s.contains("DROP SCHEMA")
-        || s.contains("DROP SEQUENCE")
-        || s.contains("DROP ROLE")
-        || s.contains("DROP POLICY")
-        || s.contains("TRUNCATE")
-        || (s.contains("ALTER TABLE") && s.contains(" DROP "))
-}
-
+/// Whether a push plan loses data. `lost` holds each table and column the
+/// plan drops, with its row count (`None` when it could not be counted).
 fn push_requires_confirmation(
     dialect: Dialect,
     statements: &[String],
     warnings: &[String],
+    lost: &[(drizzle_migrations::DataLoss, Option<i64>)],
 ) -> bool {
-    statements
+    let holds_data = lost
         .iter()
-        .any(|statement| is_destructive_statement(statement))
+        .any(|(_, rows)| rows.is_none_or(|rows| rows > 0));
+    // A column dropped and added back (to change how it is generated) is not
+    // a dropped column, but loses its values all the same.
+    let dropped_columns = lost
+        .iter()
+        .filter(|(drop, _)| drop.column.is_some())
+        .count();
+    let column_drops: usize = statements
+        .iter()
+        .map(|statement| {
+            statement
+                .to_ascii_uppercase()
+                .matches("DROP COLUMN")
+                .count()
+        })
+        .sum();
+    holds_data
+        || column_drops > dropped_columns
+        || statements
+            .iter()
+            .any(|statement| statement.to_ascii_uppercase().contains("TRUNCATE"))
         // MySQL's ALTER TABLE ... MODIFY COLUMN syntax does not say DROP even
         // when it can truncate, reject, or recode stored values. Every warning
         // produced by the typed MySQL diff represents one of those risky
         // structural operations, so it belongs behind the same confirmation
-        // boundary as explicit DROP/TRUNCATE statements.
+        // boundary as data loss.
         || (dialect == Dialect::Mysql && !warnings.is_empty())
+}
+
+/// Counts what each dropped table (rows) and column (non-NULL values) holds
+/// in the live database. A count is `None` when the driver cannot run
+/// queries (AWS Data API).
+fn count_data_loss(
+    connection: &ResolvedConnection,
+    data_loss: Vec<drizzle_migrations::DataLoss>,
+) -> Result<Vec<(drizzle_migrations::DataLoss, Option<i64>)>, CliError> {
+    if data_loss.is_empty() {
+        return Ok(Vec::new());
+    }
+    let dialect = connection.dialect.to_base();
+    let queries: Vec<String> = data_loss
+        .iter()
+        .map(|drop| drop.count_sql(dialect))
+        .collect();
+    let counts = query_counts(connection, &queries)?;
+    Ok(match counts {
+        Some(counts) => data_loss
+            .into_iter()
+            .zip(counts.into_iter().map(Some))
+            .collect(),
+        None => data_loss.into_iter().map(|drop| (drop, None)).collect(),
+    })
 }
 
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
@@ -1758,7 +1810,7 @@ fn confirm_destructive() -> Result<bool, CliError> {
 
     println!(
         "{}",
-        output::warning("Potentially destructive changes detected (DROP/TRUNCATE/etc).")
+        output::warning("This push loses data (see the warnings above).")
     );
     print!("Apply anyway? [y/N]: ");
     io::stdout()
@@ -1778,10 +1830,9 @@ fn generate_push_sql(
     desired: &Snapshot,
     _breakpoints: bool,
     options: &drizzle_migrations::DiffOptions,
-) -> Result<(Vec<String>, Vec<String>), CliError> {
-    let plan = drizzle_migrations::diff_with(current, desired, options)
-        .map_err(|error| CliError::MigrationError(error.to_string()))?;
-    Ok((plan.statements, plan.warnings))
+) -> Result<drizzle_migrations::Plan, CliError> {
+    drizzle_migrations::diff_with(current, desired, options)
+        .map_err(|error| CliError::MigrationError(error.to_string()))
 }
 
 fn execute_statements(
@@ -1910,6 +1961,138 @@ fn execute_statements(
     }
 }
 
+/// Runs queries that each return one integer, such as
+/// [`DataLoss::count_sql`](drizzle_migrations::DataLoss::count_sql), and
+/// returns their values. `None` when the driver cannot run queries (AWS Data
+/// API).
+fn query_counts(
+    connection: &ResolvedConnection,
+    queries: &[String],
+) -> Result<Option<Vec<i64>>, CliError> {
+    // In some feature combinations (no drivers), the match arms that would use `queries`
+    // are compiled out. Touch it to avoid unused-parameter warnings.
+    let _ = queries;
+
+    match &connection.credentials {
+        #[cfg(feature = "rusqlite")]
+        Credentials::Sqlite { path } if connection.driver == Driver::Rusqlite => {
+            query_sqlite_counts(path, queries).map(Some)
+        }
+
+        #[cfg(feature = "rusqlite")]
+        Credentials::Sqlite { .. } => Err(connection_driver_mismatch(connection)),
+
+        #[cfg(not(feature = "rusqlite"))]
+        Credentials::Sqlite { .. } => Err(CliError::MissingDriver {
+            dialect: "SQLite",
+            feature: "rusqlite",
+        }),
+
+        #[cfg(any(feature = "libsql", feature = "turso"))]
+        Credentials::Turso { url, auth_token } => {
+            if connection.driver == Driver::Libsql {
+                #[cfg(feature = "libsql")]
+                {
+                    query_libsql_local_counts(url, queries).map(Some)
+                }
+                #[cfg(not(feature = "libsql"))]
+                {
+                    Err(CliError::MissingDriver {
+                        dialect: "LibSQL (local)",
+                        feature: "libsql",
+                    })
+                }
+            } else if connection.driver == Driver::Turso {
+                #[cfg(feature = "turso")]
+                {
+                    query_turso_counts(url, auth_token.as_deref(), queries).map(Some)
+                }
+                #[cfg(not(feature = "turso"))]
+                {
+                    let _ = auth_token;
+                    Err(CliError::MissingDriver {
+                        dialect: "Turso (remote)",
+                        feature: "turso",
+                    })
+                }
+            } else {
+                Err(connection_driver_mismatch(connection))
+            }
+        }
+
+        #[cfg(all(not(feature = "turso"), not(feature = "libsql")))]
+        Credentials::Turso { .. } => Err(CliError::MissingDriver {
+            dialect: "Turso",
+            feature: "turso or libsql",
+        }),
+
+        Credentials::Postgres(creds) => {
+            let _ = creds;
+            match connection.driver {
+                Driver::PostgresSync => {
+                    #[cfg(feature = "postgres-sync")]
+                    {
+                        query_postgres_sync_counts(creds, queries).map(Some)
+                    }
+                    #[cfg(not(feature = "postgres-sync"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "postgres-sync",
+                        })
+                    }
+                }
+                Driver::TokioPostgres => {
+                    #[cfg(feature = "tokio-postgres")]
+                    {
+                        query_postgres_async_counts(creds, queries).map(Some)
+                    }
+                    #[cfg(not(feature = "tokio-postgres"))]
+                    {
+                        Err(CliError::MissingDriver {
+                            dialect: "PostgreSQL",
+                            feature: "tokio-postgres",
+                        })
+                    }
+                }
+                _ => Err(connection_driver_mismatch(connection)),
+            }
+        }
+
+        Credentials::MySQL(creds) => {
+            mysql::query_counts(connection.driver, creds, queries).map(Some)
+        }
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 {
+            account_id,
+            database_id,
+            token,
+        } if connection.driver == Driver::D1Http => {
+            d1_http::query_counts(account_id, database_id, token, queries).map(Some)
+        }
+
+        #[cfg(feature = "d1-http")]
+        Credentials::D1 { .. } => Err(connection_driver_mismatch(connection)),
+
+        #[cfg(not(feature = "d1-http"))]
+        Credentials::D1 { .. } => Err(CliError::MissingDriver {
+            dialect: "Cloudflare D1 (HTTP)",
+            feature: "d1-http",
+        }),
+
+        Credentials::AwsDataApi { .. } => Ok(None),
+    }
+}
+
+/// The error for a count query that failed or returned no integer.
+#[allow(dead_code)] // unused when no driver is compiled in
+fn count_query_error(query: &str, error: impl std::fmt::Display) -> CliError {
+    CliError::MigrationError(format!(
+        "Counting data before push failed: {error}\n{query}"
+    ))
+}
+
 /// Check if a Turso URL is a local libsql database
 #[allow(dead_code)]
 fn is_local_libsql(url: &str) -> bool {
@@ -1930,6 +2113,20 @@ fn execute_sqlite_statements(path: &str, statements: &[String]) -> Result<(), Cl
     })?;
 
     execute_sqlite_statements_on_connection(&conn, statements)
+}
+
+#[cfg(feature = "rusqlite")]
+fn query_sqlite_counts(path: &str, queries: &[String]) -> Result<Vec<i64>, CliError> {
+    let conn = rusqlite::Connection::open(path).map_err(|e| {
+        CliError::ConnectionError(format!("Failed to open SQLite database '{path}': {e}"))
+    })?;
+    queries
+        .iter()
+        .map(|query| {
+            conn.query_row(query, [], |row| row.get::<_, i64>(0))
+                .map_err(|error| count_query_error(query, error))
+        })
+        .collect()
 }
 
 #[cfg(feature = "rusqlite")]
@@ -2302,6 +2499,23 @@ async fn connect_postgres_async(creds: &PostgresCreds) -> Result<tokio_postgres:
 }
 
 #[cfg(feature = "postgres-sync")]
+fn query_postgres_sync_counts(
+    creds: &PostgresCreds,
+    queries: &[String],
+) -> Result<Vec<i64>, CliError> {
+    let mut client = connect_postgres_sync(creds)?;
+    queries
+        .iter()
+        .map(|query| {
+            client
+                .query_one(query.as_str(), &[])
+                .and_then(|row| row.try_get::<_, i64>(0))
+                .map_err(|error| count_query_error(query, postgres_error_text(&error)))
+        })
+        .collect()
+}
+
+#[cfg(feature = "postgres-sync")]
 fn execute_postgres_sync_statements(
     creds: &PostgresCreds,
     statements: &[String],
@@ -2505,6 +2719,31 @@ fn query_applied_records_postgres_sync(
 // ============================================================================
 // PostgreSQL (tokio-postgres - async)
 // ============================================================================
+
+#[cfg(feature = "tokio-postgres")]
+fn query_postgres_async_counts(
+    creds: &PostgresCreds,
+    queries: &[String],
+) -> Result<Vec<i64>, CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {}", e)))?;
+
+    rt.block_on(async {
+        let client = connect_postgres_async(creds).await?;
+        let mut counts = Vec::with_capacity(queries.len());
+        for query in queries {
+            let count = client
+                .query_one(query.as_str(), &[])
+                .await
+                .and_then(|row| row.try_get::<_, i64>(0))
+                .map_err(|error| count_query_error(query, postgres_error_text(&error)))?;
+            counts.push(count);
+        }
+        Ok(counts)
+    })
+}
 
 #[cfg(feature = "tokio-postgres")]
 fn execute_postgres_async_statements(
@@ -2771,6 +3010,52 @@ async fn run_postgres_async_migrations_locked(
 // ============================================================================
 // LibSQL (local)
 // ============================================================================
+
+#[cfg(feature = "libsql")]
+fn query_libsql_local_counts(path: &str, queries: &[String]) -> Result<Vec<i64>, CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
+
+    rt.block_on(async {
+        let db = libsql::Builder::new_local(path)
+            .build()
+            .await
+            .map_err(|e| {
+                CliError::ConnectionError(format!("Failed to open LibSQL database '{path}': {e}"))
+            })?;
+        let conn = db
+            .connect()
+            .map_err(|e| CliError::ConnectionError(e.to_string()))?;
+        query_libsql_counts_on_connection(&conn, queries).await
+    })
+}
+
+/// Runs count queries on a libSQL connection (local or remote).
+#[cfg(any(feature = "libsql", feature = "turso"))]
+async fn query_libsql_counts_on_connection(
+    conn: &libsql::Connection,
+    queries: &[String],
+) -> Result<Vec<i64>, CliError> {
+    let mut counts = Vec::with_capacity(queries.len());
+    for query in queries {
+        let mut rows = conn
+            .query(query, ())
+            .await
+            .map_err(|error| count_query_error(query, error))?;
+        let row = rows
+            .next()
+            .await
+            .map_err(|error| count_query_error(query, error))?
+            .ok_or_else(|| count_query_error(query, "no row returned"))?;
+        counts.push(
+            row.get::<i64>(0)
+                .map_err(|error| count_query_error(query, error))?,
+        );
+    }
+    Ok(counts)
+}
 
 #[cfg(feature = "libsql")]
 fn execute_libsql_local_statements(path: &str, statements: &[String]) -> Result<(), CliError> {
@@ -3151,6 +3436,30 @@ async fn query_applied_records_libsql(
 // ============================================================================
 
 #[cfg(feature = "turso")]
+fn query_turso_counts(
+    url: &str,
+    auth_token: Option<&str>,
+    queries: &[String],
+) -> Result<Vec<i64>, CliError> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| CliError::Other(format!("Failed to create async runtime: {e}")))?;
+
+    rt.block_on(async {
+        let builder =
+            libsql::Builder::new_remote(url.to_string(), auth_token.unwrap_or("").to_string());
+        let db = builder.build().await.map_err(|e| {
+            CliError::ConnectionError(format!("Failed to connect to Turso '{url}': {e}"))
+        })?;
+        let conn = db
+            .connect()
+            .map_err(|e| CliError::ConnectionError(e.to_string()))?;
+        query_libsql_counts_on_connection(&conn, queries).await
+    })
+}
+
+#[cfg(feature = "turso")]
 fn execute_turso_statements(
     url: &str,
     auth_token: Option<&str>,
@@ -3322,7 +3631,9 @@ pub struct IntrospectResult {
 /// creates the whole schema).
 ///
 /// The tracking table is excluded and `filters` applied before anything is
-/// written. With `init_metadata`, the baseline is then recorded as applied.
+/// written. With `init_metadata`, the baseline is then recorded as applied;
+/// without it, the baseline's SQL is commented out, so `migrate` does not
+/// try to create what the database already has.
 ///
 /// # Errors
 ///
@@ -3407,9 +3718,18 @@ pub fn run_introspection(
     let sql_statements =
         generate_introspect_migration(&empty_snapshot, &result.snapshot, breakpoints)?;
 
-    // Write migration.sql: {out}/{tag}/migration.sql
+    // Write migration.sql: {out}/{tag}/migration.sql. Without `--init` the
+    // database is not marked as migrated, so the SQL is commented out (as
+    // drizzle-kit does): `migrate` would otherwise create what exists.
     let migration_sql_path = migration_dir.join("migration.sql");
-    let sql_content = format_migration_sql(&sql_statements, breakpoints);
+    let mut sql_content = format_migration_sql(&sql_statements, breakpoints);
+    if !init_metadata {
+        sql_content = format!(
+            "-- Current sql file was generated after introspecting the database\n\
+             -- If you want to run this migration please uncomment this code before executing migrations\n\
+             /*\n{sql_content}\n*/"
+        );
+    }
     std::fs::write(&migration_sql_path, &sql_content).map_err(|e| {
         CliError::Other(format!(
             "Failed to write migration file '{}': {}",
@@ -5281,24 +5601,88 @@ mod tests {
         format!("{}_{}_{}", prefix, std::process::id(), nanos)
     }
 
+    fn dropped(table: &str, column: Option<&str>) -> drizzle_migrations::DataLoss {
+        drizzle_migrations::DataLoss {
+            schema: None,
+            table: table.to_string(),
+            column: column.map(str::to_string),
+        }
+    }
+
+    /// Push asks only when a drop loses data: an empty table or an all-NULL
+    /// column goes without asking, and dropping an index or view never asks.
     #[test]
-    fn destructive_statement_detection_covers_drop_variants() {
-        assert!(is_destructive_statement("DROP TABLE users;"));
-        assert!(is_destructive_statement("DROP VIEW active_users;"));
-        assert!(is_destructive_statement("DROP TYPE status;"));
-        assert!(is_destructive_statement("DROP SCHEMA auth;"));
-        assert!(is_destructive_statement("DROP ROLE app_user;"));
-        assert!(is_destructive_statement(
-            "DROP POLICY users_rls_policy ON users;"
+    fn push_confirms_only_drops_that_lose_data() {
+        let drop_table = vec!["DROP TABLE \"scratch\";".to_string()];
+        assert!(!push_requires_confirmation(
+            Dialect::Postgresql,
+            &drop_table,
+            &[],
+            &[(dropped("scratch", None), Some(0))],
         ));
-        assert!(is_destructive_statement("TRUNCATE users;"));
-        assert!(is_destructive_statement(
-            "ALTER TABLE users DROP CONSTRAINT users_email_key;"
+        assert!(push_requires_confirmation(
+            Dialect::Postgresql,
+            &drop_table,
+            &[],
+            &[(dropped("scratch", None), Some(3))],
+        ));
+        // Not counted (AWS Data API): assume it holds data.
+        assert!(push_requires_confirmation(
+            Dialect::Postgresql,
+            &drop_table,
+            &[],
+            &[(dropped("scratch", None), None)],
         ));
 
-        assert!(!is_destructive_statement("CREATE TABLE users(id INTEGER);"));
-        assert!(!is_destructive_statement(
-            "ALTER TABLE users ADD COLUMN email text;"
+        let drop_column = vec!["ALTER TABLE \"users\" DROP COLUMN \"nickname\";".to_string()];
+        let nickname = dropped("users", Some("nickname"));
+        assert!(!push_requires_confirmation(
+            Dialect::Postgresql,
+            &drop_column,
+            &[],
+            &[(nickname.clone(), Some(0))],
+        ));
+        assert!(push_requires_confirmation(
+            Dialect::Postgresql,
+            &drop_column,
+            &[],
+            &[(nickname, Some(1))],
+        ));
+
+        let no_rows_lost = [
+            "DROP INDEX \"users_email_idx\";",
+            "DROP VIEW \"active_users\";",
+            "DROP POLICY \"own_rows\" ON \"users\";",
+        ]
+        .map(str::to_string);
+        assert!(!push_requires_confirmation(
+            Dialect::Postgresql,
+            &no_rows_lost,
+            &[],
+            &[],
+        ));
+        assert!(push_requires_confirmation(
+            Dialect::Postgresql,
+            &["TRUNCATE \"users\";".to_string()],
+            &[],
+            &[],
+        ));
+    }
+
+    /// A column dropped and added back (to change how it is generated) is
+    /// not a dropped column, but its values are lost.
+    #[test]
+    fn push_confirms_recreated_columns() {
+        let statements = [
+            "ALTER TABLE \"users\" DROP COLUMN \"total\";",
+            "ALTER TABLE \"users\" ADD COLUMN \"total\" integer GENERATED ALWAYS AS (a + b) STORED;",
+        ]
+        .map(str::to_string);
+        assert!(push_requires_confirmation(
+            Dialect::Postgresql,
+            &statements,
+            &[],
+            &[],
         ));
     }
 
@@ -5314,10 +5698,12 @@ mod tests {
             Dialect::Mysql,
             &statements,
             &warnings,
+            &[],
         ));
         assert!(!push_requires_confirmation(
             Dialect::Mysql,
             &statements,
+            &[],
             &[],
         ));
     }
@@ -5949,9 +6335,9 @@ pub struct UsersEmailIdx(Users::email);
         let curr =
             Snapshot::from_parse_result(&SchemaParser::parse(current), Dialect::PostgreSQL, None);
 
-        let (sql, warnings) =
-            generate_push_sql(&prev, &curr, false, &drizzle_migrations::DiffOptions::new())
-                .expect("push sql generation");
+        let plan = generate_push_sql(&prev, &curr, false, &drizzle_migrations::DiffOptions::new())
+            .expect("push sql generation");
+        let (sql, warnings) = (plan.statements, plan.warnings);
         assert!(warnings.is_empty());
         assert_eq!(sql.len(), 1);
         assert_eq!(
@@ -5987,8 +6373,9 @@ pub struct Users {
         let options = drizzle_migrations::DiffOptions::new()
             .mysql_catalog_defaults(MySQLCatalogDefaults::new().engine("InnoDB"));
 
-        let (sql, warnings) = generate_push_sql(&current, &desired, false, &options)
+        let plan = generate_push_sql(&current, &desired, false, &options)
             .expect("push SQL with live MySQL defaults");
+        let (sql, warnings) = (plan.statements, plan.warnings);
         assert!(sql.is_empty(), "inherited defaults must not churn: {sql:?}");
         assert!(warnings.is_empty());
     }

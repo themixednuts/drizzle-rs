@@ -871,7 +871,14 @@ where
         row_idx: usize,
         context: &RelationContext<'_, '_>,
     ) -> Result<(), SeedError> {
-        for rel in context.specs {
+        // The first foreign key gives each parent its block of
+        // `children_per_parent` rows. Each later one counts in a higher
+        // digit, offset from the first: a junction table's pairs stay
+        // distinct (up to the product of the parent counts), and two keys to
+        // one parent don't pair a row with itself until every other pairing
+        // is used.
+        let mut lead: Option<(usize, usize)> = None;
+        for (position, rel) in context.specs.iter().enumerate() {
             if rel.fk_columns.len() != rel.ref_columns.len() {
                 continue;
             }
@@ -924,7 +931,18 @@ where
                 continue;
             }
 
-            let parent_idx = (row_idx / rel.children_per_parent) % parent_count;
+            let parent_idx = match lead {
+                None => {
+                    let idx = (row_idx / rel.children_per_parent) % parent_count;
+                    lead = Some((idx, rel.children_per_parent.saturating_mul(parent_count)));
+                    idx
+                }
+                Some((lead_idx, period)) => {
+                    let idx = (lead_idx + position + row_idx / period) % parent_count;
+                    lead = Some((lead_idx, period.saturating_mul(parent_count)));
+                    idx
+                }
+            };
             for (fk_col, ref_col) in rel.fk_columns.iter().zip(rel.ref_columns.iter()) {
                 let Some(&fk_idx) = context.column_indexes.get(fk_col) else {
                     continue;

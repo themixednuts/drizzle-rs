@@ -39,18 +39,17 @@ use crate::types::BooleanLike;
 
 use super::{AggregateKind, Expr, Nullability, SQLExpr};
 
+/// Renders `(left <token> right)`. Like an element of a condition list
+/// ([`all`](super::all), [`any`](super::any)), a `None` operand contributes
+/// nothing: `and(x, None)` renders `(x)`, and with both operands `None` the
+/// result is `empty`.
 #[inline]
-fn operand_sql<'a, V, E>(value: E) -> SQL<'a, V>
-where
-    V: SQLParam + 'a,
-    E: Expr<'a, V>,
-    E::SQLType: BooleanLike,
-{
-    value.into_expr_sql()
-}
-
-#[inline]
-fn binary_logical_op<'a, V, L, R>(left: L, token: Token, right: R) -> SQL<'a, V>
+fn binary_logical_op<'a, V, L, R>(
+    left: L,
+    token: Token,
+    right: R,
+    empty: &'static str,
+) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
     L: Expr<'a, V>,
@@ -58,11 +57,15 @@ where
     R: Expr<'a, V>,
     R::SQLType: BooleanLike,
 {
-    SQL::from(Token::LPAREN)
-        .append(operand_sql(left))
-        .push(token)
-        .append(operand_sql(right))
-        .push(Token::RPAREN)
+    match (left.into_condition_sql(), right.into_condition_sql()) {
+        (Some(left), Some(right)) => SQL::from(Token::LPAREN)
+            .append(left)
+            .push(token)
+            .append(right)
+            .push(Token::RPAREN),
+        (Some(operand), None) | (None, Some(operand)) => operand.parens(),
+        (None, None) => SQL::raw(empty),
+    }
 }
 
 // =============================================================================
@@ -150,6 +153,9 @@ where
 /// `left & right` on an [`SQLExpr`] does the same. For more than two
 /// conditions, use a tuple or [`all`](super::all).
 ///
+/// An [`Option`] operand that is `None` is left out, as in a condition list:
+/// `and(x, None)` renders `(x)`, and two `None`s render `TRUE`.
+///
 /// # Examples
 ///
 /// ```rust
@@ -166,6 +172,10 @@ where
 /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// let cond = and(users.active, gt(users.age, 18));
 /// assert_eq!(cond.sql(), r#"("users"."active" AND "users"."age" > ?)"#);
+///
+/// let name: Option<&str> = None;
+/// let cond = and(users.active, name.map(|n| eq(users.name, n)));
+/// assert_eq!(cond.sql(), r#"("users"."active")"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn and<'a, V, L, R>(
@@ -187,7 +197,12 @@ where
     R::SQLType: BooleanLike,
     R::Nullable: Nullability,
 {
-    SQLExpr::new(binary_logical_op(left, Token::AND, right))
+    SQLExpr::new(binary_logical_op(
+        left,
+        Token::AND,
+        right,
+        super::EMPTY_CONJUNCTION,
+    ))
 }
 
 // =============================================================================
@@ -200,6 +215,9 @@ where
 /// nullable if either operand is, and is an aggregate if either operand is.
 /// `left | right` on an [`SQLExpr`] does the same. For more than two
 /// conditions, use [`any`](super::any).
+///
+/// An [`Option`] operand that is `None` is left out, as in a condition list:
+/// `or(x, None)` renders `(x)`, and two `None`s render `FALSE`.
 ///
 /// # Examples
 ///
@@ -217,6 +235,10 @@ where
 /// # let users = Users { id: col("id"), age: col("age"), name: col("name"), email: col("email"), score: col("score"), active: col("active"), created_at: col("created_at") };
 /// let cond = or(eq(users.name, "admin"), eq(users.name, "root"));
 /// assert_eq!(cond.sql(), r#"("users"."name" = ? OR "users"."name" = ?)"#);
+///
+/// let name: Option<&str> = None;
+/// let cond = or(eq(users.name, "admin"), name.map(|n| eq(users.name, n)));
+/// assert_eq!(cond.sql(), r#"("users"."name" = ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
 pub fn or<'a, V, L, R>(
@@ -238,7 +260,12 @@ where
     R::SQLType: BooleanLike,
     R::Nullable: Nullability,
 {
-    SQLExpr::new(binary_logical_op(left, Token::OR, right))
+    SQLExpr::new(binary_logical_op(
+        left,
+        Token::OR,
+        right,
+        super::EMPTY_DISJUNCTION,
+    ))
 }
 
 // =============================================================================

@@ -541,6 +541,42 @@ where
         .map_err(|e| E::custom(format!("field '{column}': invalid JSON blob: {e}")))
 }
 
+/// Decodes a PostgreSQL `bytea` column from a relational projection.
+///
+/// `json_build_object` renders `bytea` as its hex text, a JSON string such
+/// as `"\\x0102"`, which serde cannot read as bytes. The generated decoder
+/// converts the bytes into the field's type.
+///
+/// # Errors
+///
+/// Returns a serde error naming `column` when the value is not hex text.
+#[doc(hidden)]
+pub fn decode_postgres_bytea<E: de::Error>(raw: RawJson, column: &str) -> Result<Vec<u8>, E> {
+    let invalid = || E::custom(format!("field '{column}': expected bytea hex text"));
+    let serde_json::Value::String(text) = raw else {
+        return Err(invalid());
+    };
+    // Decode in place: byte `i` is read from `2 + 2i` and `3 + 2i`, never
+    // behind where it is written, so the text's buffer becomes the bytes.
+    let mut buffer = text.into_bytes();
+    let Some(hex_len) = buffer
+        .strip_prefix(b"\\x")
+        .map(<[u8]>::len)
+        .filter(|len| len % 2 == 0)
+    else {
+        return Err(invalid());
+    };
+    let nibble = |digit: u8| char::from(digit).to_digit(16).ok_or_else(invalid);
+    for i in 0..hex_len / 2 {
+        // A hex digit is below 16, so a pair fits a byte.
+        #[allow(clippy::cast_possible_truncation)]
+        let byte = (nibble(buffer[2 + 2 * i])? << 4 | nibble(buffer[3 + 2 * i])?) as u8;
+        buffer[i] = byte;
+    }
+    buffer.truncate(hex_len / 2);
+    Ok(buffer)
+}
+
 /// Decodes an enum projected either as a JSON string (a native enum stored
 /// by name) or as a JSON integer (an integer-backed enum).
 ///

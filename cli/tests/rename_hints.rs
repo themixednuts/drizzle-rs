@@ -411,6 +411,38 @@ mod push {
         assert_eq!(name, "Ada");
     }
 
+    /// Dropping a table that holds rows needs confirmation, which a
+    /// non-interactive run cannot give; an empty table drops without asking.
+    #[test]
+    fn push_asks_only_when_a_drop_loses_rows() {
+        let create_accounts =
+            r#"[{"type":"create","kind":"table","entity":["public","accounts"]}]"#;
+
+        let dir = seeded_project();
+        cargo_bin_cmd!("drizzle")
+            .current_dir(dir.path())
+            .args(["push", "--hints", create_accounts])
+            .assert()
+            .failure()
+            .stdout(contains("table `users` holds 1 row(s); push drops it"))
+            .stderr(contains(
+                "Refusing to apply potentially destructive changes",
+            ));
+        assert_eq!(tables(dir.path()), ["users"]);
+
+        let dir = seeded_project();
+        rusqlite::Connection::open(dir.path().join("dev.db"))
+            .expect("open db")
+            .execute("DELETE FROM `users`", [])
+            .expect("empty the table");
+        cargo_bin_cmd!("drizzle")
+            .current_dir(dir.path())
+            .args(["push", "--hints", create_accounts])
+            .assert()
+            .success();
+        assert_eq!(tables(dir.path()), ["accounts"]);
+    }
+
     #[test]
     fn push_with_create_hints_and_force_drops_and_creates() {
         let dir = seeded_project();

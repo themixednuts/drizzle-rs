@@ -101,6 +101,48 @@ fn test_in_array_conditions(db: &mut TestDb<SimpleSchema>) {
     assert_eq!(result.len(), 0);
 }
 
+/// A missing optional filter filters nothing, as in a condition tuple:
+/// `where(None)` and `and(x, None)` must not render a NULL condition.
+#[drizzle::test]
+fn optional_conditions_that_are_none_filter_nothing(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("Apple").with_id(1),
+            InsertSimple::new("Banana").with_id(2),
+        ])
+        .execute();
+
+    let name: Option<&str> = None;
+    let query = db
+        .select(())
+        .from(simple)
+        .r#where(name.map(|n| eq(simple.name, n)));
+    assert_eq!(
+        query.to_sql().sql(),
+        r#"SELECT "simple"."id", "simple"."name" FROM "simple" WHERE TRUE"#
+    );
+    let result: Vec<SelectSimple> = query.all();
+    assert_eq!(result.len(), 2);
+
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(and(gt(simple.id, 1), name.map(|n| eq(simple.name, n))))
+        .all();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].name, "Banana");
+
+    let result: Vec<SelectSimple> = db
+        .select(())
+        .from(simple)
+        .r#where(or(name.map(|n| eq(simple.name, n)), eq(simple.id, 1)))
+        .all();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].name, "Apple");
+}
+
 #[cfg(feature = "uuid")]
 #[drizzle::test]
 fn test_null_conditions(db: &mut TestDb<ComplexSchema>) {

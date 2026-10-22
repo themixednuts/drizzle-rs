@@ -182,7 +182,8 @@ impl<'a, V: SQLParam, T, Rels, Cols, Ord, Lim>
         V: 'a,
     {
         QueryBuilder {
-            where_sql: condition.into_expr_sql(),
+            // A `None` condition filters nothing.
+            where_sql: condition.into_condition_sql().unwrap_or_else(SQL::empty),
             order_by_sql: self.order_by_sql,
             limit: self.limit,
             offset: self.offset,

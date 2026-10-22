@@ -263,6 +263,38 @@ fn test_drop_column() {
     assert_eq!(sql[0], "ALTER TABLE \"users\" DROP COLUMN \"name\";");
 }
 
+/// Test: a key and an index that move off a dropped column are only
+/// created: `DROP COLUMN` already removed them, so dropping them again
+/// would fail.
+#[test]
+fn test_drop_column_does_not_drop_its_constraints_again() {
+    let mut from = PostgresDDL::new();
+    from.tables.push(table("t"));
+    from.columns.push(column_not_null("t", "a", "integer"));
+    from.columns.push(column_not_null("t", "b", "integer"));
+    from.pks.push(primary_key("t", vec!["a", "b"]));
+    from.indexes.push(index("t", "t_idx", vec!["b"]));
+
+    let mut to = PostgresDDL::new();
+    to.tables.push(table("t"));
+    to.columns.push(column_not_null("t", "a", "integer"));
+    to.columns.push(column_not_null("t", "c", "integer"));
+    to.pks.push(primary_key("t", vec!["a", "c"]));
+    to.indexes.push(index("t", "t_idx", vec!["c"]));
+
+    let sql = diff_to_sql(&from, &to);
+
+    assert_eq!(
+        sql,
+        [
+            "ALTER TABLE \"t\" ADD COLUMN \"c\" integer NOT NULL;",
+            "ALTER TABLE \"t\" DROP COLUMN \"b\";",
+            "ALTER TABLE \"t\" ADD CONSTRAINT \"t_pkey\" PRIMARY KEY(\"a\", \"c\");",
+            "CREATE INDEX \"t_idx\" ON \"t\"(\"c\");",
+        ],
+    );
+}
+
 // =============================================================================
 // ALTER COLUMN Tests - PostgreSQL uses ALTER TABLE ALTER COLUMN
 // =============================================================================

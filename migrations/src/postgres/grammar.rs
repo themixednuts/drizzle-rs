@@ -499,8 +499,15 @@ impl IdentityDefaults {
 // System Checks
 // =============================================================================
 
-/// PostgreSQL system schema names that introspection skips.
-pub const SYSTEM_NAMESPACE_NAMES: &[&str] = &["pg_toast", "pg_catalog", "information_schema"];
+/// PostgreSQL system schema names that introspection skips, including the
+/// schemas PlanetScale Postgres manages (`pscale_extensions`, `__neki`).
+pub const SYSTEM_NAMESPACE_NAMES: &[&str] = &[
+    "pg_toast",
+    "pg_catalog",
+    "information_schema",
+    "pscale_extensions",
+    "__neki",
+];
 
 /// Returns `true` for system schemas: [`SYSTEM_NAMESPACE_NAMES`], `pg_toast*`,
 /// `pg_temp_*`, `pg_default`, and `pg_global`.
@@ -646,6 +653,8 @@ mod tests {
     fn test_is_system_namespace() {
         assert!(is_system_namespace("pg_catalog"));
         assert!(is_system_namespace("pg_toast_12345"));
+        assert!(is_system_namespace("__neki"));
+        assert!(is_system_namespace("pscale_extensions"));
         assert!(!is_system_namespace("public"));
         assert!(!is_system_namespace("myschema"));
     }

@@ -364,6 +364,33 @@ pub(super) fn execute_statements(
     })
 }
 
+/// Runs queries that each return one integer (push's data-loss counts).
+pub(super) fn query_counts(
+    account_id: &str,
+    database_id: &str,
+    token: &str,
+    queries: &[String],
+) -> Result<Vec<i64>, CliError> {
+    rt()?.block_on(async {
+        let c = client(account_id, database_id, token)?;
+        let mut counts = Vec::with_capacity(queries.len());
+        for query in queries {
+            let count = c
+                .query(query, &[])
+                .await?
+                .into_iter()
+                .next()
+                .and_then(|row| row.into_iter().next())
+                .and_then(|(_, value)| value.as_i64())
+                .ok_or_else(|| {
+                    CliError::MigrationError(format!("D1 count query returned no integer\n{query}"))
+                })?;
+            counts.push(count);
+        }
+        Ok(counts)
+    })
+}
+
 async fn applied_names_before_tracking_table_write(
     client: &D1HttpClient,
     set: &Migrations,

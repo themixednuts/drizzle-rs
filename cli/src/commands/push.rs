@@ -49,8 +49,9 @@ pub struct PushOptions {
 /// difference directly, without writing migration files.
 ///
 /// `--explain` prints the planned SQL and stops; `--verbose` prints it and
-/// continues. A destructive plan asks for confirmation unless `--force` is
-/// set.
+/// continues. A plan that loses data (a dropped table that holds rows, a
+/// dropped column that holds values) asks for confirmation unless `--force`
+/// is set; see [`PushPlan::destructive`](crate::db::PushPlan::destructive).
 ///
 /// Before planning, ambiguous renames are asked about on a terminal and
 /// otherwise answered from `--hints` / `--hints-file` (see

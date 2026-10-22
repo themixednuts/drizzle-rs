@@ -45,6 +45,18 @@ CREATE TABLE temp_logs (
     .expect("seed db");
 }
 
+/// The SQL of a baseline `pull` wrote without `--init`: the database is not
+/// marked as migrated, so the file holds it commented out.
+fn pulled_baseline(sql: &str) -> &str {
+    sql.strip_prefix(
+        "-- Current sql file was generated after introspecting the database\n\
+         -- If you want to run this migration please uncomment this code before executing migrations\n\
+         /*\n",
+    )
+    .and_then(|rest| rest.strip_suffix("\n*/"))
+    .unwrap_or_else(|| panic!("baseline is not commented out:\n{sql}"))
+}
+
 /// Split migration SQL into individual CREATE TABLE statements, returning a
 /// sorted vec of `(table_name, sorted_columns)` for order-independent comparison.
 /// Each column is a trimmed line like "`id` INTEGER PRIMARY KEY".
@@ -375,7 +387,7 @@ pub struct Schema {
 
     let migration_dir = first_migration_dir(&out_dir);
     let migration_sql = fs::read_to_string(migration_dir.join("migration.sql")).expect("read sql");
-    let tables = parse_create_tables(&migration_sql);
+    let tables = parse_create_tables(pulled_baseline(&migration_sql));
     assert_eq!(
         tables,
         vec![
@@ -463,7 +475,7 @@ pub struct Schema {
         pulled_sql.contains("--> statement-breakpoint"),
         "breakpoints should be enabled"
     );
-    let pulled_tables = parse_create_tables(&pulled_sql);
+    let pulled_tables = parse_create_tables(pulled_baseline(&pulled_sql));
     assert_eq!(
         pulled_tables,
         vec![
