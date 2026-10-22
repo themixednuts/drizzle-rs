@@ -248,39 +248,6 @@ fn generate_partial_field_conversion(idx: usize, info: &FieldInfo) -> TokenStrea
     }
 }
 
-/// Determine a "probe type" for NULL checking on the first column.
-///
-/// Used by `Option<SelectModel>` to detect LEFT JOIN misses: the first
-/// column is read as `Option<ProbeType>`, and `None` is taken to mean the
-/// joined row is absent. Only that column is checked.
-#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-fn null_probe_type(info: &FieldInfo) -> TokenStream {
-    if info.is_custom_type {
-        // Custom types: probe with String since we don't know the storage format
-        return quote!(String);
-    }
-    if info.is_enum || info.is_pgenum {
-        if is_integer_column(&info.column_type) {
-            quote!(i32)
-        } else if info.is_pgenum {
-            let base = &info.base_type;
-            quote!(#base)
-        } else {
-            quote!(String)
-        }
-    } else if info.is_json {
-        let json_type = driver_json_type();
-        quote!(#json_type<drizzle::core::serde::de::IgnoredAny>)
-    } else {
-        let base = &info.base_type;
-        let cat = TypeCategory::from_type(base);
-        match cat {
-            TypeCategory::ArrayString | TypeCategory::ArrayVec => quote!(String),
-            _ => quote!(#base),
-        }
-    }
-}
-
 // =============================================================================
 // Public API
 // =============================================================================
@@ -369,15 +336,16 @@ pub fn generate_all_driver_impls(ctx: &MacroContext) -> TokenStream {
     };
 
     // Generate NullProbeRow impl for LEFT JOIN support.
-    // Enables `Option<SelectModel>` via blanket impl in drizzle-core.
+    // Enables `Option<SelectModel>` via blanket impl in drizzle-core, which
+    // reads a LEFT JOIN miss off the first column. The probe accepts every
+    // wire type, so the check never depends on how that column is stored.
     let null_probe_impl = field_infos.first().map_or_else(
         || quote! {},
-        |first_field| {
-            let probe_ty = null_probe_type(first_field);
+        |_| {
             quote! {
                 impl drizzle::core::NullProbeRow<drizzle::postgres::Row> for #select_model_ident {
                     fn is_null_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<bool, #drizzle_error> {
-                        let first_col: Option<#probe_ty> = row.try_get(offset)
+                        let first_col: Option<drizzle::postgres::driver_types::AnyNullProbe> = row.try_get(offset)
                             .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?;
                         Ok(first_col.is_none())
                     }

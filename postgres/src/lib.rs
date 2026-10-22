@@ -79,6 +79,30 @@ pub mod driver_types {
     pub use postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
     #[cfg(feature = "tokio-postgres")]
     pub use tokio_postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
+
+    /// Decodes any column type without reading its bytes, so
+    /// `Option<AnyNullProbe>` is `None` exactly when the cell is NULL.
+    ///
+    /// Macro-generated NULL checks use it instead of guessing a concrete
+    /// type: a guess that does not match the column's wire type fails
+    /// `FromSql::accepts` instead of reporting NULL.
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    #[derive(Debug, Clone, Copy)]
+    pub struct AnyNullProbe;
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    impl<'a> FromSql<'a> for AnyNullProbe {
+        fn from_sql(
+            _: &Type,
+            _: &'a [u8],
+        ) -> Result<Self, Box<dyn core::error::Error + Sync + Send>> {
+            Ok(Self)
+        }
+
+        fn accepts(_: &Type) -> bool {
+            true
+        }
+    }
 }
 
 pub use drizzle_core::ParamBind;
