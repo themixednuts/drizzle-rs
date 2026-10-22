@@ -64,9 +64,28 @@ fn generate_select_field_conversion(idx: &TokenStream, info: &FieldInfo) -> Toke
     // Custom types use DrizzlePostgresColumn for deserialization.
     if info.is_custom_type {
         if info.is_nullable {
+            // Probe for NULL with a `FromSql` that accepts every wire type:
+            // probing with a concrete type (e.g. `Option<i32>`) fails its
+            // type check on any other column type and would read every
+            // non-NULL value as NULL.
             return quote! {
                 #name: {
-                    let is_null: bool = row.try_get::<_, Option<i32>>(#idx)
+                    struct __DrizzleNullProbe;
+                    impl<'__probe> drizzle::postgres::driver_types::FromSql<'__probe> for __DrizzleNullProbe {
+                        fn from_sql(
+                            _: &drizzle::postgres::driver_types::Type,
+                            _: &'__probe [u8],
+                        ) -> ::std::result::Result<
+                            Self,
+                            ::std::boxed::Box<dyn ::std::error::Error + ::std::marker::Sync + ::std::marker::Send>,
+                        > {
+                            ::std::result::Result::Ok(Self)
+                        }
+                        fn accepts(_: &drizzle::postgres::driver_types::Type) -> bool {
+                            true
+                        }
+                    }
+                    let is_null: bool = row.try_get::<_, Option<__DrizzleNullProbe>>(#idx)
                         .map(|v| v.is_none())
                         .unwrap_or(true);
                     if is_null {

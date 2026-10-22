@@ -168,3 +168,38 @@ fn custom_postgres_column_roundtrip_and_metadata(db: &mut TestDb<PgCustomU32BeSc
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].payload, value);
 }
+
+#[PostgresTable(name = "pg_custom_nullable_test")]
+struct PgCustomNullableTest {
+    #[column(primary, serial)]
+    id: i32,
+    payload: Option<PgU32Be>,
+}
+
+#[derive(PostgresSchema)]
+struct PgCustomNullableSchema {
+    table: PgCustomNullableTest,
+}
+
+#[drizzle::test]
+fn custom_postgres_column_nullable_roundtrip(db: &mut TestDb<PgCustomNullableSchema>) {
+    let PgCustomNullableSchema { table } = schema;
+
+    let value = PgU32Be(0x0a0b_0c0d);
+    db.insert(table)
+        .values([InsertPgCustomNullableTest::new().with_payload(value)])
+        .execute();
+    db.insert(table)
+        .values([InsertPgCustomNullableTest::new()])
+        .execute();
+
+    let rows: Vec<SelectPgCustomNullableTest> = db
+        .select((table.id, table.payload))
+        .from(table)
+        .order_by(table.id)
+        .all();
+
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].payload, Some(value));
+    assert_eq!(rows[1].payload, None);
+}
