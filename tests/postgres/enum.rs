@@ -183,6 +183,78 @@ mod execution {
         children: NumericEnumChild,
     }
 
+    // Integer storage, sized by the repr: `NumericRole` is `#[repr(i64)]`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PostgresEnum)]
+    #[repr(i16)]
+    enum SmallLevel {
+        Low = -1,
+        High = 300,
+    }
+
+    // Explicit discriminants without a repr: an `integer` column, as on SQLite.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PostgresEnum)]
+    enum Rank {
+        Bronze = 1,
+        Gold = 3,
+    }
+
+    #[PostgresTable(name = "sized_enum_records")]
+    struct SizedEnumRecord {
+        #[column(primary)]
+        id: i32,
+        #[column(enum)]
+        level: SmallLevel,
+        #[column(enum)]
+        rank: Rank,
+        #[column(enum)]
+        role: Option<NumericRole>,
+    }
+
+    #[derive(PostgresSchema)]
+    struct SizedEnumSchema {
+        records: SizedEnumRecord,
+    }
+
+    #[test]
+    fn integer_enum_columns_are_sized_by_repr() {
+        let ddl = SizedEnumRecord::ddl_sql();
+        assert!(ddl.contains(r#""level" smallint NOT NULL"#), "{ddl}");
+        assert!(ddl.contains(r#""rank" integer NOT NULL"#), "{ddl}");
+        assert!(ddl.contains(r#""role" bigint"#), "{ddl}");
+    }
+
+    #[drizzle::test]
+    fn sized_integer_enums_round_trip(db: &mut TestDb<SizedEnumSchema>) {
+        let SizedEnumSchema { records } = schema;
+
+        db.insert(records)
+            .values([InsertSizedEnumRecord::new(1, SmallLevel::High, Rank::Gold)
+                .with_role(NumericRole::Moderator)])
+            .execute();
+        db.insert(records)
+            .values([InsertSizedEnumRecord::new(2, SmallLevel::Low, Rank::Bronze)])
+            .execute();
+
+        let rows: Vec<SelectSizedEnumRecord> = db
+            .select(())
+            .from(records)
+            .r#where(eq(records.level, SmallLevel::High))
+            .all();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].rank, Rank::Gold);
+        assert_eq!(rows[0].role, Some(NumericRole::Moderator));
+
+        let stored: Vec<(i16, i32)> = db
+            .select((
+                cast(records.level, drizzle::postgres::types::Int2),
+                cast(records.rank, drizzle::postgres::types::Int4),
+            ))
+            .from(records)
+            .order_by(records.id)
+            .all();
+        assert_eq!(stored, [(300, 3), (-1, 1)]);
+    }
+
     // TEXT storage: the variant name in a text column, no CREATE TYPE, so
     // the schema does not list the enum.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PostgresEnum)]

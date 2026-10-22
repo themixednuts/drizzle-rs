@@ -1,5 +1,5 @@
-error: PostgresEnum integer discriminants must fit PostgreSQL INTEGER (i32)
- --> tests/ui/postgres_enum_storage/fail/integer_discriminant_out_of_range.rs:8:5
+error: PostgresEnum discriminants must fit the integer column (i32); set #[repr(i64)] for a bigint column
+ --> tests/ui/postgres_enum_storage/fail/integer_discriminant_out_of_range.rs:7:5
   |
-8 |     Complete = 5_000_000_000,
+7 |     Complete = 5_000_000_000,
   |     ^^^^^^^^

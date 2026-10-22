@@ -1253,9 +1253,20 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// | Enum shape | Storage | Stored value |
 /// |---|---|---|
-/// | No integer `#[repr]` | native enum type, `CREATE TYPE "Name" AS ENUM (...)` | the variant name |
+/// | Any variant has an explicit discriminant (`High = 10`), or the enum has an integer `#[repr]` | an integer column, sized as below | the discriminant |
 /// | `#[postgres_enum(text)]` | `text` | the variant name |
-/// | Integer `#[repr]` (`#[repr(i32)]`, `#[repr(i16)]`, ...) | `integer` | the discriminant |
+/// | Otherwise | native enum type, `CREATE TYPE "Name" AS ENUM (...)` | the variant name |
+///
+/// Integer storage is the same rule as [`SQLiteEnum`], so an enum deriving
+/// both stores the discriminant in both. The `#[repr]` sets the column's size:
+///
+/// | `#[repr]` | Column |
+/// |---|---|
+/// | `i8`, `u8`, `i16` | `smallint` |
+/// | `i32`, `u16`, or none (explicit discriminants only) | `integer` |
+/// | `i64`, `u32`, `u64` | `bigint` |
+///
+/// Without a `#[repr]`, every discriminant must fit in an `i32`.
 ///
 /// Mark the column with `#[column(enum)]` in a [`PostgresTable`]. A native
 /// enum is a database object of its own: list it in the [`PostgresSchema`]
@@ -1267,8 +1278,8 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// | Attribute | Meaning |
 /// |---|---|
-/// | `#[postgres_enum(schema = "app")]` | Create the native type in this schema instead of `public`. Not allowed with `text` or an integer `#[repr]`. |
-/// | `#[postgres_enum(text)]` | Store the variant name in a `text` column instead of a native type. Not allowed with an integer `#[repr]`. |
+/// | `#[postgres_enum(schema = "app")]` | Create the native type in this schema instead of `public`. Not allowed with `text` or integer storage. |
+/// | `#[postgres_enum(text)]` | Store the variant name in a `text` column instead of a native type. Not allowed with integer storage. |
 /// | `#[postgres_enum]` | No option; marks an enum that also derives `MySQLEnum` (below). |
 ///
 /// # Deriving more than one dialect
@@ -1283,8 +1294,7 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// The SQL type name is the enum's name, quoted (`CREATE TYPE "Mood" ...`),
 /// so `PostgreSQL` keeps its case, and schema-qualified outside `public`
 /// (`"app"."Mood"`) — the same spelling migrations generate. Columns refer
-/// to it the same way. With an integer `#[repr]`, every discriminant must
-/// fit in an `i32`.
+/// to it the same way.
 ///
 /// # Generated impls
 ///
@@ -1317,10 +1327,16 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 ///
 /// #[derive(PostgresEnum, Clone, Copy, Debug, PartialEq)]
-/// #[repr(i32)]
 /// enum Priority {
 ///     Low = 1,
 ///     High = 10,
+/// }
+///
+/// #[derive(PostgresEnum, Clone, Copy, Debug, PartialEq)]
+/// #[repr(i16)]
+/// enum Level {
+///     Debug,
+///     Info,
 /// }
 ///
 /// #[derive(PostgresEnum, Clone, Copy, Debug, PartialEq)]
@@ -1339,6 +1355,8 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///     #[column(enum)]
 ///     priority: Priority,
 ///     #[column(enum)]
+///     level: Level,
+///     #[column(enum)]
 ///     source: Source,
 /// }
 ///
@@ -1352,6 +1370,7 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// assert_eq!(i64::from(Priority::High), 10);
 /// assert!(Entries::ddl_sql().contains(r#""mood" "Mood" NOT NULL"#));
 /// assert!(Entries::ddl_sql().contains(r#""priority" integer NOT NULL"#));
+/// assert!(Entries::ddl_sql().contains(r#""level" smallint NOT NULL"#));
 /// assert!(Entries::ddl_sql().contains(r#""source" text NOT NULL"#));
 /// # }
 /// # #[cfg(not(feature = "postgres"))]

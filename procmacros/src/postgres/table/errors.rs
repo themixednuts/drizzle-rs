@@ -35,7 +35,7 @@ pub mod enums {
     pub const INVALID_COLUMN_TYPE: &str = "Enum fields must use `#[column(enum)]` with a type that derives `PostgresEnum`.\n\
          \n\
          - Default: native PostgreSQL ENUM type\n\
-         - With integer repr (e.g. `#[repr(i32)]`): INTEGER storage\n\
+         - With explicit discriminants or an integer `#[repr]`: integer storage, sized by the repr\n\
          \n\
          Example: #[column(enum)] pub status: Status";
 }

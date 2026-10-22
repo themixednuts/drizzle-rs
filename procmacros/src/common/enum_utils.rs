@@ -46,26 +46,31 @@ pub fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
 }
 
 /// Check if the enum has any variant with an explicit discriminant (`= N`).
-#[cfg(feature = "sqlite")]
+#[cfg(any(feature = "sqlite", feature = "postgres"))]
 pub fn has_explicit_discriminants(data: &DataEnum) -> bool {
     data.variants.iter().any(|v| v.discriminant.is_some())
+}
+
+/// The integer type of a `#[repr(iN)]` or `#[repr(uN)]` attribute, if any.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
+pub fn integer_repr(attrs: &[Attribute]) -> Option<syn::Ident> {
+    attrs.iter().find_map(|attr| {
+        if !attr.path().is_ident("repr") {
+            return None;
+        }
+        let nested = attr.parse_args::<syn::Ident>().ok()?;
+        matches!(
+            nested.to_string().as_str(),
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+        )
+        .then_some(nested)
+    })
 }
 
 /// Check if the type has a `#[repr(iN)]` or `#[repr(uN)]` attribute.
 #[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 pub fn has_integer_repr(attrs: &[Attribute]) -> bool {
-    attrs.iter().any(|attr| {
-        if !attr.path().is_ident("repr") {
-            return false;
-        }
-        let Ok(nested) = attr.parse_args::<syn::Ident>() else {
-            return false;
-        };
-        matches!(
-            nested.to_string().as_str(),
-            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
-        )
-    })
+    integer_repr(attrs).is_some()
 }
 
 /// Resolve all discriminant values for an enum's variants and validate uniqueness.

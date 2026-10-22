@@ -1,0 +1,5 @@
+error: #[postgres_enum(text)] stores the variant name; remove the integer #[repr(...)] and explicit discriminants, or the `text` option
+ --> tests/ui/postgres_enum_storage/fail/text_with_discriminants.rs:5:6
+  |
+5 | enum Tier {
+  |      ^^^^
