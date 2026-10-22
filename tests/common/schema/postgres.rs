@@ -41,10 +41,10 @@ pub enum PostStatus {
 /// PostgreSQL enum for priority levels
 #[derive(PostgresEnum, Default, Copy, Clone, PartialEq, Debug)]
 pub enum Priority {
-    Low = 1,
+    Low,
     #[default]
-    Medium = 5,
-    High = 10,
+    Medium,
+    High,
 }
 
 // Simple table for basic testing

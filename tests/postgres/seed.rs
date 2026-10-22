@@ -354,7 +354,7 @@ mod executed {
                             .not_null()
                             .enum_values(["Calm", "Busy"]),
                     )
-                    .column(Column::new("level", "integer").not_null())
+                    .column(Column::new("level", "bigint").not_null())
                     .column(Column::new("updated_at", "TIMESTAMP").not_null())
                     .column(Column::new("position", "INTEGER").not_null())
                     .column(Column::new("email_count", "INTEGER").not_null())

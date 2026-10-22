@@ -1,4 +1,6 @@
-use crate::common::enum_utils::{has_helper_attribute, has_integer_repr, resolve_discriminants};
+use crate::common::enum_utils::{
+    has_explicit_discriminants, has_helper_attribute, integer_repr, resolve_discriminants,
+};
 use crate::paths::{core as core_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -44,6 +46,80 @@ fn parse_enum_options(attrs: &[Attribute]) -> syn::Result<EnumOptions> {
         })?;
     }
     Ok(options)
+}
+
+/// Column of an integer-stored enum: sized by its `#[repr(...)]`, `integer`
+/// for an enum with explicit discriminants and no repr.
+#[derive(Clone, Copy)]
+enum IntegerColumn {
+    Smallint,
+    Integer,
+    Bigint,
+}
+
+impl IntegerColumn {
+    fn from_repr(repr: Option<&Ident>) -> Self {
+        match repr.map(ToString::to_string).as_deref() {
+            Some("i8" | "u8" | "i16") => Self::Smallint,
+            Some("i64" | "u32" | "u64") => Self::Bigint,
+            _ => Self::Integer,
+        }
+    }
+
+    const fn sql_type(self) -> &'static str {
+        match self {
+            Self::Smallint => "smallint",
+            Self::Integer => "integer",
+            Self::Bigint => "bigint",
+        }
+    }
+
+    /// The Rust integer the column reads and writes.
+    fn rust_type(self) -> TokenStream {
+        match self {
+            Self::Smallint => quote!(i16),
+            Self::Integer => quote!(i32),
+            Self::Bigint => quote!(i64),
+        }
+    }
+
+    /// The `PostgresValue` variant holding that integer.
+    fn value_variant(self) -> TokenStream {
+        match self {
+            Self::Smallint => quote!(Smallint),
+            Self::Integer => quote!(Integer),
+            Self::Bigint => quote!(Bigint),
+        }
+    }
+
+    /// The `drizzle::postgres::types` marker for the column.
+    fn type_marker(self) -> TokenStream {
+        match self {
+            Self::Smallint => quote!(Int2),
+            Self::Integer => quote!(Int4),
+            Self::Bigint => quote!(Int8),
+        }
+    }
+
+    /// The driver's `Type` constant for the column.
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    fn driver_type(self) -> TokenStream {
+        match self {
+            Self::Smallint => quote!(INT2),
+            Self::Integer => quote!(INT4),
+            Self::Bigint => quote!(INT8),
+        }
+    }
+
+    /// `value` as a literal of the column's Rust integer, or `None` when it
+    /// doesn't fit.
+    fn literal(self, value: i64) -> Option<TokenStream> {
+        match self {
+            Self::Smallint => i16::try_from(value).ok().map(|v| quote!(#v)),
+            Self::Integer => i32::try_from(value).ok().map(|v| quote!(#v)),
+            Self::Bigint => Some(quote!(#value)),
+        }
+    }
 }
 
 // Generate implementation for PostgreSQL enum representation following SQLite pattern
@@ -193,16 +269,26 @@ pub fn generate_enum_impl(
         })
         .collect();
 
-    // Keep repr enums integer-backed at every PostgreSQL driver boundary.
-    let is_integer_storage = has_integer_repr(attrs);
+    // Like SQLiteEnum: an enum with explicit discriminants or an integer
+    // `#[repr]` stores its discriminant, at every PostgreSQL driver boundary.
+    let repr = integer_repr(attrs);
+    let is_integer_storage = repr.is_some() || has_explicit_discriminants(data);
+    let integer_column = IntegerColumn::from_repr(repr.as_ref());
+    let integer_sql_type = integer_column.sql_type();
+    let integer_type = integer_column.rust_type();
+    let integer_value = integer_column.value_variant();
+    let integer_marker = integer_column.type_marker();
     let postgres_integer_ref_variants: Box<[_]> = if is_integer_storage {
         resolved
             .iter()
             .map(|(ident, value)| {
-                let value = i32::try_from(*value).map_err(|_| {
+                let value = integer_column.literal(*value).ok_or_else(|| {
                     syn::Error::new_spanned(
                         ident,
-                        "PostgresEnum integer discriminants must fit PostgreSQL INTEGER (i32)",
+                        format!(
+                            "PostgresEnum discriminants must fit the {integer_sql_type} column \
+                             ({integer_type}); set #[repr(i64)] for a bigint column"
+                        ),
                     )
                 })?;
                 Ok(quote! { &#name::#ident => #value })
@@ -225,20 +311,21 @@ pub fn generate_enum_impl(
         let pg = quote!(drizzle::postgres::driver_types);
         let name_str = name.to_string();
         if is_integer_storage {
+            let driver_type = integer_column.driver_type();
             quote! {
                 impl<'a> #pg::FromSql<'a> for #name {
                     fn from_sql(
                         ty: &#pg::Type,
                         raw: &'a [u8],
                     ) -> ::std::result::Result<Self, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                        let value = <i32 as #pg::FromSql>::from_sql(ty, raw)?;
-                        <#name as ::std::convert::TryFrom<i32>>::try_from(value).map_err(|_| {
+                        let value = <#integer_type as #pg::FromSql>::from_sql(ty, raw)?;
+                        <#name as ::std::convert::TryFrom<#integer_type>>::try_from(value).map_err(|_| {
                             ::std::format!("Failed to parse {} from integer {}", #name_str, value).into()
                         })
                     }
 
                     fn accepts(ty: &#pg::Type) -> bool {
-                        *ty == #pg::Type::INT4
+                        *ty == #pg::Type::#driver_type
                     }
                 }
 
@@ -248,14 +335,14 @@ pub fn generate_enum_impl(
                         ty: &#pg::Type,
                         out: &mut #pg::BytesMut,
                     ) -> ::std::result::Result<#pg::IsNull, ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Sync + ::core::marker::Send>> {
-                        let value: i32 = match self {
+                        let value: #integer_type = match self {
                             #(#postgres_integer_ref_variants,)*
                         };
                         #pg::ToSql::to_sql(&value, ty, out)
                     }
 
                     fn accepts(ty: &#pg::Type) -> bool {
-                        *ty == #pg::Type::INT4
+                        *ty == #pg::Type::#driver_type
                     }
 
                     #pg::to_sql_checked!();
@@ -311,7 +398,7 @@ pub fn generate_enum_impl(
         return Err(syn::Error::new_spanned(
             name,
             "#[postgres_enum(text)] stores the variant name; remove the integer #[repr(...)] \
-             or the `text` option",
+             and explicit discriminants, or the `text` option",
         ));
     }
     if is_text_storage && enum_schema.is_some() {
@@ -325,8 +412,8 @@ pub fn generate_enum_impl(
         return Err(syn::Error::new_spanned(
             name,
             "#[postgres_enum(schema = \"...\")] requires a native PostgreSQL enum; \
-             integer-repr enums (#[repr(iN)]) are stored as plain integer columns \
-             and create no type",
+             enums with an integer #[repr(...)] or explicit discriminants are stored \
+             as plain integer columns and create no type",
         ));
     }
     let drizzle_postgres_column = postgres_paths::drizzle_postgres_column();
@@ -550,28 +637,23 @@ pub fn generate_enum_impl(
             }
         }
     } else if is_integer_storage {
-        // Integer-stored enum: read as i32, write as Integer
+        // Integer-stored enum: the discriminant in the repr-sized column
         quote! {
             impl #drizzle_postgres_column for #name {
-                type SQLType = #postgres_types::Int4;
-                const SQL_TYPE: &'static str = "integer";
+                type SQLType = #postgres_types::#integer_marker;
+                const SQL_TYPE: &'static str = #integer_sql_type;
                 const NEEDS_CREATE_TYPE: bool = false;
 
                 fn decode(row: &drizzle::postgres::Row, idx: usize) -> ::std::result::Result<Self, #drizzle_error> {
-                    let v = row
-                        .try_get::<_, i32>(idx)
-                        .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?;
-                    <#name as ::std::convert::TryFrom<i32>>::try_from(v)
-                        .map_err(|_| #drizzle_error::ConversionError(
-                            ::std::format!("Failed to convert {} to {}", v, stringify!(#name)).into()
-                        ))
+                    row.try_get::<_, #name>(idx)
+                        .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))
                 }
 
                 fn encode(&self) -> #postgres_value<'_> {
                     let integer = match self {
                         #(#postgres_integer_ref_variants,)*
                     };
-                    #postgres_value::Integer(integer)
+                    #postgres_value::#integer_value(integer)
                 }
             }
         }
@@ -631,15 +713,15 @@ pub fn generate_enum_impl(
         // Integer-stored enum without driver: no decode method
         quote! {
             impl #drizzle_postgres_column for #name {
-                type SQLType = #postgres_types::Int4;
-                const SQL_TYPE: &'static str = "integer";
+                type SQLType = #postgres_types::#integer_marker;
+                const SQL_TYPE: &'static str = #integer_sql_type;
                 const NEEDS_CREATE_TYPE: bool = false;
 
                 fn encode(&self) -> #postgres_value<'_> {
                     let integer = match self {
                         #(#postgres_integer_ref_variants,)*
                     };
-                    #postgres_value::Integer(integer)
+                    #postgres_value::#integer_value(integer)
                 }
             }
         }
@@ -647,22 +729,6 @@ pub fn generate_enum_impl(
 
     #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
     let postgres_row_impls = {
-        let null_probe = if is_integer_storage {
-            quote! {
-                let value = row
-                    .try_get::<_, ::std::option::Option<i32>>(offset)
-                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?;
-                ::std::result::Result::Ok(value.is_none())
-            }
-        } else {
-            quote! {
-                let value = row
-                    .try_get::<_, ::std::option::Option<#name>>(offset)
-                    .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?;
-                ::std::result::Result::Ok(value.is_none())
-            }
-        };
-
         quote! {
             impl drizzle::core::FromDrizzleRow<#postgres_row> for #name {
                 const COLUMN_COUNT: usize = 1;
@@ -680,7 +746,10 @@ pub fn generate_enum_impl(
                     row: &#postgres_row,
                     offset: usize,
                 ) -> ::std::result::Result<bool, #drizzle_error> {
-                    #null_probe
+                    let value = row
+                        .try_get::<_, ::std::option::Option<#name>>(offset)
+                        .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))?;
+                    ::std::result::Result::Ok(value.is_none())
                 }
             }
 
@@ -743,7 +812,7 @@ pub fn generate_enum_impl(
     let aws_data_api_row_impls = quote! {};
 
     // Native enum impls (PostgresEnum trait, SQLEnumInfo, SQLSchema, CREATE TYPE SQL, Expr with Enum type)
-    // Only generated for non-integer-repr enums
+    // Only generated for enums stored as a native type
     let native_enum_impls = if is_text_storage {
         // Text-stored enum: a TEXT column, no CREATE TYPE
         quote! {
@@ -790,7 +859,7 @@ pub fn generate_enum_impl(
             }
         }
     } else if is_integer_storage {
-        // Integer-repr enum: stored as integer column, no CREATE TYPE needed
+        // Integer-stored enum: a plain integer column, no CREATE TYPE needed
         quote! {
             // Implement new() - returns the default variant
             impl #name {
@@ -799,12 +868,12 @@ pub fn generate_enum_impl(
                 }
             }
 
-            // Snapshot DDL channel (integer-repr enums create no type).
+            // Snapshot DDL channel (integer-stored enums create no type).
             impl #postgres_item_ddl for #name {}
 
             // Implement Expr trait for type-safe comparisons — integer type
             impl<'a> #core_expr::Expr<'a, #postgres_value<'a>> for #name {
-                type SQLType = #postgres_types::Int4;
+                type SQLType = #postgres_types::#integer_marker;
                 type Nullable = #core_expr::NonNull;
                 type Aggregate = #core_expr::Scalar;
             }
@@ -813,11 +882,11 @@ pub fn generate_enum_impl(
             #drizzle_postgres_column_impl
 
             impl #value_type_for_dialect<#postgres_dialect> for #name {
-                type SQLType = #postgres_types::Int4;
+                type SQLType = #postgres_types::#integer_marker;
             }
 
             impl #value_type_for_dialect<#postgres_dialect> for &#name {
-                type SQLType = #postgres_types::Int4;
+                type SQLType = #postgres_types::#integer_marker;
             }
 
             // TryFrom<PostgresValue> for the enum (read path)
@@ -826,6 +895,7 @@ pub fn generate_enum_impl(
 
                 fn try_from(value: #postgres_value<'a>) -> ::std::result::Result<Self, Self::Error> {
                     match value {
+                        #postgres_value::Smallint(i) => <#name as ::std::convert::TryFrom<i16>>::try_from(i),
                         #postgres_value::Integer(i) => <#name as ::std::convert::TryFrom<i32>>::try_from(i),
                         #postgres_value::Bigint(i) => <#name as ::std::convert::TryFrom<i64>>::try_from(i),
                         _ => ::std::result::Result::Err(#drizzle_error::ConversionError(

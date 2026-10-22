@@ -20,6 +20,14 @@ mod sqlite_and_postgres {
         Admin,
     }
 
+    // Explicit discriminants store the discriminant on both dialects.
+    #[derive(SQLiteEnum, PostgresEnum, Clone, Copy, Debug, PartialEq)]
+    #[sqlite_enum]
+    enum DualLevel {
+        Low = 1,
+        High = 10,
+    }
+
     #[test]
     fn shared_conversions_come_from_one_derive() {
         assert_eq!(DualRole::Admin.to_string(), "Admin");
@@ -29,7 +37,7 @@ mod sqlite_and_postgres {
     }
 
     mod sqlite_side {
-        use super::DualRole;
+        use super::{DualLevel, DualRole};
         use drizzle::core::expr::eq;
         use drizzle::sqlite::prelude::*;
 
@@ -39,6 +47,8 @@ mod sqlite_and_postgres {
             id: i64,
             #[column(enum)]
             role: DualRole,
+            #[column(enum)]
+            level: DualLevel,
         }
 
         #[derive(SQLiteSchema)]
@@ -48,7 +58,9 @@ mod sqlite_and_postgres {
 
         #[test]
         fn dual_enum_is_a_text_column_on_sqlite() {
-            assert!(SqliteAccount::ddl_sql().contains("`role` TEXT NOT NULL"));
+            let ddl = SqliteAccount::ddl_sql();
+            assert!(ddl.contains("`role` TEXT NOT NULL"), "{ddl}");
+            assert!(ddl.contains("`level` INTEGER NOT NULL"), "{ddl}");
         }
 
         #[drizzle::test(sqlite)]
@@ -56,7 +68,7 @@ mod sqlite_and_postgres {
             let SqliteAccountSchema { account } = schema;
 
             db.insert(account)
-                .values([InsertSqliteAccount::new(DualRole::Admin).with_id(1)])
+                .values([InsertSqliteAccount::new(DualRole::Admin, DualLevel::High).with_id(1)])
                 .execute();
             let rows: Vec<SelectSqliteAccount> = db
                 .select(())
@@ -65,11 +77,12 @@ mod sqlite_and_postgres {
                 .all();
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].role, DualRole::Admin);
+            assert_eq!(rows[0].level, DualLevel::High);
         }
     }
 
     mod postgres_side {
-        use super::DualRole;
+        use super::{DualLevel, DualRole};
         use drizzle::core::expr::eq;
         use drizzle::postgres::prelude::*;
 
@@ -79,6 +92,8 @@ mod sqlite_and_postgres {
             id: i32,
             #[column(enum)]
             role: DualRole,
+            #[column(enum)]
+            level: DualLevel,
         }
 
         #[derive(PostgresSchema)]
@@ -89,7 +104,9 @@ mod sqlite_and_postgres {
 
         #[test]
         fn dual_enum_is_a_native_enum_on_postgres() {
-            assert!(PgAccount::ddl_sql().contains(r#""role" "DualRole" NOT NULL"#));
+            let ddl = PgAccount::ddl_sql();
+            assert!(ddl.contains(r#""role" "DualRole" NOT NULL"#), "{ddl}");
+            assert!(ddl.contains(r#""level" integer NOT NULL"#), "{ddl}");
         }
 
         #[drizzle::test(postgres)]
@@ -97,7 +114,7 @@ mod sqlite_and_postgres {
             let PgAccountSchema { account, .. } = schema;
 
             db.insert(account)
-                .values([InsertPgAccount::new(1, DualRole::Admin)])
+                .values([InsertPgAccount::new(1, DualRole::Admin, DualLevel::High)])
                 .execute();
             let rows: Vec<SelectPgAccount> = db
                 .select(())
@@ -106,6 +123,7 @@ mod sqlite_and_postgres {
                 .all();
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].role, DualRole::Admin);
+            assert_eq!(rows[0].level, DualLevel::High);
         }
     }
 }

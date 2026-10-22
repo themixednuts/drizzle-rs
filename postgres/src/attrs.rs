@@ -266,9 +266,11 @@ pub const JSONB: ColumnMarker = ColumnMarker;
 /// # "####;
 /// ```
 ///
-/// The field's type must derive `PostgresEnum`, which decides the storage: a
-/// native enum type, or `integer` for an enum with an integer `#[repr]`. The
-/// table macro also detects such fields without this attribute.
+/// The field's type must derive `PostgresEnum`, which decides the storage: an
+/// integer column sized by the `#[repr]` for an enum with explicit
+/// discriminants or an integer `#[repr]`, `text` under
+/// `#[postgres_enum(text)]`, and a native enum type otherwise. The table
+/// macro also detects such fields without this attribute.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-enum.html>
 pub const ENUM: ColumnMarker = ColumnMarker;
