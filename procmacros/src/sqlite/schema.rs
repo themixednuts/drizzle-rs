@@ -282,13 +282,27 @@ pub fn generate_sqlite_schema_derive_impl(input: &DeriveInput) -> Result<TokenSt
                             }
 
                             // Emit ONE PrimaryKey entity covering all PK columns
-                            // (single-column and composite alike).
+                            // (single-column and composite alike). Only a
+                            // named key has a PrimaryKey constraint ref.
                             if !pk_columns.is_empty() {
-                                snapshot.add_entity(MigEntity::PrimaryKey(MigPrimaryKey::from_strings(
+                                let named = table_ref.constraints.iter().find(|constraint| {
+                                    ::core::matches!(
+                                        constraint.kind,
+                                        drizzle::core::SQLConstraintKind::PrimaryKey
+                                    )
+                                });
+                                let mut primary_key = MigPrimaryKey::from_strings(
                                     table_name.to_string(),
-                                    ::std::format!("{}_pk", table_name),
+                                    named
+                                        .and_then(|constraint| constraint.name)
+                                        .map_or_else(
+                                            || ::std::format!("{}_pk", table_name),
+                                            ::std::string::ToString::to_string,
+                                        ),
                                     pk_columns,
-                                )));
+                                );
+                                primary_key.name_explicit = named.is_some();
+                                snapshot.add_entity(MigEntity::PrimaryKey(primary_key));
                             }
 
                             // Emit ForeignKey entities from the table's FK refs

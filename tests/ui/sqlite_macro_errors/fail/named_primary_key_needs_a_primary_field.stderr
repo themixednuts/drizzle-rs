@@ -1,0 +1,5 @@
+error: PRIMARY_KEY(name = "users_key") names the primary key, but no field is marked #[column(primary)]
+ --> tests/ui/sqlite_macro_errors/fail/named_primary_key_needs_a_primary_field.rs:4:8
+  |
+4 | struct Users {
+  |        ^^^^^

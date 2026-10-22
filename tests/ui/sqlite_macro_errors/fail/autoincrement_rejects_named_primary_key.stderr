@@ -1,0 +1,5 @@
+error: column `id` uses AUTOINCREMENT, which needs an unnamed inline PRIMARY KEY; PRIMARY_KEY(name = "...") writes a table constraint
+ --> tests/ui/sqlite_macro_errors/fail/autoincrement_rejects_named_primary_key.rs:6:5
+  |
+6 |     id: i64,
+  |     ^^

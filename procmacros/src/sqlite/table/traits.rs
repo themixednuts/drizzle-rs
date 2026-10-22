@@ -243,18 +243,23 @@ pub fn generate_table_impls(
                 // table's `DrizzleTable::NAME` and the target column's
                 // `SQLSchema::NAME`, concatenated at compile time.
                 let name_prefix = format!("fk_{}_{}_", ctx.table_name, f.column_name);
-                let name_expr = quote! {
-                    #const_format::concatcp!(
-                        #name_prefix,
-                        <#target_table as drizzle::core::DrizzleTable>::NAME,
-                        "_",
-                        #target_column_expr,
-                        "_fk"
-                    )
-                };
+                let name_expr = fk.name.as_ref().map_or_else(
+                    || {
+                        quote! {
+                            #const_format::concatcp!(
+                                #name_prefix,
+                                <#target_table as drizzle::core::DrizzleTable>::NAME,
+                                "_",
+                                #target_column_expr,
+                                "_fk"
+                            )
+                        }
+                    },
+                    |name| quote! { #name },
+                );
                 ForeignKeyRefInput {
                     name: name_expr,
-                    name_explicit: false,
+                    name_explicit: fk.name.is_some(),
                     source_columns: vec![f.column_name.clone()],
                     target_schema: quote! { "" },
                     target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
@@ -303,10 +308,13 @@ pub fn generate_table_impls(
             name_pieces.push(expr.clone());
         }
         name_pieces.push(quote! { "_fk" });
-        let name_expr = quote! { #const_format::concatcp!(#(#name_pieces),*) };
+        let name_expr = cfk.name.as_ref().map_or_else(
+            || quote! { #const_format::concatcp!(#(#name_pieces),*) },
+            |name| quote! { #name },
+        );
         table_ref_fks.push(ForeignKeyRefInput {
             name: name_expr,
-            name_explicit: false,
+            name_explicit: cfk.name.is_some(),
             source_columns,
             target_schema: quote! { "" },
             target_table: quote! { <#target_table as drizzle::core::DrizzleTable>::NAME },
@@ -364,6 +372,17 @@ pub fn generate_table_impls(
             name_explicit: unique.name.is_some(),
             kind: quote! { drizzle::core::SQLConstraintKind::Unique },
             columns,
+            check_expression: None,
+            deferrable: false,
+            initially_deferred: false,
+        });
+    }
+    if let Some(name) = &ctx.attrs.primary_key_name {
+        table_ref_constraints.push(ConstraintRefInput {
+            name: Some(name.clone()),
+            name_explicit: true,
+            kind: quote! { drizzle::core::SQLConstraintKind::PrimaryKey },
+            columns: pk_columns.clone(),
             check_expression: None,
             deferrable: false,
             initially_deferred: false,

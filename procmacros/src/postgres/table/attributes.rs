@@ -3,7 +3,9 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
-use crate::common::constraints::{RelationNames, is_key, referential_action};
+use crate::common::constraints::{
+    RelationNames, is_key, parse_primary_key_name, referential_action,
+};
 use crate::common::make_uppercase_path;
 
 #[derive(Default)]
@@ -23,42 +25,6 @@ pub struct TableAttributes {
     pub(crate) primary_key_name: Option<String>,
     /// Original marker paths for IDE hover documentation
     pub(crate) marker_exprs: Vec<ExprPath>,
-}
-
-/// Parses `primary_key(name = "...")`. The key's columns are the fields
-/// marked `#[column(primary)]`.
-fn parse_primary_key_name(tokens: proc_macro2::TokenStream) -> Result<String> {
-    let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse2(tokens)?;
-    let mut name = None;
-    for meta in metas {
-        match meta {
-            Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
-                if let syn::Expr::Lit(lit) = &nv.value
-                    && let syn::Lit::Str(s) = &lit.lit
-                    && !s.value().is_empty()
-                {
-                    name = Some(s.value());
-                } else {
-                    return Err(syn::Error::new(
-                        nv.span(),
-                        "name must be a non-empty string literal",
-                    ));
-                }
-            }
-            other => {
-                return Err(syn::Error::new(
-                    other.span(),
-                    "PRIMARY_KEY(...) takes only name = \"...\"; mark the key's fields with #[column(primary)]",
-                ));
-            }
-        }
-    }
-    name.ok_or_else(|| {
-        syn::Error::new(
-            proc_macro2::Span::call_site(),
-            "PRIMARY_KEY(...) requires name = \"...\"",
-        )
-    })
 }
 
 #[derive(Clone)]

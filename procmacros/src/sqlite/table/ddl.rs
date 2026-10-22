@@ -108,6 +108,10 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
     // `<RefTable>::TABLE_NAME` piece between literal fragments.
     let mut lines: Vec<Vec<DdlPiece>> = Vec::new();
 
+    // A named primary key is a table constraint, even on one column; on an
+    // `INTEGER` column it still aliases the rowid.
+    let primary_key_name = ctx.attrs.primary_key_name.as_ref();
+
     // Column definitions. The two "is this column the inline PK / inline
     // UNIQUE?" questions are answered by `Constraint`, set during the
     // table-level pass.
@@ -115,21 +119,23 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
         let mut line = vec![DdlPiece::Literal("\t".to_string())];
         line.extend(column_to_sql_pieces(
             field,
-            field.constraint.is_inline_primary(),
+            field.constraint.is_inline_primary() && primary_key_name.is_none(),
             field.constraint.is_inline_unique(),
         ));
         lines.push(line);
     }
 
-    // Composite primary key (only when there are 2+ PK columns)
-    if is_composite_pk {
+    // Composite or named primary key
+    if is_composite_pk || primary_key_name.is_some() {
         let pk_cols: Vec<String> = field_infos
             .iter()
             .filter(|f| f.is_primary())
             .map(|f| format!("`{}`", f.column_name))
             .collect();
         if !pk_cols.is_empty() {
-            let pk_name = format!("{table_name}_pk");
+            let pk_name = primary_key_name
+                .cloned()
+                .unwrap_or_else(|| format!("{table_name}_pk"));
             lines.push(vec![DdlPiece::Literal(format!(
                 "\tCONSTRAINT `{}` PRIMARY KEY({})",
                 pk_name,
@@ -146,15 +152,20 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
         if let Some(ref fk) = field.foreign_key {
             let ref_column_expr = ref_column_name_expr(&fk.table_ident, &fk.column_ident);
             let mut line = Vec::new();
+            if let Some(name) = &fk.name {
+                line.push(DdlPiece::Literal(format!("\tCONSTRAINT `{name}`")));
+            } else {
+                line.push(DdlPiece::Literal(format!(
+                    "\tCONSTRAINT `fk_{}_{}_",
+                    table_name, field.column_name
+                )));
+                line.push(DdlPiece::TableNameOf(fk.table_ident.clone()));
+                line.push(DdlPiece::Literal("_".to_string()));
+                line.push(DdlPiece::Expr(ref_column_expr.clone()));
+                line.push(DdlPiece::Literal("_fk`".to_string()));
+            }
             line.push(DdlPiece::Literal(format!(
-                "\tCONSTRAINT `fk_{}_{}_",
-                table_name, field.column_name
-            )));
-            line.push(DdlPiece::TableNameOf(fk.table_ident.clone()));
-            line.push(DdlPiece::Literal("_".to_string()));
-            line.push(DdlPiece::Expr(ref_column_expr.clone()));
-            line.push(DdlPiece::Literal(format!(
-                "_fk` FOREIGN KEY (`{}`) REFERENCES `",
+                " FOREIGN KEY (`{}`) REFERENCES `",
                 field.column_name
             )));
             line.push(DdlPiece::TableNameOf(fk.table_ident.clone()));
@@ -205,19 +216,24 @@ fn build_create_table_pieces(ctx: &MacroContext) -> Vec<DdlPiece> {
             .join(", ");
 
         let mut line = Vec::new();
-        // Constraint name: fk_{table}_{src_cols}_{target_table}_{target_cols}_fk
-        line.push(DdlPiece::Literal(format!(
-            "\tCONSTRAINT `fk_{}_{}_",
-            table_name,
-            source_cols.join("_")
-        )));
-        line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
-        for expr in &target_col_exprs {
-            line.push(DdlPiece::Literal("_".to_string()));
-            line.push(DdlPiece::Expr(expr.clone()));
+        if let Some(name) = &fk.name {
+            line.push(DdlPiece::Literal(format!("\tCONSTRAINT `{name}`")));
+        } else {
+            // Constraint name: fk_{table}_{src_cols}_{target_table}_{target_cols}_fk
+            line.push(DdlPiece::Literal(format!(
+                "\tCONSTRAINT `fk_{}_{}_",
+                table_name,
+                source_cols.join("_")
+            )));
+            line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
+            for expr in &target_col_exprs {
+                line.push(DdlPiece::Literal("_".to_string()));
+                line.push(DdlPiece::Expr(expr.clone()));
+            }
+            line.push(DdlPiece::Literal("_fk`".to_string()));
         }
         line.push(DdlPiece::Literal(format!(
-            "_fk` FOREIGN KEY ({src_str}) REFERENCES `"
+            " FOREIGN KEY ({src_str}) REFERENCES `"
         )));
         line.push(DdlPiece::TableNameOf(fk.target_table.clone()));
         line.push(DdlPiece::Literal("`(".to_string()));
@@ -507,7 +523,16 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
         .map(|f| &f.column_name)
         .collect();
 
-    let pk_name = format!("{table_name}_pk");
+    let pk_name = ctx
+        .attrs
+        .primary_key_name
+        .clone()
+        .unwrap_or_else(|| format!("{table_name}_pk"));
+    let pk_explicit = ctx
+        .attrs
+        .primary_key_name
+        .is_some()
+        .then(|| quote! { .explicit_name() });
     let pk_def = if pk_columns.is_empty() {
         quote! {
             /// Primary key definition (none)
@@ -523,7 +548,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             /// Primary key definition
             pub const DDL_PRIMARY_KEY: ::std::option::Option<#primary_key_def> = {
                 const PK_COLS: &[::std::borrow::Cow<'static, str>] = &[#(#pk_col_cows),*];
-                ::std::option::Option::Some(#primary_key_def::new(#table_name, #pk_name).columns(PK_COLS))
+                ::std::option::Option::Some(#primary_key_def::new(#table_name, #pk_name).columns(PK_COLS)#pk_explicit)
             };
         }
     };
@@ -541,17 +566,25 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
                     ref_column_name_expr(&fk_ref.table_ident, &fk_ref.column_ident);
                 let column_name = &field.column_name;
                 let fk_name_prefix = format!("fk_{}_{}_", table_name, field.column_name);
-                let fk_name_expr = quote! {
-                    #const_format::concatcp!(
-                        #fk_name_prefix,
-                        <#ref_table_ident>::TABLE_NAME,
-                        "_",
-                        #ref_column_expr,
-                        "_fk"
-                    )
-                };
+                let fk_name_expr = fk_ref.name.as_ref().map_or_else(
+                    || {
+                        quote! {
+                            #const_format::concatcp!(
+                                #fk_name_prefix,
+                                <#ref_table_ident>::TABLE_NAME,
+                                "_",
+                                #ref_column_expr,
+                                "_fk"
+                            )
+                        }
+                    },
+                    |name| quote! { #name },
+                );
 
                 let mut modifiers = Vec::new();
+                if fk_ref.name.is_some() {
+                    modifiers.push(quote! { .explicit_name() });
+                }
                 if let Some(ref on_delete) = fk_ref.on_delete {
                     let action_token = referential_action_token(on_delete, &referential_action);
                     modifiers.push(
@@ -607,7 +640,10 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             fk_name_pieces.push(expr.clone());
         }
         fk_name_pieces.push(quote! { "_fk" });
-        let fk_name_expr = quote! { #const_format::concatcp!(#(#fk_name_pieces),*) };
+        let fk_name_expr = fk.name.as_ref().map_or_else(
+            || quote! { #const_format::concatcp!(#(#fk_name_pieces),*) },
+            |name| quote! { #name },
+        );
         let fk_cols: Vec<TokenStream> = source_columns
             .iter()
             .map(|c| quote! { ::std::borrow::Cow::Borrowed(#c) })
@@ -618,6 +654,9 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
             .collect();
 
         let mut modifiers = Vec::new();
+        if fk.name.is_some() {
+            modifiers.push(quote! { .explicit_name() });
+        }
         if let Some(ref on_delete) = fk.on_delete {
             let action_token = referential_action_token(on_delete.as_str(), &referential_action);
             modifiers.push(quote! { .on_delete(#action_token) });

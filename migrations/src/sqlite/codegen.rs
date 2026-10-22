@@ -206,11 +206,25 @@ pub fn generate_rust_schema(ddl: &SQLiteDDL, options: &CodegenOptions) -> Genera
             .get(&table_name)
             .map_or(&[][..], std::vec::Vec::as_slice);
         let is_composite_pk = pk_columns.is_some_and(|pks| pks.len() > 1);
+        // AUTOINCREMENT needs the unnamed inline PRIMARY KEY, so it wins
+        // over a name.
+        let primary_key_name = ddl
+            .pks
+            .list()
+            .iter()
+            .find(|pk| pk.table == table.name && pk.name_explicit)
+            .filter(|_| {
+                !columns_sorted
+                    .iter()
+                    .any(|column| column.autoincrement.unwrap_or(false))
+            })
+            .map(|pk| pk.name.as_ref());
 
         let ctx = TableGenContext {
             table,
             columns: &columns_sorted,
             pk_columns,
+            primary_key_name,
             unique_columns,
             unique_constraints,
             check_constraints,
@@ -327,6 +341,8 @@ struct TableGenContext<'a> {
     table: &'a Table,
     columns: &'a [&'a Column],
     pk_columns: Option<&'a HashSet<String>>,
+    /// The primary key's name, when it was given one.
+    primary_key_name: Option<&'a str>,
     unique_columns: Option<&'a HashSet<String>>,
     unique_constraints: &'a [&'a UniqueConstraint],
     check_constraints: &'a [&'a CheckConstraint],
@@ -358,6 +374,12 @@ fn generate_table_struct(ctx: &TableGenContext<'_>) -> String {
     }
     if ctx.table.without_rowid {
         table_attrs.push("without_rowid".to_string());
+    }
+    if let Some(name) = ctx.primary_key_name {
+        table_attrs.push(format!(
+            "primary_key(name = \"{}\")",
+            escape_for_rust_literal(name)
+        ));
     }
     for unique in ctx.unique_constraints {
         if should_emit_table_unique(unique) {
@@ -458,6 +480,9 @@ fn format_composite_fk_attr(fk: &ForeignKey, field_casing: FieldCasing) -> Strin
         && !on_update.eq_ignore_ascii_case("NO ACTION")
     {
         args.push(format!("on_update = \"{}\"", on_update.to_lowercase()));
+    }
+    if fk.name_explicit {
+        args.push(format!("name = \"{}\"", escape_for_rust_literal(&fk.name)));
     }
     format!("foreign_key({})", args.join(", "))
 }
@@ -641,6 +666,13 @@ fn generate_column_field(column: &Column, ctx: &TableGenContext<'_>) -> String {
         {
             let action = on_update.replace(' ', "_").to_lowercase();
             attrs.push(format!("on_update = {action}"));
+        }
+
+        if fk.name_explicit {
+            attrs.push(format!(
+                "fk_name = \"{}\"",
+                escape_for_rust_literal(&fk.name)
+            ));
         }
     }
 
