@@ -55,6 +55,17 @@ impl drizzle::core::FromDrizzleRow<drizzle::postgres::aws_data_api::Row> for PgU
     }
 }
 
+// `Option<PgU32Be>` columns decode through the `Option<T: NullProbeRow>` impl.
+#[cfg(feature = "aws-data-api")]
+impl drizzle::core::NullProbeRow<drizzle::postgres::aws_data_api::Row> for PgU32Be {
+    fn is_null_at(
+        row: &drizzle::postgres::aws_data_api::Row,
+        offset: usize,
+    ) -> Result<bool, DrizzleError> {
+        drizzle::postgres::aws_data_api::is_null_at(row, offset)
+    }
+}
+
 #[test]
 fn custom_postgres_column_from_bytes_rejects_invalid_length() {
     assert!(PgU32Be::from_bytes(&[1, 2, 3]).is_err());
