@@ -143,3 +143,34 @@ mod tokio_fromrow_checks {
         assert_tokio_fromrow::<UserRow>();
     }
 }
+
+#[PostgresTable(name = "fromrow_raw")]
+struct FromRowRaw {
+    #[column(primary)]
+    id: i32,
+    r#type: String,
+}
+
+#[derive(PostgresSchema)]
+struct FromRowRawSchema {
+    fromrow_raw: FromRowRaw,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct RawTypeName {
+    r#type: String,
+}
+
+#[drizzle::test]
+fn raw_identifier_field_reads_unprefixed_column(db: &mut TestDb<FromRowRawSchema>) {
+    let FromRowRawSchema { fromrow_raw } = schema;
+
+    db.insert(fromrow_raw)
+        .values([InsertFromRowRaw::new(1, "kind")])
+        .execute();
+
+    let query = db.select(RawTypeName::Select).from(fromrow_raw);
+    assert_eq!(query.to_sql().sql(), r#"SELECT "type" FROM "fromrow_raw""#);
+    let row: RawTypeName = query.get();
+    assert_eq!(row.r#type, "kind");
+}

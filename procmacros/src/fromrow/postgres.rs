@@ -1,52 +1,17 @@
 //! Shared field assignment generation for postgres-sync and tokio-postgres `FromRow` derive.
 //!
 //! Both drivers share one row type. `ArrayString`, `ArrayVec` and UUID fields
-//! convert through drizzle's `DrizzleRowByIndex` / `DrizzleRowByName` traits;
-//! every other type uses the driver's own `Row::get`, which panics on a
-//! missing column or a type mismatch.
+//! convert through drizzle's `DrizzleRowByIndex` (and so `FromPostgresValue`).
+//! Every other field decodes through `driver_types::FieldDecode`, which uses a
+//! custom `DrizzlePostgresColumn` codec when the type has one and the
+//! driver's `FromSql` otherwise. Every path returns a decode error instead of
+//! panicking.
 
 use crate::postgres::field::TypeCategory;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Field;
-
-/// Driver-specific configuration for `PostgreSQL` row access
-#[allow(dead_code)]
-pub trait DriverConfig {
-    /// Get the row type for this driver
-    fn row_type() -> TokenStream;
-
-    /// Get the feature name for conditional compilation
-    fn feature_name() -> &'static str;
-}
-
-/// Configuration for postgres-sync driver
-#[allow(dead_code)]
-pub struct PostgresSyncDriver;
-
-impl DriverConfig for PostgresSyncDriver {
-    fn row_type() -> TokenStream {
-        quote!(::postgres::Row)
-    }
-
-    fn feature_name() -> &'static str {
-        "postgres-sync"
-    }
-}
-
-/// Configuration for tokio-postgres driver
-#[allow(dead_code)]
-pub struct TokioPostgresDriver;
-
-impl DriverConfig for TokioPostgresDriver {
-    fn row_type() -> TokenStream {
-        quote!(::tokio_postgres::Row)
-    }
-
-    fn feature_name() -> &'static str {
-        "tokio-postgres"
-    }
-}
+use syn::ext::IdentExt;
 
 fn is_option_type(ty: &syn::Type) -> bool {
     if let syn::Type::Path(type_path) = ty
@@ -69,88 +34,84 @@ fn extract_inner_type(ty: &syn::Type) -> &syn::Type {
     ty
 }
 
+/// The column index of `name`, or a `ConversionError` naming the column.
+fn index_by_name(name: &str) -> TokenStream {
+    let drizzle_error = crate::paths::core::drizzle_error();
+    quote! {
+        row.columns()
+            .iter()
+            .position(|column| column.name() == #name)
+            .ok_or_else(|| #drizzle_error::ConversionError(
+                ::std::format!("column '{}' not found", #name).into()
+            ))?
+    }
+}
+
+/// Decode `field`'s value from the column at `idx`, a `usize` expression.
+fn field_value(idx: &TokenStream, field: &Field) -> TokenStream {
+    let drizzle_error = crate::paths::core::drizzle_error();
+    let ty = &field.ty;
+    let category = TypeCategory::from_type(ty);
+
+    if matches!(
+        category,
+        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid
+    ) {
+        return quote! {{
+            use drizzle::postgres::traits::DrizzleRowByIndex;
+            DrizzleRowByIndex::get_column::<#ty>(row, #idx)?
+        }};
+    }
+
+    let decode = |target: &syn::Type| {
+        quote! {{
+            use drizzle::postgres::driver_types::{FieldDecode, ViaColumn as _, ViaFromSql as _};
+            (&&FieldDecode::<#target>::new()).decode_field(row, #idx)?
+        }}
+    };
+
+    if is_option_type(ty) {
+        // The probe accepts every wire type, so a custom codec only sees
+        // non-NULL cells.
+        let inner = decode(extract_inner_type(ty));
+        quote! {
+            if row
+                .try_get::<_, ::std::option::Option<drizzle::core::AnyNullProbe>>(#idx)
+                .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?
+                .is_none()
+            {
+                ::std::option::Option::None
+            } else {
+                ::std::option::Option::Some(#inner)
+            }
+        }
+    } else {
+        decode(ty)
+    }
+}
+
+fn assign(field_name: Option<&syn::Ident>, value: &TokenStream) -> TokenStream {
+    field_name.map_or_else(
+        || quote! { #value, },
+        |field_name| quote! { #field_name: #value, },
+    )
+}
+
 /// Generate one field's assignment for `TryFrom<&Row>`: by column name for a
 /// named field, by index for a tuple field.
-///
-/// `ArrayString`, `ArrayVec` and UUID fields go through `DrizzleRowByName` /
-/// `DrizzleRowByIndex` (and so `FromPostgresValue`); other types use the
-/// driver's `Row::get`.
 pub fn generate_field_assignment(
     idx: usize,
     field: &Field,
     field_name: Option<&syn::Ident>,
 ) -> TokenStream {
-    let category = TypeCategory::from_type(&field.ty);
-
-    let idx_or_name = field_name.map_or_else(
-        || quote! { #idx },
-        |field_name| {
-            let field_name_str = field_name.to_string();
-            quote! { #field_name_str }
-        },
+    let index = field_name.map_or_else(
+        || quote!(#idx),
+        |name| index_by_name(&name.unraw().to_string()),
     );
-
-    let target_type = extract_inner_type(&field.ty);
-    let is_optional = is_option_type(&field.ty);
-
-    // Determine if we need special handling via FromPostgresValue trait
-    let needs_from_postgres_value = matches!(
-        category,
-        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid
-    );
-
-    let assignment = if needs_from_postgres_value {
-        // Use capability-specific row traits with FromPostgresValue conversion
-        if is_optional {
-            if field_name.is_some() {
-                quote! {
-                    {
-                        use drizzle::postgres::traits::DrizzleRowByName;
-                        DrizzleRowByName::get_column_by_name::<Option<#target_type>>(row, #idx_or_name)?
-                    }
-                }
-            } else {
-                quote! {
-                    {
-                        use drizzle::postgres::traits::DrizzleRowByIndex;
-                        DrizzleRowByIndex::get_column::<Option<#target_type>>(row, #idx_or_name)?
-                    }
-                }
-            }
-        } else if field_name.is_some() {
-            quote! {
-                {
-                    use drizzle::postgres::traits::DrizzleRowByName;
-                    DrizzleRowByName::get_column_by_name::<#target_type>(row, #idx_or_name)?
-                }
-            }
-        } else {
-            quote! {
-                {
-                    use drizzle::postgres::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<#target_type>(row, #idx_or_name)?
-                }
-            }
-        }
-    } else {
-        // Use native driver's get method
-        let ty = &field.ty;
-        quote! {
-            row.get::<_, #ty>(#idx_or_name)
-        }
-    };
-
-    field_name.map_or_else(
-        || {
-            quote! {
-                #assignment,
-            }
-        },
-        |field_name| {
-            quote! {
-                #field_name: #assignment,
-            }
-        },
+    let value = field_value(&quote!(__drizzle_idx), field);
+    assign(
+        field_name,
+        &quote!({ let __drizzle_idx: usize = #index; #value }),
     )
 }
 
@@ -162,49 +123,10 @@ pub fn generate_field_assignment_with_index_expr(
     field: &Field,
     field_name: Option<&syn::Ident>,
 ) -> TokenStream {
-    let category = TypeCategory::from_type(&field.ty);
-    let target_type = extract_inner_type(&field.ty);
-    let is_optional = is_option_type(&field.ty);
-
-    let needs_from_postgres_value = matches!(
-        category,
-        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid
-    );
-
-    let assignment = if needs_from_postgres_value {
-        if is_optional {
-            quote! {
-                {
-                    use drizzle::postgres::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<Option<#target_type>>(row, #idx_expr)?
-                }
-            }
-        } else {
-            quote! {
-                {
-                    use drizzle::postgres::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<#target_type>(row, #idx_expr)?
-                }
-            }
-        }
-    } else {
-        let ty = &field.ty;
-        quote! {
-            row.get::<_, #ty>(#idx_expr)
-        }
-    };
-
-    field_name.map_or_else(
-        || {
-            quote! {
-                #assignment,
-            }
-        },
-        |field_name| {
-            quote! {
-                #field_name: #assignment,
-            }
-        },
+    let value = field_value(&quote!(__drizzle_idx), field);
+    assign(
+        field_name,
+        &quote!({ let __drizzle_idx: usize = #idx_expr; #value }),
     )
 }
 
@@ -218,57 +140,12 @@ pub fn generate_named_field_assignment_with_offset_fallback(
     field: &Field,
     field_name: &syn::Ident,
 ) -> TokenStream {
-    let category = TypeCategory::from_type(&field.ty);
-    let target_type = extract_inner_type(&field.ty);
-    let is_optional = is_option_type(&field.ty);
-    let field_name_str = field_name.to_string();
-
-    let needs_from_postgres_value = matches!(
-        category,
-        TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid
-    );
-
-    let (by_name, by_index) = if needs_from_postgres_value {
-        if is_optional {
-            (
-                quote! {
-                    {
-                        use drizzle::postgres::traits::DrizzleRowByName;
-                        DrizzleRowByName::get_column_by_name::<Option<#target_type>>(row, #field_name_str)?
-                    }
-                },
-                quote! {
-                    {
-                        use drizzle::postgres::traits::DrizzleRowByIndex;
-                        DrizzleRowByIndex::get_column::<Option<#target_type>>(row, offset + #idx)?
-                    }
-                },
-            )
-        } else {
-            (
-                quote! {
-                    {
-                        use drizzle::postgres::traits::DrizzleRowByName;
-                        DrizzleRowByName::get_column_by_name::<#target_type>(row, #field_name_str)?
-                    }
-                },
-                quote! {
-                    {
-                        use drizzle::postgres::traits::DrizzleRowByIndex;
-                        DrizzleRowByIndex::get_column::<#target_type>(row, offset + #idx)?
-                    }
-                },
-            )
-        }
-    } else {
-        let ty = &field.ty;
-        (
-            quote! { row.get::<_, #ty>(#field_name_str) },
-            quote! { row.get::<_, #ty>(offset + #idx) },
-        )
-    };
-
+    let by_name = index_by_name(&field_name.unraw().to_string());
+    let value = field_value(&quote!(__drizzle_idx), field);
     quote! {
-        #field_name: if offset == 0 { #by_name } else { #by_index },
+        #field_name: {
+            let __drizzle_idx: usize = if offset == 0 { #by_name } else { offset + #idx };
+            #value
+        },
     }
 }

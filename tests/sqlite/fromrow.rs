@@ -274,3 +274,98 @@ fn test_fromrow_tuple_struct_maps_by_index(db: &mut TestDb<TypeTestSchema>) {
     assert_eq!(result.0, "order_test");
     assert_eq!(result.1, 42);
 }
+
+#[SQLiteTable(NAME = "fromrow_left")]
+struct FromRowLeft {
+    #[column(primary)]
+    id: i32,
+    name: String,
+}
+
+#[SQLiteTable(NAME = "fromrow_right")]
+struct FromRowRight {
+    #[column(primary)]
+    id: i32,
+    name: String,
+}
+
+#[derive(SQLiteSchema)]
+struct FromRowPairSchema {
+    fromrow_left: FromRowLeft,
+    fromrow_right: FromRowRight,
+}
+
+#[drizzle::test]
+fn test_fromrow_named_struct_after_another_reads_its_own_columns(
+    db: &mut TestDb<FromRowPairSchema>,
+) {
+    let FromRowPairSchema {
+        fromrow_left,
+        fromrow_right,
+    } = schema;
+
+    db.insert(fromrow_left)
+        .values([InsertFromRowLeft::new("left").with_id(1)])
+        .execute();
+    db.insert(fromrow_right)
+        .values([InsertFromRowRight::new("right").with_id(2)])
+        .execute();
+
+    // Both halves have `id` and `name` columns: the second struct must read
+    // its own, not the first columns with those names.
+    let row: (NamedNameId, NamedNameId) = db
+        .select((
+            fromrow_left.id,
+            fromrow_left.name,
+            fromrow_right.id,
+            fromrow_right.name,
+        ))
+        .from(fromrow_left)
+        .inner_join((fromrow_right, drizzle::core::expr::eq(fromrow_right.id, 2)))
+        .get();
+
+    assert_eq!(
+        row,
+        (
+            NamedNameId {
+                id: 1,
+                name: "left".to_string()
+            },
+            NamedNameId {
+                id: 2,
+                name: "right".to_string()
+            },
+        )
+    );
+}
+
+#[SQLiteTable(NAME = "fromrow_raw")]
+struct FromRowRaw {
+    #[column(primary)]
+    id: i32,
+    r#type: String,
+}
+
+#[derive(SQLiteSchema)]
+struct FromRowRawSchema {
+    fromrow_raw: FromRowRaw,
+}
+
+#[derive(SQLiteFromRow, Debug, PartialEq)]
+struct RawTypeName {
+    r#type: String,
+}
+
+#[drizzle::test]
+fn test_fromrow_raw_identifier_field_reads_unprefixed_column(db: &mut TestDb<FromRowRawSchema>) {
+    let FromRowRawSchema { fromrow_raw } = schema;
+
+    db.insert(fromrow_raw)
+        .values([InsertFromRowRaw::new("kind")])
+        .execute();
+
+    let query = db.select(RawTypeName::Select).from(fromrow_raw);
+    assert_eq!(query.to_sql().sql(), r#"SELECT "type" FROM "fromrow_raw""#);
+    let row: RawTypeName = query.get();
+    assert_eq!(row.r#type, "kind");
+}
