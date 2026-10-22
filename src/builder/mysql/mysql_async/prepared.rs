@@ -90,6 +90,8 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
 
     /// Executes the prepared query and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns an error when connection resolution, parameter binding,
@@ -98,7 +100,7 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
         &self,
         connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'q, MySQLValue<'q>>>,
-    ) -> Result<R>
+    ) -> Result<Option<R>>
     where
         'transaction: 'connection,
         Connection: ToConnection<'connection, 'transaction>,
@@ -166,6 +168,8 @@ impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Gro
 
     /// Executes this owned query and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns the same errors as [`PreparedStatement::get`].
@@ -173,7 +177,7 @@ impl<Marker, DecodedRow, Grouped> OwnedPreparedStatement<Marker, DecodedRow, Gro
         &'a self,
         connection: Connection,
         params: impl IntoIterator<Item = ParamBind<'a, MySQLValue<'a>>>,
-    ) -> Result<R>
+    ) -> Result<Option<R>>
     where
         'transaction: 'connection,
         Connection: ToConnection<'connection, 'transaction>,

@@ -32,5 +32,5 @@ fn main() {
 
     // RIGHT JOIN makes the left-hand `users` columns nullable.
     let _row: drizzle::Result<(String, String)> =
-        db.select((users.name, posts.title)).from(users).right_join(posts).get();
+        db.select((users.name, posts.title)).from(users).right_join(posts).get().expect("a row");
 }

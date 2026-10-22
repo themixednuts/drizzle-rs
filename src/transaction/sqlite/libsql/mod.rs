@@ -232,12 +232,14 @@ impl<Schema> Transaction<Schema> {
     /// Runs any SQL value inside the transaction and decodes its first row
     /// into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when libsql cannot prepare or run the query or the row cannot be decoded
     /// into `R`.
-    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -251,10 +253,10 @@ impl<Schema> Transaction<Schema> {
 
         let mut rows = self.tx.query(&sql_str, params).await?;
 
-        rows.next().await?.map_or_else(
-            || Err(DrizzleError::NotFound),
-            |row| R::try_from(&row).map_err(Into::into),
-        )
+        rows.next()
+            .await?
+            .map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()
     }
 
     /// Commits the transaction.
@@ -377,16 +379,17 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and decodes its first row into
     /// `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
-    /// when no row matches, and an error when libsql cannot prepare or run
+    /// Returns an error when libsql cannot prepare or run
     /// the query or the row cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
@@ -400,10 +403,12 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.runner.tx.query(&sql_str, params).await?;
-        rows.next().await?.map_or_else(
-            || Err(DrizzleError::NotFound),
-            |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),
-        )
+        rows.next()
+            .await?
+            .map(|row| {
+                <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row)
+            })
+            .transpose()
     }
 }
 

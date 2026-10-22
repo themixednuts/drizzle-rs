@@ -342,12 +342,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// Like [`all`](Self::all), this skips the builder's compile-time checks.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when SQLite cannot prepare or run the query, or when the row cannot be
     /// decoded into `R`.
-    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
@@ -372,7 +374,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         })
         .optional()
         .with_query(|| QueryContext::new(&sql_str, &params))?
-        .unwrap_or(Err(DrizzleError::NotFound))
+        .transpose()
     }
 
     fn start(
@@ -1871,27 +1873,34 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// use drizzle::core::expr::{count, eq};
     /// # let (db, Schema { users, .. }) = app::database()?;
     ///
-    /// let alice: SelectUsers = db.select(()).from(users).r#where(eq(users.name, "Alice")).get()?;
-    /// assert_eq!(alice.age, 30);
+    /// let alice: Option<SelectUsers> =
+    ///     db.select(()).from(users).r#where(eq(users.name, "Alice")).get()?;
+    /// assert_eq!(alice.map(|alice| alice.age), Some(30));
     ///
-    /// let (total,): (i64,) = db.select((count(users.id),)).from(users).get()?;
-    /// assert_eq!(total, 3);
+    /// let nobody: Option<SelectUsers> =
+    ///     db.select(()).from(users).r#where(eq(users.name, "Zed")).get()?;
+    /// assert!(nobody.is_none());
+    ///
+    /// let total: Option<(i64,)> = db.select((count(users.id),)).from(users).get()?;
+    /// assert_eq!(total, Some((3,)));
     /// # Ok(())
     /// # }
     /// # #[cfg(not(feature = "rusqlite"))]
     /// # fn main() {}
     /// ```
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when SQLite cannot prepare or run the query, or when the row cannot be
     /// decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
@@ -1918,6 +1927,6 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         })
         .optional()
         .with_query(|| QueryContext::new(&sql_str, &params))?
-        .unwrap_or(Err(DrizzleError::NotFound))
+        .transpose()
     }
 }

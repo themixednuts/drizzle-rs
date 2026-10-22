@@ -38,7 +38,7 @@ fn jiff_values_round_trip(db: &mut TestDb<MySQLJiffSchema>) {
         .values([InsertMySQLJiffEvent::new(day, starts, local, instant).with_id(1)])
         .execute();
 
-    let row: SelectMySQLJiffEvent = db.select(()).from(events).get();
+    let row: SelectMySQLJiffEvent = db.select(()).from(events).get().expect("a row");
     assert_eq!(
         (row.day, row.starts, row.local, row.instant),
         (day, starts, local, instant)
@@ -48,7 +48,8 @@ fn jiff_values_round_trip(db: &mut TestDb<MySQLJiffSchema>) {
     let (selected_day, selected_local, selected_instant): (Date, DateTime, Timestamp) = db
         .select((events.day, events.local, events.instant))
         .from(events)
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(
         (selected_day, selected_local, selected_instant),
         (day, local, instant)

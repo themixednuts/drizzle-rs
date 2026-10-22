@@ -264,23 +264,16 @@ fn numeric_affinity_reals_stored_as_integers_decode(db: &mut TestDb<NumericAffin
     assert_eq!(rows[0].discount, Some(4.0));
 }
 
-/// No matching row is `DrizzleError::NotFound` on every driver, from the
-/// builder's `get` and from `get` on raw SQL alike.
+/// No matching row is `None` on every driver, from the builder's `get` and
+/// from `get` on raw SQL alike.
 #[drizzle::test]
-fn get_without_a_matching_row_is_not_found(db: &mut TestDb<SimpleSchema>) {
+fn get_without_a_matching_row_is_none(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    let missing: drizzle::Result<SelectSimple> =
-        result!(db.select(()).from(simple).r#where(eq(simple.id, 999)).get());
-    assert!(
-        matches!(missing, Err(drizzle::error::DrizzleError::NotFound)),
-        "{missing:?}"
-    );
+    let missing: Option<SelectSimple> =
+        db.select(()).from(simple).r#where(eq(simple.id, 999)).get();
+    assert_eq!(missing, None);
 
-    let raw: drizzle::Result<SelectSimple> =
-        result!(db.get(SQL::raw("SELECT id, name FROM simple WHERE id = 999")));
-    assert!(
-        matches!(raw, Err(drizzle::error::DrizzleError::NotFound)),
-        "{raw:?}"
-    );
+    let raw: Option<SelectSimple> = db.get(SQL::raw("SELECT id, name FROM simple WHERE id = 999"));
+    assert_eq!(raw, None);
 }

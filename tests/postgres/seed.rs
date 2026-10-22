@@ -480,7 +480,9 @@ mod executed {
         for statement in LIVE_TABLES {
             db.execute(SQL::raw(statement));
         }
-        let Text(namespace) = result!(db.get(SQL::raw("SELECT current_schema()::text"))).unwrap();
+        let Text(namespace) = result!(db.get(SQL::raw("SELECT current_schema()::text")))
+            .unwrap()
+            .expect("a row");
         let snapshot = result!(db.introspect_schemas(&[namespace.as_str()])).expect("introspect");
         let schema = Schema::from_snapshot(&snapshot)
             .unwrap()
@@ -498,13 +500,16 @@ mod executed {
         }
         let mut bound = Vec::new();
         for table in tables {
-            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table)))).unwrap();
+            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table))))
+                .unwrap()
+                .expect("a row");
             bound.push(rows);
         }
         let Text(plans) = result!(db.get(SQL::raw(
             "SELECT string_agg(DISTINCT plan, ',') FROM live_accounts",
         )))
-        .unwrap();
+        .unwrap()
+        .expect("a row");
         assert!(
             plans.split(',').all(|plan| plan == "free" || plan == "pro"),
             "{plans}"
@@ -518,7 +523,9 @@ mod executed {
         }
         let mut inline = Vec::new();
         for table in tables {
-            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table)))).unwrap();
+            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table))))
+                .unwrap()
+                .expect("a row");
             inline.push(rows);
         }
         assert_eq!(inline, bound);

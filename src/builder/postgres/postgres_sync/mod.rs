@@ -417,12 +417,14 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// Like [`all`](Self::all), this skips the builder's compile-time checks.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
-    /// error when it returns several, when it fails, or when the row cannot be
+    /// Returns an error when the query returns several rows,
+    /// when it fails, or when the row cannot be
     /// decoded into `R`.
-    pub fn get<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -444,10 +446,10 @@ impl<Schema> Drizzle<Schema> {
             .run_cached(&sql_str, &param_types, |client, statement| {
                 client.query_opt(statement, &param_refs[..])
             })
-            .with_query(|| QueryContext::new(&sql_str, &params))?
-            .ok_or(drizzle_core::error::DrizzleError::NotFound)?;
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        R::try_from(&row).map_err(Into::into)
+        row.map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()
     }
 
     /// Starts a relational query on `table` (requires the `query` feature).
@@ -1592,16 +1594,18 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// The query must return exactly one row; add `.limit(1)` if it could
     /// match more.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
-    /// error when it returns more than one, when it fails, or when the row
+    /// Returns an error when the query returns more than one row,
+    /// when it fails, or when the row
     /// cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
@@ -1624,9 +1628,11 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             .run_cached(&sql_str, &param_types, |client, statement| {
                 client.query_opt(statement, &param_refs[..])
             })
-            .with_query(|| QueryContext::new(&sql_str, &params))?
-            .ok_or(drizzle_core::error::DrizzleError::NotFound)?;
-        <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+        row.map(|row| {
+            <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
+        })
+        .transpose()
     }
 }
 

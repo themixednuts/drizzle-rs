@@ -114,7 +114,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .select(())
         .from(users)
         .r#where(eq(users.name, "Alex Smith"))
-        .get()?;
+        .get()?
+        .expect("Alex Smith was inserted above");
     assert_eq!(user.name, "Alex Smith");
 
     let names: Vec<(i64, String)> = db.select((users.id, users.name)).from(users).all()?;
@@ -291,10 +292,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _aliased: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 
     // -------- Expressions --------
-    let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
+    let total: (i64,) = db
+        .select((count(users.id),))
+        .from(users)
+        .get()?
+        .expect("COUNT returns one row");
     assert!(total.0 >= 4);
 
-    let _oldest: (Option<i64>,) = db.select((max(users.age),)).from(users).get()?;
+    let _oldest: Option<(Option<i64>,)> = db.select((max(users.age),)).from(users).get()?;
 
     let _coalesced: Vec<(String,)> = db
         .select((coalesce(users.email, "unknown"),))

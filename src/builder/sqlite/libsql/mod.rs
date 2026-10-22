@@ -345,12 +345,13 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// Like [`all`](Self::all), this skips the builder's compile-time checks.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
-    /// when no row matches, and an error when libsql cannot prepare or run
+    /// Returns an error when libsql cannot prepare or run
     /// the query or the row cannot be decoded into `R`.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -377,10 +378,8 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .await
             .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?
-            .map_or_else(
-                || Err(DrizzleError::NotFound),
-                |row| R::try_from(&row).map_err(Into::into),
-            );
+            .map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose();
         drop(rows);
         if result.is_ok() {
             self.libsql_statement_cache.store(cached);
@@ -1843,21 +1842,23 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// # async fn example(db: &Drizzle<Schema>, users: Users) -> drizzle::Result<()> {
     /// use drizzle::core::expr::eq;
     ///
-    /// let user: SelectUsers = db.select(()).from(users).r#where(eq(users.id, 1)).get().await?;
+    /// let user: Option<SelectUsers> =
+    ///     db.select(()).from(users).r#where(eq(users.id, 1)).get().await?;
     /// # Ok(())
     /// # }
     /// ```
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
-    /// when no row matches, and an error when libsql cannot prepare or run
+    /// Returns an error when libsql cannot prepare or run
     /// the query or the row cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
@@ -1883,10 +1884,10 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             .next()
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?
-            .map_or_else(
-                || Err(drizzle_core::error::DrizzleError::NotFound),
-                |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),
-            );
+            .map(|row| {
+                <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row)
+            })
+            .transpose();
         drop(rows);
         if result.is_ok() {
             self.runner.libsql_statement_cache.store(cached);

@@ -178,7 +178,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
     /// statement's placeholders (missing, duplicated, or extra),
-    /// `DrizzleError::NotFound` when no row matches, the database
+    /// the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
@@ -258,7 +258,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
     /// statement's placeholders (missing, duplicated, or extra),
-    /// `DrizzleError::NotFound` when no row matches, the database
+    /// the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
@@ -315,19 +315,17 @@ fn run_get<T>(
     conn: &SqlStorage,
     sql: &str,
     values: Vec<SqlStorageValue>,
-) -> drizzle_core::error::Result<T>
+) -> drizzle_core::error::Result<Option<T>>
 where
     T: for<'de> serde::Deserialize<'de>,
 {
     let cursor = conn
         .exec(sql, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-    cursor
+    let rows = cursor
         .to_array::<T>()
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-        .into_iter()
-        .next()
-        .ok_or(DrizzleError::NotFound)
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+    Ok(rows.into_iter().next())
 }
 
 impl<'a, Marker, DecodedRow> std::fmt::Display for PreparedStatement<'a, Marker, DecodedRow> {

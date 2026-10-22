@@ -29,7 +29,8 @@ fn transaction_config_reaches_the_server(db: &mut TestDb<SimpleSchema>) {
             "SELECT current_setting('transaction_isolation') AS isolation, \
              current_setting('transaction_read_only') AS read_only, \
              current_setting('transaction_deferrable') AS deferrable"
-        )))?;
+        )))?
+        .expect("a row");
 
         assert_eq!(settings.isolation, "serializable");
         assert_eq!(settings.read_only, "on");
@@ -204,11 +205,14 @@ fn an_imported_snapshot_reads_the_exporters_data_sync() {
                 .repeatable_read()
                 .snapshot(snapshot)
                 .build();
-            let seen: RowCount = importer.transaction(config, |other| other.get(count.clone()))?;
+            let seen: RowCount = importer
+                .transaction(config, |other| other.get(count.clone()))?
+                .expect("a row");
             assert_eq!(seen.n, 1);
 
-            let fresh: RowCount =
-                importer.transaction(repeatable_read, |other| other.get(count.clone()))?;
+            let fresh: RowCount = importer
+                .transaction(repeatable_read, |other| other.get(count.clone()))?
+                .expect("a row");
             assert_eq!(fresh.n, 2);
             Ok(())
         })
@@ -263,12 +267,14 @@ async fn an_imported_snapshot_reads_the_exporters_data_tokio() {
                     .build();
                 let seen: RowCount = importer
                     .transaction(config, async |other| other.get(count.clone()).await)
-                    .await?;
+                    .await?
+                    .expect("a row");
                 let fresh: RowCount = importer
                     .transaction(repeatable_read, async |other| {
                         other.get(count.clone()).await
                     })
-                    .await?;
+                    .await?
+                    .expect("a row");
                 drizzle::Result::Ok((seen.n, fresh.n))
             });
             assert_eq!(task.await.unwrap()?, (1, 2));

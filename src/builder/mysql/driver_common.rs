@@ -271,14 +271,17 @@ impl<'q> QueryOutput<'q> {
             .collect()
     }
 
-    pub(crate) fn decode_first<Mk, R>(self) -> Result<R>
+    pub(crate) fn decode_first<Mk, R>(self) -> Result<Option<R>>
     where
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>,
     {
-        let row = self.rows.first().ok_or(DrizzleError::NotFound)?;
+        let Some(row) = self.rows.first() else {
+            return Ok(None);
+        };
         let context_values = self.values.iter().collect::<Vec<_>>();
         let row = MySQLRow::new(row);
         <Mk as DecodeSelectedRef<&MySQLRow<'_, Row>, R>>::decode(&row)
+            .map(Some)
             .with_query(|| QueryContext::new(&self.sql, &context_values))
     }
 
@@ -291,13 +294,16 @@ impl<'q> QueryOutput<'q> {
         Rows::new(self.rows, context)
     }
 
-    pub(crate) fn decode_first_row<R>(self) -> Result<R>
+    pub(crate) fn decode_first_row<R>(self) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
-        let row = self.rows.first().ok_or(DrizzleError::NotFound)?;
+        let Some(row) = self.rows.first() else {
+            return Ok(None);
+        };
         let context_values = self.values.iter().collect::<Vec<_>>();
         R::from_row(&MySQLRow::new(row))
+            .map(Some)
             .with_query(|| QueryContext::new(&self.sql, &context_values))
     }
 

@@ -126,11 +126,12 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-    /// statement's placeholders (missing, duplicated, or extra),
-    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, the database
+    /// statement's placeholders (missing, duplicated, or extra), the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
@@ -142,7 +143,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         &self,
         conn: &Connection,
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> Result<T>
+    ) -> Result<Option<T>>
     where
         for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
@@ -159,7 +160,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
             >>::decode(row))
         })
         .optional()?
-        .unwrap_or(Err(drizzle_core::error::DrizzleError::NotFound))
+        .transpose()
     }
     /// Copies the embedded values so the statement no longer borrows them.
     pub fn into_owned(self) -> OwnedPreparedStatement<Marker, DecodedRow> {
@@ -277,11 +278,12 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-    /// statement's placeholders (missing, duplicated, or extra),
-    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, the database
+    /// statement's placeholders (missing, duplicated, or extra), the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
@@ -293,7 +295,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         &self,
         conn: &Connection,
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> Result<T>
+    ) -> Result<Option<T>>
     where
         for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r Row<'r>, T>,
     {
@@ -310,7 +312,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
             >>::decode(row))
         })
         .optional()?
-        .unwrap_or(Err(drizzle_core::error::DrizzleError::NotFound))
+        .transpose()
     }
 }
 

@@ -35,7 +35,7 @@ fn check(mut db: Drizzle<mysql::Conn, Schema>, Schema { users, posts }: Schema) 
         .select((users.name, posts.title))
         .from(users)
         .right_join((posts, eq(posts.author_id, users.id)))
-        .get();
+        .get().expect("a row");
 }
 
 fn main() {

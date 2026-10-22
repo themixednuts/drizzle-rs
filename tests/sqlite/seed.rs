@@ -1304,7 +1304,9 @@ mod executed {
         }
         let mut bound = Vec::new();
         for (table, columns) in tables {
-            let Text(rows) = db.get(SQL::raw(fingerprint_sql(table, columns)));
+            let Text(rows) = db
+                .get(SQL::raw(fingerprint_sql(table, columns)))
+                .expect("a row");
             bound.push(rows);
         }
 
@@ -1319,7 +1321,9 @@ mod executed {
         }
         let mut inline = Vec::new();
         for (table, columns) in tables {
-            let Text(rows) = db.get(SQL::raw(fingerprint_sql(table, columns)));
+            let Text(rows) = db
+                .get(SQL::raw(fingerprint_sql(table, columns)))
+                .expect("a row");
             inline.push(rows);
         }
         assert_eq!(inline, bound);

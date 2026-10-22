@@ -161,8 +161,12 @@ mod fixed_size_bytes {
             .set(UpdateFixedSizeBytes::default().with_digest([0, 0, 0, 1]))
             .r#where(eq(table.id, 2))
             .execute();
-        let updated: SelectFixedSizeBytes =
-            db.select(()).from(table).r#where(eq(table.id, 2)).get();
+        let updated: SelectFixedSizeBytes = db
+            .select(())
+            .from(table)
+            .r#where(eq(table.id, 2))
+            .get()
+            .expect("a row");
         assert_eq!(updated.digest, [0, 0, 0, 1]);
     }
 }

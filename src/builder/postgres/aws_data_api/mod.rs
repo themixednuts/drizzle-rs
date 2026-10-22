@@ -247,18 +247,20 @@ impl<Schema> Drizzle<Schema> {
     /// Rows after the first are ignored. Like [`all`](Self::all), this skips
     /// the builder's compile-time checks.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let mut rows = self.rows::<T, R>(query).await?;
-        rows.next().transpose()?.ok_or(DrizzleError::NotFound)
+        rows.next().transpose()
     }
 
     /// Runs the async closure `f` inside a transaction and returns its value.
@@ -705,11 +707,13 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// Rows after the first are ignored. `R` is checked as in
     /// [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -731,7 +735,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             .run_statement(&sql_str, sql_params, None::<&str>)
             .await?;
         let rows = decode_rows(out);
-        let row = rows.into_iter().next().ok_or(DrizzleError::NotFound)?;
-        R::try_from(&row).map_err(Into::into)
+        let row = rows.into_iter().next();
+        row.map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()
     }
 }

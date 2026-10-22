@@ -531,10 +531,12 @@ impl<Schema> Drizzle<Conn, Schema> {
 
     /// Executes typed SQL and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns an error if execution or decoding fails, or no row is returned.
-    pub async fn get<'q, R>(&mut self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
+    pub async fn get<'q, R>(&mut self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
@@ -717,11 +719,13 @@ impl<Schema> Drizzle<Pool, Schema> {
 
     /// Executes typed SQL on one checked-out connection and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns an error when checkout, execution, or decoding fails, or when no
     /// row is returned.
-    pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
+    pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
@@ -1390,11 +1394,13 @@ where
 
     /// Executes this query and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns an error when checkout, execution, or decoding fails, or when no
     /// row is returned.
-    pub async fn get<R, ScopeProof, AggProof>(self) -> Result<R>
+    pub async fn get<R, ScopeProof, AggProof>(self) -> Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>

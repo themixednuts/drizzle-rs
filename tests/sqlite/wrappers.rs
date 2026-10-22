@@ -39,7 +39,8 @@ fn compact_strings_are_stored_as_text(db: &mut TestDb<CompactStringSchema>) {
         .select(typeof_(rows.name))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(class, "text");
 }
 
@@ -76,7 +77,8 @@ fn bytes_are_stored_as_blobs(db: &mut TestDb<BytesSchema>) {
         .select((typeof_(rows.payload), typeof_(rows.mutable_payload)))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(classes, ("blob".to_string(), "blob".to_string()));
 }
 
@@ -108,6 +110,7 @@ fn small_vectors_are_stored_as_blobs(db: &mut TestDb<SmallVecSchema>) {
         .select(typeof_(rows.payload))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(class, "blob");
 }

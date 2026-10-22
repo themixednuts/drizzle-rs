@@ -232,12 +232,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Runs any SQL value inside the transaction and decodes its first row
     /// into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when SQLite cannot prepare or run the query, or when the row cannot be
     /// decoded into `R`.
-    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
@@ -256,7 +258,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             Ok(R::try_from(row).map_err(Into::into))
         })
         .optional()?
-        .unwrap_or(Err(DrizzleError::NotFound))
+        .transpose()
     }
 
     /// Commits the transaction.
@@ -387,16 +389,18 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and decodes its first row into
     /// `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when SQLite cannot prepare or run the query or the row cannot be
     /// decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
@@ -418,7 +422,7 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
             >>::decode(row))
         })
         .optional()?
-        .unwrap_or(Err(DrizzleError::NotFound))
+        .transpose()
     }
 }
 

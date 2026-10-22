@@ -383,12 +383,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Runs any SQL value inside the transaction and decodes its single row
     /// into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
-    /// error when it returns several, when it fails, or when the row cannot be
+    /// Returns an error when the query returns several rows,
+    /// when it fails, or when the row cannot be
     /// decoded into `R`.
-    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -415,10 +417,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let row = tx
             .query_opt(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.statement_error(error))?
-            .ok_or(DrizzleError::NotFound)?;
+            .map_err(|error| self.statement_error(error))?;
 
-        R::try_from(&row).map_err(Into::into)
+        row.map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()
     }
 
     /// Starts a relational query inside this transaction, like the database
@@ -891,16 +893,18 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and decodes its single row into
     /// `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
-    /// error when it returns several, when it fails, or when the row cannot be
+    /// Returns an error when the query returns several rows,
+    /// when it fails, or when the row cannot be
     /// decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
@@ -929,10 +933,12 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let row = tx
             .query_opt(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.runner.statement_error(error))?
-            .ok_or(DrizzleError::NotFound)?;
+            .map_err(|error| self.runner.statement_error(error))?;
 
-        <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
+        row.map(|row| {
+            <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
+        })
+        .transpose()
     }
 }
 

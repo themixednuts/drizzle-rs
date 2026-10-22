@@ -46,8 +46,9 @@ macro_rules! shared_prepared_statement_suite {
 
                 let alice: Vec<SelectSharedPreparedUser> =
                     prepared.all(drizzle_client!(), [name.bind("Alice")]);
-                let bob: SelectSharedPreparedUser =
-                    prepared.get(drizzle_client!(), [name.bind("Bob")]);
+                let bob: SelectSharedPreparedUser = prepared
+                    .get(drizzle_client!(), [name.bind("Bob")])
+                    .expect("a row");
                 let nobody: Vec<SelectSharedPreparedUser> =
                     prepared.all(drizzle_client!(), [name.bind("Nobody")]);
 
@@ -112,8 +113,12 @@ macro_rules! shared_prepared_statement_suite {
 
                 prepared.execute(drizzle_client!(), [name.bind("Alicia"), user_id.bind(1)]);
 
-                let renamed: SelectSharedPreparedUser =
-                    db.select(()).from(users).r#where(eq(users.id, 1)).get();
+                let renamed: SelectSharedPreparedUser = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .get()
+                    .expect("a row");
                 assert_eq!(renamed.name, "Alicia");
             }
 
@@ -211,7 +216,7 @@ macro_rules! shared_prepared_statement_suite {
                     assert_eq!(alice.len(), 1);
                     assert_eq!(alice[0].name, "Alice");
 
-                    let bob: SelectSharedPreparedUser = result!(tx.get(&find_bob))?;
+                    let bob: SelectSharedPreparedUser = result!(tx.get(&find_bob))?.expect("a row");
                     assert_eq!(bob.name, "Bob");
                     Ok(())
                 });
@@ -406,8 +411,12 @@ macro_rules! shared_prepared_statement_suite {
 
                 let updated = stmt.execute();
                 assert_eq!(updated.affected_rows(), 1);
-                let row: SelectSharedPreparedUser =
-                    db.select(()).from(users).r#where(eq(users.id, 1)).get();
+                let row: SelectSharedPreparedUser = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .get()
+                    .expect("a row");
                 assert_eq!(
                     (row.name.as_str(), row.nickname.as_deref()),
                     ("Alice", Some("Al"))

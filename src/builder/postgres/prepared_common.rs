@@ -327,17 +327,15 @@ macro_rules! postgres_prepared_sync_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
+            /// statement's placeholders (missing, duplicated, or extra), an error
 
-            /// when the query returns no row, an error when it returns several or fails, or
+            /// when the query returns several rows or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
-
-            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -350,7 +348,7 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
-            ) -> drizzle_core::error::Result<T>
+            ) -> drizzle_core::error::Result<Option<T>>
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
@@ -385,8 +383,8 @@ macro_rules! postgres_prepared_sync_impl {
                     statement = self.driver_statement(client, sql_str, &param_types)?;
                     result = client.query_opt(&statement, &params_refs);
                 }
-                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
-                <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
+                let row = result?;
+                row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }
 
@@ -544,17 +542,15 @@ macro_rules! postgres_prepared_sync_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
+            /// statement's placeholders (missing, duplicated, or extra), an error
 
-            /// when the query returns no row, an error when it returns several or fails, or
+            /// when the query returns several rows or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
-
-            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -567,7 +563,7 @@ macro_rules! postgres_prepared_sync_impl {
                 &self,
                 client: &mut $client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
-            ) -> drizzle_core::error::Result<T>
+            ) -> drizzle_core::error::Result<Option<T>>
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
@@ -602,8 +598,8 @@ macro_rules! postgres_prepared_sync_impl {
                     statement = self.driver_statement(client, sql_str, &param_types)?;
                     result = client.query_opt(&statement, &params_refs);
                 }
-                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
-                <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
+                let row = result?;
+                row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }
     };
@@ -764,17 +760,15 @@ macro_rules! postgres_prepared_async_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
+            /// statement's placeholders (missing, duplicated, or extra), an error
 
-            /// when the query returns no row, an error when it returns several or fails, or
+            /// when the query returns several rows or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
-
-            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -787,7 +781,7 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
-            ) -> drizzle_core::error::Result<T>
+            ) -> drizzle_core::error::Result<Option<T>>
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
@@ -826,8 +820,8 @@ macro_rules! postgres_prepared_async_impl {
                         .await?;
                     result = client.query_opt(&statement, &params_refs).await;
                 }
-                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
-                <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
+                let row = result?;
+                row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }
 
@@ -990,17 +984,15 @@ macro_rules! postgres_prepared_async_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
+            /// statement's placeholders (missing, duplicated, or extra), an error
 
-            /// when the query returns no row, an error when it returns several or fails, or
+            /// when the query returns several rows or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
-
-            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -1013,7 +1005,7 @@ macro_rules! postgres_prepared_async_impl {
                 &self,
                 client: &$client,
                 params: [drizzle_core::param::ParamBind<'a, drizzle_postgres::values::PostgresValue<'a>>; N],
-            ) -> drizzle_core::error::Result<T>
+            ) -> drizzle_core::error::Result<Option<T>>
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
@@ -1055,8 +1047,8 @@ macro_rules! postgres_prepared_async_impl {
                         .await?;
                     result = client.query_opt(&statement, &params_refs).await;
                 }
-                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
-                <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
+                let row = result?;
+                row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }
     };

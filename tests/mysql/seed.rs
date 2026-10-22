@@ -450,8 +450,8 @@ fn mysql_reset_plan_executes_with_foreign_keys_enabled(db: &mut TestDb<TestSchem
         db.execute(statement);
     }
 
-    let generated_user_count: i64 = db.select(count(users.id)).from(users).get();
-    let generated_post_count: i64 = db.select(count(posts.id)).from(posts).get();
+    let generated_user_count: i64 = db.select(count(users.id)).from(users).get().expect("a row");
+    let generated_post_count: i64 = db.select(count(posts.id)).from(posts).get().expect("a row");
     assert_eq!((generated_user_count, generated_post_count), (1, 1));
 
     for statement in SeedConfig::mysql(&schema).reset_plan().unwrap() {
@@ -474,8 +474,8 @@ fn mysql_reset_plan_executes_with_foreign_keys_enabled(db: &mut TestDb<TestSchem
         db.execute(statement);
     }
 
-    let user_count: i64 = db.select(count(users.id)).from(users).get();
-    let post_count: i64 = db.select(count(posts.id)).from(posts).get();
+    let user_count: i64 = db.select(count(users.id)).from(users).get().expect("a row");
+    let post_count: i64 = db.select(count(posts.id)).from(posts).get().expect("a row");
     assert_eq!((user_count, post_count), (0, 0));
 
     let inserted = db
@@ -507,7 +507,7 @@ fn mysql_reset_plan_clears_live_nullable_self_references(
         db.execute(statement);
     }
 
-    let remaining: i64 = db.select(count(nodes.id)).from(nodes).get();
+    let remaining: i64 = db.select(count(nodes.id)).from(nodes).get().expect("a row");
     assert_eq!(remaining, 0);
 }
 
@@ -525,7 +525,11 @@ fn mysql_specific_seed_values_execute(db: &mut TestDb<MySQLSpecificSchema>) {
         db.execute(statement);
     }
 
-    let inserted: i64 = db.select(count(specific.id)).from(specific).get();
+    let inserted: i64 = db
+        .select(count(specific.id))
+        .from(specific)
+        .get()
+        .expect("a row");
     assert_eq!(inserted, 3);
 }
 
@@ -539,7 +543,11 @@ fn mysql_temporal_seed_values_execute(db: &mut TestDb<MySQLTemporalSchema>) {
         db.execute(statement);
     }
 
-    let inserted: i64 = db.select(count(temporal.id)).from(temporal).get();
+    let inserted: i64 = db
+        .select(count(temporal.id))
+        .from(temporal)
+        .get()
+        .expect("a row");
     assert_eq!(inserted, 2);
 }
 
@@ -640,7 +648,11 @@ fn mysql_runtime_schema_values_execute(db: &mut TestDb<MySQLSpecificSchema>) {
         db.execute(statement);
     }
 
-    let inserted: i64 = db.select(count(specific.id)).from(specific).get();
+    let inserted: i64 = db
+        .select(count(specific.id))
+        .from(specific)
+        .get()
+        .expect("a row");
     assert_eq!(inserted, 5);
 }
 
@@ -740,12 +752,14 @@ fn mysql_introspected_database_seeds_with_bound_and_inline_values(
     }
     let mut bound = Vec::new();
     for fingerprint in LIVE_FINGERPRINTS {
-        let rows: String = db.get(SQL::raw(fingerprint));
+        let rows: String = db.get(SQL::raw(fingerprint)).expect("a row");
         bound.push(rows);
     }
-    let plans: String = db.get(SQL::raw(
-        "SELECT CAST(GROUP_CONCAT(DISTINCT plan) AS CHAR) FROM seed_live_accounts",
-    ));
+    let plans: String = db
+        .get(SQL::raw(
+            "SELECT CAST(GROUP_CONCAT(DISTINCT plan) AS CHAR) FROM seed_live_accounts",
+        ))
+        .expect("a row");
     assert!(
         plans.split(',').all(|plan| plan == "free" || plan == "pro"),
         "{plans}"
@@ -759,7 +773,7 @@ fn mysql_introspected_database_seeds_with_bound_and_inline_values(
     }
     let mut inline = Vec::new();
     for fingerprint in LIVE_FINGERPRINTS {
-        let rows: String = db.get(SQL::raw(fingerprint));
+        let rows: String = db.get(SQL::raw(fingerprint)).expect("a row");
         inline.push(rows);
     }
     assert_eq!(inline, bound);

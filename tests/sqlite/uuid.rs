@@ -96,7 +96,8 @@ fn test_uuid_text_storage(db: &mut TestDb<UuidTextSchema>) {
         .select(r#typeof(table.uuid_field).alias("uuid_type"))
         .from(table)
         .r#where(eq(table.id, 1))
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(result.0, "text");
 }
@@ -130,7 +131,8 @@ fn test_uuid_blob_storage(db: &mut TestDb<UuidBlobSchema>) {
         .select(r#typeof(table.uuid_field).alias("uuid_type"))
         .from(table)
         .r#where(eq(table.id, 1))
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(result.0, "blob");
 }
@@ -194,7 +196,8 @@ fn test_uuid_text_default_fn(db: &mut TestDb<UuidTextDefaultSchema>) {
         .select(r#typeof(table.uuid_field).alias("uuid_type"))
         .from(table)
         .r#where(eq(table.id, 1))
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(result.0, "text");
 }
@@ -226,7 +229,8 @@ fn test_uuid_blob_default_fn(db: &mut TestDb<UuidBlobDefaultSchema>) {
         .select(r#typeof(table.uuid_field).alias("uuid_type"))
         .from(table)
         .r#where(eq(table.id, 1))
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(result.0, "blob");
 }

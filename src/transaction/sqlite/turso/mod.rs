@@ -238,12 +238,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Runs any SQL value inside the transaction and decodes its first row
     /// into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when turso cannot prepare or run the query or the row cannot be decoded
     /// into `R`.
-    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -377,16 +379,17 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and decodes its first row into
     /// `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
-    /// when no row matches, and an error when turso cannot prepare or run
+    /// Returns an error when turso cannot prepare or run
     /// the query or the row cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>

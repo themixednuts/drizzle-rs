@@ -173,7 +173,8 @@ macro_rules! shared_expression_suite {
                     .select(count(rows.id))
                     .from(rows)
                     .r#where(eq(rows.id - (rows.id - 1), 1))
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!(ones, 4);
 
                 // A chain SQL already reads the way it was built stays flat.
@@ -208,7 +209,8 @@ macro_rules! shared_expression_suite {
                     .select(count(rows.id))
                     .from(rows)
                     .r#where(is_not_null(random()))
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!(randoms, 4);
             }
 
@@ -366,7 +368,8 @@ macro_rules! shared_expression_suite {
                     .select(count(rows.id))
                     .from(rows)
                     .r#where(and(is_null(rows.quantity), is_false(rows.active)))
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!(nulls, 1);
             }
 
@@ -494,14 +497,18 @@ macro_rules! shared_expression_suite {
                 db.insert(rows).values(fixture()).execute();
                 db.insert(rows).value(bob()).execute();
 
-                let distinct_quantities: i64 =
-                    db.select(count_distinct(rows.quantity)).from(rows).get();
+                let distinct_quantities: i64 = db
+                    .select(count_distinct(rows.quantity))
+                    .from(rows)
+                    .get()
+                    .expect("a row");
                 assert_eq!(distinct_quantities, 2);
 
                 let extremes: (Option<i32>, Option<i32>) = db
                     .select((min(rows.quantity), max(rows.quantity)))
                     .from(rows)
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!(extremes, (Some(4), Some(10)));
 
                 // Active rows hold quantities 4 and 4: SUM(DISTINCT) counts the
@@ -670,7 +677,8 @@ macro_rules! shared_expression_suite {
                         and(is_not_null(current_date()), is_not_null(current_time())),
                         is_not_null(current_timestamp()),
                     ))
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!(present, 4);
             }
         }
@@ -783,7 +791,8 @@ macro_rules! shared_math_extension_suite {
                     .select(count(rows.id))
                     .from(rows)
                     .r#where(gt(exp(rows.score), std::f64::consts::E))
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!(above_e, 3);
 
                 let ten_or_more: Vec<i32> = db

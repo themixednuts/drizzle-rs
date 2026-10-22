@@ -230,23 +230,22 @@ impl<Schema> common::Drizzle<DurableStorage, Schema> {
     /// `R` has the same requirements as in [`all`](Self::all). Every row is
     /// still read; add `LIMIT 1` when the query could match many.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
     /// deserialized into `R`.
-    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'de> serde::Deserialize<'de>,
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
         let cursor = exec_query(self.conn.sql(), &query)?;
-        cursor
+        let rows = cursor
             .to_array::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        Ok(rows.into_iter().next())
     }
 
     /// Runs `f` inside a transaction and returns its value.
@@ -636,12 +635,13 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     /// `R` has the same requirements as in [`all`](Self::all). Every row is
     /// still read; add `.limit(1)` when the query could match many.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
     /// deserialized into `R`.
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -649,12 +649,10 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
         R: for<'de> serde::Deserialize<'de>,
     {
         let cursor = exec_query(self.runner.conn.sql(), &self.builder.sql)?;
-        cursor
+        let rows = cursor
             .to_array::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        Ok(rows.into_iter().next())
     }
 }
 

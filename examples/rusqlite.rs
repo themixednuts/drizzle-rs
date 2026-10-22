@@ -64,7 +64,8 @@ fn main() {
         .from(users)
         .left_join((posts, eq(users.id, posts.user_id)))
         .get()
-        .expect("select users on posts.user_id");
+        .expect("select users on posts.user_id")
+        .expect("the user was inserted above");
 
     assert_eq!(row.id, id);
     assert_eq!(row.name, "Alex Smith");

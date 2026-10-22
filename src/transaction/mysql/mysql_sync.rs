@@ -340,10 +340,12 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
 
     /// Executes typed MySQL SQL and decodes the first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns an error if execution or decoding fails, or no row is returned.
-    pub fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
+    pub fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
@@ -572,10 +574,12 @@ impl<'db, 'connection, 'q, Schema, State, Table, Marker, DecodedRow, Grouped>
 
     /// Executes this query and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns an error if execution or decoding fails, or no row is returned.
-    pub fn get<R, ScopeProof, AggProof>(self) -> Result<R>
+    pub fn get<R, ScopeProof, AggProof>(self) -> Result<Option<R>>
     where
         State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>

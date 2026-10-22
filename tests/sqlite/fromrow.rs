@@ -76,7 +76,7 @@ fn test_fromrow_with_all_data_types(db: &mut TestDb<TypeTestSchema>) {
     db.insert(type_test).values([test_data]).execute();
 
     // Test FromRow with all data types
-    let result: AllDataTypes = db.select(()).from(type_test).get();
+    let result: AllDataTypes = db.select(()).from(type_test).get().expect("a row");
 
     let expected = AllDataTypes {
         id: 1,
@@ -104,7 +104,7 @@ fn test_fromrow_with_integer_sizes(db: &mut TestDb<IntegerSchema>) {
     db.insert(integer_test).values([test_data]).execute();
 
     // Test FromRow with different integer types
-    let result: IntegerTypes = db.select(()).from(integer_test).get();
+    let result: IntegerTypes = db.select(()).from(integer_test).get().expect("a row");
 
     let expected = IntegerTypes {
         id: 1,
@@ -129,7 +129,7 @@ fn test_fromrow_with_float_types(db: &mut TestDb<FloatSchema>) {
     db.insert(float_test).values([test_data]).execute();
 
     // Test FromRow with different float types
-    let result: FloatTypes = db.select(()).from(float_test).get();
+    let result: FloatTypes = db.select(()).from(float_test).get().expect("a row");
 
     let expected = FloatTypes {
         id: 1,
@@ -149,7 +149,7 @@ fn test_fromrow_type_conversion_edge_cases(db: &mut TestDb<TypeTestSchema>) {
     db.insert(type_test).values([test_data]).execute();
 
     // Test FromRow with edge case values
-    let result: AllDataTypes = db.select(()).from(type_test).get();
+    let result: AllDataTypes = db.select(()).from(type_test).get().expect("a row");
 
     let expected = AllDataTypes {
         id: 1,
@@ -191,7 +191,8 @@ fn test_fromrow_derive_with_partial_selection(db: &mut TestDb<TypeTestSchema>) {
     let result: DerivedPartialSimple = db
         .select(DerivedPartialSimple::Select)
         .from(type_test)
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(result.name, "derive_test");
 }
 
@@ -206,7 +207,8 @@ fn test_fromrow_with_column_mapping(db: &mut TestDb<TypeTestSchema>) {
     let result: DerivedSimpleWithColumns = db
         .select(DerivedSimpleWithColumns::Select)
         .from(type_test)
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(result.table_id, 42);
     assert_eq!(result.table_name, "column_test");
@@ -227,7 +229,7 @@ fn test_insert_returning_select_target_infers_row(db: &mut TestDb<TypeTestSchema
         )])
         .returning(DerivedPartialSimple::Select);
 
-    let result: DerivedPartialSimple = stmt.get();
+    let result: DerivedPartialSimple = stmt.get().expect("a row");
     assert_eq!(result.name, "returning_test");
 }
 
@@ -254,7 +256,7 @@ fn test_fromrow_named_struct_maps_by_name(db: &mut TestDb<TypeTestSchema>) {
 
     // Strict typed decode follows selected column order.
     let stmt = db.select((type_test.id, type_test.name)).from(type_test);
-    let result: NamedNameId = stmt.get();
+    let result: NamedNameId = stmt.get().expect("a row");
 
     assert_eq!(result.id, 42);
     assert_eq!(result.name, "order_test");
@@ -269,7 +271,7 @@ fn test_fromrow_tuple_struct_maps_by_index(db: &mut TestDb<TypeTestSchema>) {
 
     // Tuple structs decode positionally, following SELECT order.
     let stmt = db.select((type_test.name, type_test.id)).from(type_test);
-    let result: TupleNameId = stmt.get();
+    let result: TupleNameId = stmt.get().expect("a row");
 
     assert_eq!(result.0, "order_test");
     assert_eq!(result.1, 42);
@@ -322,7 +324,8 @@ fn test_fromrow_named_struct_after_another_reads_its_own_columns(
         ))
         .from(fromrow_left)
         .inner_join((fromrow_right, drizzle::core::expr::eq(fromrow_right.id, 2)))
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(
         row,
@@ -366,6 +369,6 @@ fn test_fromrow_raw_identifier_field_reads_unprefixed_column(db: &mut TestDb<Fro
 
     let query = db.select(RawTypeName::Select).from(fromrow_raw);
     assert_eq!(query.to_sql().sql(), r#"SELECT "type" FROM "fromrow_raw""#);
-    let row: RawTypeName = query.get();
+    let row: RawTypeName = query.get().expect("a row");
     assert_eq!(row.r#type, "kind");
 }

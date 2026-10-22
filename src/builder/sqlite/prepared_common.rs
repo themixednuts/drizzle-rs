@@ -75,14 +75,14 @@ macro_rules! sqlite_async_prepared_impl {
 
             /// Binds `params`, runs the query, and decodes its first row into `T`.
             ///
+            /// Returns `None` when no row matches.
+            ///
             /// # Errors
             ///
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-            /// statement's placeholders (missing, duplicated, or extra),
-            /// [`DrizzleError::NotFound`] when no row matches, the database error when
+            /// statement's placeholders (missing, duplicated, or extra), the database error when
             /// the query fails, or a decode error when the row does not fit `T`.
             ///
-            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
             ///
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
@@ -96,7 +96,7 @@ macro_rules! sqlite_async_prepared_impl {
                     'a,
                     drizzle_sqlite::values::SQLiteValue<'a>,
                 >; N],
-            ) -> drizzle_core::error::Result<T>
+            ) -> drizzle_core::error::Result<Option<T>>
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
@@ -106,9 +106,9 @@ macro_rules! sqlite_async_prepared_impl {
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 let decoded = if let Some(row) = rows.next().await? {
-                    <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
+                    <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row).map(Some)
                 } else {
-                    Err(drizzle_core::error::DrizzleError::NotFound)
+                    Ok(None)
                 };
                 while rows.next().await?.is_some() {}
                 decoded
@@ -189,14 +189,14 @@ macro_rules! sqlite_async_prepared_impl {
 
             /// Binds `params`, runs the query, and decodes its first row into `T`.
             ///
+            /// Returns `None` when no row matches.
+            ///
             /// # Errors
             ///
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-            /// statement's placeholders (missing, duplicated, or extra),
-            /// [`DrizzleError::NotFound`] when no row matches, the database error when
+            /// statement's placeholders (missing, duplicated, or extra), the database error when
             /// the query fails, or a decode error when the row does not fit `T`.
             ///
-            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
             ///
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
             ///
@@ -210,7 +210,7 @@ macro_rules! sqlite_async_prepared_impl {
                     'a,
                     drizzle_sqlite::values::SQLiteValue<'a>,
                 >; N],
-            ) -> drizzle_core::error::Result<T>
+            ) -> drizzle_core::error::Result<Option<T>>
             where
                 for<'r> Marker: drizzle_core::row::DecodeSelectedRef<&'r $row, T>,
             {
@@ -220,9 +220,9 @@ macro_rules! sqlite_async_prepared_impl {
                 let mut rows = conn.fetch(sql_str, driver_params).await?;
 
                 let decoded = if let Some(row) = rows.next().await? {
-                    <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
+                    <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row).map(Some)
                 } else {
-                    Err(drizzle_core::error::DrizzleError::NotFound)
+                    Ok(None)
                 };
                 while rows.next().await?.is_some() {}
                 decoded

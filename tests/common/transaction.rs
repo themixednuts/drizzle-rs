@@ -268,13 +268,13 @@ macro_rules! shared_transaction_suite {
                                     .execute()
                             )?;
                         }
-                        let inside: i64 = result!(tx.select(count(rows.id)).from(rows).get())?;
+                        let inside: i64 = result!(tx.select(count(rows.id)).from(rows).get())?.expect("a row");
                         assert_eq!(inside, 100);
                         Err(drizzle::error::DrizzleError::Other("rollback".into()))
                     }));
                 assert!(rolled_back.is_err());
 
-                let persisted: i64 = db.select(count(rows.id)).from(rows).get();
+                let persisted: i64 = db.select(count(rows.id)).from(rows).get().expect("a row");
                 assert_eq!(persisted, 0);
             }
 
@@ -424,7 +424,7 @@ macro_rules! shared_transaction_suite {
                                     .execute()
                             )?;
                             let visible: i64 =
-                                result!(sp.select(count(rows.id)).from(rows).get())?;
+                                result!(sp.select(count(rows.id)).from(rows).get())?.expect("a row");
                             assert_eq!(visible, 3);
                             Err(drizzle::error::DrizzleError::Other("drop ghost".into()))
                         }));

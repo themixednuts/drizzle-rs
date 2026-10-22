@@ -62,7 +62,12 @@ async fn direct_connection_access_reestablishes_session_invariants() -> drizzle:
         )
         .await
         .expect("change session state");
-    let _: i64 = db.select(count(users.id)).from(users).get().await?;
+    let _: i64 = db
+        .select(count(users.id))
+        .from(users)
+        .get()
+        .await?
+        .expect("a row");
 
     let mode: Option<String> = db
         .conn_mut()
@@ -130,7 +135,12 @@ async fn cancelling_pooled_transaction_rolls_back_before_reuse() -> drizzle::Res
 
     // The pool has max=1, so this checkout waits until the recycler rolls the
     // cancelled transaction back and makes that same connection safe.
-    let count: i64 = db.select(count(users.id)).from(users).get().await?;
+    let count: i64 = db
+        .select(count(users.id))
+        .from(users)
+        .get()
+        .await?
+        .expect("a row");
     assert_eq!(count, 0);
 
     cleanup(db, &TestSchema::new()).await;
@@ -156,7 +166,10 @@ async fn prepared_queries_execute_through_one_pool_checkout() -> drizzle::Result
         .r#where(eq(users.name, name))
         .prepare()
         .into_owned();
-    let alice: SelectUser = prepared.get(db.conn(), [name.bind("Alice")]).await?;
+    let alice: SelectUser = prepared
+        .get(db.conn(), [name.bind("Alice")])
+        .await?
+        .expect("a row");
     assert_eq!(alice.name, "Alice");
 
     cleanup(db, &schema).await;
@@ -230,7 +243,8 @@ async fn pooled_migrations_use_one_checkout() -> drizzle::Result<()> {
     );
     let id: i64 = db
         .get(SQL::raw("SELECT `id` FROM `mysql_pool_migration`"))
-        .await?;
+        .await?
+        .expect("a row");
     assert_eq!(id, 1);
     assert!(
         db.migrate(&migrations, tracking.clone())

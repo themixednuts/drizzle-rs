@@ -76,7 +76,8 @@ async fn main() {
         .left_join(posts)
         .get()
         .await
-        .expect("select users on posts.user_id");
+        .expect("select users on posts.user_id")
+        .expect("the user was inserted above");
 
     assert_eq!(row.id, id);
     assert_eq!(row.name, "Alex Smith");

@@ -69,7 +69,7 @@ fn json_storage(db: &mut TestDb<Schema>) {
         .from(jsonuser)
         .r#where(eq(jsonuser.id, id));
 
-    let user: UserResult = stmt.get();
+    let user: UserResult = stmt.get().expect("a row");
 
     assert_eq!(user.id, id);
     assert_eq!(user.age, Some(30));
@@ -77,7 +77,7 @@ fn json_storage(db: &mut TestDb<Schema>) {
     // The table-generated row owns the custom JSON codec.
     let stmt = db.select(()).from(jsonuser).r#where(eq(jsonuser.id, id));
 
-    let result: SelectJsonUser = stmt.get();
+    let result: SelectJsonUser = stmt.get().expect("a row");
 
     assert_eq!(result.id, id);
     assert_eq!(result.email, "john@test.com");

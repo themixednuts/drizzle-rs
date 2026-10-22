@@ -41,7 +41,7 @@ fn array_contains_matches_rows(db: &mut TestDb<ArrayPostSchema>) {
         .from(posts)
         .r#where(array_contains(posts.tags, PgArray(vec!["rust"])));
     assert!(stmt.to_sql().sql().contains("@>"));
-    let n: i64 = stmt.get();
+    let n: i64 = stmt.get().expect("a row");
     assert_eq!(n, 1);
 }
 
@@ -55,7 +55,7 @@ fn array_contained_matches_rows(db: &mut TestDb<ArrayPostSchema>) {
         .from(posts)
         .r#where(array_contained(posts.scores, PgArray(vec![1, 2, 3, 4])));
     assert!(stmt.to_sql().sql().contains("<@"));
-    let n: i64 = stmt.get();
+    let n: i64 = stmt.get().expect("a row");
     assert_eq!(n, 2);
 }
 
@@ -69,7 +69,7 @@ fn array_overlaps_matches_rows(db: &mut TestDb<ArrayPostSchema>) {
         .from(posts)
         .r#where(array_overlaps(posts.tags, PgArray(vec!["python", "go"])));
     assert!(stmt.to_sql().sql().contains("&&"));
-    let n: i64 = stmt.get();
+    let n: i64 = stmt.get().expect("a row");
     assert_eq!(n, 1);
 }
 
@@ -85,20 +85,23 @@ fn array_ops_method_syntax(db: &mut TestDb<ArrayPostSchema>) {
         .select(count(posts.id))
         .from(posts)
         .r#where(posts.tags.array_contains(PgArray(vec!["sql"])))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(n, 1);
 
     let n: i64 = db
         .select(count(posts.id))
         .from(posts)
         .r#where(posts.scores.array_contained(PgArray(vec![4, 5])))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(n, 1);
 
     let n: i64 = db
         .select(count(posts.id))
         .from(posts)
         .r#where(posts.tags.array_overlaps(posts.tags))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(n, 2);
 }

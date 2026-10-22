@@ -141,23 +141,22 @@ impl<Schema> Transaction<Schema> {
     /// Runs any SQL value inside the transaction and deserializes its first
     /// row into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
     /// deserialized into `R`.
-    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'de> serde::Deserialize<'de>,
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let cursor = exec_in_tx(self.conn.sql(), &query)?;
-        cursor
+        let rows = cursor
             .to_array::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        Ok(rows.into_iter().next())
     }
 }
 
@@ -227,23 +226,22 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and deserializes its first row
     /// into `R`, with the same requirements as [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
     /// deserialized into `R`.
-    pub fn get<R>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         R: for<'de> serde::Deserialize<'de>,
     {
         let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
-        cursor
+        let rows = cursor
             .to_array::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        Ok(rows.into_iter().next())
     }
 }
 

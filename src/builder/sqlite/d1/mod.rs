@@ -269,12 +269,13 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
     ///
     /// `R` has the same requirements as in [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when binding fails, D1 rejects the query, or
+    /// Returns [`DrizzleError::Other`] when binding fails, D1 rejects the query, or
     /// the row cannot be deserialized into `R`.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'de> serde::Deserialize<'de>,
         T: ToSQL<'a, SQLiteValue<'a>>,
@@ -284,7 +285,7 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
             .first::<R>(None)
             .await
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        row.ok_or(DrizzleError::NotFound)
+        Ok(row)
     }
 
     /// Runs several statements as one D1 batch, which D1 applies atomically:
@@ -794,12 +795,13 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// `R` has the same requirements as in [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when binding fails, D1 rejects the query, or
+    /// Returns [`DrizzleError::Other`] when binding fails, D1 rejects the query, or
     /// the row cannot be deserialized into `R`.
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
     where
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -813,8 +815,7 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
         let stmt = bind_statement(stmt, &values)?;
         stmt.first::<R>(None)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))
     }
 }
 

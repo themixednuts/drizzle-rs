@@ -659,7 +659,7 @@ fn refresh_materialized_view_populates_and_empties(db: &mut TestDb<ViewTestSchem
         .execute();
 
     // Declared WITH_NO_DATA: unreadable until the first refresh.
-    let unpopulated: drizzle::Result<i64> = result!(
+    let unpopulated: drizzle::Result<Option<i64>> = result!(
         db.select(count(simple_view_mat.id))
             .from(simple_view_mat)
             .get()
@@ -670,7 +670,8 @@ fn refresh_materialized_view_populates_and_empties(db: &mut TestDb<ViewTestSchem
     let populated: i64 = db
         .select(count(simple_view_mat.id))
         .from(simple_view_mat)
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(populated, 2);
 
     // Later writes stay invisible until the next refresh.
@@ -680,7 +681,8 @@ fn refresh_materialized_view_populates_and_empties(db: &mut TestDb<ViewTestSchem
     let stale: i64 = db
         .select(count(simple_view_mat.id))
         .from(simple_view_mat)
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(stale, 2);
 
     // CONCURRENTLY needs a unique index on the view.
@@ -691,11 +693,12 @@ fn refresh_materialized_view_populates_and_empties(db: &mut TestDb<ViewTestSchem
     let fresh: i64 = db
         .select(count(simple_view_mat.id))
         .from(simple_view_mat)
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(fresh, 3);
 
     db.execute(refresh_materialized_view(&simple_view_mat).with_no_data());
-    let emptied: drizzle::Result<i64> = result!(
+    let emptied: drizzle::Result<Option<i64>> = result!(
         db.select(count(simple_view_mat.id))
             .from(simple_view_mat)
             .get()
@@ -706,7 +709,8 @@ fn refresh_materialized_view_populates_and_empties(db: &mut TestDb<ViewTestSchem
     let repopulated: i64 = db
         .select(count(simple_view_mat.id))
         .from(simple_view_mat)
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(repopulated, 3);
 }
 

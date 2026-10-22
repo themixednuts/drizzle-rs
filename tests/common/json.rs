@@ -145,11 +145,11 @@ macro_rules! shared_json_suite {
                     )
                     .execute();
 
-                let customer: SelectJsonCustomer = db.select(()).from(customers).get();
+                let customer: SelectJsonCustomer = db.select(()).from(customers).get().expect("a row");
                 assert_eq!(customer.address, home);
                 assert_eq!(customer.previous_address, Some(previous));
 
-                let order: SelectJsonOrder = db.select(()).from(orders).get();
+                let order: SelectJsonOrder = db.select(()).from(orders).get().expect("a row");
                 assert_eq!(order.shipping, home);
                 assert_eq!(order.tags, ["fragile", "gift"]);
                 assert_eq!(order.counts, counts(&[("apples", 3), ("pears", 2)]));
@@ -179,11 +179,11 @@ macro_rules! shared_json_suite {
                     .r#where(eq(orders.id, 10))
                     .execute();
 
-                let customer: SelectJsonCustomer = db.select(()).from(customers).get();
+                let customer: SelectJsonCustomer = db.select(()).from(customers).get().expect("a row");
                 assert_eq!(customer.address, moved);
                 assert_eq!(customer.previous_address, Some(home));
 
-                let order: SelectJsonOrder = db.select(()).from(orders).get();
+                let order: SelectJsonOrder = db.select(()).from(orders).get().expect("a row");
                 assert_eq!(order.shipping, moved);
                 assert_eq!(order.tags, ["express"]);
                 assert_eq!(order.counts, counts(&[("plums", 7)]));
@@ -259,7 +259,7 @@ macro_rules! shared_json_suite {
                     .r#where(eq(customers.id, 1))
                     .execute();
 
-                let customer: SelectJsonCustomer = db.select(()).from(customers).get();
+                let customer: SelectJsonCustomer = db.select(()).from(customers).get().expect("a row");
                 assert_eq!(customer.address, home);
                 assert_eq!(customer.previous_address, None);
             }

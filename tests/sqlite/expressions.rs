@@ -64,10 +64,15 @@ fn group_concat_joins_group_members(db: &mut TestDb<ExpressionSchema>) {
         .select(group_concat(rows.name))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(joined.as_deref(), Some("alice"));
 
-    let all: Option<String> = db.select(group_concat(rows.name)).from(rows).get();
+    let all: Option<String> = db
+        .select(group_concat(rows.name))
+        .from(rows)
+        .get()
+        .expect("a row");
     let mut names: Vec<&str> = all.as_deref().unwrap().split(',').collect();
     names.sort_unstable();
     assert_eq!(names, ["alice", "bob", "carol"]);
@@ -88,7 +93,8 @@ fn typeof_reports_storage_class(db: &mut TestDb<ExpressionSchema>) {
         .select((typeof_(rows.id), typeof_(rows.name), typeof_(rows.quantity)))
         .from(rows)
         .r#where(eq(rows.id, 2))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(
         classes,
         (
@@ -118,7 +124,8 @@ fn date_functions_split_and_convert_timestamps(db: &mut TestDb<ExpressionSchema>
         ))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(
         parts,
         (
@@ -132,14 +139,16 @@ fn date_functions_split_and_convert_timestamps(db: &mut TestDb<ExpressionSchema>
         .select(julianday(rows.occurred_at))
         .from(rows)
         .r#where(eq(rows.id, 3))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(julian, 2_451_544.5);
 
     let epoch: i64 = db
         .select(unixepoch(rows.occurred_at))
         .from(rows)
         .r#where(eq(rows.id, 2))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(epoch, 86_400);
 
     // Literal arguments are accepted wherever a temporal expression is.
@@ -147,7 +156,8 @@ fn date_functions_split_and_convert_timestamps(db: &mut TestDb<ExpressionSchema>
         .select(date("now"))
         .from(rows)
         .r#where(is_not_null(rows.id))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(today.len(), 10);
 }
 
@@ -181,6 +191,7 @@ fn optional_math_functions(db: &mut TestDb<ExpressionSchema>) {
         .select(count(rows.id))
         .from(rows)
         .r#where(gt(pi(), 3.1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(approximately_pi, 3);
 }

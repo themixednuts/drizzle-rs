@@ -585,8 +585,8 @@ in `drizzle::core::expr`. Ordering helpers such as `asc` and `desc` live in
 // All rows
 let all: Vec<SelectUsers> = db.select(()).from(users).all()?;
 
-// Single row with filter
-let user: SelectUsers = db
+// Single row with filter: `None` when nothing matches
+let user: Option<SelectUsers> = db
     .select(())
     .from(users)
     .r#where(eq(users.name, "Alex Smith"))
@@ -967,8 +967,8 @@ Aggregate functions and common SQL expressions:
 # use readme::*;
 # let (db, Schema { users, .. }) = readme::database()?;
 // Aggregates
-let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
-let oldest: (Option<i64>,) = db.select((max(users.age),)).from(users).get()?;
+let total: Option<(i64,)> = db.select((count(users.id),)).from(users).get()?;
+let oldest: Option<(Option<i64>,)> = db.select((max(users.age),)).from(users).get()?;
 
 // Coalesce — first non-null value
 let rows: Vec<(String,)> = db

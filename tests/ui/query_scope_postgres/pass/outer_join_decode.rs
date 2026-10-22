@@ -62,7 +62,7 @@ fn check(mut db: Drizzle<Schema>, Schema { users, posts }: Schema) {
         .select((users.name, users.email, posts.title))
         .from(users)
         .right_join(posts)
-        .get();
+        .get().expect("a row");
     let _: drizzle::Result<Vec<(Option<String>, Option<String>)>> =
         db.select((users.name, posts.title)).from(users).full_join(posts).all();
 
