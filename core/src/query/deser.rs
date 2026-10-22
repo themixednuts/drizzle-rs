@@ -541,6 +541,35 @@ where
         .map_err(|e| E::custom(format!("field '{column}': invalid JSON blob: {e}")))
 }
 
+/// Decodes a PostgreSQL `bytea` column from a relational projection.
+///
+/// `json_build_object` renders `bytea` as its hex text, a JSON string such
+/// as `"\\x0102"`, which serde cannot read as bytes. The generated decoder
+/// converts the bytes into the field's type.
+///
+/// # Errors
+///
+/// Returns a serde error naming `column` when the value is not hex text.
+#[doc(hidden)]
+pub fn decode_postgres_bytea<E: de::Error>(raw: RawJson, column: &str) -> Result<Vec<u8>, E> {
+    let invalid = || E::custom(format!("field '{column}': expected bytea hex text"));
+    let serde_json::Value::String(text) = raw else {
+        return Err(invalid());
+    };
+    let hex = text.strip_prefix("\\x").ok_or_else(invalid)?.as_bytes();
+    if hex.len() % 2 != 0 {
+        return Err(invalid());
+    }
+    let nibble = |digit: u8| char::from(digit).to_digit(16).ok_or_else(invalid);
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for &[high, low] in hex.as_chunks::<2>().0 {
+        // A hex digit is below 16, so a pair fits a byte.
+        #[allow(clippy::cast_possible_truncation)]
+        bytes.push((nibble(high)? << 4 | nibble(low)?) as u8);
+    }
+    Ok(bytes)
+}
+
 /// Decodes an enum projected either as a JSON string (a native enum stored
 /// by name) or as a JSON integer (an integer-backed enum).
 ///

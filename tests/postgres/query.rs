@@ -315,3 +315,57 @@ fn relations_load_rows_wider_than_one_json_object_call(db: &mut TestDb<WideSchem
         (10, Some(1), Some(50), None, Some(55))
     );
 }
+
+#[PostgresTable(NAME = "bytea_owners")]
+struct ByteaOwner {
+    #[column(PRIMARY)]
+    id: i32,
+}
+
+#[PostgresTable(NAME = "bytea_files")]
+struct ByteaFile {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(REFERENCES = ByteaOwner::id)]
+    owner_id: i32,
+    data: Vec<u8>,
+    digest: [u8; 4],
+    thumbnail: Option<Vec<u8>>,
+}
+
+#[derive(PostgresSchema)]
+struct ByteaSchema {
+    owner: ByteaOwner,
+    file: ByteaFile,
+}
+
+/// `json_build_object` renders `bytea` as hex text (`"\\x0102"`); a
+/// relation with a `bytea` column still decodes into bytes.
+#[drizzle::test]
+fn relations_decode_bytea_columns(db: &mut TestDb<ByteaSchema>) {
+    let ByteaSchema { owner, file } = schema;
+    db.insert(owner)
+        .values([InsertByteaOwner::new(1)])
+        .execute();
+    db.insert(file)
+        .values([
+            InsertByteaFile::new(10, 1, vec![0x00, 0xab, 0xff], [1, 2, 3, 4])
+                .with_thumbnail(vec![7]),
+        ])
+        .execute();
+    db.insert(file)
+        .values([InsertByteaFile::new(11, 1, Vec::new(), [0; 4])])
+        .execute();
+
+    let owners = db
+        .query(owner)
+        .with(owner.bytea_files().order_by(asc(file.id)))
+        .find_many();
+    let files = &owners[0].bytea_files;
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].data, [0x00, 0xab, 0xff]);
+    assert_eq!(files[0].digest, [1, 2, 3, 4]);
+    assert_eq!(files[0].thumbnail, Some(vec![7]));
+    assert_eq!(files[1].data, Vec::<u8>::new());
+    assert_eq!(files[1].thumbnail, None);
+}

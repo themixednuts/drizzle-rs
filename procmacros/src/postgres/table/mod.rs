@@ -265,11 +265,23 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
             } else {
                 None
             };
-            // PostgreSQL handles all types natively in json_build_object, and
-            // produces JSON true/false for booleans — so only UUID needs
-            // special-case reading; everything else is plain.
+            // PostgreSQL handles most types natively in json_build_object,
+            // and produces JSON true/false for booleans. UUIDs and `bytea`
+            // (rendered as hex text) need their own reading; everything else
+            // is plain.
             let storage = if type_is_uuid(&f.base_type) {
                 crate::common::query::FieldStorageKind::Uuid
+            } else if f.column_type == PostgreSQLType::Bytea
+                && f.dimensions.is_none()
+                && !f.is_json
+                && !f.is_custom_type
+            {
+                let owned = matches!(
+                    &f.base_type,
+                    syn::Type::Path(path)
+                        if path.path.segments.last().is_some_and(|last| last.ident == "Bytes")
+                );
+                crate::common::query::FieldStorageKind::PostgresBytea { owned }
             } else {
                 crate::common::query::FieldStorageKind::Plain
             };
