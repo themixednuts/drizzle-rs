@@ -885,6 +885,38 @@ mod executed {
         assert_eq!(pairs.len(), rows.len());
     }
 
+    /// Each foreign key picks its parent independently, so a junction
+    /// table gets as many distinct pairs as were asked for (up to the
+    /// product of the parent counts), not one per parent.
+    #[drizzle::test]
+    fn join_table_gets_the_requested_number_of_distinct_pairs(
+        db: &mut TestDb<SeedMembershipSchema>,
+    ) {
+        let SeedMembershipSchema {
+            member,
+            group,
+            membership,
+        } = schema;
+        for statement in SeedConfig::sqlite(&schema)
+            .count(&member, 5)
+            .count(&group, 5)
+            .count(&membership, 20)
+            .generate()
+        {
+            db.execute(statement);
+        }
+
+        let rows: Vec<SelectSeedMembership> = db.select(()).from(membership).all();
+        assert_eq!(rows.len(), 20);
+        let mut pairs: Vec<(i64, i64)> = rows
+            .iter()
+            .map(|row| (row.member_id, row.group_id))
+            .collect();
+        pairs.sort_unstable();
+        pairs.dedup();
+        assert_eq!(pairs.len(), 20);
+    }
+
     #[drizzle::test]
     fn seeded_rows_insert_and_decode(db: &mut TestDb<SeedTypedSchema>) {
         let SeedTypedSchema { typed } = schema;
