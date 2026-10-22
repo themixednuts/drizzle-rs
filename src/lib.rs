@@ -667,8 +667,8 @@ pub mod postgres {
     pub use drizzle_postgres::driver_types;
     #[doc(inline)]
     pub use drizzle_postgres::{
-        AccessMode, IsolationLevel, TransactionConfig, attrs, builder, common, expr, helpers,
-        traits, transaction, types, values,
+        AccessMode, IsolationLevel, SnapshotId, TransactionConfig, attrs, builder, common, expr,
+        helpers, traits, transaction, types, values,
     };
 
     #[cfg(all(
@@ -769,7 +769,7 @@ pub mod postgres {
         pub use drizzle_postgres::values::{
             OwnedPostgresValue, PostgresInsertValue, PostgresUpdateValue, PostgresValue,
         };
-        pub use drizzle_postgres::{AccessMode, IsolationLevel, TransactionConfig};
+        pub use drizzle_postgres::{AccessMode, IsolationLevel, SnapshotId, TransactionConfig};
     }
 }
 

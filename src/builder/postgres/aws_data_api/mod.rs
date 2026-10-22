@@ -324,9 +324,16 @@ impl<Schema> Drizzle<Schema> {
         if config.is_deferrable() {
             options.push("DEFERRABLE".to_owned());
         }
+        let mut preamble = Vec::new();
         if !options.is_empty() {
-            let preamble = format!("SET TRANSACTION {}", options.join(" "));
-            if let Err(error) = tx.execute(preamble.as_str()).await {
+            preamble.push(format!("SET TRANSACTION {}", options.join(" ")));
+        }
+        if let Some(snapshot) = config.snapshot() {
+            // The id holds only hex digits and `-`, so it is safe to inline.
+            preamble.push(format!("SET TRANSACTION SNAPSHOT '{snapshot}'"));
+        }
+        for statement in preamble {
+            if let Err(error) = tx.execute(statement.as_str()).await {
                 return Err(match tx.rollback().await {
                     Ok(()) => error,
                     Err(rollback) => crate::transaction::savepoint::cleanup_error(

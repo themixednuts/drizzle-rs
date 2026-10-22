@@ -507,7 +507,11 @@ impl<Schema> Drizzle<Schema> {
         }
 
         drizzle_core::drizzle_trace_tx!("begin", "postgres.sync");
-        let tx = builder.start()?;
+        let mut tx = builder.start()?;
+        if let Some(snapshot) = applied_config.snapshot() {
+            // The id holds only hex digits and `-`, so it is safe to inline.
+            tx.batch_execute(&format!("SET TRANSACTION SNAPSHOT '{snapshot}'"))?;
+        }
         Ok(Transaction::new(
             tx,
             applied_config,

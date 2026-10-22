@@ -14,6 +14,7 @@
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
+use crate::transaction::postgres::{EXPORT_SNAPSHOT_SQL, exported_snapshot};
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 use aws_sdk_rdsdata::Client;
@@ -27,7 +28,7 @@ use drizzle_postgres::builder::{
 };
 use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::traits::PostgresTable;
-use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
+use drizzle_postgres::transaction::{IsolationLevel, SnapshotId, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::aws_data_api::{
@@ -161,6 +162,27 @@ impl<Schema> Transaction<Schema> {
     #[inline]
     pub const fn config(&self) -> TransactionConfig {
         self.config
+    }
+
+    /// Exports this transaction's snapshot (`pg_export_snapshot()`).
+    ///
+    /// A transaction started with
+    /// [`ConfigBuilder::snapshot`](drizzle_postgres::transaction::ConfigBuilder::snapshot)
+    /// then sees the same data as this one. The id can be imported only
+    /// while this transaction is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transaction was already consumed or the
+    /// Data API request fails.
+    pub async fn export_snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+        let out = self.run_statement(EXPORT_SNAPSHOT_SQL, Vec::new()).await?;
+        let row = decode_rows(out)
+            .into_iter()
+            .next()
+            .ok_or(DrizzleError::NotFound)?;
+        let id: String = row.try_get(0)?;
+        exported_snapshot(&id)
     }
 
     /// Returns the Data API transaction ID, or `None` once the transaction

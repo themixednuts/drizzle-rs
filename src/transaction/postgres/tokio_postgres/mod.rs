@@ -21,7 +21,9 @@ use drizzle_postgres::builder::{
     update::UpdateBuilder,
 };
 use drizzle_postgres::common::PostgresTransactionType;
-use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
+use drizzle_postgres::transaction::{IsolationLevel, SnapshotId, TransactionConfig};
+
+use crate::transaction::postgres::{EXPORT_SNAPSHOT_SQL, exported_snapshot};
 use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::tokio_postgres::tokio_postgres_materialize_params as materialize_params;
@@ -112,6 +114,64 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     #[inline]
     pub const fn config(&self) -> TransactionConfig {
         self.config
+    }
+
+    /// Exports this transaction's snapshot (`pg_export_snapshot()`).
+    ///
+    /// A transaction started on another connection with
+    /// [`ConfigBuilder::snapshot`](drizzle_postgres::transaction::ConfigBuilder::snapshot)
+    /// then sees the same data as this one, which lets several connections
+    /// read one consistent state in parallel. The id can be imported only
+    /// while this transaction is open.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::tokio::Drizzle;
+    /// # use drizzle::postgres::TransactionConfig;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
+    /// # tokio::spawn(async move { conn.await.unwrap() });
+    /// # let (client2, conn2) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
+    /// # tokio::spawn(async move { conn2.await.unwrap() });
+    /// # let (mut db, S { user }) = Drizzle::new(client);
+    /// # let (mut other, _) = Drizzle::<S>::new(client2);
+    /// let config = TransactionConfig::builder().repeatable_read().build();
+    /// db.transaction(config, async |tx| {
+    ///     let snapshot = tx.export_snapshot().await?;
+    ///
+    ///     let config = TransactionConfig::builder()
+    ///         .repeatable_read()
+    ///         .snapshot(snapshot)
+    ///         .build();
+    ///     other
+    ///         .transaction(config, async |other_tx| {
+    ///             // Reads the same rows as `tx` does.
+    ///             let _users: Vec<SelectUser> = other_tx.select(()).from(user).all().await?;
+    ///             Ok(())
+    ///         })
+    ///         .await
+    /// })
+    /// .await?;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transaction was already consumed or the
+    /// query fails.
+    pub async fn export_snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+        self.savepoints.ensure_usable()?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
+        let row = tx
+            .query_one(EXPORT_SNAPSHOT_SQL, &[])
+            .await
+            .map_err(|error| self.statement_error(error))?;
+        let id: &str = row.try_get(0).map_err(DrizzleError::from)?;
+        exported_snapshot(id)
     }
 
     /// Converts a driver error from a statement run in this transaction.

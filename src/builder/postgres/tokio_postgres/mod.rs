@@ -546,6 +546,11 @@ impl<Schema> Drizzle<Schema> {
 
         drizzle_core::drizzle_trace_tx!("begin", "postgres.tokio");
         let tx = builder.start().await?;
+        if let Some(snapshot) = applied_config.snapshot() {
+            // The id holds only hex digits and `-`, so it is safe to inline.
+            tx.batch_execute(&format!("SET TRANSACTION SNAPSHOT '{snapshot}'"))
+                .await?;
+        }
         Ok(Transaction::new(
             tx,
             applied_config,

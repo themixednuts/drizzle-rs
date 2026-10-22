@@ -46,8 +46,75 @@ impl core::fmt::Display for AccessMode {
     }
 }
 
+/// A snapshot exported by a running transaction (`pg_export_snapshot()`),
+/// for another transaction to read the same data with
+/// [`ConfigBuilder::snapshot`].
+///
+/// Get one from a transaction's `export_snapshot()`, or parse the text form
+/// with [`SnapshotId::new`]. It stays importable only while the exporting
+/// transaction is open; after that `PostgreSQL` rejects it. The id is a
+/// small `Copy` value, so it can be handed to other threads and tasks.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SnapshotId {
+    bytes: [u8; SnapshotId::CAPACITY],
+    len: u8,
+}
+
+impl SnapshotId {
+    /// The longest id accepted. `PostgreSQL` ids are up to about 30
+    /// characters (`00000003-0000001B-1`).
+    const CAPACITY: usize = 64;
+
+    /// Parses a snapshot id: hex digits and `-`, as `pg_export_snapshot()`
+    /// returns it. Returns `None` for anything else, so an id is always safe
+    /// to write into `SET TRANSACTION SNAPSHOT`.
+    #[must_use]
+    pub const fn new(id: &str) -> Option<Self> {
+        let source = id.as_bytes();
+        if source.is_empty() || source.len() > Self::CAPACITY {
+            return None;
+        }
+        let mut bytes = [0u8; Self::CAPACITY];
+        let mut i = 0;
+        while i < source.len() {
+            let byte = source[i];
+            if !(byte.is_ascii_hexdigit() || byte == b'-') {
+                return None;
+            }
+            bytes[i] = byte;
+            i += 1;
+        }
+        // CAPACITY fits a u8.
+        #[allow(clippy::cast_possible_truncation)]
+        let len = source.len() as u8;
+        Some(Self { bytes, len })
+    }
+
+    /// The id as `PostgreSQL` writes it.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        // `new` only stores ASCII.
+        core::str::from_utf8(&self.bytes[..usize::from(self.len)]).unwrap_or_default()
+    }
+}
+
+impl core::fmt::Debug for SnapshotId {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_tuple("SnapshotId")
+            .field(&self.as_str())
+            .finish()
+    }
+}
+
+impl core::fmt::Display for SnapshotId {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 /// Options for starting a `PostgreSQL` transaction: isolation level, access
-/// mode and `DEFERRABLE`.
+/// mode, `DEFERRABLE`, and a snapshot to read from.
 ///
 /// The default leaves every choice to the server. Use [`Self::builder`] when
 /// the choices are known in code; it only offers `.deferrable()` after
@@ -85,11 +152,22 @@ impl core::fmt::Display for AccessMode {
 ///     .read_write()
 ///     .deferrable();
 /// ```
+///
+/// ```compile_fail
+/// use drizzle_postgres::{SnapshotId, TransactionConfig};
+///
+/// // PostgreSQL imports a snapshot only into REPEATABLE READ or SERIALIZABLE.
+/// let snapshot = SnapshotId::new("00000003-0000001B-1").unwrap();
+/// let _ = TransactionConfig::builder()
+///     .read_committed()
+///     .snapshot(snapshot);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TransactionConfig {
     isolation_level: Option<IsolationLevel>,
     access_mode: Option<AccessMode>,
     deferrable: bool,
+    snapshot: Option<SnapshotId>,
     legacy_read_committed: bool,
 }
 
@@ -101,6 +179,7 @@ impl TransactionConfig {
             isolation_level: None,
             access_mode: None,
             deferrable: false,
+            snapshot: None,
             legacy_read_committed: false,
         }
     }
@@ -112,12 +191,19 @@ impl TransactionConfig {
 
     /// Sets the isolation level.
     ///
-    /// Any level other than `SERIALIZABLE` turns `DEFERRABLE` off.
+    /// Any level other than `SERIALIZABLE` turns `DEFERRABLE` off, and one
+    /// below `REPEATABLE READ` drops the snapshot.
     #[must_use]
     pub const fn isolation_level(mut self, level: IsolationLevel) -> Self {
         self.isolation_level = Some(level);
         if !matches!(level, IsolationLevel::Serializable) {
             self.deferrable = false;
+        }
+        if !matches!(
+            level,
+            IsolationLevel::RepeatableRead | IsolationLevel::Serializable
+        ) {
+            self.snapshot = None;
         }
         self.legacy_read_committed = false;
         self
@@ -165,6 +251,12 @@ impl TransactionConfig {
     #[must_use]
     pub const fn is_deferrable(&self) -> bool {
         self.deferrable
+    }
+
+    /// The snapshot the transaction reads from, if any.
+    #[must_use]
+    pub const fn snapshot(&self) -> Option<SnapshotId> {
+        self.snapshot
     }
 
     /// Whether wire-protocol adapters should preserve the legacy
@@ -215,11 +307,7 @@ impl ConfigBuilder {
 
 impl<Isolation, Access> ConfigBuilder<Isolation, Access> {
     const fn isolation<Next>(mut self, level: IsolationLevel) -> ConfigBuilder<Next, Access> {
-        self.config.isolation_level = Some(level);
-        if !matches!(level, IsolationLevel::Serializable) {
-            self.config.deferrable = false;
-        }
-        self.config.legacy_read_committed = false;
+        self.config = self.config.isolation_level(level);
         ConfigBuilder {
             config: self.config,
             state: PhantomData,
@@ -284,6 +372,30 @@ impl<Isolation, Access> ConfigBuilder<Isolation, Access> {
     #[must_use]
     pub const fn build(self) -> TransactionConfig {
         self.config
+    }
+}
+
+impl<Access> ConfigBuilder<state::RepeatableRead, Access> {
+    /// Reads from `snapshot`, exported by another open transaction, so both
+    /// see the same data (`SET TRANSACTION SNAPSHOT`).
+    ///
+    /// Only available with `REPEATABLE READ` or `SERIALIZABLE`, the levels
+    /// `PostgreSQL` imports a snapshot into.
+    pub const fn snapshot(mut self, snapshot: SnapshotId) -> Self {
+        self.config.snapshot = Some(snapshot);
+        self
+    }
+}
+
+impl<Access> ConfigBuilder<state::Serializable, Access> {
+    /// Reads from `snapshot`, exported by another open transaction, so both
+    /// see the same data (`SET TRANSACTION SNAPSHOT`).
+    ///
+    /// Only available with `REPEATABLE READ` or `SERIALIZABLE`, the levels
+    /// `PostgreSQL` imports a snapshot into.
+    pub const fn snapshot(mut self, snapshot: SnapshotId) -> Self {
+        self.config.snapshot = Some(snapshot);
+        self
     }
 }
 
@@ -423,5 +535,30 @@ mod tests {
         assert_eq!(config.access(), Some(AccessMode::ReadOnly));
         assert!(config.is_deferrable());
         assert!(!config.uses_server_default_isolation());
+    }
+
+    #[test]
+    fn snapshot_ids_hold_only_hex_digits_and_dashes() {
+        let id = SnapshotId::new("00000003-0000001B-1").unwrap();
+        assert_eq!(id.as_str(), "00000003-0000001B-1");
+        assert_eq!(id.to_string(), "00000003-0000001B-1");
+
+        assert_eq!(SnapshotId::new(""), None);
+        assert_eq!(SnapshotId::new("0000-1'; DROP TABLE users; --"), None);
+        assert_eq!(SnapshotId::new(&"0".repeat(65)), None);
+    }
+
+    #[test]
+    fn lowering_the_isolation_level_drops_the_snapshot() {
+        let snapshot = SnapshotId::new("00000003-0000001B-1").unwrap();
+        let config = TransactionConfig::builder()
+            .repeatable_read()
+            .snapshot(snapshot)
+            .serializable()
+            .build();
+        assert_eq!(config.snapshot(), Some(snapshot));
+
+        let config = config.isolation_level(IsolationLevel::ReadCommitted);
+        assert_eq!(config.snapshot(), None);
     }
 }

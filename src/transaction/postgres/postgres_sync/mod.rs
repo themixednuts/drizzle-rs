@@ -20,7 +20,9 @@ use drizzle_postgres::builder::{
     update::UpdateBuilder,
 };
 use drizzle_postgres::common::PostgresTransactionType;
-use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
+use drizzle_postgres::transaction::{IsolationLevel, SnapshotId, TransactionConfig};
+
+use crate::transaction::postgres::{EXPORT_SNAPSHOT_SQL, exported_snapshot};
 use drizzle_postgres::values::PostgresValue;
 use smallvec::SmallVec;
 
@@ -130,6 +132,28 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     #[inline]
     pub const fn config(&self) -> TransactionConfig {
         self.config
+    }
+
+    /// Exports this transaction's snapshot (`pg_export_snapshot()`).
+    ///
+    /// A transaction started on another connection with
+    /// [`ConfigBuilder::snapshot`](drizzle_postgres::transaction::ConfigBuilder::snapshot)
+    /// then sees the same data as this one, which lets several connections
+    /// read one consistent state in parallel. The id can be imported only
+    /// while this transaction is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transaction was already consumed or the
+    /// query fails.
+    pub fn export_snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+        let mut tx_ref = self.tx.borrow_mut();
+        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
+        let row = tx
+            .query_one(EXPORT_SNAPSHOT_SQL, &[])
+            .map_err(|error| self.statement_error(error))?;
+        let id: &str = row.try_get(0).map_err(DrizzleError::from)?;
+        exported_snapshot(id)
     }
 
     /// Converts a driver error from a statement run in this transaction.
