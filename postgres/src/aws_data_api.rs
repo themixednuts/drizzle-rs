@@ -1612,8 +1612,8 @@ pub fn is_null_at(row: &Row, offset: usize) -> Result<bool, DrizzleError> {
 /// Encodes a [`PostgresValue`] as a Data API [`SqlParameter`] named `name`,
 /// with the matching [`Field`] variant and, where needed, a [`TypeHint`].
 ///
-/// Arrays become a flat `ArrayValue` typed by their first element; a mixed
-/// array is sent as strings.
+/// Arrays are sent as the text of a PostgreSQL array literal, because the
+/// Data API does not accept array parameters.
 pub fn encode_param(name: impl Into<String>, value: &PostgresValue<'_>) -> SqlParameter {
     let (field, hint) = encode_field(value);
     let mut builder = SqlParameter::builder().name(name).value(field);
@@ -1833,64 +1833,70 @@ fn encode_field(value: &PostgresValue<'_>) -> (Field, Option<TypeHint>) {
     encoded.unwrap_or_else(|| unreachable!("each encoder handles the variants routed to it"))
 }
 
-/// Collapse a `Vec<PostgresValue>` into `Field::ArrayValue(ArrayValue::...)`.
+/// Encode an array as the text of a PostgreSQL array literal (`{1,2}`).
 ///
-/// Uses the variant of the first element to decide the array shape. Mixed
-/// arrays fall back to `StringValues` (values `Display`-formatted). Empty
-/// arrays collapse to `StringValues(vec![])`.
+/// The Data API rejects array parameters ("Array parameters are not
+/// supported"), so the array goes as a string, which the server parses into
+/// the column's array type. Each element is encoded as a scalar parameter
+/// would be, then quoted.
 fn encode_array(items: &[PostgresValue<'_>]) -> Field {
-    use PostgresValue as V;
-
-    if items.is_empty() {
-        return Field::ArrayValue(ArrayValue::StringValues(Vec::new()));
-    }
-
-    // Detect homogeneous shape from the first element.
-    let array = match &items[0] {
-        V::Smallint(_) | V::Integer(_) | V::Bigint(_) => {
-            let mut out = Vec::with_capacity(items.len());
-            for v in items {
-                let i = match v {
-                    V::Smallint(i) => i64::from(*i),
-                    V::Integer(i) => i64::from(*i),
-                    V::Bigint(i) => *i,
-                    _ => return fallback_string_array(items),
-                };
-                out.push(Some(i));
-            }
-            ArrayValue::LongValues(out)
-        }
-        V::Real(_) | V::DoublePrecision(_) => {
-            let mut out = Vec::with_capacity(items.len());
-            for v in items {
-                let f = match v {
-                    V::Real(f) => f64::from(*f),
-                    V::DoublePrecision(f) => *f,
-                    _ => return fallback_string_array(items),
-                };
-                out.push(Some(f));
-            }
-            ArrayValue::DoubleValues(out)
-        }
-        V::Boolean(_) => {
-            let mut out = Vec::with_capacity(items.len());
-            for v in items {
-                match v {
-                    V::Boolean(b) => out.push(Some(*b)),
-                    _ => return fallback_string_array(items),
-                }
-            }
-            ArrayValue::BooleanValues(out)
-        }
-        _ => return fallback_string_array(items),
-    };
-
-    Field::ArrayValue(array)
+    let mut literal = String::new();
+    write_array_literal(&mut literal, items);
+    Field::StringValue(literal)
 }
 
-fn fallback_string_array(items: &[PostgresValue<'_>]) -> Field {
-    let out: Vec<Option<String>> = items.iter().map(|item| Some(item.to_string())).collect();
-    Field::ArrayValue(ArrayValue::StringValues(out))
+fn write_array_literal(out: &mut String, items: &[PostgresValue<'_>]) {
+    use core::fmt::Write as _;
+
+    // `box` is the one built-in type whose arrays separate elements with `;`.
+    #[cfg(feature = "geo-types")]
+    let delimiter = if matches!(items.first(), Some(PostgresValue::Rect(_))) {
+        ';'
+    } else {
+        ','
+    };
+    #[cfg(not(feature = "geo-types"))]
+    let delimiter = ',';
+
+    out.push('{');
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            out.push(delimiter);
+        }
+        if let PostgresValue::Array(inner) = item {
+            write_array_literal(out, inner);
+            continue;
+        }
+        match encode_field(item).0 {
+            Field::IsNull(_) => out.push_str("NULL"),
+            Field::StringValue(text) => push_array_element(out, &text),
+            Field::LongValue(v) => push_array_element(out, &v.to_string()),
+            Field::DoubleValue(v) => push_array_element(out, &v.to_string()),
+            Field::BooleanValue(v) => out.push_str(if v { "t" } else { "f" }),
+            Field::BlobValue(blob) => {
+                let mut hex = String::with_capacity(2 + blob.as_ref().len() * 2);
+                hex.push_str("\\x");
+                for byte in blob.as_ref() {
+                    let _ = write!(hex, "{byte:02x}");
+                }
+                push_array_element(out, &hex);
+            }
+            other => unreachable!("scalar encoders never produce {other:?}"),
+        }
+    }
+    out.push('}');
+}
+
+/// Push one array element, double-quoted with `\` and `"` escaped.
+fn push_array_element(out: &mut String, text: &str) {
+    out.push('"');
+    for ch in text.chars() {
+        if matches!(ch, '"' | '\\') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('"');
 }
 
 #[cfg(test)]
@@ -1996,15 +2002,48 @@ mod tests {
 
         assert_eq!(param.name(), Some("1"));
         assert_eq!(param.type_hint(), None);
-        match param.value().expect("encoded value") {
-            Field::ArrayValue(ArrayValue::StringValues(values)) => {
-                assert_eq!(
-                    values.as_slice(),
-                    [Some("\\x000102".to_string()), Some("\\xfffe".to_string())]
-                );
-            }
-            other => panic!("expected string array, got {other:?}"),
-        }
+        assert_eq!(
+            param.value(),
+            Some(&Field::StringValue(
+                r#"{"\\x000102","\\xfffe"}"#.to_string()
+            ))
+        );
+    }
+
+    // The Data API rejects `ArrayValue` parameters; arrays go as literals.
+    #[test]
+    fn encode_arrays_as_postgres_array_literals() {
+        let encode = |value: PostgresValue<'_>| encode_param("1", &value).value().cloned();
+
+        assert_eq!(
+            encode(PostgresValue::Array(vec![
+                PostgresValue::Integer(1),
+                PostgresValue::Null,
+                PostgresValue::Integer(-3),
+            ])),
+            Some(Field::StringValue(r#"{"1",NULL,"-3"}"#.to_string()))
+        );
+        assert_eq!(
+            encode(PostgresValue::Array(vec![
+                PostgresValue::Text(Cow::Borrowed(r#"a "quoted", \ value"#)),
+                PostgresValue::Text(Cow::Borrowed("NULL")),
+                PostgresValue::Boolean(true),
+            ])),
+            Some(Field::StringValue(
+                r#"{"a \"quoted\", \\ value","NULL",t}"#.to_string()
+            ))
+        );
+        assert_eq!(
+            encode(PostgresValue::Array(vec![
+                PostgresValue::Array(vec![PostgresValue::Bigint(1), PostgresValue::Bigint(2)]),
+                PostgresValue::Array(vec![PostgresValue::Bigint(3), PostgresValue::Bigint(4)]),
+            ])),
+            Some(Field::StringValue(r#"{{"1","2"},{"3","4"}}"#.to_string()))
+        );
+        assert_eq!(
+            encode(PostgresValue::Array(Vec::new())),
+            Some(Field::StringValue("{}".to_string()))
+        );
     }
 
     #[cfg(feature = "serde")]
@@ -2034,17 +2073,11 @@ mod tests {
         let param = encode_param("1", &value);
 
         assert_eq!(param.type_hint(), None);
-        match param.value().expect("encoded value") {
-            Field::ArrayValue(ArrayValue::StringValues(values)) => {
-                assert_eq!(
-                    values.as_slice(),
-                    [
-                        Some(r#"{"kind":"object","n":1}"#.to_string()),
-                        Some(r#"["array",2]"#.to_string())
-                    ]
-                );
-            }
-            other => panic!("expected string array, got {other:?}"),
-        }
+        assert_eq!(
+            param.value(),
+            Some(&Field::StringValue(
+                r#"{"{\"kind\":\"object\",\"n\":1}","[\"array\",2]"}"#.to_string()
+            ))
+        );
     }
 }
