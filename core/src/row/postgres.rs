@@ -24,8 +24,12 @@ use crate::row::{FromDrizzleRow, NullProbeRow};
 // only one needs to be in scope.
 #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
 pub use ::postgres::types::FromSql;
+#[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+use ::postgres::types::Type;
 #[cfg(feature = "tokio-postgres")]
 pub use ::tokio_postgres::types::FromSql;
+#[cfg(feature = "tokio-postgres")]
+use ::tokio_postgres::types::Type;
 
 #[cfg(all(
     feature = "serde",
@@ -35,6 +39,29 @@ pub use ::tokio_postgres::types::FromSql;
 use ::postgres::types::Json as DriverJson;
 #[cfg(all(feature = "serde", feature = "tokio-postgres"))]
 use ::tokio_postgres::types::Json as DriverJson;
+
+/// Decodes any column type without reading its bytes, so
+/// `Option<AnyNullProbe>` is `None` exactly when the cell is NULL.
+///
+/// Macro-generated NULL checks use it instead of guessing a concrete type:
+/// a guess that does not match the column's wire type fails
+/// `FromSql::accepts` instead of reporting NULL.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+pub struct AnyNullProbe;
+
+impl<'a> FromSql<'a> for AnyNullProbe {
+    fn from_sql(
+        _: &Type,
+        _: &'a [u8],
+    ) -> Result<Self, Box<dyn core::error::Error + Sync + Send>> {
+        Ok(Self)
+    }
+
+    fn accepts(_: &Type) -> bool {
+        true
+    }
+}
 
 /// Implemented by Postgres-flavored row types whose cells are decoded through
 /// `postgres_types::FromSql`. Drivers supply a one-method adapter that

@@ -345,7 +345,7 @@ pub fn generate_all_driver_impls(ctx: &MacroContext) -> TokenStream {
             quote! {
                 impl drizzle::core::NullProbeRow<drizzle::postgres::Row> for #select_model_ident {
                     fn is_null_at(row: &drizzle::postgres::Row, offset: usize) -> ::std::result::Result<bool, #drizzle_error> {
-                        let first_col: Option<drizzle::postgres::driver_types::AnyNullProbe> = row.try_get(offset)
+                        let first_col: Option<drizzle::core::AnyNullProbe> = row.try_get(offset)
                             .map_err(|e| #drizzle_error::ConversionError(e.to_string().into()))?;
                         Ok(first_col.is_none())
                     }
