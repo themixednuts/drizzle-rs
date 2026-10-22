@@ -388,13 +388,19 @@ where
 }
 
 /// Renders `WHERE <condition>`. The condition must be boolean.
+///
+/// A `None` condition renders `WHERE TRUE`, as a condition list whose
+/// elements are all `None` does.
 pub fn r#where<'a, V, E>(condition: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
 {
-    SQL::from(Token::WHERE).append(condition.into_expr_sql())
+    let condition = condition
+        .into_condition_sql()
+        .unwrap_or_else(|| SQL::raw(crate::expr::EMPTY_CONJUNCTION));
+    SQL::from(Token::WHERE).append(condition)
 }
 
 /// Renders `GROUP BY <expr>, <expr>, ...`.
@@ -423,13 +429,18 @@ where
 }
 
 /// Renders `HAVING <condition>`. The condition must be boolean.
+///
+/// A `None` condition renders `HAVING TRUE`, as in [`r#where`].
 pub fn having<'a, V, E>(condition: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
     E: Expr<'a, V>,
     E::SQLType: BooleanLike,
 {
-    SQL::from(Token::HAVING).append(condition.into_expr_sql())
+    let condition = condition
+        .into_condition_sql()
+        .unwrap_or_else(|| SQL::raw(crate::expr::EMPTY_CONJUNCTION));
+    SQL::from(Token::HAVING).append(condition)
 }
 
 /// Renders `ORDER BY <expressions>`.

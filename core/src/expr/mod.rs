@@ -89,6 +89,7 @@ pub use cmp::*;
 #[doc(hidden)]
 pub use column_ops::*;
 pub use cond::*;
+pub(crate) use cond::{EMPTY_CONJUNCTION, EMPTY_DISJUNCTION};
 pub use datetime::*;
 pub use logical::*;
 pub use math::*;

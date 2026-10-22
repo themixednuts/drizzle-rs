@@ -68,10 +68,10 @@ use crate::types::BooleanLike;
 use super::{AggregateKind, Expr, Nullability, SQLExpr};
 
 /// Rendered SQL for a conjunction whose elements are all absent.
-const EMPTY_CONJUNCTION: &str = "TRUE";
+pub(crate) const EMPTY_CONJUNCTION: &str = "TRUE";
 
 /// Rendered SQL for a disjunction whose elements are all absent.
-const EMPTY_DISJUNCTION: &str = "FALSE";
+pub(crate) const EMPTY_DISJUNCTION: &str = "FALSE";
 
 mod sealed {
     pub trait Sealed {}
