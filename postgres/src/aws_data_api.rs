@@ -362,6 +362,35 @@ impl FromDrizzleRow<Row> for Option<Vec<u8>> {
     }
 }
 
+// [u8; N] — a BYTEA of exactly N bytes.
+
+impl<const N: usize> FromDrizzleRow<Row> for [u8; N] {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+        let bytes = expect_blob(field_at(row, offset)?)?;
+        Self::try_from(bytes).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!(
+                    "AWS Data API: expected {N} bytes for [u8; {N}], got {}",
+                    bytes.len()
+                )
+                .into(),
+            )
+        })
+    }
+}
+
+impl<const N: usize> FromDrizzleRow<Row> for Option<[u8; N]> {
+    const COLUMN_COUNT: usize = 1;
+    fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+        let field = field_at(row, offset)?;
+        if field_is_null(field) {
+            return Ok(None);
+        }
+        <[u8; N] as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
+    }
+}
+
 // =============================================================================
 // Feature-gated scalar leaves
 // =============================================================================
@@ -451,7 +480,7 @@ mod serde_impls {
 mod chrono_impls {
     use super::{
         DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
-        parse_interval_seconds,
+        parse_interval,
     };
     use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
@@ -608,7 +637,8 @@ mod chrono_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            parse_interval_seconds(s).map(Self::seconds)
+            let (secs, nanos) = parse_interval(s)?;
+            Ok(Self::seconds(secs) + Self::nanoseconds(i64::from(nanos)))
         }
     }
 
@@ -619,34 +649,33 @@ mod chrono_impls {
             if field_is_null(field) {
                 return Ok(None);
             }
-            let s = expect_string(field)?;
-            parse_interval_seconds(s)
-                .map(chrono::Duration::seconds)
-                .map(Some)
+            <chrono::Duration as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
         }
     }
 }
 
-/// Parse a Postgres INTERVAL string into total seconds.
+/// Parse a Postgres INTERVAL string into `(seconds, nanoseconds)`, both
+/// carrying the interval's sign.
 ///
-/// Accepts the canonical `{n} seconds` form we emit in [`encode_field`], plus
-/// the `HH:MM:SS[.fff]` / `DD HH:MM:SS` / `N days HH:MM:SS` shapes that Aurora
+/// Accepts the canonical `{n}[.fff] seconds` form we emit in [`encode_field`],
+/// plus the `HH:MM:SS[.fff]` / `N days HH:MM:SS[.fff]` shapes that Aurora
 /// returns through the Data API. Years/months are rejected (ambiguous length)
 /// — users needing full interval parsing should decode as `String`.
 #[cfg(any(feature = "chrono", feature = "time"))]
-fn parse_interval_seconds(s: &str) -> Result<i64, DrizzleError> {
+fn parse_interval(s: &str) -> Result<(i64, i32), DrizzleError> {
     let s = s.trim();
     // Fast path: "{n} seconds" / "{n} second"
     if let Some(rest) = s
         .strip_suffix(" seconds")
         .or_else(|| s.strip_suffix(" second"))
     {
-        return rest.trim().parse::<i64>().map_err(|e| {
-            DrizzleError::ConversionError(format!("AWS Data API interval: {e}").into())
-        });
+        let rest = rest.trim();
+        let (sign, body) = rest.strip_prefix('-').map_or((1, rest), |r| (-1, r));
+        let (secs, nanos) = parse_unsigned_seconds(body)?;
+        return Ok((sign * secs, sign_nanos(sign, nanos)));
     }
 
-    let mut total: i64 = 0;
+    let mut days_secs: i64 = 0;
     let mut rest = s;
     // Handle "N days [HH:MM:SS]"
     if let Some(idx) = rest.find(" day") {
@@ -654,14 +683,14 @@ fn parse_interval_seconds(s: &str) -> Result<i64, DrizzleError> {
         let days: i64 = days_part.trim().parse().map_err(|e| {
             DrizzleError::ConversionError(format!("AWS Data API interval days: {e}").into())
         })?;
-        total += days * 86_400;
+        days_secs = days * 86_400;
         rest = after
             .trim_start_matches(" days")
             .trim_start_matches(" day")
             .trim();
     }
     if rest.is_empty() {
-        return Ok(total);
+        return Ok((days_secs, 0));
     }
     // Remaining must be HH:MM:SS[.fff], with optional leading '-'
     let (sign, body): (i64, &str) = rest.strip_prefix('-').map_or((1, rest), |r| (-1, r));
@@ -679,13 +708,60 @@ fn parse_interval_seconds(s: &str) -> Result<i64, DrizzleError> {
     let sec_field = parts
         .next()
         .ok_or_else(|| DrizzleError::ConversionError("interval: missing seconds".into()))?;
-    // Drop any fractional part — we return whole seconds.
-    let sec_int = sec_field.split('.').next().unwrap_or("0");
-    let sec: i64 = sec_int
+    let (sec, nanos) = parse_unsigned_seconds(sec_field)?;
+    let clock_secs = sign * (h * 3600 + m * 60 + sec);
+    let clock_nanos = sign_nanos(sign, nanos);
+    // "1 day -00:00:00.5" mixes signs: normalise so both parts agree.
+    let mut secs = days_secs + clock_secs;
+    let mut nanos = clock_nanos;
+    if secs > 0 && nanos < 0 {
+        secs -= 1;
+        nanos += 1_000_000_000;
+    } else if secs < 0 && nanos > 0 {
+        secs += 1;
+        nanos -= 1_000_000_000;
+    }
+    Ok((secs, nanos))
+}
+
+/// `"5"` / `"5.25"` → `(5, 250_000_000)`. Digits past nanosecond precision are
+/// truncated.
+#[cfg(any(feature = "chrono", feature = "time"))]
+fn parse_unsigned_seconds(s: &str) -> Result<(i64, i32), DrizzleError> {
+    let (whole, frac) = s.split_once('.').unwrap_or((s, ""));
+    let secs: i64 = whole
         .parse()
         .map_err(|e| DrizzleError::ConversionError(format!("interval seconds: {e}").into()))?;
-    total += sign * (h * 3600 + m * 60 + sec);
-    Ok(total)
+    if !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(DrizzleError::ConversionError(
+            format!("interval seconds: invalid fraction {frac:?}").into(),
+        ));
+    }
+    let mut nanos: i32 = 0;
+    for (i, digit) in frac.bytes().take(9).enumerate() {
+        let place = 10_i32.pow(8 - u32::try_from(i).unwrap_or(8));
+        nanos += i32::from(digit - b'0') * place;
+    }
+    Ok((secs, nanos))
+}
+
+#[cfg(any(feature = "chrono", feature = "time"))]
+const fn sign_nanos(sign: i64, nanos: i32) -> i32 {
+    if sign < 0 { -nanos } else { nanos }
+}
+
+/// Formats `(seconds, nanoseconds)` (same sign) as the `{n}[.fffffffff]
+/// seconds` text [`parse_interval`] reads back.
+#[cfg(any(feature = "chrono", feature = "time"))]
+fn format_interval(secs: i64, nanos: i32) -> String {
+    let negative = secs < 0 || nanos < 0;
+    let sign = if negative { "-" } else { "" };
+    let (secs, nanos) = (secs.unsigned_abs(), nanos.unsigned_abs());
+    if nanos == 0 {
+        format!("{sign}{secs} seconds")
+    } else {
+        format!("{sign}{secs}.{nanos:09} seconds")
+    }
 }
 
 #[cfg(feature = "time")]
@@ -697,7 +773,7 @@ mod time_impls {
     //! enough that manual digit-splitting is fine.
     use super::{
         DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
-        parse_interval_seconds,
+        parse_interval,
     };
     use time::format_description::well_known::Rfc3339;
     use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time};
@@ -877,7 +953,8 @@ mod time_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            parse_interval_seconds(s).map(Self::seconds)
+            let (secs, nanos) = parse_interval(s)?;
+            Ok(Self::new(secs, nanos))
         }
     }
 
@@ -888,9 +965,7 @@ mod time_impls {
             if field_is_null(field) {
                 return Ok(None);
             }
-            parse_interval_seconds(expect_string(field)?)
-                .map(time::Duration::seconds)
-                .map(Some)
+            <time::Duration as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
         }
     }
 }
@@ -1414,13 +1489,20 @@ mod geo_types_impls {
         const COLUMN_COUNT: usize = 1;
         fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
             let s = expect_string(field_at(row, offset)?)?;
-            // Accept either `[(x,y),(x,y)]` or Postgres `(p1,p2,...)` style.
+            // Accept either `[(x,y),(x,y)]` (open path, what `encode_field`
+            // writes) or `((x,y),(x,y))` (closed path). Strip exactly one
+            // outer pair: trimming every leading `(` would eat the first
+            // point's own parenthesis.
+            let s = s.trim();
             let inner = s
-                .trim()
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .trim_start_matches('(')
-                .trim_end_matches(')');
+                .strip_prefix('[')
+                .and_then(|rest| rest.strip_suffix(']'))
+                .or_else(|| {
+                    s.strip_prefix('(')
+                        .and_then(|rest| rest.strip_suffix(')'))
+                        .filter(|rest| rest.trim_start().starts_with('('))
+                })
+                .unwrap_or(s);
             let mut coords = Vec::new();
             // Split on "),(" to get each point; manual scan keeps us zero-dep.
             let mut depth = 0i32;
@@ -1556,16 +1638,11 @@ fn encode_chrono_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeH
             Some(TypeHint::Timestamp),
         )),
         PostgresValue::Interval(dur) => Some((
-            Field::StringValue(format!("{} seconds", dur.num_seconds())),
+            Field::StringValue(format_interval(dur.num_seconds(), dur.subsec_nanos())),
             None,
         )),
         _ => None,
     }
-}
-
-#[cfg(not(feature = "chrono"))]
-const fn encode_chrono_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
-    None
 }
 
 #[cfg(feature = "time")]
@@ -1586,16 +1663,14 @@ fn encode_time_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHin
             Some(TypeHint::Timestamp),
         )),
         PostgresValue::TimeInterval(dur) => Some((
-            Field::StringValue(format!("{} seconds", dur.whole_seconds())),
+            Field::StringValue(format_interval(
+                dur.whole_seconds(),
+                dur.subsec_nanoseconds(),
+            )),
             None,
         )),
         _ => None,
     }
-}
-
-#[cfg(not(feature = "time"))]
-const fn encode_time_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
-    None
 }
 
 /// jiff values bind as text with a type hint. The Data API reads DATE,
@@ -1622,11 +1697,6 @@ fn encode_jiff_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHin
     }
 }
 
-#[cfg(not(feature = "jiff"))]
-const fn encode_jiff_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
-    None
-}
-
 #[cfg(feature = "cidr")]
 fn encode_cidr_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
     match value {
@@ -1648,11 +1718,6 @@ fn encode_cidr_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHin
         )),
         _ => None,
     }
-}
-
-#[cfg(not(feature = "cidr"))]
-const fn encode_cidr_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
-    None
 }
 
 #[cfg(feature = "geo-types")]
@@ -1682,11 +1747,6 @@ fn encode_geo_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint
     }
 }
 
-#[cfg(not(feature = "geo-types"))]
-const fn encode_geo_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
-    None
-}
-
 #[cfg(feature = "bit-vec")]
 fn encode_bitvec_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
     match value {
@@ -1696,11 +1756,6 @@ fn encode_bitvec_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeH
         }
         _ => None,
     }
-}
-
-#[cfg(not(feature = "bit-vec"))]
-const fn encode_bitvec_field(_: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
-    None
 }
 
 fn encode_core_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
@@ -1733,14 +1788,49 @@ fn encode_core_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHin
 
 /// Split out so nested [`PostgresValue::Array`] can recurse.
 fn encode_field(value: &PostgresValue<'_>) -> (Field, Option<TypeHint>) {
-    encode_core_field(value)
-        .or_else(|| encode_chrono_field(value))
-        .or_else(|| encode_time_field(value))
-        .or_else(|| encode_jiff_field(value))
-        .or_else(|| encode_cidr_field(value))
-        .or_else(|| encode_geo_field(value))
-        .or_else(|| encode_bitvec_field(value))
-        .unwrap_or((Field::IsNull(true), None))
+    use PostgresValue as V;
+    // Every variant is routed to its encoder by name, so a new variant fails
+    // to compile here instead of being sent as NULL.
+    let encoded = match value {
+        V::Null
+        | V::Smallint(_)
+        | V::Integer(_)
+        | V::Bigint(_)
+        | V::Real(_)
+        | V::DoublePrecision(_)
+        | V::Text(_)
+        | V::Bytea(_)
+        | V::Boolean(_)
+        | V::Enum(_)
+        | V::Array(_) => encode_core_field(value),
+        #[cfg(feature = "rust-decimal")]
+        V::Numeric(_) => encode_core_field(value),
+        #[cfg(feature = "uuid")]
+        V::Uuid(_) => encode_core_field(value),
+        #[cfg(feature = "serde")]
+        V::Json(_) | V::Jsonb(_) => encode_core_field(value),
+        #[cfg(feature = "chrono")]
+        V::Date(_) | V::Time(_) | V::Timestamp(_) | V::TimestampTz(_) | V::Interval(_) => {
+            encode_chrono_field(value)
+        }
+        #[cfg(feature = "time")]
+        V::TimeDate(_)
+        | V::TimeTime(_)
+        | V::TimeTimestamp(_)
+        | V::TimeTimestampTz(_)
+        | V::TimeInterval(_) => encode_time_field(value),
+        #[cfg(feature = "jiff")]
+        V::JiffDate(_) | V::JiffTime(_) | V::JiffDateTime(_) | V::JiffTimestamp(_) => {
+            encode_jiff_field(value)
+        }
+        #[cfg(feature = "cidr")]
+        V::Inet(_) | V::Cidr(_) | V::MacAddr(_) | V::MacAddr8(_) => encode_cidr_field(value),
+        #[cfg(feature = "geo-types")]
+        V::Point(_) | V::LineString(_) | V::Rect(_) => encode_geo_field(value),
+        #[cfg(feature = "bit-vec")]
+        V::BitVec(_) => encode_bitvec_field(value),
+    };
+    encoded.unwrap_or_else(|| unreachable!("each encoder handles the variants routed to it"))
 }
 
 /// Collapse a `Vec<PostgresValue>` into `Field::ArrayValue(ArrayValue::...)`.
@@ -1807,6 +1897,91 @@ fn fallback_string_array(items: &[PostgresValue<'_>]) -> Field {
 mod tests {
     use super::*;
     use std::borrow::Cow;
+
+    #[cfg(any(feature = "geo-types", feature = "chrono", feature = "time"))]
+    fn text_row(text: &str) -> Row {
+        Row::new(
+            vec![Field::StringValue(text.to_string())],
+            Arc::from(Vec::new()),
+        )
+    }
+
+    #[cfg(feature = "geo-types")]
+    #[test]
+    fn linestring_decodes_open_and_closed_paths() {
+        use geo_types::{Coord, LineString};
+
+        for (text, expected) in [
+            ("[(1,2),(3,4)]", vec![(1.0, 2.0), (3.0, 4.0)]),
+            ("((1,2),(3,4))", vec![(1.0, 2.0), (3.0, 4.0)]),
+            ("[(1.5,-2)]", vec![(1.5, -2.0)]),
+        ] {
+            let line = <LineString<f64> as FromDrizzleRow<Row>>::from_row_at(&text_row(text), 0)
+                .unwrap_or_else(|e| panic!("{text}: {e}"));
+            let expected: Vec<Coord<f64>> =
+                expected.into_iter().map(|(x, y)| Coord { x, y }).collect();
+            assert_eq!(line.0, expected, "{text}");
+        }
+
+        // What `encode_field` writes decodes back to the same line.
+        let line = LineString::from(vec![(0.5, 1.0), (2.0, -3.25)]);
+        let (Field::StringValue(text), _) = encode_field(&PostgresValue::LineString(line.clone()))
+        else {
+            panic!("expected text");
+        };
+        let decoded =
+            <LineString<f64> as FromDrizzleRow<Row>>::from_row_at(&text_row(&text), 0).unwrap();
+        assert_eq!(decoded, line);
+    }
+
+    #[cfg(any(feature = "chrono", feature = "time"))]
+    #[test]
+    fn interval_keeps_fractional_seconds() {
+        assert_eq!(parse_interval("00:00:01.5").unwrap(), (1, 500_000_000));
+        assert_eq!(parse_interval("-00:00:00.75").unwrap(), (0, -750_000_000));
+        assert_eq!(parse_interval("1.5 seconds").unwrap(), (1, 500_000_000));
+        assert_eq!(parse_interval("-2.25 seconds").unwrap(), (-2, -250_000_000));
+        assert_eq!(parse_interval("1 day 02:00:00").unwrap(), (93_600, 0));
+        assert_eq!(
+            parse_interval("1 day -00:00:00.5").unwrap(),
+            (86_399, 500_000_000)
+        );
+        assert_eq!(format_interval(-1, -500_000_000), "-1.500000000 seconds");
+        assert_eq!(format_interval(0, -250_000_000), "-0.250000000 seconds");
+        assert_eq!(format_interval(3, 0), "3 seconds");
+    }
+
+    #[cfg(feature = "chrono")]
+    #[test]
+    fn chrono_interval_round_trips_sub_second_values() {
+        for millis in [1_500, -750, 0, 86_400_250] {
+            let duration = chrono::Duration::milliseconds(millis);
+            let (Field::StringValue(text), _) = encode_field(&PostgresValue::Interval(duration))
+            else {
+                panic!("expected text");
+            };
+            let decoded =
+                <chrono::Duration as FromDrizzleRow<Row>>::from_row_at(&text_row(&text), 0)
+                    .unwrap();
+            assert_eq!(decoded, duration, "{text}");
+        }
+    }
+
+    #[cfg(feature = "time")]
+    #[test]
+    fn time_interval_round_trips_sub_second_values() {
+        for millis in [1_500_i64, -750, 0] {
+            let duration = time::Duration::milliseconds(millis);
+            let (Field::StringValue(text), _) =
+                encode_field(&PostgresValue::TimeInterval(duration))
+            else {
+                panic!("expected text");
+            };
+            let decoded =
+                <time::Duration as FromDrizzleRow<Row>>::from_row_at(&text_row(&text), 0).unwrap();
+            assert_eq!(decoded, duration, "{text}");
+        }
+    }
 
     #[test]
     fn encode_bytea_array_as_postgres_hex_strings() {

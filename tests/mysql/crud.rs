@@ -260,3 +260,52 @@ fn tables_referencing_each_other_create(db: &mut TestDb<MySqlCycleSchema>) {
     );
     assert!(dangling.is_err(), "foreign-key checks are back on");
 }
+
+#[MySQLTable(NAME = "probe_owners")]
+struct ProbeOwner {
+    #[column(PRIMARY)]
+    id: i32,
+    #[column(VARCHAR(255))]
+    name: String,
+}
+
+// The nullable column comes first, so a matched row can lead with NULL.
+#[MySQLTable(NAME = "probe_notes")]
+struct ProbeNote {
+    note: Option<String>,
+    owner_id: i32,
+}
+
+#[derive(MySQLSchema)]
+struct ProbeSchema {
+    probe_owner: ProbeOwner,
+    probe_note: ProbeNote,
+}
+
+#[drizzle::test]
+fn left_join_matched_row_with_null_first_column(db: &mut TestDb<ProbeSchema>) {
+    let ProbeSchema {
+        probe_owner,
+        probe_note,
+    } = schema;
+
+    db.insert(probe_owner)
+        .values([InsertProbeOwner::new(1, "a"), InsertProbeOwner::new(2, "b")])
+        .execute();
+    db.insert(probe_note)
+        .values([InsertProbeNote::new(1)])
+        .execute();
+
+    let rows: Vec<(SelectProbeOwner, Option<SelectProbeNote>)> = db
+        .select(())
+        .from(probe_owner)
+        .left_join((probe_note, eq(probe_note.owner_id, probe_owner.id)))
+        .order_by([asc(probe_owner.id)])
+        .all();
+
+    assert_eq!(rows.len(), 2);
+    let note = rows[0].1.as_ref().expect("owner 1 has a note row");
+    assert_eq!(note.note, None);
+    assert_eq!(note.owner_id, 1);
+    assert!(rows[1].1.is_none());
+}

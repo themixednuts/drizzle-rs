@@ -616,12 +616,15 @@ where
 {
     const COLUMN_COUNT: usize = T::COLUMN_COUNT;
 
+    /// A multi-column `T` (a select model in a LEFT JOIN) is absent only
+    /// when every one of its columns is NULL.
     fn from_row_at(row: &MySQLRow<'row, R>, offset: usize) -> Result<Self, DrizzleError> {
-        if row.is_null_at(offset)? {
-            Ok(None)
-        } else {
-            T::from_row_at(row, offset).map(Some)
+        for column in offset..offset + T::COLUMN_COUNT.max(1) {
+            if !row.is_null_at(column)? {
+                return T::from_row_at(row, offset).map(Some);
+            }
         }
+        Ok(None)
     }
 }
 

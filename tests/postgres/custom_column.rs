@@ -87,7 +87,7 @@ struct PgCustomJoinOwner {
 }
 
 // The custom BYTEA column comes first: `Option<SelectPgCustomJoinTag>` probes
-// the first column to tell a LEFT JOIN miss from a match.
+// every column, whatever its wire type, to tell a LEFT JOIN miss from a match.
 #[PostgresTable(name = "pg_custom_join_tag")]
 struct PgCustomJoinTag {
     payload: PgU32Be,
@@ -213,4 +213,46 @@ fn custom_postgres_column_nullable_roundtrip(db: &mut TestDb<PgCustomNullableSch
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].payload, Some(value));
     assert_eq!(rows[1].payload, None);
+}
+
+#[PostgresTable(name = "pg_custom_from_row")]
+struct PgCustomFromRowTest {
+    #[column(primary)]
+    id: i32,
+    payload: PgU32Be,
+    maybe_payload: Option<PgU32Be>,
+}
+
+#[derive(PostgresSchema)]
+struct PgCustomFromRowSchema {
+    table: PgCustomFromRowTest,
+}
+
+#[derive(Debug, PostgresFromRow)]
+struct PgCustomRow {
+    payload: PgU32Be,
+    maybe_payload: Option<PgU32Be>,
+}
+
+#[drizzle::test]
+fn custom_postgres_column_decodes_in_from_row(db: &mut TestDb<PgCustomFromRowSchema>) {
+    let PgCustomFromRowSchema { table } = schema;
+
+    db.insert(table)
+        .values([InsertPgCustomFromRowTest::new(1, PgU32Be(7)).with_maybe_payload(PgU32Be(9))])
+        .execute();
+    db.insert(table)
+        .values([InsertPgCustomFromRowTest::new(2, PgU32Be(8))])
+        .execute();
+
+    let rows: Vec<PgCustomRow> = db
+        .select(PgCustomRow::Select)
+        .from(table)
+        .order_by(table.id)
+        .all();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].payload, PgU32Be(7));
+    assert_eq!(rows[0].maybe_payload, Some(PgU32Be(9)));
+    assert_eq!(rows[1].payload, PgU32Be(8));
+    assert_eq!(rows[1].maybe_payload, None);
 }

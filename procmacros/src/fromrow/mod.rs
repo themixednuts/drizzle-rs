@@ -11,6 +11,7 @@ use crate::common::{extract_struct_fields, parse_column_reference};
 use crate::paths::core as core_paths;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{DeriveInput, Expr, ExprPath, Field, Ident, Meta, Result, Visibility};
 
 fn parse_default_from_table(input: &DeriveInput) -> Result<Option<ExprPath>> {
@@ -187,7 +188,7 @@ mod libsql;
 mod postgres;
 #[cfg(feature = "rusqlite")]
 mod rusqlite;
-#[cfg(any(feature = "libsql", feature = "turso"))]
+#[cfg(any(feature = "rusqlite", feature = "libsql", feature = "turso"))]
 mod shared;
 #[cfg(feature = "turso")]
 mod turso;
@@ -217,6 +218,23 @@ where
         .map(|(idx, field)| {
             let field_name = if is_tuple { None } else { field.ident.as_ref() };
             generator(idx, field, field_name)
+        })
+        .collect()
+}
+
+/// `FromDrizzleRow` assignments for a named struct decoded by column name:
+/// by name at the top level, by `offset + idx` when nested in a larger row.
+#[cfg(any(feature = "rusqlite", feature = "libsql"))]
+fn generate_named_offset_fallback_assignments(
+    fields: &syn::punctuated::Punctuated<Field, syn::token::Comma>,
+) -> Vec<TokenStream> {
+    fields
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, field)| {
+            field.ident.as_ref().map(|name| {
+                shared::generate_named_field_assignment_with_offset_fallback(idx, field, name)
+            })
         })
         .collect()
 }
@@ -335,7 +353,7 @@ fn generate_tosql_impl(
         .iter()
         .map(|field| {
             let field_name = field.ident.as_ref().unwrap();
-            let field_name_str = field_name.to_string();
+            let field_name_str = field_name.unraw().to_string();
 
             parse_column_reference(field).map_or_else(
                 || {
@@ -430,7 +448,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         let field_assignments =
             generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment);
         let from_drizzle_assignments = if decode_named_by_name {
-            generate_field_assignments(fields, is_tuple, rusqlite::generate_field_assignment)
+            generate_named_offset_fallback_assignments(fields)
         } else {
             fields
                 .iter()
@@ -438,7 +456,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
                 .map(|(idx, field)| {
                     let field_name = if is_tuple { None } else { field.ident.as_ref() };
                     rusqlite::generate_field_assignment_with_index_expr(
-                        &quote!(offset + #idx),
+                        quote!(offset + #idx),
                         field,
                         field_name,
                     )
@@ -518,7 +536,7 @@ pub fn generate_sqlite_from_row_impl(input: &DeriveInput) -> Result<TokenStream>
         let field_assignments =
             generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment);
         let from_drizzle_assignments = if decode_named_by_name {
-            generate_field_assignments(fields, is_tuple, libsql::generate_field_assignment)
+            generate_named_offset_fallback_assignments(fields)
         } else {
             fields
                 .iter()
@@ -779,16 +797,22 @@ pub fn generate_mysql_from_row_impl(input: &DeriveInput) -> Result<TokenStream> 
     let mysql_row = mysql_paths::mysql_row();
     let mysql_row_access = mysql_paths::mysql_row_access();
     let row_type = quote!(#mysql_row<'__drizzle_row, __DrizzleRow>);
-    let field_count = fields.len();
+    // A field may span several columns (a nested select model), so each one
+    // starts where the previous field's columns end.
+    let field_types = fields.iter().map(|field| &field.ty).collect::<Vec<_>>();
+    let field_count = quote! {
+        0 #(+ <#field_types as drizzle::core::FromDrizzleRow<#row_type>>::COLUMN_COUNT)*
+    };
     let field_assignments = fields
         .iter()
         .enumerate()
         .map(|(index, field)| {
             let field_type = &field.ty;
+            let preceding = &field_types[..index];
             let value = quote! {
                 <#field_type as drizzle::core::FromDrizzleRow<#row_type>>::from_row_at(
                     row,
-                    offset + #index,
+                    offset #(+ <#preceding as drizzle::core::FromDrizzleRow<#row_type>>::COLUMN_COUNT)*,
                 )?
             };
             if is_tuple {

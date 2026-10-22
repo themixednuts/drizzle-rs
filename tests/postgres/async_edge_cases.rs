@@ -11,6 +11,165 @@ use drizzle::core::expr::*;
 #[cfg(feature = "tokio-postgres")]
 mod tokio_postgres_edge_cases {
     use super::*;
+    use drizzle::postgres::prelude::*;
+
+    #[PostgresTable(name = "mismatch_source")]
+    struct MismatchSource {
+        #[column(primary)]
+        id: i32,
+        n: i32,
+    }
+
+    // `avg(integer)` is NUMERIC, which does not decode as `f64`.
+    #[PostgresView(DEFINITION = "SELECT avg(n) AS mean FROM mismatch_source")]
+    struct MismatchView {
+        mean: Option<f64>,
+    }
+
+    #[derive(PostgresSchema)]
+    struct MismatchSchema {
+        mismatch_source: MismatchSource,
+        mismatch_view: MismatchView,
+    }
+
+    async fn raw_row(sql: &str) -> tokio_postgres::Row {
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "host=localhost user=postgres password=postgres dbname=drizzle_test".to_string()
+        });
+        let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+            .await
+            .expect("connect");
+        tokio::spawn(connection);
+        client.query_one(sql, &[]).await.expect("query")
+    }
+
+    // `get_column` used to read any value it had no probe for as NULL.
+    #[cfg(feature = "chrono")]
+    #[tokio::test]
+    async fn get_column_reports_undecodable_values_instead_of_null() {
+        use drizzle::postgres::traits::DrizzleRowByIndex;
+
+        let row = raw_row("SELECT interval '1 day' AS present, NULL::interval AS absent").await;
+        let present = DrizzleRowByIndex::get_column::<Option<chrono::Duration>>(&row, 0);
+        assert!(
+            present.is_err(),
+            "a non-NULL interval must not decode as None: {present:?}"
+        );
+        let absent = DrizzleRowByIndex::get_column::<Option<chrono::Duration>>(&row, 1);
+        assert!(matches!(absent, Ok(None)), "{absent:?}");
+    }
+
+    // With chrono and jiff both enabled, the chrono probe reads a timestamptz
+    // first; a jiff target must still decode it.
+    #[cfg(all(feature = "chrono", feature = "jiff"))]
+    #[tokio::test]
+    async fn get_column_reads_jiff_timestamps_alongside_chrono() {
+        use drizzle::postgres::traits::DrizzleRowByIndex;
+
+        let row = raw_row("SELECT timestamptz '2024-01-02 03:04:05+00' AS at").await;
+        let at = DrizzleRowByIndex::get_column::<jiff::Timestamp>(&row, 0).expect("jiff timestamp");
+        assert_eq!(at.to_string(), "2024-01-02T03:04:05Z");
+    }
+
+    // `[u8; N]` is bytes: the parameter's declared type decides whether they
+    // are written as BYTEA or MACADDR, and either cell decodes back.
+    #[tokio::test]
+    async fn fixed_size_bytes_follow_the_declared_column_type() {
+        use drizzle::core::FromDrizzleRow;
+        use drizzle::postgres::values::PostgresValue;
+
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "host=localhost user=postgres password=postgres dbname=drizzle_test".to_string()
+        });
+        let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+            .await
+            .expect("connect");
+        tokio::spawn(connection);
+
+        let mac = PostgresValue::from([1_u8, 2, 3, 4, 5, 6]);
+        let raw = PostgresValue::from([7_u8, 8]);
+        let row = client
+            .query_one("SELECT $1::macaddr AS mac, $2::bytea AS raw", &[&mac, &raw])
+            .await
+            .expect("query");
+
+        let mac = <[u8; 6] as FromDrizzleRow<tokio_postgres::Row>>::from_row_at(&row, 0).unwrap();
+        assert_eq!(mac, [1, 2, 3, 4, 5, 6]);
+        let raw = <[u8; 2] as FromDrizzleRow<tokio_postgres::Row>>::from_row_at(&row, 1).unwrap();
+        assert_eq!(raw, [7, 8]);
+        assert!(<[u8; 4] as FromDrizzleRow<tokio_postgres::Row>>::from_row_at(&row, 1).is_err());
+    }
+
+    #[PostgresTable(name = "error_message_accounts")]
+    struct ErrorMessageAccount {
+        #[column(primary)]
+        email: String,
+    }
+
+    #[derive(PostgresSchema)]
+    struct ErrorMessageSchema {
+        error_message_account: ErrorMessageAccount,
+    }
+
+    // The server's message and SQLSTATE reach the error message; the bound
+    // value does not, neither through the parameter list nor through the
+    // DETAIL line (`Key (email)=(...) already exists.`).
+    #[tokio::test]
+    async fn postgres_errors_show_the_server_message_without_values() {
+        let (
+            db,
+            ErrorMessageSchema {
+                error_message_account,
+            },
+        ) = tokio_postgres_setup::setup_db::<ErrorMessageSchema>().await;
+
+        db.insert(error_message_account)
+            .values([InsertErrorMessageAccount::new("ada@example.com")])
+            .execute()
+            .await
+            .unwrap();
+        let error = db
+            .insert(error_message_account)
+            .values([InsertErrorMessageAccount::new("ada@example.com")])
+            .execute()
+            .await
+            .expect_err("duplicate primary key");
+
+        let message = error.to_string();
+        assert!(
+            message.contains("duplicate key value violates unique constraint")
+                && message.contains("(23505)"),
+            "{message}"
+        );
+        assert!(message.contains("params: 1 bound"), "{message}");
+        assert!(!message.contains("ada@example.com"), "{message}");
+        assert!(!message.contains("db error"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn select_model_type_mismatch_is_an_error_not_a_panic() {
+        let (
+            db,
+            MismatchSchema {
+                mismatch_source,
+                mismatch_view,
+            },
+        ) = tokio_postgres_setup::setup_db::<MismatchSchema>().await;
+
+        db.insert(mismatch_source)
+            .values([InsertMismatchSource::new(1, 3)])
+            .execute()
+            .await
+            .unwrap();
+
+        let result: drizzle::Result<Vec<SelectMismatchView>> =
+            db.select(()).from(mismatch_view).all().await;
+        let error = result.expect_err("NUMERIC must not decode as f64");
+        assert!(
+            error.to_string().contains("error deserializing column 0"),
+            "unexpected error: {error}"
+        );
+    }
     use crate::common::helpers::tokio_postgres_setup;
     use tokio::time::{Duration, timeout};
 

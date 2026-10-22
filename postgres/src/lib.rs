@@ -79,6 +79,70 @@ pub mod driver_types {
     pub use postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
     #[cfg(feature = "tokio-postgres")]
     pub use tokio_postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
+
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    pub use field_decode::{FieldDecode, ViaColumn, ViaFromSql};
+
+    /// Decodes a `#[derive(PostgresFromRow)]` field whose type the derive
+    /// cannot inspect. Generated code calls
+    /// `(&&FieldDecode::<T>::new()).decode_field(row, idx)`: method resolution
+    /// tries `ViaColumn` (custom `DrizzlePostgresColumn` types and
+    /// `#[PostgresEnum]`s, decoded through their own codec) before
+    /// `ViaFromSql` (anything the driver decodes). Both return a decode error
+    /// instead of panicking.
+    #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+    mod field_decode {
+        use crate::traits::DrizzlePostgresColumn;
+        use core::marker::PhantomData;
+        use drizzle_core::error::DrizzleError;
+
+        pub struct FieldDecode<T>(PhantomData<T>);
+
+        impl<T> FieldDecode<T> {
+            #[must_use]
+            pub const fn new() -> Self {
+                Self(PhantomData)
+            }
+        }
+
+        impl<T> Default for FieldDecode<T> {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        pub trait ViaColumn<T> {
+            /// Decodes the cell at `idx` through `T`'s column codec.
+            ///
+            /// # Errors
+            ///
+            /// Returns the codec's error when the cell does not decode.
+            fn decode_field(&self, row: &crate::Row, idx: usize) -> Result<T, DrizzleError>;
+        }
+
+        impl<T: DrizzlePostgresColumn> ViaColumn<T> for &FieldDecode<T> {
+            fn decode_field(&self, row: &crate::Row, idx: usize) -> Result<T, DrizzleError> {
+                T::decode(row, idx)
+            }
+        }
+
+        pub trait ViaFromSql<T> {
+            /// Decodes the cell at `idx` through the driver's `FromSql`.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`DrizzleError::ConversionError`] when the cell's wire
+            /// type does not match `T` or its value does not decode.
+            fn decode_field(&self, row: &crate::Row, idx: usize) -> Result<T, DrizzleError>;
+        }
+
+        impl<T: for<'a> super::FromSql<'a>> ViaFromSql<T> for FieldDecode<T> {
+            fn decode_field(&self, row: &crate::Row, idx: usize) -> Result<T, DrizzleError> {
+                row.try_get::<_, T>(idx)
+                    .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))
+            }
+        }
+    }
 }
 
 pub use drizzle_core::ParamBind;

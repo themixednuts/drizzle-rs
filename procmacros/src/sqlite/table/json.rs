@@ -58,22 +58,6 @@ pub fn row_decode(idx: &TokenStream, info: &FieldInfo, is_optional: bool) -> Tok
     }
 }
 
-/// Reads a JSON field of a partial model, yielding `None` when the column is
-/// absent, SQL `NULL`, or not a decodable document.
-#[cfg(feature = "rusqlite")]
-pub fn partial_row_decode(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
-    let base_type = info.base_type;
-    quote! {{
-        use drizzle::sqlite::traits::DrizzleRowByIndex;
-        DrizzleRowByIndex::get_column::<
-            ::std::option::Option<drizzle::core::Json<#base_type>>
-        >(row, #idx)
-        .ok()
-        .flatten()
-        .map(drizzle::core::Json::into_inner)
-    }}
-}
-
 /// The Rust value type a JSON column binds and decodes through:
 /// `Json<Payload>`, or `Option<Json<Payload>>` for a nullable column.
 pub fn column_value_type(info: &FieldInfo) -> TokenStream {

@@ -223,6 +223,8 @@ impl_value_type!(PostgresDialect, pg_ty::Bytea =>
 #[cfg(feature = "arrayvec")]
 impl_value_type_const_n!(PostgresDialect, pg_ty::Bytea => arrayvec::ArrayVec<u8, N>);
 
+impl_value_type_const_n!(PostgresDialect, pg_ty::Bytea => [u8; N]);
+
 #[cfg(feature = "bytes")]
 impl_value_type!(PostgresDialect, pg_ty::Bytea => bytes::Bytes, bytes::BytesMut);
 
@@ -279,10 +281,6 @@ impl_value_type!(PostgresDialect, pg_ty::Timestamptz => jiff::Timestamp);
 impl_value_type!(PostgresDialect, pg_ty::Inet => cidr::IpInet);
 #[cfg(feature = "cidr")]
 impl_value_type!(PostgresDialect, pg_ty::Cidr => cidr::IpCidr);
-#[cfg(feature = "cidr")]
-impl_value_type!(PostgresDialect, pg_ty::MacAddr => [u8; 6]);
-#[cfg(feature = "cidr")]
-impl_value_type!(PostgresDialect, pg_ty::MacAddr8 => [u8; 8]);
 
 #[cfg(feature = "geo-types")]
 impl_value_type!(PostgresDialect, pg_ty::Point => geo_types::Point<f64>);

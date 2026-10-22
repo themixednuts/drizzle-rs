@@ -435,6 +435,36 @@ macro_rules! impl_from_sqlite_value_int {
             }
         }
     };
+    // Unsigned 64-bit widths: stored with their bits reinterpreted as i64
+    // (see `From<u64> for SQLiteValue`), so a negative INTEGER is a value
+    // above `i64::MAX`.
+    (unsigned64: $($ty:ty),+ $(,)?) => {
+        $(
+            impl FromSQLiteValue for $ty {
+                fn from_sqlite_integer(value: i64) -> Result<Self, DrizzleError> {
+                    unsigned_from_stored_bits(value, stringify!($ty))
+                }
+
+                fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
+                    value.parse().map_err(|e| {
+                        DrizzleError::ConversionError(
+                            format!("cannot parse '{}' as {}: {}", value, stringify!($ty), e).into()
+                        )
+                    })
+                }
+
+                fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
+                    checked_float_to_int(value, stringify!($ty))
+                }
+
+                fn from_sqlite_blob(_value: &[u8]) -> Result<Self, DrizzleError> {
+                    Err(DrizzleError::ConversionError(
+                        concat!("cannot convert BLOB to ", stringify!($ty)).into()
+                    ))
+                }
+            }
+        )+
+    };
     // General case for other integer types - uses try_into for narrowing
     ($($ty:ty),+ $(,)?) => {
         $(
@@ -469,6 +499,18 @@ macro_rules! impl_from_sqlite_value_int {
     };
 }
 
+/// Reads a `u64`/`usize` INTEGER, whose bits were stored reinterpreted as
+/// `i64`.
+fn unsigned_from_stored_bits<T>(value: i64, name: &str) -> Result<T, DrizzleError>
+where
+    T: TryFrom<u64>,
+    T::Error: core::fmt::Display,
+{
+    T::try_from(value.cast_unsigned()).map_err(|e| {
+        DrizzleError::ConversionError(format!("i64 {value} out of range for {name}: {e}").into())
+    })
+}
+
 /// IEEE 754 `f64` representation of an `i64` built from two exact halves via
 /// [`From`], matching the semantics of `i as f64` without an `as`-cast.
 #[inline]
@@ -480,7 +522,8 @@ fn i64_to_f64(i: i64) -> f64 {
 
 // Integer types
 impl_from_sqlite_value_int!(i64);
-impl_from_sqlite_value_int!(i8, i16, i32, isize, u8, u16, u32, u64, usize);
+impl_from_sqlite_value_int!(i8, i16, i32, isize, u8, u16, u32);
+impl_from_sqlite_value_int!(unsigned64: u64, usize);
 
 // f64 — `i64` widening via split-halves is exact in the mantissa range and
 // matches direct `as` cast beyond it; no cast is needed for f64→f64.

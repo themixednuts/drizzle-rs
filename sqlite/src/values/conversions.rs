@@ -136,30 +136,38 @@ impl From<&u64> for SQLiteValue<'_> {
     }
 }
 
-/// Pointer-sized integer widths (usize/isize). All Rust-supported targets have
-/// pointers ≤ 64 bits, so `i64::try_from` succeeds; the saturating fallback is
-/// defensive only.
-macro_rules! impl_from_pointer_int_for_sqlite_value {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl<'a> From<$ty> for SQLiteValue<'a> {
-                #[inline]
-                fn from(value: $ty) -> Self {
-                    SQLiteValue::Integer(i64::try_from(value).unwrap_or(i64::MAX))
-                }
-            }
-
-            impl<'a> From<&$ty> for SQLiteValue<'a> {
-                #[inline]
-                fn from(value: &$ty) -> Self {
-                    SQLiteValue::Integer(i64::try_from(*value).unwrap_or(i64::MAX))
-                }
-            }
-        )*
-    };
+// isize → i64. All Rust-supported targets have pointers ≤ 64 bits, so
+// `i64::try_from` succeeds; the saturating fallback is defensive only.
+impl From<isize> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: isize) -> Self {
+        SQLiteValue::Integer(i64::try_from(value).unwrap_or(i64::MAX))
+    }
 }
 
-impl_from_pointer_int_for_sqlite_value!(isize, usize);
+impl From<&isize> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: &isize) -> Self {
+        SQLiteValue::from(*value)
+    }
+}
+
+// usize stores like u64 (bits reinterpreted), so values above `i64::MAX`
+// round-trip instead of saturating. `u64::try_from` succeeds on every
+// supported target.
+impl From<usize> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: usize) -> Self {
+        SQLiteValue::from(u64::try_from(value).unwrap_or(u64::MAX))
+    }
+}
+
+impl From<&usize> for SQLiteValue<'_> {
+    #[inline]
+    fn from(value: &usize) -> Self {
+        SQLiteValue::from(*value)
+    }
+}
 
 // f32 widens exactly into f64.
 impl From<f32> for SQLiteValue<'_> {
@@ -979,6 +987,41 @@ impl<'a> TryFrom<&'a SQLiteValue<'a>> for &'a [u8] {
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {value:?} to &[u8]").into(),
             )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SQLiteValue;
+    use crate::traits::FromSQLiteValue;
+
+    fn stored(value: SQLiteValue<'_>) -> i64 {
+        match value {
+            SQLiteValue::Integer(i) => i,
+            other => panic!("expected INTEGER, got {other:?}"),
+        }
+    }
+
+    // `u64`/`usize` store their bits as a signed INTEGER; reading must undo
+    // that, including for values above `i64::MAX`.
+    #[test]
+    fn unsigned_64_bit_values_round_trip_above_i64_max() {
+        for value in [
+            0,
+            i64::MAX.cast_unsigned(),
+            i64::MAX.cast_unsigned() + 1,
+            u64::MAX,
+        ] {
+            assert_eq!(
+                u64::from_sqlite_integer(stored(value.into())).unwrap(),
+                value
+            );
+            let size = usize::try_from(value).unwrap();
+            assert_eq!(
+                usize::from_sqlite_integer(stored(size.into())).unwrap(),
+                size
+            );
         }
     }
 }

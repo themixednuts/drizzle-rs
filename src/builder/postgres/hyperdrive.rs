@@ -141,11 +141,13 @@ use worker::{Hyperdrive, Socket};
 use crate::builder::postgres::tokio_postgres::Drizzle;
 
 /// `tokio_postgres::Error`'s `Display` is just "db error"; the server's actual
-/// message lives in the `DbError` source.
+/// message lives in the `DbError` source. Its DETAIL line is left out: for a
+/// constraint violation it holds the row's values.
 fn describe(error: &tokio_postgres::Error) -> String {
-    error
-        .as_db_error()
-        .map_or_else(|| error.to_string(), ToString::to_string)
+    error.as_db_error().map_or_else(
+        || error.to_string(),
+        |db| format!("{} ({})", db.message(), db.code().code()),
+    )
 }
 
 /// Connects to `PostgreSQL` through a Cloudflare Hyperdrive binding.

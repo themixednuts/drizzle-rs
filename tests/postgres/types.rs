@@ -94,3 +94,75 @@ fn postgres_dialect_types_are_distinct_markers_with_cast_mappings() {
     // Temporal
     assert_compatible::<postgres_types::Timestamp, postgres_types::Timestamptz>();
 }
+
+#[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
+mod fixed_size_bytes {
+    use drizzle::core::expr::eq;
+    use drizzle::postgres::prelude::*;
+
+    #[PostgresTable(name = "fixed_size_bytes")]
+    struct FixedSizeBytes {
+        #[column(primary)]
+        id: i32,
+        digest: [u8; 4],
+        maybe_digest: Option<[u8; 4]>,
+    }
+
+    #[derive(PostgresSchema)]
+    struct FixedSizeBytesSchema {
+        table: FixedSizeBytes,
+    }
+
+    #[derive(Debug, PostgresFromRow)]
+    struct DigestRow {
+        digest: [u8; 4],
+        maybe_digest: Option<[u8; 4]>,
+    }
+
+    #[drizzle::test]
+    fn fixed_size_byte_arrays_round_trip(db: &mut TestDb<FixedSizeBytesSchema>) {
+        let FixedSizeBytesSchema { table } = schema;
+
+        db.insert(table)
+            .values([InsertFixedSizeBytes::new(1, [1, 2, 3, 4]).with_maybe_digest([9, 9, 9, 9])])
+            .execute();
+        db.insert(table)
+            .values([InsertFixedSizeBytes::new(2, [5, 6, 7, 8])])
+            .execute();
+
+        let rows: Vec<SelectFixedSizeBytes> = db
+            .select(())
+            .from(table)
+            .r#where(eq(table.digest, [1, 2, 3, 4]))
+            .all();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].digest, [1, 2, 3, 4]);
+        assert_eq!(rows[0].maybe_digest, Some([9, 9, 9, 9]));
+
+        let digests: Vec<([u8; 4], Option<[u8; 4]>)> = db
+            .select((table.digest, table.maybe_digest))
+            .from(table)
+            .order_by(table.id)
+            .all();
+        assert_eq!(
+            digests,
+            [([1, 2, 3, 4], Some([9, 9, 9, 9])), ([5, 6, 7, 8], None)]
+        );
+
+        let from_row: Vec<DigestRow> = db
+            .select(DigestRow::Select)
+            .from(table)
+            .order_by(table.id)
+            .all();
+        assert_eq!(from_row[1].digest, [5, 6, 7, 8]);
+        assert_eq!(from_row[1].maybe_digest, None);
+
+        db.update(table)
+            .set(UpdateFixedSizeBytes::default().with_digest([0, 0, 0, 1]))
+            .r#where(eq(table.id, 2))
+            .execute();
+        let updated: SelectFixedSizeBytes =
+            db.select(()).from(table).r#where(eq(table.id, 2)).get();
+        assert_eq!(updated.digest, [0, 0, 0, 1]);
+    }
+}

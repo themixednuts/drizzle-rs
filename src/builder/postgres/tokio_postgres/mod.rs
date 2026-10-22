@@ -1039,9 +1039,12 @@ fn migration_statement_err(
 
 fn pg_async_err(msg: &str, e: &tokio_postgres::Error) -> DrizzleError {
     // `tokio_postgres::Error`'s Display is just "db error"; the server's
-    // actual message lives in the DbError source.
+    // actual message lives in the DbError source. Its DETAIL line is left
+    // out: for a constraint violation it holds the row's values.
     match e.as_db_error() {
-        Some(db) => DrizzleError::Other(format!("{msg}: {db}").into()),
+        Some(db) => {
+            DrizzleError::Other(format!("{msg}: {} ({})", db.message(), db.code().code()).into())
+        }
         None => DrizzleError::Other(format!("{msg}: {e}").into()),
     }
 }

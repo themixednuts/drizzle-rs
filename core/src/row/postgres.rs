@@ -78,6 +78,33 @@ pub trait PostgresValueRow {
 // which the driver supplies.
 // =============================================================================
 
+/// The raw bytes of a BYTEA, MACADDR or MACADDR8 cell. Their binary wire
+/// formats are the bytes themselves, so a `[u8; N]` reads whichever the
+/// column is declared as.
+struct RawBytes<'a>(&'a [u8]);
+
+impl<'a> FromSql<'a> for RawBytes<'a> {
+    fn from_sql(
+        _: &Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn core::error::Error + Sync + Send>> {
+        Ok(Self(raw))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        matches!(*ty, Type::BYTEA | Type::MACADDR | Type::MACADDR8)
+    }
+}
+
+/// Copies a cell's bytes into `[u8; N]`, rejecting any other length.
+fn fixed_size_bytes<const N: usize>(bytes: &[u8]) -> Result<[u8; N], DrizzleError> {
+    <[u8; N]>::try_from(bytes).map_err(|_| {
+        DrizzleError::ConversionError(
+            crate::prelude::format!("expected {N} bytes for [u8; {N}], got {}", bytes.len()).into(),
+        )
+    })
+}
+
 macro_rules! postgres_leaf_impls {
     ($row_ty:ty; $($ty:ty),* $(,)?) => { $(
         impl FromDrizzleRow<$row_ty> for $ty {
@@ -178,6 +205,25 @@ macro_rules! impl_postgres_value_row {
 
         #[cfg(feature = "bit-vec")]
         postgres_leaf_impls!($row_ty; bit_vec::BitVec);
+
+        // `[u8; N]` reads a BYTEA (or MACADDR / MACADDR8) of exactly `N`
+        // bytes. `Option<[u8; N]>`
+        // decodes through the composite `Option<T: NullProbeRow>` impl.
+        impl<const N: usize> FromDrizzleRow<$row_ty> for [u8; N] {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &$row_ty, offset: usize) -> Result<Self, DrizzleError> {
+                let RawBytes(bytes) =
+                    <$row_ty as PostgresValueRow>::try_get_from_sql(row, offset)?;
+                fixed_size_bytes(bytes)
+            }
+        }
+
+        impl<const N: usize> NullProbeRow<$row_ty> for [u8; N] {
+            fn is_null_at(row: &$row_ty, offset: usize) -> Result<bool, DrizzleError> {
+                <$row_ty as PostgresValueRow>::try_get_from_sql::<Option<AnyNullProbe>>(row, offset)
+                    .map(|probe| probe.is_none())
+            }
+        }
 
         // Composite multi-column Option<T> — falls through to the driver's
         // null probe and recurses into T::from_row_at on a non-NULL leading

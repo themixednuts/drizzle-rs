@@ -1,15 +1,18 @@
 //! The error type shared by every Drizzle crate and driver.
 
-use crate::prelude::{Box, String, ToString, Vec, format};
+use crate::prelude::{Box, String, Vec, format};
 use compact_str::CompactString;
 use thiserror::Error;
 
 const MAX_CONTEXT_PARAMS: usize = 32;
 const MAX_CONTEXT_PARAM_CHARS: usize = 128;
 
-/// The SQL and parameters of a failed query, kept for the error message.
+/// The SQL and parameters of a failed query.
 ///
-/// Attach it with [`ResultExt::with_query`].
+/// Attach it with [`ResultExt::with_query`]. The error message shows the SQL
+/// and how many parameters were bound, never their values: they often hold
+/// personal data or secrets, and error messages end up in logs. The values
+/// stay available in [`params`](Self::params).
 #[derive(Debug, Clone)]
 pub struct QueryContext {
     /// Rendered SQL statement.
@@ -38,29 +41,6 @@ impl QueryContext {
             params: rendered,
             param_count: params.len(),
         }
-    }
-
-    fn params_display(&self) -> String {
-        if self.param_count == 0 {
-            return "[]".to_string();
-        }
-
-        let mut rendered = String::from("[");
-        for (index, param) in self.params.iter().enumerate() {
-            if index > 0 {
-                rendered.push_str(", ");
-            }
-            rendered.push_str(param.as_str());
-        }
-        if self.param_count > self.params.len() {
-            if !self.params.is_empty() {
-                rendered.push_str(", ");
-            }
-            rendered.push_str("...");
-            rendered.push_str(&format!("(+{} more)", self.param_count - self.params.len()));
-        }
-        rendered.push(']');
-        rendered
     }
 }
 
@@ -113,8 +93,9 @@ pub enum DrizzleError {
     Query(CompactString),
 
     /// Another error, with the SQL and parameters of the query that caused
-    /// it.
-    #[error("{source}\n  sql: {sql}\n  params: {params}", sql = .ctx.sql, params = .ctx.params_display())]
+    /// it. The message shows the parameter count, not the values; see
+    /// [`QueryContext`].
+    #[error("{source}\n  sql: {sql}\n  params: {count} bound", sql = .ctx.sql, count = .ctx.param_count)]
     QueryFailed {
         /// Captured SQL and parameter context.
         ctx: Box<QueryContext>,
@@ -214,14 +195,16 @@ pub enum DrizzleError {
     #[error("LibSQL error: {0}")]
     LibSQL(#[from] libsql::Error),
 
-    /// An error from `tokio-postgres`.
+    /// An error from `tokio-postgres`. The message is the server's, with its
+    /// SQLSTATE; the full `DbError` (detail, constraint, ...) is the source.
     #[cfg(feature = "tokio-postgres")]
-    #[error("Postgres error: {0}")]
+    #[error("Postgres error: {}", postgres_message(.0))]
     Postgres(#[from] tokio_postgres::Error),
 
-    /// An error from `postgres`.
+    /// An error from `postgres`. The message is the server's, with its
+    /// SQLSTATE; the full `DbError` (detail, constraint, ...) is the source.
     #[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
-    #[error("Postgres error: {0}")]
+    #[error("Postgres error: {}", postgres_message(.0))]
     Postgres(#[from] postgres::Error),
 
     /// A UUID could not be parsed.
@@ -266,6 +249,26 @@ impl DrizzleError {
     }
 }
 
+/// The server's message and SQLSTATE for a Postgres error. The driver's own
+/// `Display` is only "db error". `DbError`'s `Display` adds the DETAIL line,
+/// which for a constraint violation holds the row's values
+/// (`Key (email)=(...) already exists.`), so it is left out.
+#[cfg(feature = "tokio-postgres")]
+fn postgres_message(error: &tokio_postgres::Error) -> String {
+    error.as_db_error().map_or_else(
+        || format!("{error}"),
+        |db| format!("{} ({})", db.message(), db.code().code()),
+    )
+}
+
+#[cfg(all(feature = "postgres-sync", not(feature = "tokio-postgres")))]
+fn postgres_message(error: &postgres::Error) -> String {
+    error.as_db_error().map_or_else(
+        || format!("{error}"),
+        |db| format!("{} ({})", db.message(), db.code().code()),
+    )
+}
+
 /// `Result` with [`DrizzleError`] as the error type.
 pub type Result<T> = core::result::Result<T, DrizzleError>;
 
@@ -283,7 +286,7 @@ pub type Result<T> = core::result::Result<T, DrizzleError>;
 ///
 /// assert_eq!(
 ///     error.to_string(),
-///     "No rows found\n  sql: SELECT * FROM users WHERE id = ?\n  params: [7]",
+///     "No rows found\n  sql: SELECT * FROM users WHERE id = ?\n  params: 1 bound",
 /// );
 /// ```
 pub trait ResultExt<T> {
@@ -313,6 +316,36 @@ where
                 },
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+    use crate::prelude::ToString;
+
+    // Parameter values are often personal data or secrets; the message that
+    // reaches logs shows only how many were bound.
+    #[test]
+    fn query_failed_display_omits_parameter_values() {
+        let error = Err::<(), _>(DrizzleError::NotFound)
+            .with_query(|| {
+                QueryContext::new(
+                    "SELECT * FROM users WHERE email = $1",
+                    &[&"ada@example.com"],
+                )
+            })
+            .unwrap_err();
+
+        let message = error.to_string();
+        assert_eq!(
+            message,
+            "No rows found\n  sql: SELECT * FROM users WHERE email = $1\n  params: 1 bound"
+        );
+        let DrizzleError::QueryFailed { ctx, .. } = error else {
+            panic!("expected QueryFailed");
+        };
+        assert_eq!(ctx.params.as_ref(), ["\"ada@example.com\""]);
     }
 }
 

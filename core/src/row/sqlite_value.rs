@@ -102,7 +102,40 @@ macro_rules! sqlite_value_int_impl {
     )* }
 }
 
-sqlite_value_int_impl!(i8, i16, i32, isize, u8, u16, u32, u64, usize);
+sqlite_value_int_impl!(i8, i16, i32, isize, u8, u16, u32);
+
+// `u64`/`usize` are stored with their bits reinterpreted as `i64` (drizzle's
+// `From<u64> for SQLiteValue`), so a negative INTEGER is a value above
+// `i64::MAX` and decodes back to it.
+fn unsigned_from_stored_bits<T>(stored: i64) -> Result<T, DrizzleError>
+where
+    T: TryFrom<u64>,
+    T::Error: core::fmt::Display,
+{
+    T::try_from(stored.cast_unsigned())
+        .map_err(|e| DrizzleError::ConversionError(e.to_string().into()))
+}
+
+macro_rules! sqlite_value_unsigned64_impl {
+    ($($ty:ty),*) => { $(
+        impl<R: SqliteValueRow> FromDrizzleRow<R> for $ty {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+                match row.cell_at(offset)? {
+                    SqliteCell::Integer(i) => unsigned_from_stored_bits(i),
+                    SqliteCell::Null => Err(DrizzleError::ConversionError(
+                        "unexpected NULL for integer".into(),
+                    )),
+                    _ => Err(DrizzleError::ConversionError(
+                        "expected integer value".into(),
+                    )),
+                }
+            }
+        }
+    )* }
+}
+
+sqlite_value_unsigned64_impl!(u64, usize);
 
 // `i64` is the identity conversion — skip the `try_into` indirection so the
 // fast path doesn't even mention `TryFromIntError`.
@@ -213,17 +246,21 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for Vec<u8> {
 // Option<T>: NULL-aware wrapper
 // =============================================================================
 
+/// A multi-column `T` (a select model in a LEFT JOIN) is absent only when
+/// every one of its columns is NULL: a matched row may hold NULL in any
+/// nullable column, the first included.
 impl<R: SqliteValueRow, T> FromDrizzleRow<R> for Option<T>
 where
     T: FromDrizzleRow<R>,
 {
     const COLUMN_COUNT: usize = T::COLUMN_COUNT;
     fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
-        if row.is_null_at(offset)? {
-            Ok(None)
-        } else {
-            T::from_row_at(row, offset).map(Some)
+        for column in offset..offset + T::COLUMN_COUNT.max(1) {
+            if !row.is_null_at(column)? {
+                return T::from_row_at(row, offset).map(Some);
+            }
         }
+        Ok(None)
     }
 }
 
@@ -487,5 +524,32 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for serde_json::Value {
     fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
         let s = String::from_row_at(row, offset)?;
         serde_json::from_str(&s).map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SqliteCell, SqliteValueRow};
+    use crate::error::DrizzleError;
+    use crate::row::FromDrizzleRow;
+
+    struct IntegerCell(i64);
+
+    impl SqliteValueRow for IntegerCell {
+        fn cell_at(&self, _offset: usize) -> Result<SqliteCell, DrizzleError> {
+            Ok(SqliteCell::Integer(self.0))
+        }
+    }
+
+    // drizzle writes `u64::MAX` as INTEGER -1 (bits reinterpreted).
+    #[test]
+    fn unsigned_64_bit_values_decode_stored_bits() {
+        assert_eq!(u64::from_row_at(&IntegerCell(-1), 0).unwrap(), u64::MAX);
+        assert_eq!(
+            u64::from_row_at(&IntegerCell(i64::MIN), 0).unwrap(),
+            i64::MAX.cast_unsigned() + 1
+        );
+        assert_eq!(usize::from_row_at(&IntegerCell(7), 0).unwrap(), 7);
+        assert!(u32::from_row_at(&IntegerCell(-1), 0).is_err());
     }
 }

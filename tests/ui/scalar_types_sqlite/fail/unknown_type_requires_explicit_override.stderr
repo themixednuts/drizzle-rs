@@ -116,31 +116,28 @@ help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
             Rc<std::string::String>
           and $N others
   = note: required for `Opaque` to implement `FromSQLiteValue`
-
-error[E0277]: the trait bound `Opaque: FromSQLiteValue` is not satisfied
- --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:9:14
-  |
-9 |     payload: Opaque,
-  |              ^^^^^^ unsatisfied trait bound
-  |
-help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
- --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:4:1
-  |
-4 | struct Opaque;
-  | ^^^^^^^^^^^^^
-  = help: the following other types implement trait `FromSQLiteValue`:
-            Arc<Vec<u8>>
-            Arc<std::string::String>
-            Arc<str>
-            Box<Vec<u8>>
-            Box<std::string::String>
-            Box<str>
-            Rc<Vec<u8>>
-            Rc<std::string::String>
-          and $N others
-  = note: required for `Opaque` to implement `FromSQLiteValue`
 note: required by a bound in `get_column`
  --> sqlite/src/traits/value.rs
   |
   |     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError>;
   |                      ^^^^^^^^^^^^^^^ required by this bound in `DrizzleRowByIndex::get_column`
+
+error[E0277]: the trait bound `std::option::Option<Opaque>: FromSQLiteValue` is not satisfied
+ --> tests/ui/scalar_types_sqlite/fail/unknown_type_requires_explicit_override.rs:6:1
+  |
+6 | #[SQLiteTable]
+  | ^^^^^^^^^^^^^^ the trait `FromSQLiteValue` is not implemented for `std::option::Option<Opaque>`
+  |
+help: the trait `FromSQLiteValue` is conditionally implemented for `std::option::Option<T>`
+ --> sqlite/src/traits/value.rs
+  |
+  | impl<T: FromSQLiteValue> FromSQLiteValue for Option<T> {
+  | ^^^^^^^^---------------^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         |
+  |         unsatisfied requirement introduced here: `Opaque: FromSQLiteValue`
+note: required by a bound in `get_column`
+ --> sqlite/src/traits/value.rs
+  |
+  |     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError>;
+  |                      ^^^^^^^^^^^^^^^ required by this bound in `DrizzleRowByIndex::get_column`
+  = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

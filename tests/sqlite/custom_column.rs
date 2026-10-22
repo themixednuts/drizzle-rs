@@ -180,3 +180,22 @@ fn marker_free_blob_query_uses_type_owned_codec(db: &mut TestDb<CustomU32BeSchem
     assert_eq!(rows[0].payload, value);
     assert_eq!(rows[0].explicit_payload, Some(value));
 }
+
+#[derive(SQLiteFromRow, Debug)]
+struct CustomU32BeRow {
+    payload: U32Be,
+    optional_payload: Option<U32Be>,
+}
+
+#[drizzle::test]
+fn custom_sqlite_column_decodes_in_from_row(db: &mut TestDb<CustomU32BeSchema>) {
+    let table = schema.custom_u32_be_test;
+
+    db.insert(table)
+        .values([InsertCustomU32BeTest::new(U32Be(7)).with_optional_payload(U32Be(9))])
+        .execute();
+
+    let row: CustomU32BeRow = db.select(CustomU32BeRow::Select).from(table).get();
+    assert_eq!(row.payload, U32Be(7));
+    assert_eq!(row.optional_payload, Some(U32Be(9)));
+}

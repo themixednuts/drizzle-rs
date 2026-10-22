@@ -2,11 +2,10 @@
 //!
 //! Generates `TryFrom` implementations for `libsql::Row` using the shared driver infrastructure.
 
-use super::errors;
+use super::drivers;
 use super::{FieldInfo, MacroContext};
-use crate::common::{is_option_type, type_is_bool, type_is_float, type_is_int};
+use crate::common::is_option_type;
 use crate::paths;
-use crate::sqlite::field::{SQLiteType, TypeCategory};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::Result;
@@ -21,15 +20,12 @@ pub fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
     let row_column_list = paths::core::row_column_list();
     let type_set_nil = paths::core::type_set_nil();
     let type_set_cons = paths::core::type_set_cons();
-    let _from_sqlite_value = paths::sqlite::from_sqlite_value();
     let MacroContext {
         field_infos,
         select_model_ident,
         ..
     } = ctx;
 
-    // libsql has simpler row access, so we use a custom implementation
-    // that's more suited to its API
     let select: Vec<_> = field_infos
         .iter()
         .enumerate()
@@ -85,16 +81,11 @@ pub fn generate_libsql_impls(ctx: &MacroContext) -> Result<TokenStream> {
 }
 
 // =============================================================================
-// Field Conversion (libsql-specific due to its unique API)
+// Field Conversion
 // =============================================================================
 
 fn generate_field_from_row_for_select(idx: usize, info: &FieldInfo) -> Result<TokenStream> {
-    let select_type = info.get_select_type();
-    let is_optional = syn::parse2::<syn::Type>(select_type)
-        .map_or(info.is_nullable && !info.has_default, |ty| {
-            is_option_type(&ty)
-        });
-    generate_field_from_row_impl(&quote!(#idx), info, is_optional)
+    generate_field_from_row_for_select_with_index(&quote!(#idx), info)
 }
 
 fn generate_field_from_row_for_select_with_index(
@@ -106,199 +97,5 @@ fn generate_field_from_row_for_select_with_index(
         .map_or(info.is_nullable && !info.has_default, |ty| {
             is_option_type(&ty)
         });
-    generate_field_from_row_impl(idx, info, is_optional)
-}
-
-fn generate_field_from_row_impl(
-    idx: &TokenStream,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    let name = info.ident;
-    let base_type = info.base_type;
-
-    // Check for unsupported reference types
-    if matches!(base_type, syn::Type::Reference(_)) {
-        return Err(syn::Error::new_spanned(
-            name,
-            errors::conversion::REFERENCE_TYPE_UNSUPPORTED,
-        ));
-    }
-
-    // JSON documents decode through `Json<Payload>`'s codec. The index stays a
-    // `usize` expression for DrizzleRowByIndex.
-    if info.is_json_column() {
-        let decode = super::json::row_decode(idx, info, is_optional);
-        return Ok(quote! { #name: #decode, });
-    }
-
-    // Codec-owned types use DrizzleRowByIndex for unified conversion. Option<T>
-    // only maps SQL NULL to None; invalid non-NULL values remain errors.
-    // UUIDs share the path: `FromSQLiteValue` on the declared type handles
-    // BLOB and TEXT storage without naming `::uuid::Uuid`. Date and time
-    // values (chrono, time, jiff) parse their TEXT through it too.
-    if info.uses_sqlite_column_codec()
-        || matches!(
-            info.type_category(),
-            TypeCategory::Uuid | TypeCategory::DateTime
-        )
-    {
-        // idx is a usize expression here (before i32 cast for libsql)
-        if is_optional {
-            return Ok(quote! {
-                #name: {
-                    use drizzle::sqlite::traits::DrizzleRowByIndex;
-                    DrizzleRowByIndex::get_column::<Option<#base_type>>(row, #idx)?
-                },
-            });
-        }
-        return Ok(quote! {
-            #name: {
-                use drizzle::sqlite::traits::DrizzleRowByIndex;
-                DrizzleRowByIndex::get_column::<#base_type>(row, #idx)?
-            },
-        });
-    }
-
-    let idx = quote!((#idx) as i32);
-
-    // Dispatch based on type category
-    match info.type_category() {
-        TypeCategory::Enum => handle_enum_field(&idx, name, info, is_optional),
-        TypeCategory::ArrayString => Ok(handle_arraystring_field(&idx, name, info, is_optional)),
-        TypeCategory::ArrayVec => Ok(handle_arrayvec_field(&idx, name, info, is_optional)),
-        _ => Ok(handle_standard_field(&idx, name, info, is_optional)),
-    }
-}
-
-fn handle_enum_field(
-    idx: &TokenStream,
-    name: &syn::Ident,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> Result<TokenStream> {
-    let accessor = match info.column_type {
-        SQLiteType::Integer => {
-            if is_optional {
-                quote!(row.get::<Option<i64>>(#idx).map(|opt| opt.and_then(|v| v.try_into().ok())))
-            } else {
-                quote!(row.get::<i64>(#idx).map(TryInto::try_into)?)
-            }
-        }
-        SQLiteType::Text => {
-            if is_optional {
-                quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| v.try_into().ok())))
-            } else {
-                quote!(row.get::<String>(#idx).map(TryInto::try_into)?)
-            }
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(
-                info.ident,
-                errors::enums::INVALID_COLUMN_TYPE,
-            ));
-        }
-    };
-
-    Ok(quote! { #name: #accessor?, })
-}
-
-fn handle_arraystring_field(
-    idx: &TokenStream,
-    name: &syn::Ident,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> TokenStream {
-    let from_sqlite_value = paths::sqlite::from_sqlite_value();
-    let base_type = info.base_type;
-    let accessor = if is_optional {
-        quote!(row.get::<Option<String>>(#idx).map(|opt| opt.and_then(|v| <#base_type as #from_sqlite_value>::from_sqlite_text(&v).ok())))
-    } else {
-        quote!(row.get::<String>(#idx).map(|v| <#base_type as #from_sqlite_value>::from_sqlite_text(&v))?)
-    };
-
-    quote! { #name: #accessor?, }
-}
-
-fn handle_arrayvec_field(
-    idx: &TokenStream,
-    name: &syn::Ident,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> TokenStream {
-    let from_sqlite_value = paths::sqlite::from_sqlite_value();
-    let base_type = info.base_type;
-    let accessor = if is_optional {
-        quote!(row.get::<Option<Vec<u8>>>(#idx).map(|opt| opt.and_then(|v| <#base_type as #from_sqlite_value>::from_sqlite_blob(&v).ok())))
-    } else {
-        quote!(row.get::<Vec<u8>>(#idx).map(|v| <#base_type as #from_sqlite_value>::from_sqlite_blob(&v))?)
-    };
-
-    quote! { #name: #accessor?, }
-}
-
-fn handle_standard_field(
-    idx: &TokenStream,
-    name: &syn::Ident,
-    info: &FieldInfo,
-    is_optional: bool,
-) -> TokenStream {
-    match info.column_type {
-        SQLiteType::Integer => {
-            let is_bool = type_is_bool(info.base_type);
-            let is_i64 = type_is_int(info.base_type, "i64");
-
-            let accessor = if is_bool {
-                if is_optional {
-                    quote!(row.get::<Option<i64>>(#idx).map(|opt| opt.map(|v| v != 0)))
-                } else {
-                    quote!(row.get::<i64>(#idx).map(|v| v != 0))
-                }
-            } else if !is_i64 {
-                if is_optional {
-                    quote!(row.get::<Option<i64>>(#idx).map(|opt| opt.and_then(|v| v.try_into().ok())))
-                } else {
-                    quote!(row.get::<i64>(#idx).map(TryInto::try_into)?)
-                }
-            } else {
-                quote!(row.get(#idx))
-            };
-
-            quote! { #name: #accessor?, }
-        }
-        SQLiteType::Text => {
-            let accessor = if is_optional {
-                quote!(row.get::<Option<String>>(#idx))
-            } else {
-                quote!(row.get::<String>(#idx))
-            };
-            quote! { #name: #accessor?, }
-        }
-        SQLiteType::Real => {
-            let is_f32 = type_is_float(info.base_type, "f32");
-            let accessor = if is_f32 {
-                if is_optional {
-                    quote!(row.get::<Option<f64>>(#idx).map(|opt| opt.map(|v| v as f32)))
-                } else {
-                    quote!(row.get::<f64>(#idx).map(|v| v as f32))
-                }
-            } else {
-                quote!(row.get(#idx))
-            };
-            quote! { #name: #accessor?, }
-        }
-        SQLiteType::Blob => {
-            let accessor = if is_optional {
-                quote!(row.get::<Option<Vec<u8>>>(#idx))
-            } else {
-                quote!(row.get::<Vec<u8>>(#idx))
-            };
-            quote! { #name: #accessor?, }
-        }
-        SQLiteType::Numeric | SQLiteType::Any => {
-            // Treat as integer/text
-            let accessor = quote!(row.get(#idx));
-            quote! { #name: #accessor?, }
-        }
-    }
+    drivers::generate_field_conversion_with_index(idx, info, is_optional)
 }

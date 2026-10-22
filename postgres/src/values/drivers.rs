@@ -279,6 +279,45 @@ mod postgres_tosql_impl {
         values.to_sql(ty, out)
     }
 
+    /// Writes bytes for a BYTEA, MACADDR or MACADDR8 parameter: the column's
+    /// declared type decides, and the binary format of all three is the
+    /// bytes themselves (MAC types checked for length).
+    fn bytes_to_sql(
+        bytes: &[u8],
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        let expected = match *ty {
+            Type::MACADDR => 6,
+            Type::MACADDR8 => 8,
+            _ => return bytes.to_sql(ty, out),
+        };
+        if bytes.len() != expected {
+            return Err(
+                format!("{} takes {expected} bytes, got {}", ty.name(), bytes.len()).into(),
+            );
+        }
+        out.extend_from_slice(bytes);
+        Ok(IsNull::No)
+    }
+
+    #[cfg(feature = "cidr")]
+    fn mac_to_sql(
+        mac: &[u8],
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        if matches!(*ty, Type::MACADDR | Type::MACADDR8) {
+            return bytes_to_sql(mac, ty, out);
+        }
+        let text = mac
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(":");
+        text.to_sql(ty, out)
+    }
+
     impl ToSql for PostgresValue<'_> {
         fn to_sql(
             &self,
@@ -295,7 +334,7 @@ mod postgres_tosql_impl {
                 #[cfg(feature = "rust-decimal")]
                 PostgresValue::Numeric(d) => d.to_sql(ty, out),
                 PostgresValue::Text(cow) => cow.as_ref().to_sql(ty, out),
-                PostgresValue::Bytea(cow) => cow.as_ref().to_sql(ty, out),
+                PostgresValue::Bytea(cow) => bytes_to_sql(cow, ty, out),
                 PostgresValue::Boolean(b) => b.to_sql(ty, out),
                 #[cfg(feature = "uuid")]
                 PostgresValue::Uuid(uuid) => uuid.to_sql(ty, out),
@@ -335,19 +374,12 @@ mod postgres_tosql_impl {
                 PostgresValue::Inet(ip) => ip.to_sql(ty, out),
                 #[cfg(feature = "cidr")]
                 PostgresValue::Cidr(ip) => ip.to_sql(ty, out),
-                // MAC addresses don't have native ToSql in postgres-rs, use eui48 crate or string format
+                // MACADDR / MACADDR8 parameters take the raw bytes; a text
+                // parameter takes the `aa:bb:..` form.
                 #[cfg(feature = "cidr")]
-                PostgresValue::MacAddr(mac) => format!(
-                    "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
-                )
-                .to_sql(ty, out),
+                PostgresValue::MacAddr(mac) => mac_to_sql(mac, ty, out),
                 #[cfg(feature = "cidr")]
-                PostgresValue::MacAddr8(mac) => format!(
-                    "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], mac[6], mac[7]
-                )
-                .to_sql(ty, out),
+                PostgresValue::MacAddr8(mac) => mac_to_sql(mac, ty, out),
                 // Point has native ToSql in postgres-rs with geo-types feature
                 #[cfg(feature = "geo-types")]
                 PostgresValue::Point(p) => p.to_sql(ty, out),
