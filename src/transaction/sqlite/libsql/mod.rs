@@ -389,8 +389,11 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -403,12 +406,14 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = self.runner.tx.query(&sql_str, params).await?;
-        rows.next()
+        let row = rows
+            .next()
             .await?
             .map(|row| {
                 <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row)
             })
-            .transpose()
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

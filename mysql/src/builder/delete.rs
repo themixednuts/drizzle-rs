@@ -9,8 +9,12 @@ pub struct DeleteOrderSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DeleteLimitSet;
 
-impl drizzle_core::ExecutableState for DeleteOrderSet {}
-impl drizzle_core::ExecutableState for DeleteLimitSet {}
+impl drizzle_core::ExecutableState for DeleteOrderSet {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
+impl drizzle_core::ExecutableState for DeleteLimitSet {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 
 /// A `DELETE` query being built for `MySQL`.
 ///

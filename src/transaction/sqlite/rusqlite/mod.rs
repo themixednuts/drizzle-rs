@@ -400,8 +400,11 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -415,14 +418,16 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         let mut stmt = self.runner.tx.prepare(&sql_str)?;
-        stmt.query_row(params_from_iter(params), |row| {
-            Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
-                &::rusqlite::Row<'_>,
-                R,
-            >>::decode(row))
-        })
-        .optional()?
-        .transpose()
+        let row = stmt
+            .query_row(params_from_iter(params), |row| {
+                Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
+                    &::rusqlite::Row<'_>,
+                    R,
+                >>::decode(row))
+            })
+            .optional()?
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

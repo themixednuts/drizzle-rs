@@ -740,7 +740,7 @@ fn select_with_aggregate_count(db: &mut TestDb<SimpleSchema>) {
         r#"SELECT COUNT(*) AS "count" FROM "simple""#
     );
 
-    let result: PgCountResult = stmt.get().expect("a row");
+    let result: PgCountResult = stmt.get();
     assert_eq!(result.count, 3);
 }
 
@@ -767,7 +767,7 @@ fn select_with_aggregate_sum(db: &mut TestDb<ComplexSchema>) {
         ))
         .from(complex);
 
-    let result: PgSumResult = stmt.get().expect("a row");
+    let result: PgSumResult = stmt.get();
     assert_eq!(result.total_age, Some(55));
 }
 
@@ -794,7 +794,7 @@ fn select_with_aggregate_avg(db: &mut TestDb<ComplexSchema>) {
         ))
         .from(complex);
 
-    let result: PgAvgResult = stmt.get().expect("a row");
+    let result: PgAvgResult = stmt.get();
     assert!(result.avg_age.is_some_and(|avg| (avg - 25.0).abs() < 0.01));
 }
 
@@ -824,7 +824,7 @@ fn select_with_aggregate_min_max(db: &mut TestDb<ComplexSchema>) {
         ))
         .from(complex);
 
-    let result: PgMinMaxResult = stmt.get().expect("a row");
+    let result: PgMinMaxResult = stmt.get();
     assert_eq!(result.min_age, Some(25));
     assert_eq!(result.max_age, Some(35));
 }

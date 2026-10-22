@@ -62,12 +62,7 @@ async fn direct_connection_access_reestablishes_session_invariants() -> drizzle:
         )
         .await
         .expect("change session state");
-    let _: i64 = db
-        .select(count(users.id))
-        .from(users)
-        .get()
-        .await?
-        .expect("a row");
+    let _: i64 = db.select(count(users.id)).from(users).get().await?;
 
     let mode: Option<String> = db
         .conn_mut()
@@ -135,12 +130,7 @@ async fn cancelling_pooled_transaction_rolls_back_before_reuse() -> drizzle::Res
 
     // The pool has max=1, so this checkout waits until the recycler rolls the
     // cancelled transaction back and makes that same connection safe.
-    let count: i64 = db
-        .select(count(users.id))
-        .from(users)
-        .get()
-        .await?
-        .expect("a row");
+    let count: i64 = db.select(count(users.id)).from(users).get().await?;
     assert_eq!(count, 0);
 
     cleanup(db, &TestSchema::new()).await;

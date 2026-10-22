@@ -801,8 +801,11 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// Returns [`DrizzleError::Other`] when binding fails, D1 rejects the query, or
     /// the row cannot be deserialized into `R`.
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
@@ -813,9 +816,11 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
         let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
         let stmt = self.runner.conn.prepare(sql_str);
         let stmt = bind_statement(stmt, &values)?;
-        stmt.first::<R>(None)
+        let row = stmt
+            .first::<R>(None)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

@@ -53,7 +53,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         ])
         .execute();
 
-    let sliced: (String, String, String, String, String, String) = db
+    let sliced: Option<(String, String, String, String, String, String)> = db
         .select((
             left(rows.name, 2),
             right(rows.name, 2),
@@ -64,8 +64,8 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get()
-        .expect("a row");
+        .get();
+    let sliced = sliced.expect("a row");
     assert_eq!(
         sliced,
         (
@@ -78,7 +78,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         )
     );
 
-    let reshaped: (String, String, String) = db
+    let reshaped: Option<(String, String, String)> = db
         .select((
             initcap(rows.name),
             split_part(rows.name, "i", 2),
@@ -86,8 +86,8 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get()
-        .expect("a row");
+        .get();
+    let reshaped = reshaped.expect("a row");
     assert_eq!(
         reshaped,
         ("Alice".to_string(), "ce".to_string(), "AliCE".to_string())
@@ -222,8 +222,7 @@ fn extrema_and_constants(db: &mut TestDb<ExpressionSchema>) {
         .select(count(rows.id))
         .from(rows)
         .r#where(gt(pi(), 3.1))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(approximately_pi, 3);
 }
 
@@ -248,8 +247,7 @@ fn statistical_boolean_and_collecting_aggregates(db: &mut TestDb<ExpressionSchem
             stddev_samp(rows.id),
         ))
         .from(rows)
-        .get()
-        .expect("a row");
+        .get();
     let (var_pop, var_samp, variance, stddev_pop, stddev_samp) = stats;
     assert!((var_pop.unwrap() - 2.0 / 3.0).abs() < 1e-9);
     assert_eq!(var_samp, Some(1.0));
@@ -264,16 +262,14 @@ fn statistical_boolean_and_collecting_aggregates(db: &mut TestDb<ExpressionSchem
             every(rows.active),
         ))
         .from(rows)
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(booleans, (Some(false), Some(true), Some(false)));
 
     let collected: (Option<String>, Option<Vec<String>>) = db
         .select((string_agg(rows.name, ","), array_agg(rows.name)))
         .from(rows)
         .r#where(eq(rows.active, true))
-        .get()
-        .expect("a row");
+        .get();
     let (joined, gathered) = collected;
     let mut joined: Vec<&str> = joined.as_deref().unwrap().split(',').collect();
     joined.sort_unstable();
@@ -288,8 +284,7 @@ fn statistical_boolean_and_collecting_aggregates(db: &mut TestDb<ExpressionSchem
             count(rows.id).filter(eq(rows.active, false)),
         ))
         .from(rows)
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(filtered, (2, 1));
 }
 
@@ -311,8 +306,7 @@ fn json_aggregates(db: &mut TestDb<ExpressionSchema>) {
         .select((json_agg(rows.name), jsonb_agg(rows.name)))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(
         arrays,
         (
@@ -328,8 +322,7 @@ fn json_aggregates(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.name, "Bob"))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(
         objects,
         (
@@ -412,8 +405,7 @@ mod json_operators {
                 documents.payload,
                 SQL::param(PostgresValue::from(serde_json::json!({"kind": "note"}))),
             ))
-            .get()
-            .expect("a row");
+            .get();
         assert_eq!(contains, 1);
 
         let contained: i64 = db
@@ -425,8 +417,7 @@ mod json_operators {
                     serde_json::json!({"level": 3, "extra": true}),
                 )),
             ))
-            .get()
-            .expect("a row");
+            .get();
         assert_eq!(contained, 1);
 
         let keys: (i64, i64, i64) = db
@@ -436,8 +427,7 @@ mod json_operators {
                 count(documents.id).filter(jsonb_exists_all(documents.payload, &["kind", "nope"])),
             ))
             .from(documents)
-            .get()
-            .expect("a row");
+            .get();
         assert_eq!(keys, (1, 1, 0));
     }
 }
@@ -459,8 +449,7 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         .select(count(rows.id))
         .from(rows)
         .r#where(and(is_not_null(now()), is_not_null(localtime())))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(clocks, 3);
     let clocks: i64 = db
         .select(count(rows.id))
@@ -469,8 +458,7 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
             is_not_null(localtimestamp()),
             is_not_null(clock_timestamp()),
         ))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(clocks, 3);
 
     let year: String = db
@@ -481,7 +469,7 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         .expect("a row");
     assert_eq!(year.len(), 4);
 
-    let constructed: (String, String, String) = db
+    let constructed: Option<(String, String, String)> = db
         .select((
             to_char(make_date(2024, 2, 29), "YYYY-MM-DD"),
             to_char(make_timestamp(2024, 2, 29, 13, 45, 30), "HH24:MI:SS"),
@@ -489,8 +477,8 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get()
-        .expect("a row");
+        .get();
+    let constructed = constructed.expect("a row");
     assert_eq!(
         constructed,
         (
@@ -500,7 +488,7 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         )
     );
 
-    let truncated: (String, f64) = db
+    let truncated: Option<(String, f64)> = db
         .select((
             to_char(
                 date_trunc("year", make_timestamp(2024, 2, 29, 13, 45, 30)),
@@ -510,24 +498,23 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get()
-        .expect("a row");
+        .get();
+    let truncated = truncated.expect("a row");
     assert_eq!(truncated, ("2024-01-01".to_string(), 29.0));
 
-    let epoch: String = db
+    let epoch: Option<String> = db
         .select(to_char(to_timestamp(86_400), "YYYY-MM-DD"))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get()
-        .expect("a row");
+        .get();
+    let epoch = epoch.expect("a row");
     assert_eq!(epoch, "1970-01-02");
 
     let parsed: i64 = db
         .select(count(rows.id))
         .from(rows)
         .r#where(eq(to_number("1,234.50", "9,999.99"), 1234.5))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(parsed, 3);
 
     let spans: i64 = db
@@ -544,8 +531,7 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
                 make_timestamp(2024, 1, 1, 0, 0, 0),
             )),
         ))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(spans, 3);
 }
 
@@ -561,12 +547,12 @@ fn sequence_functions(db: &mut TestDb<ExpressionSchema>) {
         .execute();
 
     let sequence = "pg_expression_rows_id_seq";
-    let reset: i64 = db
+    let reset: Option<i64> = db
         .select(setval(sequence, 100))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get()
-        .expect("a row");
+        .get();
+    let reset = reset.expect("a row");
     assert_eq!(reset, 100);
 
     let advanced: i64 = db

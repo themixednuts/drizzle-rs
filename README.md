@@ -967,8 +967,9 @@ Aggregate functions and common SQL expressions:
 # use readme::*;
 # let (db, Schema { users, .. }) = readme::database()?;
 // Aggregates
-let total: Option<(i64,)> = db.select((count(users.id),)).from(users).get()?;
-let oldest: Option<(Option<i64>,)> = db.select((max(users.age),)).from(users).get()?;
+// Aggregates without GROUP BY always return one row, so `get` returns it
+let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
+let oldest: (Option<i64>,) = db.select((max(users.age),)).from(users).get()?;
 
 // Coalesce — first non-null value
 let rows: Vec<(String,)> = db

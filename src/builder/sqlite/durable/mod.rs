@@ -641,8 +641,11 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
     /// deserialized into `R`.
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
@@ -652,7 +655,8 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
         let rows = cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        Ok(rows.into_iter().next())
+        let row = Ok(rows.into_iter().next())?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

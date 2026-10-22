@@ -44,7 +44,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         ])
         .execute();
 
-    let sliced: (String, String, String, String, String, String) = db
+    let sliced: Option<(String, String, String, String, String, String)> = db
         .select((
             left(rows.name, 2),
             right(rows.name, 2),
@@ -55,8 +55,8 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get()
-        .expect("a row");
+        .get();
+    let sliced = sliced.expect("a row");
     assert_eq!(
         sliced,
         (
@@ -124,8 +124,7 @@ fn math_constants_and_logarithms(db: &mut TestDb<ExpressionSchema>) {
         .select(count(rows.id))
         .from(rows)
         .r#where(gt(pi(), 3.1))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(approximately_pi, 3);
 
     let logs: Vec<Option<f64>> = db
@@ -157,8 +156,7 @@ fn statistical_aggregates(db: &mut TestDb<ExpressionSchema>) {
             stddev_samp(rows.id),
         ))
         .from(rows)
-        .get()
-        .expect("a row");
+        .get();
     let (var_pop, var_samp, variance, stddev_pop, stddev_samp) = stats;
     assert!((var_pop.unwrap() - 2.0 / 3.0).abs() < 1e-9);
     assert_eq!(var_samp, Some(1.0));
@@ -170,7 +168,6 @@ fn statistical_aggregates(db: &mut TestDb<ExpressionSchema>) {
         .select(group_concat(rows.name))
         .from(rows)
         .r#where(eq(rows.id, 2))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(joined.as_deref(), Some("bob"));
 }

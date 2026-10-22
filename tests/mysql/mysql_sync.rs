@@ -22,11 +22,7 @@ fn direct_connection_access_reestablishes_session_invariants() -> drizzle::Resul
     db.conn_mut().query_drop(
         "SET SESSION time_zone = '+01:00', sql_mode = CONCAT_WS(',', @@SESSION.sql_mode, 'NO_UNSIGNED_SUBTRACTION', 'REAL_AS_FLOAT')",
     ).map_err(|error| DrizzleError::driver("MySQL", error))?;
-    let _: i64 = db
-        .select(count(users.id))
-        .from(users)
-        .get()?
-        .expect("a row");
+    let _: i64 = db.select(count(users.id)).from(users).get()?;
 
     let mode: Option<String> = db
         .conn_mut()

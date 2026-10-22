@@ -44,7 +44,9 @@ pub use update::{UpdateInitial, UpdateReturningSet, UpdateSetClauseSet, UpdateWh
 #[derive(Debug, Clone)]
 pub struct CTEInit;
 
-impl ExecutableState for CTEInit {}
+impl ExecutableState for CTEInit {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 
 /// Type-safe SQL query builder for `SQLite`.
 ///

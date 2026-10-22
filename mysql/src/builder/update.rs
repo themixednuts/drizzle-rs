@@ -11,8 +11,12 @@ pub struct UpdateOrderSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateLimitSet;
 
-impl drizzle_core::ExecutableState for UpdateOrderSet {}
-impl drizzle_core::ExecutableState for UpdateLimitSet {}
+impl drizzle_core::ExecutableState for UpdateOrderSet {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
+impl drizzle_core::ExecutableState for UpdateLimitSet {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 
 /// An `UPDATE` query being built for `MySQL`.
 ///

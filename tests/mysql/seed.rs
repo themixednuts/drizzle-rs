@@ -450,8 +450,8 @@ fn mysql_reset_plan_executes_with_foreign_keys_enabled(db: &mut TestDb<TestSchem
         db.execute(statement);
     }
 
-    let generated_user_count: i64 = db.select(count(users.id)).from(users).get().expect("a row");
-    let generated_post_count: i64 = db.select(count(posts.id)).from(posts).get().expect("a row");
+    let generated_user_count: i64 = db.select(count(users.id)).from(users).get();
+    let generated_post_count: i64 = db.select(count(posts.id)).from(posts).get();
     assert_eq!((generated_user_count, generated_post_count), (1, 1));
 
     for statement in SeedConfig::mysql(&schema).reset_plan().unwrap() {
@@ -474,8 +474,8 @@ fn mysql_reset_plan_executes_with_foreign_keys_enabled(db: &mut TestDb<TestSchem
         db.execute(statement);
     }
 
-    let user_count: i64 = db.select(count(users.id)).from(users).get().expect("a row");
-    let post_count: i64 = db.select(count(posts.id)).from(posts).get().expect("a row");
+    let user_count: i64 = db.select(count(users.id)).from(users).get();
+    let post_count: i64 = db.select(count(posts.id)).from(posts).get();
     assert_eq!((user_count, post_count), (0, 0));
 
     let inserted = db
@@ -507,7 +507,7 @@ fn mysql_reset_plan_clears_live_nullable_self_references(
         db.execute(statement);
     }
 
-    let remaining: i64 = db.select(count(nodes.id)).from(nodes).get().expect("a row");
+    let remaining: i64 = db.select(count(nodes.id)).from(nodes).get();
     assert_eq!(remaining, 0);
 }
 
@@ -525,11 +525,7 @@ fn mysql_specific_seed_values_execute(db: &mut TestDb<MySQLSpecificSchema>) {
         db.execute(statement);
     }
 
-    let inserted: i64 = db
-        .select(count(specific.id))
-        .from(specific)
-        .get()
-        .expect("a row");
+    let inserted: i64 = db.select(count(specific.id)).from(specific).get();
     assert_eq!(inserted, 3);
 }
 
@@ -543,11 +539,7 @@ fn mysql_temporal_seed_values_execute(db: &mut TestDb<MySQLTemporalSchema>) {
         db.execute(statement);
     }
 
-    let inserted: i64 = db
-        .select(count(temporal.id))
-        .from(temporal)
-        .get()
-        .expect("a row");
+    let inserted: i64 = db.select(count(temporal.id)).from(temporal).get();
     assert_eq!(inserted, 2);
 }
 
@@ -648,11 +640,7 @@ fn mysql_runtime_schema_values_execute(db: &mut TestDb<MySQLSpecificSchema>) {
         db.execute(statement);
     }
 
-    let inserted: i64 = db
-        .select(count(specific.id))
-        .from(specific)
-        .get()
-        .expect("a row");
+    let inserted: i64 = db.select(count(specific.id)).from(specific).get();
     assert_eq!(inserted, 5);
 }
 

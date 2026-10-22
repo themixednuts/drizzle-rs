@@ -713,8 +713,11 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
@@ -736,7 +739,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             .await?;
         let rows = decode_rows(out);
         let row = rows.into_iter().next();
-        row.map(|row| R::try_from(&row).map_err(Into::into))
-            .transpose()
+        let row = row
+            .map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

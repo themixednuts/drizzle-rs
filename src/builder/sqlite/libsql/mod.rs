@@ -1858,8 +1858,11 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// # Compile-time checks
     ///
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -1892,6 +1895,7 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         if result.is_ok() {
             self.runner.libsql_statement_cache.store(cached);
         }
-        result
+        let row = result?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

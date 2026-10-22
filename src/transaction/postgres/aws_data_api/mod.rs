@@ -519,8 +519,11 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<R>(self) -> drizzle_core::error::Result<Option<R>>
+    pub async fn get<R>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -536,8 +539,10 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         let sql_params = encode_params(params.as_slice());
         let out = self.runner.run_statement(&sql_str, sql_params).await?;
         let row = decode_rows(out).into_iter().next();
-        row.map(|row| R::try_from(&row).map_err(Into::into))
-            .transpose()
+        let row = row
+            .map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

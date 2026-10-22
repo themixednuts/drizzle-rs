@@ -1881,8 +1881,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     ///     db.select(()).from(users).r#where(eq(users.name, "Zed")).get()?;
     /// assert!(nobody.is_none());
     ///
-    /// let total: Option<(i64,)> = db.select((count(users.id),)).from(users).get()?;
-    /// assert_eq!(total, Some((3,)));
+    /// // An aggregate without GROUP BY always returns one row.
+    /// let (total,): (i64,) = db.select((count(users.id),)).from(users).get()?;
+    /// assert_eq!(total, 3);
     /// # Ok(())
     /// # }
     /// # #[cfg(not(feature = "rusqlite"))]
@@ -1900,8 +1901,11 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// # Compile-time checks
     ///
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -1919,14 +1923,16 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             .conn
             .prepare(&sql_str)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
-        stmt.query_row(params_from_iter(params.iter().copied()), |row| {
-            Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
-                &::rusqlite::Row<'_>,
-                R,
-            >>::decode(row))
-        })
-        .optional()
-        .with_query(|| QueryContext::new(&sql_str, &params))?
-        .transpose()
+        let row = stmt
+            .query_row(params_from_iter(params.iter().copied()), |row| {
+                Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
+                    &::rusqlite::Row<'_>,
+                    R,
+                >>::decode(row))
+            })
+            .optional()
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

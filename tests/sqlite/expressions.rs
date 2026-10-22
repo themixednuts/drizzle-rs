@@ -64,15 +64,10 @@ fn group_concat_joins_group_members(db: &mut TestDb<ExpressionSchema>) {
         .select(group_concat(rows.name))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(joined.as_deref(), Some("alice"));
 
-    let all: Option<String> = db
-        .select(group_concat(rows.name))
-        .from(rows)
-        .get()
-        .expect("a row");
+    let all: Option<String> = db.select(group_concat(rows.name)).from(rows).get();
     let mut names: Vec<&str> = all.as_deref().unwrap().split(',').collect();
     names.sort_unstable();
     assert_eq!(names, ["alice", "bob", "carol"]);

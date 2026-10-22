@@ -579,8 +579,11 @@ impl<'db, 'connection, 'q, Schema, State, Table, Marker, DecodedRow, Grouped>
     /// # Errors
     ///
     /// Returns an error if execution or decoding fails, or no row is returned.
-    pub fn get<R, ScopeProof, AggProof>(self) -> Result<Option<R>>
+    pub fn get<R, ScopeProof, AggProof>(
+        self,
+    ) -> Result<drizzle_core::row::GetRow<Marker, Grouped, State, R>>
     where
+        Marker: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
@@ -588,9 +591,11 @@ impl<'db, 'connection, 'q, Schema, State, Table, Marker, DecodedRow, Grouped>
             + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
-        self.runner
+        let row = self
+            .runner
             .query_first_rendered(self.builder)?
-            .decode_first::<Marker, R>()
+            .decode_first::<Marker, R>()?;
+        drizzle_core::row::first_row::<Marker, Grouped, State, R>(row)
     }
 
     /// Detaches a reusable prepared query from this transaction.

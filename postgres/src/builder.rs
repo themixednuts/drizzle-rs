@@ -55,7 +55,9 @@ pub use drizzle_core::traits::SQLViewInfo;
 #[derive(Debug, Clone)]
 pub struct CTEInit;
 
-impl ExecutableState for CTEInit {}
+impl ExecutableState for CTEInit {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 
 /// Builds `PostgreSQL` statements as SQL plus bound parameters, without a connection.
 ///

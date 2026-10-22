@@ -25,7 +25,7 @@ fn consistent_snapshot_options_execute(db: &mut TestDb<TestSchema>) {
         assert_eq!(isolation, "REPEATABLE-READ");
         assert_eq!(
             result!(tx.select(count(users.id)).from(users).get::<i64, _, _>())?,
-            Some(1)
+            1
         );
 
         let write: drizzle::Result<_> = result!(

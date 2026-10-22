@@ -817,8 +817,11 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -845,10 +848,12 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
             .query_opt(&statement, &param_refs[..])
             .map_err(|error| self.runner.statement_error(error))?;
 
-        row.map(|row| {
-            <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
-        })
-        .transpose()
+        let row = row
+            .map(|row| {
+                <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
+            })
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

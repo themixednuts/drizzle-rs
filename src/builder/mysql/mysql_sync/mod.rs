@@ -1003,8 +1003,11 @@ where
     /// # Errors
     ///
     /// Returns an error if execution or decoding fails, or no row is returned.
-    pub fn get<R, ScopeProof, AggProof>(self) -> Result<Option<R>>
+    pub fn get<R, ScopeProof, AggProof>(
+        self,
+    ) -> Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
@@ -1012,9 +1015,11 @@ where
             + MarkerColumnCountValid<MySQLRow<'row, Row>, Rw, R, ScopeProof>,
         Mk: MarkerAggValidFor<Grouped, AggProof>,
     {
-        self.runner
+        let row = self
+            .runner
             .query_first_rendered(self.builder)?
-            .decode_first::<Mk, R>()
+            .decode_first::<Mk, R>()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 
     /// Detaches a reusable prepared query from this runner.

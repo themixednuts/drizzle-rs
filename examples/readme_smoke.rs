@@ -292,14 +292,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _aliased: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 
     // -------- Expressions --------
-    let total: (i64,) = db
-        .select((count(users.id),))
-        .from(users)
-        .get()?
-        .expect("COUNT returns one row");
+    // An aggregate without GROUP BY always returns one row, so `get`
+    // returns it directly.
+    let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
     assert!(total.0 >= 4);
 
-    let _oldest: Option<(Option<i64>,)> = db.select((max(users.age),)).from(users).get()?;
+    let _oldest: (Option<i64>,) = db.select((max(users.age),)).from(users).get()?;
 
     let _coalesced: Vec<(String,)> = db
         .select((coalesce(users.email, "unknown"),))

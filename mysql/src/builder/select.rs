@@ -12,7 +12,9 @@ pub use drizzle_core::builder::{
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectHavingSet;
 
-impl ExecutableState for SelectHavingSet {}
+impl ExecutableState for SelectHavingSet {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 
 /// Builder state after an index hint on the FROM table.
 ///
@@ -21,7 +23,9 @@ impl ExecutableState for SelectHavingSet {}
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectIndexHintSet<Kind>(core::marker::PhantomData<Kind>);
 
-impl<Kind> ExecutableState for SelectIndexHintSet<Kind> {}
+impl<Kind> ExecutableState for SelectIndexHintSet<Kind> {
+    type Rows<R: drizzle_core::row::RowCount> = R;
+}
 
 /// Marker for the MySQL `FOR UPDATE` lock strength.
 #[doc(hidden)]
@@ -56,7 +60,9 @@ pub struct SkipLocked;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectForSet<Strength, Modifier = Wait>(core::marker::PhantomData<(Strength, Modifier)>);
 
-impl<Strength, Modifier> ExecutableState for SelectForSet<Strength, Modifier> {}
+impl<Strength, Modifier> ExecutableState for SelectForSet<Strength, Modifier> {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 
 /// Clause gate for SELECT methods whose names collide with INSERT/UPDATE/DELETE
 /// builder methods on the shared `QueryBuilder` type.

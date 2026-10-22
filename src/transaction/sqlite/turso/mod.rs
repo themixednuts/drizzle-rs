@@ -389,8 +389,11 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Option<R>>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -403,10 +406,11 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
         let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
         let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
-        crate::builder::sqlite::turso::turso_decode_first_and_finish(&mut rows, |row| {
+        let row = crate::builder::sqlite::turso::turso_decode_first_and_finish(&mut rows, |row| {
             <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(row)
         })
-        .await
+        .await?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 
