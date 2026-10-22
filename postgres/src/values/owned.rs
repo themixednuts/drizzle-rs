@@ -1506,6 +1506,18 @@ impl From<compact_str::CompactString> for OwnedPostgresValue {
     }
 }
 
+impl<const N: usize> From<[u8; N]> for OwnedPostgresValue {
+    fn from(value: [u8; N]) -> Self {
+        Self::Bytea(value.to_vec())
+    }
+}
+
+impl<const N: usize> From<&[u8; N]> for OwnedPostgresValue {
+    fn from(value: &[u8; N]) -> Self {
+        Self::Bytea(value.to_vec())
+    }
+}
+
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> From<arrayvec::ArrayVec<u8, N>> for OwnedPostgresValue {
     fn from(value: arrayvec::ArrayVec<u8, N>) -> Self {
@@ -1837,6 +1849,23 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for arrayvec::ArrayString<N> {
             }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {value:?} to ArrayString").into(),
+            )),
+        }
+    }
+}
+
+impl<const N: usize> TryFrom<OwnedPostgresValue> for [u8; N] {
+    type Error = DrizzleError;
+
+    fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
+        match value {
+            OwnedPostgresValue::Bytea(bytes) => Self::try_from(bytes.as_slice()).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!("expected {N} bytes for [u8; {N}], got {}", bytes.len()).into(),
+                )
+            }),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to [u8; {N}]").into(),
             )),
         }
     }

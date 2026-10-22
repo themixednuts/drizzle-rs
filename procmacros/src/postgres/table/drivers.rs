@@ -73,8 +73,10 @@ fn generate_field_value(idx: &TokenStream, info: &FieldInfo) -> TokenStream {
         TypeCategory::ArrayString | TypeCategory::ArrayVec
     );
 
-    // PostgresEnum owns its storage codec, including native and integer-backed enums.
-    if info.is_pgenum {
+    // PostgresEnum owns its storage codec, including native and integer-backed
+    // enums. `[u8; N]` has no driver `FromSql`; its row impl reads the BYTEA
+    // and checks the length.
+    if info.is_pgenum || type_category == TypeCategory::ByteArray {
         return quote! {
             <#field_type as drizzle::core::FromDrizzleRow<drizzle::postgres::Row>>
                 ::from_row_at(row, #idx)?

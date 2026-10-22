@@ -1481,7 +1481,9 @@ where
 
         let mut rel_col = 1usize;
         let mut next_rel = || {
-            let json = row.get::<String>(rel_col).ok();
+            let json = row
+                .get::<Option<String>>(rel_col)
+                .map_err(drizzle_core::error::DrizzleError::from)?;
             rel_col += 1;
             Ok(json)
         };

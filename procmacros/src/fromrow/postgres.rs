@@ -53,6 +53,14 @@ fn field_value(idx: &TokenStream, field: &Field) -> TokenStream {
     let ty = &field.ty;
     let category = TypeCategory::from_type(ty);
 
+    // `[u8; N]` has no driver `FromSql`; its row impl reads the BYTEA and
+    // checks the length.
+    if category == TypeCategory::ByteArray {
+        return quote! {
+            <#ty as drizzle::core::FromDrizzleRow<drizzle::postgres::Row>>::from_row_at(row, #idx)?
+        };
+    }
+
     if matches!(
         category,
         TypeCategory::ArrayString | TypeCategory::ArrayVec | TypeCategory::Uuid

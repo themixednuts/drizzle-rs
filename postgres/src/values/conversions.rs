@@ -409,6 +409,20 @@ impl<'a> From<&'a Arc<Vec<u8>>> for PostgresValue<'a> {
     }
 }
 
+// --- [u8; N] ---
+
+impl<const N: usize> From<[u8; N]> for PostgresValue<'_> {
+    fn from(value: [u8; N]) -> Self {
+        PostgresValue::Bytea(Cow::Owned(value.to_vec()))
+    }
+}
+
+impl<'a, const N: usize> From<&'a [u8; N]> for PostgresValue<'a> {
+    fn from(value: &'a [u8; N]) -> Self {
+        PostgresValue::Bytea(Cow::Borrowed(value))
+    }
+}
+
 // --- ArrayVec<u8, N> ---
 
 #[cfg(feature = "arrayvec")]
@@ -1720,6 +1734,23 @@ impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for arrayvec::ArrayVec<u8, N
             }),
             _ => Err(DrizzleError::ConversionError(
                 format!("Cannot convert {value:?} to ArrayVec<u8>").into(),
+            )),
+        }
+    }
+}
+
+impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for [u8; N] {
+    type Error = DrizzleError;
+
+    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
+        match value {
+            PostgresValue::Bytea(bytes) => Self::try_from(bytes.as_ref()).map_err(|_| {
+                DrizzleError::ConversionError(
+                    format!("expected {N} bytes for [u8; {N}], got {}", bytes.len()).into(),
+                )
+            }),
+            _ => Err(DrizzleError::ConversionError(
+                format!("Cannot convert {value:?} to [u8; {N}]").into(),
             )),
         }
     }

@@ -3398,6 +3398,58 @@ impl<const N: usize> FromPostgresValue for arrayvec::ArrayString<N> {
     }
 }
 
+impl<const N: usize> FromPostgresValue for [u8; N] {
+    fn from_postgres_bool(_value: bool) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert bool to [u8; N], use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_i16(_value: i16) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert i16 to [u8; N], use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_i32(_value: i32) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert i32 to [u8; N], use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_i64(_value: i64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert i64 to [u8; N], use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_f32(_value: f32) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert f32 to [u8; N], use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_f64(_value: f64) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert f64 to [u8; N], use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_text(_value: &str) -> Result<Self, DrizzleError> {
+        Err(DrizzleError::ConversionError(
+            "cannot convert TEXT to [u8; N], use BYTEA".into(),
+        ))
+    }
+
+    fn from_postgres_bytes(value: &[u8]) -> Result<Self, DrizzleError> {
+        Self::try_from(value).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!("expected {N} bytes for [u8; {N}], got {}", value.len()).into(),
+            )
+        })
+    }
+}
+
 #[cfg(feature = "arrayvec")]
 impl<const N: usize> FromPostgresValue for arrayvec::ArrayVec<u8, N> {
     fn from_postgres_bool(_value: bool) -> Result<Self, DrizzleError> {

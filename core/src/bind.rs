@@ -223,6 +223,8 @@ impl_value_type!(PostgresDialect, pg_ty::Bytea =>
 #[cfg(feature = "arrayvec")]
 impl_value_type_const_n!(PostgresDialect, pg_ty::Bytea => arrayvec::ArrayVec<u8, N>);
 
+impl_value_type_const_n!(PostgresDialect, pg_ty::Bytea => [u8; N]);
+
 #[cfg(feature = "bytes")]
 impl_value_type!(PostgresDialect, pg_ty::Bytea => bytes::Bytes, bytes::BytesMut);
 

@@ -810,6 +810,10 @@ impl<Row: ?Sized> RowColumnList<Row> for () {
     type Columns = crate::Cons<(), crate::Nil>;
 }
 
+impl<Row: ?Sized, const N: usize> RowColumnList<Row> for [u8; N] {
+    type Columns = crate::Cons<Self, crate::Nil>;
+}
+
 #[cfg(feature = "uuid")]
 impl<Row: ?Sized> RowColumnList<Row> for uuid::Uuid {
     type Columns = crate::Cons<Self, crate::Nil>;
