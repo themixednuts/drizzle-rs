@@ -430,7 +430,7 @@ where
 
 /// Renders `HAVING <condition>`. The condition must be boolean.
 ///
-/// A `None` condition renders `HAVING TRUE`, as in [`r#where`].
+/// A `None` condition renders `HAVING TRUE`, as `r#where` does.
 pub fn having<'a, V, E>(condition: E) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
