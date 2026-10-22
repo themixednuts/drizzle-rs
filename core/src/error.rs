@@ -9,11 +9,12 @@ const MAX_CONTEXT_PARAM_CHARS: usize = 128;
 
 /// The SQL and parameters of a failed query.
 ///
-/// Attach it with [`ResultExt::with_query`]. The error message shows the SQL
-/// and how many parameters were bound, never their values: they often hold
-/// personal data or secrets, and error messages end up in logs. The values
-/// stay available in [`params`](Self::params).
-#[derive(Debug, Clone)]
+/// Attach it with [`ResultExt::with_query`]. The error message and the
+/// `Debug` output show the SQL and how many parameters were bound, never
+/// their values: they often hold personal data or secrets, and errors end up
+/// in logs (`.unwrap()` prints `Debug`). The values stay available in
+/// [`params`](Self::params).
+#[derive(Clone)]
 pub struct QueryContext {
     /// Rendered SQL statement.
     pub sql: CompactString,
@@ -41,6 +42,15 @@ impl QueryContext {
             params: rendered,
             param_count: params.len(),
         }
+    }
+}
+
+impl core::fmt::Debug for QueryContext {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("QueryContext")
+            .field("sql", &self.sql)
+            .field("param_count", &self.param_count)
+            .finish_non_exhaustive()
     }
 }
 
@@ -342,6 +352,9 @@ mod display_tests {
             message,
             "No rows found\n  sql: SELECT * FROM users WHERE email = $1\n  params: 1 bound"
         );
+        // `.unwrap()` prints `Debug`.
+        let debug = format!("{error:?}");
+        assert!(!debug.contains("ada@example.com"), "{debug}");
         let DrizzleError::QueryFailed { ctx, .. } = error else {
             panic!("expected QueryFailed");
         };
