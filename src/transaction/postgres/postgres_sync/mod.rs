@@ -311,8 +311,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns an error when the query does not return exactly one row (none
-    /// or several), when it fails, or when the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
+    /// error when it returns several, when it fails, or when the row cannot be
+    /// decoded into `R`.
     pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r Row>,
@@ -336,8 +337,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             .cached_statement(tx, &sql_str, &param_types)
             .map_err(|error| self.statement_error(error))?;
         let row = tx
-            .query_one(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error))?;
+            .query_opt(&statement, &param_refs[..])
+            .map_err(|error| self.statement_error(error))?
+            .ok_or(DrizzleError::NotFound)?;
 
         R::try_from(&row).map_err(Into::into)
     }
@@ -780,8 +782,9 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns an error when the query does not return exactly one row (none
-    /// or several), when it fails, or when the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
+    /// error when it returns several, when it fails, or when the row cannot be
+    /// decoded into `R`.
     ///
     /// # Compile-time checks
     ///
@@ -811,8 +814,9 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
             .cached_statement(tx, &sql_str, &param_types)
             .map_err(|error| self.runner.statement_error(error))?;
         let row = tx
-            .query_one(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error))?;
+            .query_opt(&statement, &param_refs[..])
+            .map_err(|error| self.runner.statement_error(error))?
+            .ok_or(DrizzleError::NotFound)?;
 
         <Mk as drizzle_core::row::DecodeSelectedRef<&::postgres::Row, R>>::decode(&row)
     }

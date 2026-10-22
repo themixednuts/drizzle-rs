@@ -327,15 +327,17 @@ macro_rules! postgres_prepared_sync_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), an error when
+            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
 
-            /// the query does not return exactly one row (none or several) or fails, or
+            /// when the query returns no row, an error when it returns several or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -377,13 +379,13 @@ macro_rules! postgres_prepared_sync_impl {
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self.driver_statement(client, sql_str, &param_types)?;
-                let mut result = client.query_one(&statement, &params_refs);
+                let mut result = client.query_opt(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self.driver_statement(client, sql_str, &param_types)?;
-                    result = client.query_one(&statement, &params_refs);
+                    result = client.query_opt(&statement, &params_refs);
                 }
-                let row = result?;
+                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
                 <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
             }
         }
@@ -542,15 +544,17 @@ macro_rules! postgres_prepared_sync_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), an error when
+            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
 
-            /// the query does not return exactly one row (none or several) or fails, or
+            /// when the query returns no row, an error when it returns several or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -592,13 +596,13 @@ macro_rules! postgres_prepared_sync_impl {
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self.driver_statement(client, sql_str, &param_types)?;
-                let mut result = client.query_one(&statement, &params_refs);
+                let mut result = client.query_opt(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self.driver_statement(client, sql_str, &param_types)?;
-                    result = client.query_one(&statement, &params_refs);
+                    result = client.query_opt(&statement, &params_refs);
                 }
-                let row = result?;
+                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
                 <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
             }
         }
@@ -760,15 +764,17 @@ macro_rules! postgres_prepared_async_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), an error when
+            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
 
-            /// the query does not return exactly one row (none or several) or fails, or
+            /// when the query returns no row, an error when it returns several or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -812,15 +818,15 @@ macro_rules! postgres_prepared_async_impl {
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
                     .await?;
-                let mut result = client.query_one(&statement, &params_refs).await;
+                let mut result = client.query_opt(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
                         .await?;
-                    result = client.query_one(&statement, &params_refs).await;
+                    result = client.query_opt(&statement, &params_refs).await;
                 }
-                let row = result?;
+                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
                 <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
             }
         }
@@ -984,15 +990,17 @@ macro_rules! postgres_prepared_async_impl {
 
             /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
 
-            /// statement's placeholders (missing, duplicated, or extra), an error when
+            /// statement's placeholders (missing, duplicated, or extra), [`DrizzleError::NotFound`]
 
-            /// the query does not return exactly one row (none or several) or fails, or
+            /// when the query returns no row, an error when it returns several or fails, or
 
             /// a decode error when the row does not fit `T`.
 
             ///
 
             /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
+
+            /// [`DrizzleError::NotFound`]: drizzle_core::error::DrizzleError::NotFound
 
             ///
 
@@ -1039,15 +1047,15 @@ macro_rules! postgres_prepared_async_impl {
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
                     .await?;
-                let mut result = client.query_one(&statement, &params_refs).await;
+                let mut result = client.query_opt(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
                         .await?;
-                    result = client.query_one(&statement, &params_refs).await;
+                    result = client.query_opt(&statement, &params_refs).await;
                 }
-                let row = result?;
+                let row = result?.ok_or(drizzle_core::error::DrizzleError::NotFound)?;
                 <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)
             }
         }

@@ -8,7 +8,7 @@ use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
 use std::{borrow::Cow, marker::PhantomData};
 
-use rusqlite::{Connection, Row, params_from_iter};
+use rusqlite::{Connection, OptionalExtension as _, Row, params_from_iter};
 
 /// A query rendered once, ready to run many times with new placeholder values.
 ///
@@ -130,7 +130,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
     /// statement's placeholders (missing, duplicated, or extra),
-    /// rusqlite's `QueryReturnedNoRows` when no row matches, the database
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
@@ -157,7 +157,9 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
                 &Row<'_>,
                 T,
             >>::decode(row))
-        })?
+        })
+        .optional()?
+        .unwrap_or(Err(drizzle_core::error::DrizzleError::NotFound))
     }
     /// Copies the embedded values so the statement no longer borrows them.
     pub fn into_owned(self) -> OwnedPreparedStatement<Marker, DecodedRow> {
@@ -279,7 +281,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
     /// statement's placeholders (missing, duplicated, or extra),
-    /// rusqlite's `QueryReturnedNoRows` when no row matches, the database
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound) when no row matches, the database
     /// error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
@@ -306,7 +308,9 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
                 &Row<'_>,
                 T,
             >>::decode(row))
-        })?
+        })
+        .optional()?
+        .unwrap_or(Err(drizzle_core::error::DrizzleError::NotFound))
     }
 }
 

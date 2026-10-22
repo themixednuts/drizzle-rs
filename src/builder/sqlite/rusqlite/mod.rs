@@ -147,7 +147,7 @@ use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::SQLiteValue;
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::{Connection, OptionalExtension as _, params_from_iter};
 
 use drizzle_sqlite::builder::{self, QueryBuilder};
 
@@ -344,9 +344,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns an error when no row matches (rusqlite's
-    /// `QueryReturnedNoRows`), when SQLite cannot prepare or run the query, or
-    /// when the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when SQLite cannot prepare or run the query, or when the row cannot be
+    /// decoded into `R`.
     pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
@@ -370,7 +370,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         stmt.query_row(params_from_iter(params.iter().copied()), |row| {
             Ok(R::try_from(row).map_err(Into::into))
         })
+        .optional()
         .with_query(|| QueryContext::new(&sql_str, &params))?
+        .unwrap_or(Err(DrizzleError::NotFound))
     }
 
     fn start(
@@ -1882,9 +1884,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns an error when no row matches (rusqlite's
-    /// `QueryReturnedNoRows`), when SQLite cannot prepare or run the query, or
-    /// when the row cannot be decoded into `R`.
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when SQLite cannot prepare or run the query, or when the row cannot be
+    /// decoded into `R`.
     ///
     /// # Compile-time checks
     ///
@@ -1914,6 +1916,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
                 R,
             >>::decode(row))
         })
+        .optional()
         .with_query(|| QueryContext::new(&sql_str, &params))?
+        .unwrap_or(Err(DrizzleError::NotFound))
     }
 }

@@ -4,7 +4,7 @@ use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::traits::SQLiteTable;
-use rusqlite::params_from_iter;
+use rusqlite::{OptionalExtension as _, params_from_iter};
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicU32;
 
@@ -234,7 +234,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns an error when no row matches (rusqlite's `QueryReturnedNoRows`),
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
     /// when SQLite cannot prepare or run the query, or when the row cannot be
     /// decoded into `R`.
     pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
@@ -254,7 +254,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         stmt.query_row(params_from_iter(params), |row| {
             Ok(R::try_from(row).map_err(Into::into))
-        })?
+        })
+        .optional()?
+        .unwrap_or(Err(DrizzleError::NotFound))
     }
 
     /// Commits the transaction.
@@ -387,8 +389,8 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns rusqlite's `QueryReturnedNoRows` when no row matches, and an
-    /// error when SQLite cannot prepare or run the query or the row cannot be
+    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// when SQLite cannot prepare or run the query or the row cannot be
     /// decoded into `R`.
     ///
     /// # Compile-time checks
@@ -414,7 +416,9 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
                 &::rusqlite::Row<'_>,
                 R,
             >>::decode(row))
-        })?
+        })
+        .optional()?
+        .unwrap_or(Err(DrizzleError::NotFound))
     }
 }
 
