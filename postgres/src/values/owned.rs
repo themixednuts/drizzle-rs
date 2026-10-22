@@ -1858,16 +1858,23 @@ impl<const N: usize> TryFrom<OwnedPostgresValue> for [u8; N] {
     type Error = DrizzleError;
 
     fn try_from(value: OwnedPostgresValue) -> Result<Self, Self::Error> {
-        match value {
-            OwnedPostgresValue::Bytea(bytes) => Self::try_from(bytes.as_slice()).map_err(|_| {
-                DrizzleError::ConversionError(
-                    format!("expected {N} bytes for [u8; {N}], got {}", bytes.len()).into(),
-                )
-            }),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {value:?} to [u8; {N}]").into(),
-            )),
-        }
+        let bytes: &[u8] = match &value {
+            OwnedPostgresValue::Bytea(bytes) => bytes,
+            #[cfg(feature = "cidr")]
+            OwnedPostgresValue::MacAddr(mac) => mac,
+            #[cfg(feature = "cidr")]
+            OwnedPostgresValue::MacAddr8(mac) => mac,
+            _ => {
+                return Err(DrizzleError::ConversionError(
+                    format!("Cannot convert {value:?} to [u8; {N}]").into(),
+                ));
+            }
+        };
+        Self::try_from(bytes).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!("expected {N} bytes for [u8; {N}], got {}", bytes.len()).into(),
+            )
+        })
     }
 }
 

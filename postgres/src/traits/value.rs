@@ -3217,24 +3217,6 @@ impl FromPostgresValue for cidr::IpCidr {
     }
 }
 
-#[cfg(feature = "cidr")]
-impl FromPostgresValue for [u8; 6] {
-    impl_from_postgres_value_errors!("MACADDR");
-
-    fn from_postgres_macaddr(value: [u8; 6]) -> Result<Self, DrizzleError> {
-        Ok(value)
-    }
-}
-
-#[cfg(feature = "cidr")]
-impl FromPostgresValue for [u8; 8] {
-    impl_from_postgres_value_errors!("MACADDR8");
-
-    fn from_postgres_macaddr8(value: [u8; 8]) -> Result<Self, DrizzleError> {
-        Ok(value)
-    }
-}
-
 // =============================================================================
 // Geometric types (when feature enabled)
 // =============================================================================
@@ -3447,6 +3429,17 @@ impl<const N: usize> FromPostgresValue for [u8; N] {
                 format!("expected {N} bytes for [u8; {N}], got {}", value.len()).into(),
             )
         })
+    }
+
+    // A MACADDR / MACADDR8 cell is its raw bytes.
+    #[cfg(feature = "cidr")]
+    fn from_postgres_macaddr(value: [u8; 6]) -> Result<Self, DrizzleError> {
+        Self::from_postgres_bytes(&value)
+    }
+
+    #[cfg(feature = "cidr")]
+    fn from_postgres_macaddr8(value: [u8; 8]) -> Result<Self, DrizzleError> {
+        Self::from_postgres_bytes(&value)
     }
 }
 

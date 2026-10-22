@@ -757,34 +757,6 @@ impl<'a> From<&'a IpCidr> for PostgresValue<'a> {
     }
 }
 
-#[cfg(feature = "cidr")]
-impl From<[u8; 6]> for PostgresValue<'_> {
-    fn from(value: [u8; 6]) -> Self {
-        PostgresValue::MacAddr(value)
-    }
-}
-
-#[cfg(feature = "cidr")]
-impl<'a> From<&'a [u8; 6]> for PostgresValue<'a> {
-    fn from(value: &'a [u8; 6]) -> Self {
-        PostgresValue::MacAddr(*value)
-    }
-}
-
-#[cfg(feature = "cidr")]
-impl From<[u8; 8]> for PostgresValue<'_> {
-    fn from(value: [u8; 8]) -> Self {
-        PostgresValue::MacAddr8(value)
-    }
-}
-
-#[cfg(feature = "cidr")]
-impl<'a> From<&'a [u8; 8]> for PostgresValue<'a> {
-    fn from(value: &'a [u8; 8]) -> Self {
-        PostgresValue::MacAddr8(*value)
-    }
-}
-
 // --- Geometric Types ---
 
 #[cfg(feature = "geo-types")]
@@ -1603,34 +1575,6 @@ impl<'a> TryFrom<PostgresValue<'a>> for IpCidr {
     }
 }
 
-#[cfg(feature = "cidr")]
-impl<'a> TryFrom<PostgresValue<'a>> for [u8; 6] {
-    type Error = DrizzleError;
-
-    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            PostgresValue::MacAddr(mac) => Ok(mac),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {value:?} to [u8; 6]").into(),
-            )),
-        }
-    }
-}
-
-#[cfg(feature = "cidr")]
-impl<'a> TryFrom<PostgresValue<'a>> for [u8; 8] {
-    type Error = DrizzleError;
-
-    fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            PostgresValue::MacAddr8(mac) => Ok(mac),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {value:?} to [u8; 8]").into(),
-            )),
-        }
-    }
-}
-
 // --- Geometric TryFrom implementations ---
 
 #[cfg(feature = "geo-types")]
@@ -1743,16 +1687,23 @@ impl<'a, const N: usize> TryFrom<PostgresValue<'a>> for [u8; N] {
     type Error = DrizzleError;
 
     fn try_from(value: PostgresValue<'a>) -> Result<Self, Self::Error> {
-        match value {
-            PostgresValue::Bytea(bytes) => Self::try_from(bytes.as_ref()).map_err(|_| {
-                DrizzleError::ConversionError(
-                    format!("expected {N} bytes for [u8; {N}], got {}", bytes.len()).into(),
-                )
-            }),
-            _ => Err(DrizzleError::ConversionError(
-                format!("Cannot convert {value:?} to [u8; {N}]").into(),
-            )),
-        }
+        let bytes: &[u8] = match &value {
+            PostgresValue::Bytea(bytes) => bytes.as_ref(),
+            #[cfg(feature = "cidr")]
+            PostgresValue::MacAddr(mac) => mac,
+            #[cfg(feature = "cidr")]
+            PostgresValue::MacAddr8(mac) => mac,
+            _ => {
+                return Err(DrizzleError::ConversionError(
+                    format!("Cannot convert {value:?} to [u8; {N}]").into(),
+                ));
+            }
+        };
+        Self::try_from(bytes).map_err(|_| {
+            DrizzleError::ConversionError(
+                format!("expected {N} bytes for [u8; {N}], got {}", bytes.len()).into(),
+            )
+        })
     }
 }
 

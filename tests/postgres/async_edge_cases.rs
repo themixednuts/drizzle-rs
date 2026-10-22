@@ -71,6 +71,35 @@ mod tokio_postgres_edge_cases {
         assert_eq!(at.to_string(), "2024-01-02T03:04:05Z");
     }
 
+    // `[u8; N]` is bytes: the parameter's declared type decides whether they
+    // are written as BYTEA or MACADDR, and either cell decodes back.
+    #[tokio::test]
+    async fn fixed_size_bytes_follow_the_declared_column_type() {
+        use drizzle::core::FromDrizzleRow;
+        use drizzle::postgres::values::PostgresValue;
+
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "host=localhost user=postgres password=postgres dbname=drizzle_test".to_string()
+        });
+        let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+            .await
+            .expect("connect");
+        tokio::spawn(connection);
+
+        let mac = PostgresValue::from([1_u8, 2, 3, 4, 5, 6]);
+        let raw = PostgresValue::from([7_u8, 8]);
+        let row = client
+            .query_one("SELECT $1::macaddr AS mac, $2::bytea AS raw", &[&mac, &raw])
+            .await
+            .expect("query");
+
+        let mac = <[u8; 6] as FromDrizzleRow<tokio_postgres::Row>>::from_row_at(&row, 0).unwrap();
+        assert_eq!(mac, [1, 2, 3, 4, 5, 6]);
+        let raw = <[u8; 2] as FromDrizzleRow<tokio_postgres::Row>>::from_row_at(&row, 1).unwrap();
+        assert_eq!(raw, [7, 8]);
+        assert!(<[u8; 4] as FromDrizzleRow<tokio_postgres::Row>>::from_row_at(&row, 1).is_err());
+    }
+
     #[tokio::test]
     async fn select_model_type_mismatch_is_an_error_not_a_panic() {
         let (
