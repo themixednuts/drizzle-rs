@@ -128,16 +128,49 @@ use syn::parse_macro_input;
 /// attribute does not pick the storage. An `integer` or `text` marker next to
 /// `enum` only restates it, and the table fails to compile if it disagrees.
 ///
-/// The derive takes no attributes. It needs at least one variant, and every
-/// variant must be a unit variant.
+/// It needs at least one variant, and every variant must be a unit variant.
+///
+/// # Deriving more than one dialect
+///
+/// `SQLiteEnum`, `PostgresEnum` and `MySQLEnum` each generate the same
+/// dialect-neutral impls (listed below). When an enum derives `SQLiteEnum`
+/// with either of the others, mark it `#[sqlite_enum]` so they are generated
+/// once, by this derive:
+///
+/// ```rust
+/// # #[cfg(all(feature = "sqlite", feature = "postgres"))]
+/// # fn main() {
+/// use drizzle::sqlite::prelude::*;
+/// use drizzle::postgres::prelude::PostgresEnum;
+///
+/// #[derive(SQLiteEnum, PostgresEnum, Clone, Copy, Debug, PartialEq)]
+/// #[sqlite_enum]
+/// enum Role {
+///     Member,
+///     Admin,
+/// }
+///
+/// assert_eq!(Role::Admin.to_string(), "Admin");
+/// # }
+/// # #[cfg(not(all(feature = "sqlite", feature = "postgres")))]
+/// # fn main() {}
+/// ```
+///
+/// `#[sqlite_enum]` takes no arguments and changes nothing else.
 ///
 /// # Generated impls
 ///
-/// - `Display`, `FromStr`, `AsRef<str>`, and `TryFrom<&str>` / `TryFrom<String>`,
-///   all using the variant name.
-/// - `From<Enum> for i64` and `TryFrom<i64>`, using the discriminant.
-///   Variants without an explicit discriminant count up from the previous
-///   one, as in Rust; duplicate values are a compile error.
+/// Dialect-neutral:
+///
+/// - `Display`, `FromStr`, `AsRef<str>`, `From<Enum> for &str`, and
+///   `TryFrom<&str>` / `TryFrom<String>`, all using the variant name.
+/// - `From<Enum> for i64` and `TryFrom` from each integer type, using the
+///   discriminant. Variants without an explicit discriminant count up from the
+///   previous one, as in Rust; duplicate values are a compile error.
+/// - `SQLEnumVariants`, `SchemaItemTables` and `ExprSources`.
+///
+/// `SQLite`-specific:
+///
 /// - The `SQLite` column, value and row conversions (`ToSQL`, `TryFrom<SQLiteValue>`,
 ///   and conversions for each enabled driver), so the enum works as a column
 ///   type, a bound parameter, and a selected value.
@@ -203,7 +236,7 @@ use syn::parse_macro_input;
 /// # fn main() {}
 /// ```
 #[cfg(feature = "sqlite")]
-#[proc_macro_derive(SQLiteEnum)]
+#[proc_macro_derive(SQLiteEnum, attributes(sqlite_enum))]
 pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
     use quote::quote;
     use syn::{Data, DeriveInput, parse_macro_input};
@@ -1221,18 +1254,31 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// | Enum shape | Storage | Stored value |
 /// |---|---|---|
 /// | No integer `#[repr]` | native enum type, `CREATE TYPE "Name" AS ENUM (...)` | the variant name |
+/// | `#[postgres_enum(text)]` | `text` | the variant name |
 /// | Integer `#[repr]` (`#[repr(i32)]`, `#[repr(i16)]`, ...) | `integer` | the discriminant |
 ///
 /// Mark the column with `#[column(enum)]` in a [`PostgresTable`]. A native
 /// enum is a database object of its own: list it in the [`PostgresSchema`]
 /// so its `CREATE TYPE` runs before the tables that use it. A schema field
 /// must implement `Default`, so derive `Default` on enums you list there.
+/// Text and integer enums create no type and are not listed.
 ///
 /// # Attributes
 ///
 /// | Attribute | Meaning |
 /// |---|---|
-/// | `#[postgres_enum(schema = "app")]` | Create the native type in this schema instead of `public`. Not allowed with an integer `#[repr]`. |
+/// | `#[postgres_enum(schema = "app")]` | Create the native type in this schema instead of `public`. Not allowed with `text` or an integer `#[repr]`. |
+/// | `#[postgres_enum(text)]` | Store the variant name in a `text` column instead of a native type. Not allowed with an integer `#[repr]`. |
+/// | `#[postgres_enum]` | No option; marks an enum that also derives `MySQLEnum` (below). |
+///
+/// # Deriving more than one dialect
+///
+/// `SQLiteEnum`, `PostgresEnum` and `MySQLEnum` each generate the same
+/// dialect-neutral impls (listed below). On an enum that derives more than
+/// one of them, mark the highest-priority one so they are generated once:
+/// `#[sqlite_enum]` when `SQLiteEnum` is among them, otherwise
+/// `#[postgres_enum]` (with or without options). The marked derive generates
+/// them and the others leave them out.
 ///
 /// The SQL type name is the enum's name, quoted (`CREATE TYPE "Mood" ...`),
 /// so `PostgreSQL` keeps its case, and schema-qualified outside `public`
@@ -1242,10 +1288,16 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Generated impls
 ///
-/// - `Display`, `FromStr`, `AsRef<str>`, and `TryFrom<&str>` / `TryFrom<String>`,
-///   all using the variant name.
+/// Dialect-neutral, left out under `#[sqlite_enum]`:
+///
+/// - `Display`, `FromStr`, `AsRef<str>`, `From<Enum> for &str`, and
+///   `TryFrom<&str>` / `TryFrom<String>`, all using the variant name.
 /// - `From<Enum> for i64` and `TryFrom` from the integer types, using the
 ///   discriminant.
+/// - `SQLEnumVariants`, `SchemaItemTables` and `ExprSources`.
+///
+/// `PostgreSQL`-specific:
+///
 /// - `new()`, which returns the first variant.
 /// - The `PostgreSQL` column, value and row conversions, including
 ///   `postgres_types::ToSql` / `FromSql` when a driver feature is enabled.
@@ -1271,6 +1323,13 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///     High = 10,
 /// }
 ///
+/// #[derive(PostgresEnum, Clone, Copy, Debug, PartialEq)]
+/// #[postgres_enum(text)]
+/// enum Source {
+///     Web,
+///     Mobile,
+/// }
+///
 /// #[PostgresTable]
 /// struct Entries {
 ///     #[column(serial, primary)]
@@ -1279,6 +1338,8 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 ///     mood: Mood,
 ///     #[column(enum)]
 ///     priority: Priority,
+///     #[column(enum)]
+///     source: Source,
 /// }
 ///
 /// #[derive(PostgresSchema)]
@@ -1291,6 +1352,7 @@ pub fn test(args: TokenStream, item: TokenStream) -> TokenStream {
 /// assert_eq!(i64::from(Priority::High), 10);
 /// assert!(Entries::ddl_sql().contains(r#""mood" "Mood" NOT NULL"#));
 /// assert!(Entries::ddl_sql().contains(r#""priority" integer NOT NULL"#));
+/// assert!(Entries::ddl_sql().contains(r#""source" text NOT NULL"#));
 /// # }
 /// # #[cfg(not(feature = "postgres"))]
 /// # fn main() {}
@@ -1748,11 +1810,19 @@ pub fn PostgresPolicy(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// variant must be a unit variant without an explicit discriminant; `#[repr]`
 /// is rejected; and variant names may not contain `'` or `\`.
 ///
+/// # Deriving more than one dialect
+///
+/// On an enum that also derives `SQLiteEnum` or `PostgresEnum`, mark it
+/// `#[sqlite_enum]` (or, without `SQLiteEnum`, `#[postgres_enum]`). That
+/// derive then generates the dialect-neutral impls below, and this one
+/// leaves them out.
+///
 /// # Generated impls
 ///
 /// - The `MySQLEnum` trait (`SQL_TYPE`, `VARIANTS`, `variant_name()`).
-/// - `Display`, `FromStr`, `AsRef<str>`, and `TryFrom<&str>` / `TryFrom<String>`,
-///   all using the variant name.
+/// - Dialect-neutral: `Display`, `FromStr`, `AsRef<str>`, and
+///   `TryFrom<&str>` / `TryFrom<String>`, all using the variant name, and
+///   `ExprSources`.
 /// - The `MySQL` value, expression and row conversions, so the enum works as a
 ///   column type, a bound parameter, and a selected value.
 ///

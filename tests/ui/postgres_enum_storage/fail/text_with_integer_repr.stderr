@@ -1,0 +1,5 @@
+error: #[postgres_enum(text)] stores the variant name; remove the integer #[repr(...)] or the `text` option
+ --> tests/ui/postgres_enum_storage/fail/text_with_integer_repr.rs:6:6
+  |
+6 | enum Level {
+  |      ^^^^^

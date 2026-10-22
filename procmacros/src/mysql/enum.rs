@@ -3,6 +3,7 @@ use quote::quote;
 use syn::{Attribute, DataEnum, Error, Fields, Ident};
 
 use super::escape_string as escape_mysql_string;
+use crate::common::enum_utils::has_helper_attribute;
 
 /// Generate the driver-neutral implementation for an inline MySQL `ENUM`.
 pub fn generate_enum_impl(
@@ -67,7 +68,87 @@ pub fn generate_enum_impl(
             .join(", ")
     );
 
+    // Reads one of this enum's MySQL labels from `value: &str`. The decode
+    // paths below use it rather than `FromStr`, which another enum derive may
+    // own (and which keeps a raw identifier's `r#`).
+    let parse_label = quote! {
+        match value {
+            #(#variant_names => ::std::result::Result::Ok(#name::#variants),)*
+            _ => ::std::result::Result::Err(
+                drizzle::error::DrizzleError::ConversionError(
+                    ::std::format!(
+                        "invalid {} value: {value}",
+                        stringify!(#name),
+                    )
+                    .into(),
+                ),
+            ),
+        }
+    };
+
+    // Dialect-neutral impls, left to `SQLiteEnum` / `PostgresEnum` when the
+    // enum also derives one of them (see `has_helper_attribute`).
+    let emits_shared_impls = !has_helper_attribute(attrs, "sqlite_enum")
+        && !has_helper_attribute(attrs, "postgres_enum");
+    let shared_impls = if emits_shared_impls {
+        quote! {
+            impl ::std::fmt::Display for #name {
+                fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                    formatter.write_str(
+                        <Self as drizzle::mysql::traits::MySQLEnum>::variant_name(self),
+                    )
+                }
+            }
+
+            impl ::std::convert::AsRef<str> for #name {
+                fn as_ref(&self) -> &str {
+                    <Self as drizzle::mysql::traits::MySQLEnum>::variant_name(self)
+                }
+            }
+
+            impl ::std::str::FromStr for #name {
+                type Err = drizzle::error::DrizzleError;
+
+                fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
+                    #parse_label
+                }
+            }
+
+            impl ::std::convert::TryFrom<&str> for #name {
+                type Error = drizzle::error::DrizzleError;
+
+                fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
+                    value.parse()
+                }
+            }
+
+            impl ::std::convert::TryFrom<::std::string::String> for #name {
+                type Error = drizzle::error::DrizzleError;
+
+                fn try_from(value: ::std::string::String) -> ::std::result::Result<Self, Self::Error> {
+                    value.parse()
+                }
+            }
+
+            impl ::std::convert::TryFrom<&::std::string::String> for #name {
+                type Error = drizzle::error::DrizzleError;
+
+                fn try_from(value: &::std::string::String) -> ::std::result::Result<Self, Self::Error> {
+                    value.parse()
+                }
+            }
+
+            impl drizzle::core::expr::ExprSources for #name {
+                type Sources = ();
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     Ok(quote! {
+        #shared_impls
+
         impl drizzle::mysql::traits::MySQLEnum for #name {
             const SQL_TYPE: &'static str = #sql_type;
             const VARIANTS: &'static [&'static str] = &[#(#variant_names),*];
@@ -78,63 +159,6 @@ pub fn generate_enum_impl(
                 }
             }
 
-        }
-
-        impl ::std::fmt::Display for #name {
-            fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                formatter.write_str(
-                    <Self as drizzle::mysql::traits::MySQLEnum>::variant_name(self),
-                )
-            }
-        }
-
-        impl ::std::convert::AsRef<str> for #name {
-            fn as_ref(&self) -> &str {
-                <Self as drizzle::mysql::traits::MySQLEnum>::variant_name(self)
-            }
-        }
-
-        impl ::std::str::FromStr for #name {
-            type Err = drizzle::error::DrizzleError;
-
-            fn from_str(value: &str) -> ::std::result::Result<Self, Self::Err> {
-                match value {
-                    #(#variant_names => ::std::result::Result::Ok(Self::#variants),)*
-                    _ => ::std::result::Result::Err(
-                        drizzle::error::DrizzleError::ConversionError(
-                            ::std::format!(
-                                "invalid {} value: {value}",
-                                stringify!(#name),
-                            )
-                            .into(),
-                        ),
-                    ),
-                }
-            }
-        }
-
-        impl ::std::convert::TryFrom<&str> for #name {
-            type Error = drizzle::error::DrizzleError;
-
-            fn try_from(value: &str) -> ::std::result::Result<Self, Self::Error> {
-                value.parse()
-            }
-        }
-
-        impl ::std::convert::TryFrom<::std::string::String> for #name {
-            type Error = drizzle::error::DrizzleError;
-
-            fn try_from(value: ::std::string::String) -> ::std::result::Result<Self, Self::Error> {
-                value.parse()
-            }
-        }
-
-        impl ::std::convert::TryFrom<&::std::string::String> for #name {
-            type Error = drizzle::error::DrizzleError;
-
-            fn try_from(value: &::std::string::String) -> ::std::result::Result<Self, Self::Error> {
-                value.parse()
-            }
         }
 
         impl<'a> ::std::convert::From<#name> for drizzle::mysql::values::MySQLValue<'a> {
@@ -162,7 +186,7 @@ pub fn generate_enum_impl(
                         let value = ::std::str::from_utf8(value.as_ref()).map_err(|error| {
                             drizzle::error::DrizzleError::ConversionError(error.to_string().into())
                         })?;
-                        value.parse()
+                        #parse_label
                     }
                     _ => ::std::result::Result::Err(
                         drizzle::error::DrizzleError::ConversionError(
@@ -190,10 +214,6 @@ pub fn generate_enum_impl(
             type Aggregate = drizzle::core::expr::Scalar;
         }
 
-        impl drizzle::core::expr::ExprSources for #name {
-            type Sources = ();
-        }
-
         impl drizzle::core::ValueTypeForDialect<drizzle::mysql::MySQLDialect> for #name {
             type SQLType = drizzle::mysql::types::Enum;
         }
@@ -216,7 +236,8 @@ pub fn generate_enum_impl(
                 let value = <::std::string::String as drizzle::core::FromDrizzleRow<
                     drizzle::mysql::driver::MySQLRow<'__drizzle_row, __DrizzleRow>
                 >>::from_row_at(row, offset)?;
-                value.parse()
+                let value = value.as_str();
+                #parse_label
             }
         }
     })

@@ -183,6 +183,81 @@ mod execution {
         children: NumericEnumChild,
     }
 
+    // TEXT storage: the variant name in a text column, no CREATE TYPE, so
+    // the schema does not list the enum.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PostgresEnum)]
+    #[postgres_enum(text)]
+    enum TextRole {
+        Reader,
+        Writer,
+    }
+
+    #[PostgresTable(name = "text_enum_records")]
+    struct TextEnumRecord {
+        #[column(primary)]
+        id: i32,
+        #[column(enum)]
+        role: TextRole,
+        #[column(enum)]
+        optional_role: Option<TextRole>,
+    }
+
+    #[derive(PostgresSchema)]
+    struct TextEnumSchema {
+        records: TextEnumRecord,
+    }
+
+    #[test]
+    fn text_enum_columns_are_text() {
+        let ddl = TextEnumRecord::ddl_sql();
+        assert!(ddl.contains(r#""role" text NOT NULL"#), "{ddl}");
+        assert!(ddl.contains(r#""optional_role" text"#), "{ddl}");
+    }
+
+    #[drizzle::test]
+    fn text_enum_round_trips(db: &mut TestDb<TextEnumSchema>) {
+        let TextEnumSchema { records } = schema;
+
+        db.insert(records)
+            .values([
+                InsertTextEnumRecord::new(1, TextRole::Writer).with_optional_role(TextRole::Reader)
+            ])
+            .execute();
+        db.insert(records)
+            .values([InsertTextEnumRecord::new(2, TextRole::Reader)])
+            .execute();
+
+        let writers: Vec<SelectTextEnumRecord> = db
+            .select(())
+            .from(records)
+            .r#where(eq(records.role, TextRole::Writer))
+            .all();
+        assert_eq!(writers.len(), 1);
+        assert_eq!(writers[0].id, 1);
+        assert_eq!(writers[0].optional_role, Some(TextRole::Reader));
+
+        db.update(records)
+            .set(UpdateTextEnumRecord::default().with_role(TextRole::Writer))
+            .r#where(eq(records.id, 2))
+            .execute();
+        let stored: Vec<(i32, String)> = db
+            .select((
+                records.id,
+                cast(records.role, drizzle::postgres::types::Text),
+            ))
+            .from(records)
+            .order_by(records.id)
+            .all();
+        assert_eq!(
+            stored,
+            [(1, "Writer".to_string()), (2, "Writer".to_string())]
+        );
+
+        let second: SelectTextEnumRecord =
+            db.select(()).from(records).r#where(eq(records.id, 2)).get();
+        assert_eq!(second.optional_role, None);
+    }
+
     #[allow(dead_code)]
     #[derive(Debug, PostgresFromRow)]
     struct PgComplexResult {

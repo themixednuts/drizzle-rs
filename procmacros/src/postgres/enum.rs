@@ -1,17 +1,27 @@
-use crate::common::enum_utils::{has_integer_repr, resolve_discriminants};
+use crate::common::enum_utils::{has_helper_attribute, has_integer_repr, resolve_discriminants};
 use crate::paths::{core as core_paths, postgres as postgres_paths};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Attribute, DataEnum, Ident};
 
-/// Parse the optional `#[postgres_enum(schema = "...")]` helper attribute.
-///
-/// Returns `None` when the attribute (or its `schema` key) is absent — the
-/// enum type is then created in the default `public` schema.
-fn parse_enum_schema(attrs: &[Attribute]) -> syn::Result<Option<String>> {
-    let mut schema = None;
+/// Options from the `#[postgres_enum(...)]` helper attribute.
+#[derive(Default)]
+struct EnumOptions {
+    /// `schema = "..."`: where the native type is created. `None` is the
+    /// default `public` schema.
+    schema: Option<String>,
+    /// `text`: store the variant name in a TEXT column instead of a native
+    /// enum type.
+    text: bool,
+}
+
+/// Parse the optional `#[postgres_enum(...)]` helper attribute. A bare
+/// `#[postgres_enum]` sets no option; it marks an enum that also derives
+/// `MySQLEnum` (see `has_helper_attribute`).
+fn parse_enum_options(attrs: &[Attribute]) -> syn::Result<EnumOptions> {
+    let mut options = EnumOptions::default();
     for attr in attrs {
-        if !attr.path().is_ident("postgres_enum") {
+        if !attr.path().is_ident("postgres_enum") || matches!(attr.meta, syn::Meta::Path(_)) {
             continue;
         }
         attr.parse_nested_meta(|meta| {
@@ -21,16 +31,19 @@ fn parse_enum_schema(attrs: &[Attribute]) -> syn::Result<Option<String>> {
                 if value.is_empty() {
                     return Err(meta.error("schema name must not be empty"));
                 }
-                schema = Some(value);
+                options.schema = Some(value);
+                Ok(())
+            } else if meta.path.is_ident("text") {
+                options.text = true;
                 Ok(())
             } else {
                 Err(meta.error(
-                    "unrecognized #[postgres_enum(...)] attribute; supported: schema = \"...\"",
+                    "unrecognized #[postgres_enum(...)] attribute; supported: schema = \"...\", text",
                 ))
             }
         })?;
     }
-    Ok(schema)
+    Ok(options)
 }
 
 // Generate implementation for PostgreSQL enum representation following SQLite pattern
@@ -66,7 +79,12 @@ pub fn generate_enum_impl(
     let variant_idents: Vec<_> = data.variants.iter().map(|v| &v.ident).collect();
 
     // Optional `#[postgres_enum(schema = "...")]` — where the type is created.
-    let enum_schema = parse_enum_schema(attrs)?;
+    let options = parse_enum_options(attrs)?;
+    let enum_schema = options.schema;
+    let is_text_storage = options.text;
+    // `#[sqlite_enum]`: `SQLiteEnum` also sits on this enum and emits the
+    // dialect-neutral impls.
+    let emits_shared_impls = !has_helper_attribute(attrs, "sqlite_enum");
     let type_schema = enum_schema.as_deref().unwrap_or("public");
     // Types have a namespace of their own in each schema.
     let enum_name_scope = format!("type in {type_schema}");
@@ -289,6 +307,20 @@ pub fn generate_enum_impl(
     #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
     let postgres_impls = quote! {};
 
+    if is_text_storage && is_integer_storage {
+        return Err(syn::Error::new_spanned(
+            name,
+            "#[postgres_enum(text)] stores the variant name; remove the integer #[repr(...)] \
+             or the `text` option",
+        ));
+    }
+    if is_text_storage && enum_schema.is_some() {
+        return Err(syn::Error::new_spanned(
+            name,
+            "#[postgres_enum(schema = \"...\")] requires a native PostgreSQL enum; \
+             #[postgres_enum(text)] enums are stored in TEXT columns and create no type",
+        ));
+    }
     if is_integer_storage && enum_schema.is_some() {
         return Err(syn::Error::new_spanned(
             name,
@@ -302,9 +334,6 @@ pub fn generate_enum_impl(
 
     // Common base: integer and string conversions, Display, FromStr, etc.
     let common_impls = quote! {
-
-        #postgres_impls
-
         impl ::std::convert::From<#name> for i64 {
             fn from(value: #name) -> Self {
                 match value {
@@ -501,7 +530,26 @@ pub fn generate_enum_impl(
 
     // Generate DrizzlePostgresColumn impl (feature-gated on postgres driver availability)
     #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
-    let drizzle_postgres_column_impl = if is_integer_storage {
+    let drizzle_postgres_column_impl = if is_text_storage {
+        // Text-stored enum: the variant name in a TEXT column, no type
+        quote! {
+            impl #drizzle_postgres_column for #name {
+                type SQLType = #postgres_types::Text;
+                const SQL_TYPE: &'static str = "text";
+                const NEEDS_CREATE_TYPE: bool = false;
+
+                fn decode(row: &drizzle::postgres::Row, idx: usize) -> ::std::result::Result<Self, #drizzle_error> {
+                    row.try_get::<_, #name>(idx)
+                        .map_err(|error| #drizzle_error::ConversionError(error.to_string().into()))
+                }
+
+                fn encode(&self) -> #postgres_value<'_> {
+                    let text: &'static str = self.into();
+                    #postgres_value::Text(::std::borrow::Cow::Borrowed(text))
+                }
+            }
+        }
+    } else if is_integer_storage {
         // Integer-stored enum: read as i32, write as Integer
         quote! {
             impl #drizzle_postgres_column for #name {
@@ -550,7 +598,21 @@ pub fn generate_enum_impl(
     };
 
     #[cfg(not(any(feature = "postgres-sync", feature = "tokio-postgres")))]
-    let drizzle_postgres_column_impl = if !is_integer_storage {
+    let drizzle_postgres_column_impl = if is_text_storage {
+        // Text-stored enum without driver: no decode method
+        quote! {
+            impl #drizzle_postgres_column for #name {
+                type SQLType = #postgres_types::Text;
+                const SQL_TYPE: &'static str = "text";
+                const NEEDS_CREATE_TYPE: bool = false;
+
+                fn encode(&self) -> #postgres_value<'_> {
+                    let text: &'static str = self.into();
+                    #postgres_value::Text(::std::borrow::Cow::Borrowed(text))
+                }
+            }
+        }
+    } else if !is_integer_storage {
         // Native enum without driver: no decode method
         quote! {
             impl #drizzle_postgres_column for #name {
@@ -682,7 +744,52 @@ pub fn generate_enum_impl(
 
     // Native enum impls (PostgresEnum trait, SQLEnumInfo, SQLSchema, CREATE TYPE SQL, Expr with Enum type)
     // Only generated for non-integer-repr enums
-    let native_enum_impls = if is_integer_storage {
+    let native_enum_impls = if is_text_storage {
+        // Text-stored enum: a TEXT column, no CREATE TYPE
+        quote! {
+            // Implement new() - returns the default variant
+            impl #name {
+                pub const fn new() -> Self {
+                    #name::#first_variant
+                }
+            }
+
+            // Snapshot DDL channel (text enums create no type).
+            impl #postgres_item_ddl for #name {}
+
+            // Implement Expr trait for type-safe comparisons — text type
+            impl<'a> #core_expr::Expr<'a, #postgres_value<'a>> for #name {
+                type SQLType = #postgres_types::Text;
+                type Nullable = #core_expr::NonNull;
+                type Aggregate = #core_expr::Scalar;
+            }
+
+            // DrizzlePostgresColumn for text-stored enum
+            #drizzle_postgres_column_impl
+
+            impl #value_type_for_dialect<#postgres_dialect> for #name {
+                type SQLType = #postgres_types::Text;
+            }
+
+            impl #value_type_for_dialect<#postgres_dialect> for &#name {
+                type SQLType = #postgres_types::Text;
+            }
+
+            // TryFrom<PostgresValue> for the enum (read path)
+            impl<'a> ::std::convert::TryFrom<#postgres_value<'a>> for #name {
+                type Error = #drizzle_error;
+
+                fn try_from(value: #postgres_value<'a>) -> ::std::result::Result<Self, Self::Error> {
+                    match value {
+                        #postgres_value::Text(cow) => <#name as ::std::str::FromStr>::from_str(cow.as_ref()),
+                        _ => ::std::result::Result::Err(#drizzle_error::ConversionError(
+                            ::std::format!("Cannot convert {:?} to {}", value, stringify!(#name)).into(),
+                        )),
+                    }
+                }
+            }
+        }
+    } else if is_integer_storage {
         // Integer-repr enum: stored as integer column, no CREATE TYPE needed
         quote! {
             // Implement new() - returns the default variant
@@ -700,10 +807,6 @@ pub fn generate_enum_impl(
                 type SQLType = #postgres_types::Int4;
                 type Nullable = #core_expr::NonNull;
                 type Aggregate = #core_expr::Scalar;
-            }
-
-            impl #core_expr::ExprSources for #name {
-                type Sources = ();
             }
 
             // DrizzlePostgresColumn for integer-stored enum
@@ -812,10 +915,6 @@ pub fn generate_enum_impl(
                 type Aggregate = #core_expr::Scalar;
             }
 
-            impl #core_expr::ExprSources for #name {
-                type Sources = ();
-            }
-
             // DrizzlePostgresColumn for native enum
             #drizzle_postgres_column_impl
 
@@ -865,10 +964,29 @@ pub fn generate_enum_impl(
         }
     };
 
+    // Dialect-neutral impls, emitted by one enum derive only (see
+    // `has_helper_attribute`).
+    let shared_impls = if emits_shared_impls {
+        quote! {
+            #common_impls
+            #enum_variants_impl
+
+            impl #schema_item_tables for #name {
+                type Tables = #type_set_nil;
+            }
+
+            impl #core_expr::ExprSources for #name {
+                type Sources = ();
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     Ok(quote! {
-        #common_impls
+        #shared_impls
+        #postgres_impls
         #native_enum_impls
-        #enum_variants_impl
 
         // ToSQL implementation (delegates to From)
         impl<'a> #to_sql_trait<'a, #postgres_value<'a>> for #name {
@@ -881,9 +999,5 @@ pub fn generate_enum_impl(
 
         #postgres_row_impls
         #aws_data_api_row_impls
-
-        impl #schema_item_tables for #name {
-            type Tables = #type_set_nil;
-        }
     })
 }

@@ -445,7 +445,7 @@ Snapshots describe the database, not the TypeScript around it:
 | ``.generatedAlwaysAs(sql`...`)`` | `#[column(generated(stored, "expr"))]` or `generated(virtual, "expr")` |
 | `pgEnum('role', ['admin', 'member'])` | `#[derive(PostgresEnum)]` on an enum whose name and variants are the SQL type and values, and `#[column(enum)]` on the field; `#[postgres_enum(schema = "auth")]` for another schema |
 | `mysqlEnum('role', [...])` | `#[derive(MySQLEnum)]` and `#[column(ENUM)]` |
-| `text({ enum: [...] })` (SQLite) | `#[derive(SQLiteEnum)]` and `#[column(enum)]`, or keep a `String` |
+| `text({ enum: [...] })` | `#[derive(SQLiteEnum)]` (SQLite) or `#[derive(PostgresEnum)]` with `#[postgres_enum(text)]` (PostgreSQL), and `#[column(enum)]`; or keep a `String` |
 | `json()`, `jsonb()` | `#[column(json)]` / `#[column(jsonb)]` with a `serde` type (`serde_json::Value` maps to `JSONB`) |
 | `pgView('v').as(...)`, `sqliteView`, `mysqlView` | `#[PostgresView(definition = "...")]` (`materialized` for `pgMaterializedView`), `#[SQLiteView(...)]`, `#[MySQLView(...)]` on a struct with the view's columns |
 | `relations(...)` | not needed; see above |

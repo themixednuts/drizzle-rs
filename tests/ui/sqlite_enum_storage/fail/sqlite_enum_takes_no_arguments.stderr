@@ -1,0 +1,5 @@
+error: #[sqlite_enum] takes no arguments
+ --> tests/ui/sqlite_enum_storage/fail/sqlite_enum_takes_no_arguments.rs:4:1
+  |
+4 | #[sqlite_enum(text)]
+  | ^^^^^^^^^^^^^^^^^^^^
