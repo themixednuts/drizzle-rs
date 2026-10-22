@@ -270,7 +270,10 @@ where
 
 /// The alias a relation's target table takes in its subquery.
 fn subquery_alias<R: RelationDef>() -> String {
-    format!("r_{}", R::NAME)
+    let mut alias = String::with_capacity(2 + R::NAME.len());
+    alias.push_str("r_");
+    alias.push_str(R::NAME);
+    alias
 }
 
 impl<'a, V, R, Cols, Cl> RelationHandle<'a, V, R, (), Cols, Cl>

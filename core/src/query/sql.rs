@@ -706,9 +706,10 @@ pub(crate) fn relation_subquery_sql<'a, V: SQLParam>(
 
     // A many-to-many relation joins the junction table and ties its rows
     // to the parent; a direct one ties the target rows.
-    let junction_alias = format!("{alias}_j");
+    let junction_alias;
     let (inner_alias, pairs) = match &junction {
         Some(junction) => {
+            junction_alias = format!("{alias}_j");
             write_junction_join(dialect, junction, alias, &junction_alias, sql.buf_mut());
             (junction_alias.as_str(), junction.source_fk)
         }
