@@ -1323,18 +1323,63 @@ mod postgres_row_impl {
         row: &R,
         column: impl ColumnRef,
     ) -> Result<T, DrizzleError> {
-        if let Some(result) = try_oid_dispatch::<T, R>(row, &column) {
-            return result;
-        }
-        if let Some(result) = try_scalar_fallbacks::<T, R>(row, &column) {
-            return result;
-        }
-        if let Some(result) = try_array_fallbacks::<T, R>(row, &column) {
-            return result;
+        // Only a NULL cell decodes as NULL. The probe accepts every wire
+        // type, so it never mistakes a value it cannot read for NULL.
+        let is_null = row
+            .try_get_any::<drizzle_core::AnyNullProbe>(&column)
+            .map_err(|()| missing_column(&column))?
+            .is_none();
+        if is_null {
+            return T::from_postgres_null();
         }
 
-        // If all type probes returned None/error, assume NULL.
-        T::from_postgres_null()
+        // Each probe reads the cell as one Rust type and hands it to `T`. A
+        // probe whose value `T` rejects (a chrono timestamp for a jiff
+        // target) does not end the search: a later probe may read the same
+        // column as a type `T` accepts. The first rejection is reported if
+        // none succeeds.
+        let mut first_error = None;
+        match try_oid_dispatch::<T, R>(row, &column) {
+            Some(Ok(value)) => return Ok(value),
+            Some(Err(error)) => {
+                first_error.get_or_insert(error);
+            }
+            None => {}
+        }
+        if let Some(value) = try_scalar_fallbacks::<T, R>(row, &column, &mut first_error) {
+            return Ok(value);
+        }
+        match try_array_fallbacks::<T, R>(row, &column) {
+            Some(Ok(value)) => return Ok(value),
+            Some(Err(error)) => {
+                first_error.get_or_insert(error);
+            }
+            None => {}
+        }
+
+        Err(first_error.unwrap_or_else(|| {
+            DrizzleError::ConversionError(
+                format!(
+                    "cannot decode column {} of type {} as {}",
+                    column_label(&column),
+                    row.type_name(&column).as_deref().unwrap_or("unknown"),
+                    core::any::type_name::<T>(),
+                )
+                .into(),
+            )
+        }))
+    }
+
+    fn column_label(column: &impl ColumnRef) -> String {
+        match (column.to_index(), column.to_name()) {
+            (Some(idx), _) => idx.to_string(),
+            (None, Some(name)) => format!("'{name}'"),
+            (None, None) => "?".into(),
+        }
+    }
+
+    fn missing_column(column: &impl ColumnRef) -> DrizzleError {
+        DrizzleError::ConversionError(format!("column {} not found", column_label(column)).into())
     }
 
     /// `PostgreSQL` OID fast-path: when the column's declared type matches a
@@ -1392,17 +1437,93 @@ mod postgres_row_impl {
 
     /// Scalar fallback chain: try each supported primitive / library type in
     /// priority order, returning the first that decodes successfully.
+    ///
+    /// Returns the first value `T` accepts. A probe whose value `T` rejects
+    /// records its error in `first_error` and the search continues.
     fn try_scalar_fallbacks<T: FromPostgresValue, R: PostgresRowLike>(
         row: &R,
         column: &impl ColumnRef,
+        first_error: &mut Option<DrizzleError>,
+    ) -> Option<T> {
+        macro_rules! probe {
+            ($($probe:ident),+ $(,)?) => {$(
+                match $probe::<T, R>(row, column) {
+                    Some(Ok(value)) => return Some(value),
+                    Some(Err(error)) => {
+                        first_error.get_or_insert(error);
+                    }
+                    None => {}
+                }
+            )+};
+        }
+        probe!(
+            try_scalar_primitives,
+            try_scalar_uuid,
+            try_scalar_json,
+            try_scalar_chrono,
+            try_scalar_time,
+            try_scalar_jiff,
+            try_scalar_cidr,
+            try_scalar_geo,
+            try_scalar_bitvec,
+        );
+        None
+    }
+
+    #[cfg(feature = "time")]
+    fn try_scalar_time<T: FromPostgresValue, R: PostgresRowLike>(
+        row: &R,
+        column: &impl ColumnRef,
     ) -> Option<Result<T, DrizzleError>> {
-        try_scalar_primitives::<T, R>(row, column)
-            .or_else(|| try_scalar_uuid::<T, R>(row, column))
-            .or_else(|| try_scalar_json::<T, R>(row, column))
-            .or_else(|| try_scalar_chrono::<T, R>(row, column))
-            .or_else(|| try_scalar_cidr::<T, R>(row, column))
-            .or_else(|| try_scalar_geo::<T, R>(row, column))
-            .or_else(|| try_scalar_bitvec::<T, R>(row, column))
+        if let Ok(Some(v)) = row.try_get_any::<time::Date>(column) {
+            return Some(T::from_postgres_time_date(v));
+        }
+        if let Ok(Some(v)) = row.try_get_any::<time::Time>(column) {
+            return Some(T::from_postgres_time_time(v));
+        }
+        if let Ok(Some(v)) = row.try_get_any::<time::PrimitiveDateTime>(column) {
+            return Some(T::from_postgres_time_timestamp(v));
+        }
+        if let Ok(Some(v)) = row.try_get_any::<time::OffsetDateTime>(column) {
+            return Some(T::from_postgres_time_timestamptz(v));
+        }
+        None
+    }
+
+    #[cfg(not(feature = "time"))]
+    const fn try_scalar_time<T: FromPostgresValue, R: PostgresRowLike>(
+        _row: &R,
+        _column: &impl ColumnRef,
+    ) -> Option<Result<T, DrizzleError>> {
+        None
+    }
+
+    #[cfg(feature = "jiff")]
+    fn try_scalar_jiff<T: FromPostgresValue, R: PostgresRowLike>(
+        row: &R,
+        column: &impl ColumnRef,
+    ) -> Option<Result<T, DrizzleError>> {
+        if let Ok(Some(v)) = row.try_get_any::<jiff::civil::Date>(column) {
+            return Some(T::from_postgres_jiff_date(v));
+        }
+        if let Ok(Some(v)) = row.try_get_any::<jiff::civil::Time>(column) {
+            return Some(T::from_postgres_jiff_time(v));
+        }
+        if let Ok(Some(v)) = row.try_get_any::<jiff::civil::DateTime>(column) {
+            return Some(T::from_postgres_jiff_datetime(v));
+        }
+        if let Ok(Some(v)) = row.try_get_any::<jiff::Timestamp>(column) {
+            return Some(T::from_postgres_jiff_timestamp(v));
+        }
+        None
+    }
+
+    #[cfg(not(feature = "jiff"))]
+    const fn try_scalar_jiff<T: FromPostgresValue, R: PostgresRowLike>(
+        _row: &R,
+        _column: &impl ColumnRef,
+    ) -> Option<Result<T, DrizzleError>> {
+        None
     }
 
     /// Primitive scalar fallbacks: bool / integers / floats / text / bytes.
@@ -1855,6 +1976,13 @@ mod postgres_row_impl {
     /// Internal trait to abstract over postgres/tokio-postgres Row types
     trait PostgresRowLike {
         fn type_oid(&self, column: &impl ColumnRef) -> Option<u32>;
+        /// The column's Postgres type name, for error messages.
+        fn type_name(&self, column: &impl ColumnRef) -> Option<String>;
+        /// Reads the column as any driver-decodable `T`.
+        fn try_get_any<T: for<'a> crate::driver_types::FromSql<'a>>(
+            &self,
+            column: &impl ColumnRef,
+        ) -> Result<Option<T>, ()>;
         fn try_get_bool(&self, column: &impl ColumnRef) -> Result<Option<bool>, ()>;
         fn try_get_i16(&self, column: &impl ColumnRef) -> Result<Option<i16>, ()>;
         fn try_get_i32(&self, column: &impl ColumnRef) -> Result<Option<i32>, ()>;
@@ -2020,6 +2148,23 @@ mod postgres_row_impl {
             };
 
             self.columns().get(idx).map(|c| c.type_().oid())
+        }
+
+        fn type_name(&self, column: &impl ColumnRef) -> Option<String> {
+            let idx = match (column.to_index(), column.to_name()) {
+                (Some(idx), _) => idx,
+                (None, Some(name)) => self.columns().iter().position(|c| c.name() == name)?,
+                (None, None) => return None,
+            };
+
+            self.columns().get(idx).map(|c| c.type_().name().into())
+        }
+
+        fn try_get_any<T: for<'a> crate::driver_types::FromSql<'a>>(
+            &self,
+            column: &impl ColumnRef,
+        ) -> Result<Option<T>, ()> {
+            try_get_typed!(self, column, T)
         }
 
         fn try_get_bool(&self, column: &impl ColumnRef) -> Result<Option<bool>, ()> {
@@ -2355,6 +2500,23 @@ mod postgres_row_impl {
             };
 
             self.columns().get(idx).map(|c| c.type_().oid())
+        }
+
+        fn type_name(&self, column: &impl ColumnRef) -> Option<String> {
+            let idx = match (column.to_index(), column.to_name()) {
+                (Some(idx), _) => idx,
+                (None, Some(name)) => self.columns().iter().position(|c| c.name() == name)?,
+                (None, None) => return None,
+            };
+
+            self.columns().get(idx).map(|c| c.type_().name().into())
+        }
+
+        fn try_get_any<T: for<'a> crate::driver_types::FromSql<'a>>(
+            &self,
+            column: &impl ColumnRef,
+        ) -> Result<Option<T>, ()> {
+            try_get_typed!(self, column, T)
         }
 
         fn try_get_bool(&self, column: &impl ColumnRef) -> Result<Option<bool>, ()> {

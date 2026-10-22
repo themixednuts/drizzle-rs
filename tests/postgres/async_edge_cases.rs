@@ -32,6 +32,45 @@ mod tokio_postgres_edge_cases {
         mismatch_view: MismatchView,
     }
 
+    async fn raw_row(sql: &str) -> tokio_postgres::Row {
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "host=localhost user=postgres password=postgres dbname=drizzle_test".to_string()
+        });
+        let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+            .await
+            .expect("connect");
+        tokio::spawn(connection);
+        client.query_one(sql, &[]).await.expect("query")
+    }
+
+    // `get_column` used to read any value it had no probe for as NULL.
+    #[cfg(feature = "chrono")]
+    #[tokio::test]
+    async fn get_column_reports_undecodable_values_instead_of_null() {
+        use drizzle::postgres::traits::DrizzleRowByIndex;
+
+        let row = raw_row("SELECT interval '1 day' AS present, NULL::interval AS absent").await;
+        let present = DrizzleRowByIndex::get_column::<Option<chrono::Duration>>(&row, 0);
+        assert!(
+            present.is_err(),
+            "a non-NULL interval must not decode as None: {present:?}"
+        );
+        let absent = DrizzleRowByIndex::get_column::<Option<chrono::Duration>>(&row, 1);
+        assert!(matches!(absent, Ok(None)), "{absent:?}");
+    }
+
+    // With chrono and jiff both enabled, the chrono probe reads a timestamptz
+    // first; a jiff target must still decode it.
+    #[cfg(all(feature = "chrono", feature = "jiff"))]
+    #[tokio::test]
+    async fn get_column_reads_jiff_timestamps_alongside_chrono() {
+        use drizzle::postgres::traits::DrizzleRowByIndex;
+
+        let row = raw_row("SELECT timestamptz '2024-01-02 03:04:05+00' AS at").await;
+        let at = DrizzleRowByIndex::get_column::<jiff::Timestamp>(&row, 0).expect("jiff timestamp");
+        assert_eq!(at.to_string(), "2024-01-02T03:04:05Z");
+    }
+
     #[tokio::test]
     async fn select_model_type_mismatch_is_an_error_not_a_panic() {
         let (
