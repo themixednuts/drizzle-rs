@@ -28,7 +28,8 @@
 
 use crate::mysql::MySQLSnapshot;
 use crate::parser::{
-    ColumnSpec, ParseResult, ParsedDefault, ParsedField, ParsedIndex, ParsedTable,
+    ColumnSpec, ParseResult, ParsedDefault, ParsedEnum, ParsedField, ParsedIndex, ParsedTable,
+    PgEnumStorage,
 };
 use crate::postgres::PostgresSnapshot;
 use crate::schema::Snapshot;
@@ -496,6 +497,12 @@ fn postgres_default(spec: &ColumnSpec) -> Option<String> {
     }
 }
 
+/// A `PostgresEnum` stored as its own type (`CREATE TYPE ... AS ENUM`), not
+/// in a text or integer column.
+fn is_native_postgres_enum(parsed: &ParsedEnum) -> bool {
+    parsed.dialect == Dialect::PostgreSQL && parsed.storage == PgEnumStorage::Native
+}
+
 /// Build a `PostgreSQL` snapshot from parsed schema
 #[allow(clippy::too_many_lines)]
 fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
@@ -534,7 +541,7 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
     let enum_schemas: HashMap<&str, &str> = result
         .enums
         .values()
-        .filter(|e| e.dialect == Dialect::PostgreSQL)
+        .filter(|e| is_native_postgres_enum(e))
         .map(|e| (e.name.as_str(), e.schema.as_deref().unwrap_or("public")))
         .collect();
     let type_schema_of = |sql_type: &str| -> String {
@@ -572,7 +579,7 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
     let mut enum_decls: Vec<_> = result
         .enums
         .values()
-        .filter(|e| e.dialect == Dialect::PostgreSQL)
+        .filter(|e| is_native_postgres_enum(e))
         .collect();
     enum_decls.sort_by_key(|e| e.order);
     for parsed in enum_decls {
@@ -916,11 +923,12 @@ fn build_postgres_snapshot(result: &ParseResult) -> PostgresSnapshot {
     }
 
     // Enums: created in the schema from `#[postgres_enum(schema = "...")]`
-    // (default `public`), matching the derive's `ENUM_SCHEMA` const.
+    // (default `public`), matching the derive's `ENUM_SCHEMA` const. Text-
+    // and integer-stored enums create no type.
     let mut enums: Vec<_> = result
         .enums
         .values()
-        .filter(|e| e.dialect == Dialect::PostgreSQL)
+        .filter(|e| is_native_postgres_enum(e))
         .collect();
     enums.sort_by_key(|e| e.order);
     for parsed in enums {
@@ -2241,6 +2249,134 @@ pub struct Timers {
         let status = column("status");
         assert_eq!(status.type_schema.as_deref(), Some("billing"));
         assert_eq!(status.type_sql(), "\"billing\".\"LineItemStatus\"");
+    }
+
+    #[test]
+    fn test_postgres_text_and_integer_enums_create_no_type() {
+        // `#[postgres_enum(text)]` stores the variant name in a text column;
+        // explicit discriminants or an integer `#[repr]` store an integer
+        // sized by the repr. Neither creates a type, so neither may be an
+        // Enum entity or a column typed by the enum's name. The table comes
+        // first: storage resolves once every enum is known.
+        use crate::postgres::ddl::PostgresEntity;
+
+        let code = r#"
+#[PostgresTable]
+pub struct Members {
+    #[column(primary)]
+    pub id: i32,
+    #[column(enum)]
+    pub role: Role,
+    #[column(enum)]
+    pub previous_role: Option<Role>,
+    #[column(enum)]
+    pub level: Level,
+    #[column(enum)]
+    pub rank: Rank,
+    #[column(enum)]
+    pub score: Score,
+    #[column(enum)]
+    pub mood: Mood,
+}
+
+#[derive(PostgresEnum, Default, Clone)]
+#[postgres_enum(text)]
+pub enum Role {
+    #[default]
+    Member,
+    Admin,
+}
+
+#[derive(PostgresEnum, Default, Clone)]
+pub enum Level {
+    #[default]
+    Low = 1,
+    High = 2,
+}
+
+#[derive(PostgresEnum, Default, Clone)]
+#[repr(u8)]
+pub enum Rank {
+    #[default]
+    First,
+    Second,
+}
+
+#[derive(PostgresEnum, Default, Clone)]
+#[repr(i64)]
+pub enum Score {
+    #[default]
+    Zero,
+    One,
+}
+
+#[derive(PostgresEnum, Default, Clone)]
+pub enum Mood {
+    #[default]
+    Happy,
+    Sad,
+}
+"#;
+
+        let result = SchemaParser::parse(code);
+        assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+        let snap = postgres_snapshot(code);
+        let column = |name: &str| {
+            snap.ddl
+                .iter()
+                .find_map(|e| match e {
+                    PostgresEntity::Column(c) if c.name.as_ref() == name => Some(c.clone()),
+                    _ => None,
+                })
+                .expect("column")
+        };
+        for (name, sql_type) in [
+            ("role", "text"),
+            ("previous_role", "text"),
+            ("level", "integer"),
+            ("rank", "smallint"),
+            ("score", "bigint"),
+        ] {
+            let col = column(name);
+            assert_eq!(col.type_sql(), sql_type, "{name}");
+            assert_eq!(col.type_schema, None, "{name}");
+        }
+        assert_eq!(column("mood").type_sql(), "\"Mood\"");
+
+        let enums: Vec<_> = snap
+            .ddl
+            .iter()
+            .filter_map(|e| match e {
+                PostgresEntity::Enum(en) => Some(en.name.as_ref()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(enums, ["Mood"]);
+    }
+
+    #[test]
+    fn test_postgres_enum_column_without_declared_enum_warns() {
+        // The enum lives outside the parsed files: the column keeps the
+        // native type name, and nothing creates that type.
+        let result = SchemaParser::parse(
+            r#"
+#[PostgresTable]
+pub struct Members {
+    #[column(primary)]
+    pub id: i32,
+    #[column(enum)]
+    pub role: Role,
+}
+"#,
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("Members.role") && w.contains("no CREATE TYPE")),
+            "{:?}",
+            result.warnings
+        );
     }
 
     #[test]

@@ -99,8 +99,55 @@ impl SchemaParser {
         let Walker { diags, .. } = walker;
         result.warnings.extend(diags.warnings);
         result.errors.extend(diags.errors);
+        resolve_postgres_enum_columns(&mut result);
         validate_mysql_database_scope(&mut result);
         result
+    }
+}
+
+/// Give each Postgres `#[column(enum)]` column its enum's storage type, once
+/// every enum is known (an enum may be declared after the table using it, or
+/// in a later schema file). A native enum keeps its name as the column type;
+/// a text- or integer-stored enum is a `text` / integer column, like the
+/// derive's `DrizzlePostgresColumn::SQL_TYPE`.
+fn resolve_postgres_enum_columns(result: &mut ParseResult) {
+    let storages: std::collections::HashMap<String, PgEnumStorage> = result
+        .enums
+        .values()
+        .filter(|e| e.dialect == Dialect::PostgreSQL)
+        .map(|e| (e.name.clone(), e.storage))
+        .collect();
+    let mut tables: Vec<_> = result
+        .tables
+        .values_mut()
+        .filter(|t| t.dialect == Dialect::PostgreSQL)
+        .collect();
+    tables.sort_by_key(|t| t.order);
+    for table in tables {
+        for field in &mut table.fields {
+            let spec = &mut field.spec;
+            if !spec.enum_marker || spec.serial.is_some() || spec.pg_dimensions.is_some() {
+                continue;
+            }
+            let Some(pg_type) = spec.pg_type.as_deref() else {
+                continue;
+            };
+            let enum_name = pg_type.rsplit("::").next().unwrap_or(pg_type);
+            match storages.get(enum_name) {
+                Some(storage) => {
+                    if let Some(column_type) = storage.column_type() {
+                        spec.pg_type = Some(column_type.to_string());
+                    }
+                }
+                None => result.warnings.push(format!(
+                    "{}.{}: `{pg_type}` is not a #[derive(PostgresEnum)] enum in the parsed \
+                     schema files; the column is typed as a native enum `{pg_type}`, but no \
+                     CREATE TYPE is generated for it. Add the file declaring the enum to the \
+                     schema paths",
+                    table.name, field.name
+                )),
+            }
+        }
     }
 }
 
@@ -509,10 +556,22 @@ impl Walker<'_> {
                     }
                 }
             }
-            let schema = if dialect == Dialect::PostgreSQL {
-                enum_schema_attr(&item.attrs)
+            let (schema, storage) = if dialect == Dialect::PostgreSQL {
+                let (schema, text) = postgres_enum_attr(&item.attrs);
+                let storage = postgres_enum_storage(item, text);
+                if text && storage != PgEnumStorage::Text {
+                    self.diags.errors.push(format!(
+                        "enum `{name}`: #[postgres_enum(text)] cannot be combined with an integer #[repr(...)] or explicit discriminants"
+                    ));
+                }
+                if schema.is_some() && storage != PgEnumStorage::Native {
+                    self.diags.errors.push(format!(
+                        "enum `{name}`: #[postgres_enum(schema = \"...\")] applies only to native enums; text- and integer-stored enums create no type"
+                    ));
+                }
+                (schema, storage)
             } else {
-                None
+                (None, PgEnumStorage::Native)
             };
             let parsed = ParsedEnum {
                 name: name.clone(),
@@ -530,6 +589,7 @@ impl Walker<'_> {
                     .collect(),
                 dialect,
                 schema,
+                storage,
                 order: self.next_order(),
             };
             let key = entity_key(dialect, &name);
@@ -573,12 +633,13 @@ impl Walker<'_> {
     }
 }
 
-/// `#[postgres_enum(schema = "...")]` helper-attribute value on an enum item,
-/// matching the derive's own parsing (only the `schema` key is recognized).
-fn enum_schema_attr(attrs: &[syn::Attribute]) -> Option<String> {
+/// `#[postgres_enum(schema = "...", text)]` helper-attribute values on an
+/// enum item, matching the derive's own parsing.
+fn postgres_enum_attr(attrs: &[syn::Attribute]) -> (Option<String>, bool) {
     let mut schema = None;
+    let mut text = false;
     for attr in attrs {
-        if !attr.path().is_ident("postgres_enum") {
+        if !attr.path().is_ident("postgres_enum") || matches!(attr.meta, syn::Meta::Path(_)) {
             continue;
         }
         let _ = attr.parse_nested_meta(|meta| {
@@ -590,11 +651,44 @@ fn enum_schema_attr(attrs: &[syn::Attribute]) -> Option<String> {
                 if !name.is_empty() {
                     schema = Some(name);
                 }
+            } else if meta.path.is_ident("text") {
+                text = true;
             }
             Ok(())
         });
     }
-    schema
+    (schema, text)
+}
+
+/// Storage the `PostgresEnum` derive picks: `text` when asked, an integer
+/// sized by the repr for explicit discriminants or an integer `#[repr]`
+/// (`i8`/`u8`/`i16` -> `smallint`, `i64`/`u32`/`u64` -> `bigint`, otherwise
+/// `integer`), a native type otherwise.
+fn postgres_enum_storage(item: &syn::ItemEnum, text: bool) -> PgEnumStorage {
+    let repr = item.attrs.iter().find_map(|attr| {
+        if !attr.path().is_ident("repr") {
+            return None;
+        }
+        let ident = attr.parse_args::<syn::Ident>().ok()?.to_string();
+        matches!(
+            ident.as_str(),
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+        )
+        .then_some(ident)
+    });
+    let has_discriminants = item.variants.iter().any(|v| v.discriminant.is_some());
+    if repr.is_none() && !has_discriminants {
+        return if text {
+            PgEnumStorage::Text
+        } else {
+            PgEnumStorage::Native
+        };
+    }
+    PgEnumStorage::Integer(match repr.as_deref() {
+        Some("i8" | "u8" | "i16") => "smallint",
+        Some("i64" | "u32" | "u64") => "bigint",
+        _ => "integer",
+    })
 }
 
 /// Dialects for which the item derives the given schema/enum markers,

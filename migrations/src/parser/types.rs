@@ -381,11 +381,38 @@ pub struct ParsedField {
     pub spec: ColumnSpec,
 }
 
+/// How a `PostgresEnum` is stored, decided like the derive does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PgEnumStorage {
+    /// A native enum type: `CREATE TYPE <ident> AS ENUM (...)`.
+    #[default]
+    Native,
+    /// `#[postgres_enum(text)]`: the variant name in a `text` column, no type.
+    Text,
+    /// Explicit discriminants or an integer `#[repr]`: the discriminant in an
+    /// integer column sized by the repr (`smallint`, `integer`, `bigint`).
+    Integer(&'static str),
+}
+
+impl PgEnumStorage {
+    /// The column type of a non-native enum; `None` for a native enum,
+    /// whose column type is the enum's own name.
+    #[must_use]
+    pub const fn column_type(self) -> Option<&'static str> {
+        match self {
+            Self::Native => None,
+            Self::Text => Some("text"),
+            Self::Integer(sql_type) => Some(sql_type),
+        }
+    }
+}
+
 /// Parsed enum deriving `SQLiteEnum`, `PostgresEnum`, or `MySQLEnum`.
 #[derive(Debug, Clone, Default)]
 pub struct ParsedEnum {
-    /// Enum ident. For `PostgreSQL` this is also the SQL enum type name —
-    /// the derive emits `CREATE TYPE <ident> AS ENUM (...)` verbatim.
+    /// Enum ident. For a native `PostgreSQL` enum this is also the SQL enum
+    /// type name — the derive emits `CREATE TYPE <ident> AS ENUM (...)`
+    /// verbatim.
     pub name: String,
     /// Variant idents in declaration order.
     pub variants: Vec<String>,
@@ -394,6 +421,8 @@ pub struct ParsedEnum {
     /// `#[postgres_enum(schema = "...")]` (`PostgreSQL` only). `None` means
     /// the type is created in `public`.
     pub schema: Option<String>,
+    /// Column storage (`PostgreSQL` only; always `Native` elsewhere).
+    pub storage: PgEnumStorage,
     /// Source position, see [`ParsedTable::order`].
     pub(crate) order: usize,
 }

@@ -405,6 +405,56 @@ mod postgres_parity {
         pub user_id: i64,
     }
 
+    // Text- and integer-stored enums create no type: their columns are
+    // text / integer columns sized by the repr, and neither is an Enum
+    // entity. `MemberRole` is declared after the table that uses it.
+    #[PostgresTable]
+    pub struct Memberships {
+        #[column(primary)]
+        pub id: i64,
+        #[column(enum)]
+        pub role: MemberRole,
+        #[column(enum)]
+        pub previous_role: Option<MemberRole>,
+        #[column(enum)]
+        pub priority: Priority,
+        #[column(enum)]
+        pub tier: MemberTier,
+        #[column(enum)]
+        pub points: MemberPoints,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    #[postgres_enum(text)]
+    pub enum MemberRole {
+        #[default]
+        Member,
+        Admin,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    pub enum Priority {
+        #[default]
+        Low = 1,
+        High = 2,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    #[repr(i16)]
+    pub enum MemberTier {
+        #[default]
+        Bronze,
+        Gold,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    #[repr(u32)]
+    pub enum MemberPoints {
+        #[default]
+        None,
+        Some,
+    }
+
     #[derive(PostgresSchema)]
     pub struct PostgresParitySchema {
         pub account_status: AccountStatus,
@@ -420,6 +470,7 @@ mod postgres_parity {
         pub tenants: Tenants,
         pub tenant_users: TenantUsers,
         pub tenant_documents: TenantDocuments,
+        pub memberships: Memberships,
     }
 
     #[test]
