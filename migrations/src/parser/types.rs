@@ -514,8 +514,11 @@ pub struct ParseResult {
     pub tables: HashMap<String, ParsedTable>,
     /// Parsed index structs, keyed `"<dialect>:<StructName>"`
     pub indexes: HashMap<String, ParsedIndex>,
-    /// Parsed schema struct (if present)
+    /// Parsed schema struct (if present): the first one in source order.
     pub schema: Option<ParsedSchema>,
+    /// The first schema struct of each dialect, which selects that dialect's
+    /// members.
+    pub schemas: HashMap<Dialect, ParsedSchema>,
     /// Detected dialect: the first schema struct's dialect, else the first
     /// non-SQLite table's, else SQLite. Snapshot building takes the dialect
     /// from config instead.

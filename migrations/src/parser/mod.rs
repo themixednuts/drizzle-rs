@@ -42,6 +42,7 @@
 //! ```
 
 mod attrs;
+mod cfg;
 mod default;
 mod types;
 
@@ -50,6 +51,7 @@ pub use types::*;
 pub(crate) use attrs::{mysql_index_name, postgres_index_name, sqlite_index_name};
 
 use attrs::{Diags, attr_last_segment, spanned_source};
+use cfg::{CfgContext, gated_metas};
 use drizzle_types::Dialect;
 
 // =============================================================================
@@ -259,17 +261,13 @@ fn prepare_source(code: &str) -> String {
 /// database; unqualified tables share the configured/default scope and are
 /// therefore allowed alongside that one name.
 fn validate_mysql_database_scope(result: &mut ParseResult) {
-    let selected = result
-        .schema
-        .as_ref()
-        .filter(|schema| schema.dialect == Dialect::MySQL)
-        .map(|schema| {
-            schema
-                .member_types
-                .iter()
-                .map(String::as_str)
-                .collect::<std::collections::HashSet<_>>()
-        });
+    let selected = result.schemas.get(&Dialect::MySQL).map(|schema| {
+        schema
+            .member_types
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::HashSet<_>>()
+    });
     let mut databases: Vec<&str> = result
         .tables
         .values()
@@ -334,30 +332,46 @@ impl Walker<'_> {
 
     fn visit_struct(&mut self, item: &syn::ItemStruct) {
         // Dialect-marker attributes are matched by *last* path segment so
-        // path-form attributes (`#[drizzle::SQLiteTable]`) are recognized.
-        for attr in &item.attrs {
-            let Some(last) = attr_last_segment(attr) else {
-                continue;
-            };
-            match last.as_str() {
-                "SQLiteTable" => return self.visit_table(item, attr, Dialect::SQLite),
-                "PostgresTable" => return self.visit_table(item, attr, Dialect::PostgreSQL),
-                "MySQLTable" => return self.visit_table(item, attr, Dialect::MySQL),
-                "SQLiteIndex" => return self.visit_index(item, attr, Dialect::SQLite),
-                "PostgresIndex" => return self.visit_index(item, attr, Dialect::PostgreSQL),
-                "MySQLIndex" => return self.visit_index(item, attr, Dialect::MySQL),
-                "SQLiteView" => return self.visit_view(item, attr, Dialect::SQLite),
-                "PostgresView" => return self.visit_view(item, attr, Dialect::PostgreSQL),
-                "MySQLView" => return self.visit_view(item, attr, Dialect::MySQL),
-                "PostgresPolicy" => return self.visit_policy(item, attr),
-                _ => {}
+        // path-form attributes (`#[drizzle::SQLiteTable]`) are recognized. A
+        // struct may carry one per dialect, each behind `cfg_attr`; each is
+        // read through its own dialect's view of the struct.
+        let markers = item_markers(&item.attrs, &STRUCT_MARKERS, false);
+        if !markers.is_empty() {
+            for (name, dialect, cx) in dialect_views(&markers) {
+                if !cx.is_active(&item.attrs) {
+                    continue;
+                }
+                let view = struct_view(item, &cx);
+                let Some(attr) = view
+                    .attrs
+                    .iter()
+                    .find(|attr| attr_last_segment(attr).as_deref() == Some(name))
+                    .cloned()
+                else {
+                    continue;
+                };
+                match name {
+                    "SQLiteTable" | "PostgresTable" | "MySQLTable" => {
+                        self.visit_table(&view, &attr, dialect);
+                    }
+                    "SQLiteIndex" | "PostgresIndex" | "MySQLIndex" => {
+                        self.visit_index(&view, &attr, dialect);
+                    }
+                    "SQLiteView" | "PostgresView" | "MySQLView" => {
+                        self.visit_view(&view, &attr, dialect);
+                    }
+                    _ => self.visit_policy(&view, &attr),
+                }
             }
+            return;
         }
 
         // Schema structs are recognized through their derive list.
-        for dialect in derive_dialects(&item.attrs, "SQLiteSchema", "PostgresSchema", "MySQLSchema")
-        {
-            self.visit_schema(item, dialect);
+        let markers = item_markers(&item.attrs, &SCHEMA_DERIVES, true);
+        for (_, dialect, cx) in dialect_views(&markers) {
+            if cx.is_active(&item.attrs) {
+                self.visit_schema(&struct_view(item, &cx), dialect);
+            }
         }
     }
 
@@ -373,9 +387,18 @@ impl Walker<'_> {
             return;
         };
 
-        let mut fields = Vec::with_capacity(named.named.len());
+        let mut fields: Vec<ParsedField> = Vec::with_capacity(named.named.len());
         for field in &named.named {
             let Some(ident) = &field.ident else { continue };
+            // Fields behind mutually exclusive `#[cfg(...)]` predicates the
+            // parser cannot decide may share a name; the struct has only one.
+            if fields.iter().any(|parsed| *ident == parsed.name) {
+                self.diags.warnings.push(format!(
+                    "{desc}.{ident}: more than one field is named `{ident}` (behind #[cfg] \
+                     predicates the parser cannot evaluate); keeping the first"
+                ));
+                continue;
+            }
             let column_spec = match dialect {
                 Dialect::PostgreSQL => {
                     attrs::postgres_column_spec(field, self.source, &desc, &mut self.diags)
@@ -586,8 +609,12 @@ impl Walker<'_> {
             member_types,
         };
 
-        // Match the previous parser's behavior: the first schema struct wins
-        // and pins the result dialect.
+        // The first schema struct of each dialect selects that dialect's
+        // members; the first one overall pins the result dialect.
+        self.result
+            .schemas
+            .entry(dialect)
+            .or_insert_with(|| schema.clone());
         if self.result.schema.is_none() {
             self.result.dialect = dialect;
             self.result.schema = Some(schema);
@@ -595,7 +622,12 @@ impl Walker<'_> {
     }
 
     fn visit_enum(&mut self, item: &syn::ItemEnum) {
-        for dialect in derive_dialects(&item.attrs, "SQLiteEnum", "PostgresEnum", "MySQLEnum") {
+        let markers = item_markers(&item.attrs, &ENUM_DERIVES, true);
+        for (_, dialect, cx) in dialect_views(&markers) {
+            if !cx.is_active(&item.attrs) {
+                continue;
+            }
+            let item = &enum_view(item, &cx);
             let name = item.ident.to_string();
             if dialect == Dialect::MySQL {
                 if item.variants.is_empty() {
@@ -802,34 +834,137 @@ fn postgres_enum_storage(item: &syn::ItemEnum, text: bool) -> PgEnumStorage {
     })
 }
 
-/// Dialects for which the item derives the given schema/enum markers,
-/// matched by last derive-path segment.
-fn derive_dialects(
+/// Attribute macros that make a struct a drizzle entity.
+const STRUCT_MARKERS: [(&str, Dialect); 10] = [
+    ("SQLiteTable", Dialect::SQLite),
+    ("PostgresTable", Dialect::PostgreSQL),
+    ("MySQLTable", Dialect::MySQL),
+    ("SQLiteIndex", Dialect::SQLite),
+    ("PostgresIndex", Dialect::PostgreSQL),
+    ("MySQLIndex", Dialect::MySQL),
+    ("SQLiteView", Dialect::SQLite),
+    ("PostgresView", Dialect::PostgreSQL),
+    ("MySQLView", Dialect::MySQL),
+    ("PostgresPolicy", Dialect::PostgreSQL),
+];
+
+/// Derives that make a struct a schema.
+const SCHEMA_DERIVES: [(&str, Dialect); 3] = [
+    ("SQLiteSchema", Dialect::SQLite),
+    ("PostgresSchema", Dialect::PostgreSQL),
+    ("MySQLSchema", Dialect::MySQL),
+];
+
+/// Derives that make an enum a column type.
+const ENUM_DERIVES: [(&str, Dialect); 3] = [
+    ("SQLiteEnum", Dialect::SQLite),
+    ("PostgresEnum", Dialect::PostgreSQL),
+    ("MySQLEnum", Dialect::MySQL),
+];
+
+/// A dialect marker on an item, with the predicate key of the `cfg_attr`
+/// gating it (`None` when written plainly).
+type Marker = (&'static str, Dialect, Option<String>);
+
+/// The `markers` an item carries, as attribute macros or (with `derives`)
+/// inside `#[derive(...)]`, directly or behind `cfg_attr`. Matched by last
+/// path segment, so `#[drizzle::SQLiteTable]` and
+/// `#[derive(drizzle::postgres::PostgresEnum)]` count.
+fn item_markers(
     attrs: &[syn::Attribute],
-    sqlite: &str,
-    postgres: &str,
-    mysql: &str,
-) -> Vec<Dialect> {
-    let mut dialects = Vec::new();
-    for attr in attrs {
-        if !attr.path().is_ident("derive") {
+    markers: &[(&'static str, Dialect)],
+    derives: bool,
+) -> Vec<Marker> {
+    let lookup = |path: &syn::Path| {
+        let last = path.segments.last()?.ident.to_string();
+        markers.iter().find(|(name, _)| *name == last).copied()
+    };
+    let mut found = Vec::new();
+    for (meta, gate) in gated_metas(attrs) {
+        if !derives {
+            if let Some((name, dialect)) = lookup(meta.path()) {
+                found.push((name, dialect, gate));
+            }
             continue;
         }
-        let _ = attr.parse_nested_meta(|meta| {
-            if let Some(last) = meta.path.segments.last() {
-                let name = last.ident.to_string();
-                if name == sqlite {
-                    dialects.push(Dialect::SQLite);
-                } else if name == postgres {
-                    dialects.push(Dialect::PostgreSQL);
-                } else if name == mysql {
-                    dialects.push(Dialect::MySQL);
-                }
+        let syn::Meta::List(list) = &meta else {
+            continue;
+        };
+        if !list.path.is_ident("derive") {
+            continue;
+        }
+        let Ok(paths) = list.parse_args_with(
+            syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+        ) else {
+            continue;
+        };
+        for path in &paths {
+            if let Some((name, dialect)) = lookup(path) {
+                found.push((name, dialect, gate.clone()));
             }
-            Ok(())
-        });
+        }
     }
-    dialects
+    found
+}
+
+/// One view per dialect among `markers` (the first marker of each dialect):
+/// its own gate on, the gates of the item's other dialects off.
+fn dialect_views(markers: &[Marker]) -> Vec<(&'static str, Dialect, CfgContext)> {
+    let mut views: Vec<(&'static str, Dialect, CfgContext)> = Vec::new();
+    for (name, dialect, gate) in markers {
+        if views.iter().any(|(_, seen, _)| seen == dialect) {
+            continue;
+        }
+        let others = markers
+            .iter()
+            .filter(|(_, other, _)| other != dialect)
+            .filter_map(|(_, _, gate)| gate.as_deref());
+        views.push((
+            name,
+            *dialect,
+            CfgContext::for_dialect(gate.as_deref(), others),
+        ));
+    }
+    views
+}
+
+/// The struct as one dialect's build sees it: `cfg_attr` unrolled and
+/// fields whose `#[cfg]` is false left out.
+fn struct_view(item: &syn::ItemStruct, cx: &CfgContext) -> syn::ItemStruct {
+    let mut view = item.clone();
+    view.attrs = cx.expand(&item.attrs);
+    let fields = match &mut view.fields {
+        syn::Fields::Named(named) => Some(&mut named.named),
+        syn::Fields::Unnamed(unnamed) => Some(&mut unnamed.unnamed),
+        syn::Fields::Unit => None,
+    };
+    if let Some(fields) = fields {
+        *fields = std::mem::take(fields)
+            .into_iter()
+            .filter(|field| cx.is_active(&field.attrs))
+            .map(|mut field| {
+                field.attrs = cx.expand(&field.attrs);
+                field
+            })
+            .collect();
+    }
+    view
+}
+
+/// The enum as one dialect's build sees it: `cfg_attr` unrolled and
+/// variants whose `#[cfg]` is false left out.
+fn enum_view(item: &syn::ItemEnum, cx: &CfgContext) -> syn::ItemEnum {
+    let mut view = item.clone();
+    view.attrs = cx.expand(&item.attrs);
+    view.variants = std::mem::take(&mut view.variants)
+        .into_iter()
+        .filter(|variant| cx.is_active(&variant.attrs))
+        .map(|mut variant| {
+            variant.attrs = cx.expand(&variant.attrs);
+            variant
+        })
+        .collect();
+    view
 }
 
 /// Textual attribute list for the compat surface: every attribute except doc
