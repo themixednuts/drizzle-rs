@@ -264,6 +264,23 @@ fn numeric_affinity_reals_stored_as_integers_decode(db: &mut TestDb<NumericAffin
     assert_eq!(rows[0].discount, Some(4.0));
 }
 
+/// ORDER BY after a set operation keeps `get` an `Option`: the set
+/// operation can remove an aggregate's one row.
+#[drizzle::test]
+fn get_after_a_set_operation_and_order_by_is_an_option(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple).values([InsertSimple::new("a")]).execute();
+
+    let qb = || drizzle::sqlite::builder::QueryBuilder::new::<SimpleSchema>();
+    let removed: Option<i64> = db
+        .select(count(simple.id))
+        .from(simple)
+        .except(qb().select(count(simple.id)).from(simple))
+        .order_by(SQL::raw("1"))
+        .get();
+    assert_eq!(removed, None);
+}
+
 /// No matching row is `None` on every driver, from the builder's `get` and
 /// from `get` on raw SQL alike.
 #[drizzle::test]

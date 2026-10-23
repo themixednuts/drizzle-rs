@@ -169,3 +169,22 @@ where
 {
     <Mk::Rows as RowCount>::first(row)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::{SelectFromSet, SelectOrderSet, SelectSetOpSet, SelectWhereSet};
+
+    fn rows_of<S: ExecutableState>() -> &'static str {
+        core::any::type_name::<S::Rows<ExactlyOne>>()
+    }
+
+    #[test]
+    fn only_clauses_that_keep_every_row_keep_an_aggregate_s_one_row() {
+        assert!(rows_of::<SelectFromSet>().ends_with("ExactlyOne"));
+        assert!(rows_of::<SelectWhereSet>().ends_with("ExactlyOne"));
+        // ORDER BY is reachable after a set operation, which can remove the row.
+        assert!(rows_of::<SelectSetOpSet>().ends_with("ZeroOrMore"));
+        assert!(rows_of::<SelectOrderSet>().ends_with("ZeroOrMore"));
+    }
+}

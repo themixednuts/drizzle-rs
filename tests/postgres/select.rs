@@ -1073,6 +1073,23 @@ fn cached_statements_survive_a_column_type_change(db: &mut TestDb<SimpleSchema>)
     assert_eq!(prepared_names, ["a"]);
 }
 
+/// ORDER BY after a set operation keeps `get` an `Option`: the set
+/// operation can remove an aggregate's one row.
+#[drizzle::test]
+fn get_after_a_set_operation_and_order_by_is_an_option(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple).values([InsertSimple::new("a")]).execute();
+
+    let qb = || drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
+    let removed: Option<i64> = db
+        .select(count(simple.id))
+        .from(simple)
+        .except(qb().select(count(simple.id)).from(simple))
+        .order_by(SQL::raw("1"))
+        .get();
+    assert_eq!(removed, None);
+}
+
 /// No matching row is `None`, as on every other driver; more than one row
 /// is still an error.
 #[drizzle::test]

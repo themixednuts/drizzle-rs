@@ -51,13 +51,12 @@ macro_rules! shared_get_rows_suite {
                     .get();
                 assert_eq!(grouped, Some(1));
 
-                // A set operation can remove the row, also with ORDER BY after it.
+                // A set operation can remove the row.
                 let qb = || drizzle::$dialect::builder::QueryBuilder::new::<GetRowsSchema>();
                 let removed: Option<i64> = db
                     .select(count(rows.id))
                     .from(rows)
                     .except(qb().select(count(rows.id)).from(rows))
-                    .order_by(SQL::raw("1"))
                     .get();
                 assert_eq!(removed, None);
             }
