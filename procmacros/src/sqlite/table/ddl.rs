@@ -12,6 +12,7 @@
 //! single literal at compile time — no runtime cost.
 
 use super::context::MacroContext;
+use crate::common::enum_utils::ENUM_DEFAULT_PLACEHOLDER;
 use crate::paths::ddl::sqlite as ddl_paths;
 use crate::paths::{core as core_paths, sqlite as sqlite_paths};
 use crate::sqlite::field::FieldInfo;
@@ -420,7 +421,13 @@ fn column_to_sql_pieces(field: &FieldInfo, inline_pk: bool, inline_unique: bool)
         DdlPiece::Literal(format!("`{}` ", field.column_name)),
         DdlPiece::Expr(field.sql_type_expr()),
     ];
-    if !suffix.is_empty() {
+    if let Some((before, after)) = suffix.split_once(ENUM_DEFAULT_PLACEHOLDER)
+        && let Some(default) = field.default_sql_expr()
+    {
+        pieces.push(DdlPiece::Literal(before.to_string()));
+        pieces.push(DdlPiece::Expr(default));
+        pieces.push(DdlPiece::Literal(after.to_string()));
+    } else if !suffix.is_empty() {
         pieces.push(DdlPiece::Literal(suffix.to_string()));
     }
     pieces
@@ -500,7 +507,7 @@ pub fn generate_const_ddl(ctx: &MacroContext) -> TokenStream {
                 }
             }
             if field.generated_column.is_none()
-                && let Some(ref default) = field.default
+                && let Some(default) = field.default_sql_expr()
             {
                 modifiers.push(quote! { .default_value(#default) });
             }
@@ -844,6 +851,7 @@ mod tests {
             many_to_many_name: None,
             constraint: Constraint::None,
             collate: None,
+            enum_default: None,
             default: default
                 .as_ref()
                 .map(|expr| crate::sqlite::field::render_default(expr).unwrap()),

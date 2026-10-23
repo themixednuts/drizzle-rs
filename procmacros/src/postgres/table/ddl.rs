@@ -10,7 +10,7 @@
 use super::context::MacroContext;
 use crate::paths::ddl::postgres as ddl_paths;
 use crate::paths::{core as core_paths, postgres as postgres_paths};
-use crate::postgres::field::{FieldInfo, PostgreSQLDefault};
+use crate::postgres::field::{ENUM_DEFAULT_PLACEHOLDER, FieldInfo, PostgreSQLDefault};
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::fmt::Write;
@@ -397,7 +397,8 @@ fn column_to_sql(field: &FieldInfo) -> String {
         && let Some(ref default) = field.default
     {
         let default_str = match default {
-            PostgreSQLDefault::Sql(s) => s.clone(),
+            PostgreSQLDefault::Sql(s) => s.as_str(),
+            PostgreSQLDefault::EnumVariant(_) => ENUM_DEFAULT_PLACEHOLDER,
         };
         let _ = write!(sql, " DEFAULT {default_str}");
     }
@@ -427,7 +428,13 @@ fn column_to_sql_pieces(field: &FieldInfo) -> Vec<DdlPiece> {
         DdlPiece::Literal(format!("\"{}\" ", field.column_name)),
         DdlPiece::Expr(field.ddl_type_expr()),
     ];
-    if !suffix.is_empty() {
+    if let Some((before, after)) = suffix.split_once(ENUM_DEFAULT_PLACEHOLDER)
+        && let Some(default) = field.default_sql_expr()
+    {
+        pieces.push(DdlPiece::Literal(before.to_string()));
+        pieces.push(DdlPiece::Expr(default));
+        pieces.push(DdlPiece::Literal(after.to_string()));
+    } else if !suffix.is_empty() {
         pieces.push(DdlPiece::Literal(suffix.to_string()));
     }
     pieces
@@ -494,12 +501,9 @@ pub fn generate_const_ddl(ctx: &MacroContext, _column_zst_idents: &[TokenStream]
             if !field.is_serial
                 && !field.is_generated_identity
                 && field.generated_column.is_none()
-                && let Some(ref default) = field.default
+                && let Some(default) = field.default_sql_expr()
             {
-                let default_str = match default {
-                    PostgreSQLDefault::Sql(s) => s.clone(),
-                };
-                modifiers.push(quote! { .default_value(#default_str) });
+                modifiers.push(quote! { .default_value(#default) });
             }
             // A type the schema creates (a native enum) carries its OWN
             // schema, not the table's: `DrizzlePostgresColumn::SCHEMA`

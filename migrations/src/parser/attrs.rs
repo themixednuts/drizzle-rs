@@ -493,6 +493,7 @@ struct SqliteArgs {
     json: bool,
     enum_marker: bool,
     default: Option<ParsedDefault>,
+    default_variant: Option<String>,
     default_fn: bool,
     generated: Option<ParsedGenerated>,
     check: Option<String>,
@@ -573,6 +574,27 @@ fn reference_from_expr(expr: &Expr) -> Option<ParsedReference> {
         table: path.path.segments.first()?.ident.to_string(),
         column: path.path.segments.last()?.ident.to_string(),
     })
+}
+
+/// The enum variant a `default` names, like the table macros'
+/// `enum_variant_label`: a string literal (only where `strings` allows it)
+/// or the last segment of a path with a type in front (`Level::High`).
+fn default_variant(expr: &Expr, strings: bool) -> Option<String> {
+    match expr {
+        Expr::Lit(syn::ExprLit {
+            lit: Lit::Str(label),
+            ..
+        }) if strings => Some(label.value()),
+        Expr::Path(path)
+            if path.qself.is_none()
+                && path.path.segments.len() > 1
+                && path.path.segments.iter().all(|s| s.arguments.is_empty()) =>
+        {
+            path.path.segments.last().map(|s| s.ident.to_string())
+        }
+        Expr::Group(group) => default_variant(&group.expr, strings),
+        _ => None,
+    }
 }
 
 fn default_from_expr(expr: &Expr, dialect: Dialect) -> syn::Result<ParsedDefault> {
@@ -669,7 +691,10 @@ fn parse_sqlite_args(
                 args.named_values.push((key.clone(), raw_value.clone()));
                 match key.to_ascii_uppercase().as_str() {
                     "DEFAULT" => match default_from_expr(&assign.right, Dialect::SQLite) {
-                        Ok(default) => args.default = Some(default),
+                        Ok(default) => {
+                            args.default = Some(default);
+                            args.default_variant = default_variant(&assign.right, true);
+                        }
                         Err(error) => diags.errors.push(format!("{field_desc}: {error}")),
                     },
                     "DEFAULT_FN" => args.default_fn = true,
@@ -944,6 +969,7 @@ pub(crate) fn sqlite_column_spec(
         spec.enum_marker |= args.enum_marker;
         if spec.default.is_none() {
             spec.default = args.default;
+            spec.default_variant = args.default_variant;
         }
         spec.has_default_fn |= args.default_fn;
         if spec.generated.is_none() {
@@ -986,6 +1012,7 @@ pub(crate) fn sqlite_column_spec(
     let resolved = if let Some(ty) = explicit_type {
         ty
     } else if spec.json || spec.enum_marker || is_json_value(base_type) {
+        spec.sqlite_enum_storage = spec.enum_marker && !spec.json && !is_json_value(base_type);
         SQLiteType::Text
     } else if let Some(ty) = infer_sqlite_type(base_type) {
         ty
@@ -1022,6 +1049,7 @@ struct MySqlArgs {
     enum_marker: bool,
     set_values: Option<Vec<String>>,
     default: Option<ParsedDefault>,
+    default_variant: Option<String>,
     default_fn: bool,
     generated: Option<ParsedGenerated>,
     check: Option<String>,
@@ -1438,7 +1466,10 @@ pub(crate) fn mysql_column_spec(
                             args.name = mysql_string_value(&value.value, &field_desc, "NAME", diags)
                         }
                         "DEFAULT" => match default_from_expr(&value.value, Dialect::MySQL) {
-                            Ok(default) => args.default = Some(default),
+                            Ok(default) => {
+                                args.default = Some(default);
+                                args.default_variant = default_variant(&value.value, false);
+                            }
                             Err(error) => {
                                 diags.errors.push(format!("{field_desc}: {error}"));
                             }
@@ -1651,6 +1682,7 @@ pub(crate) fn mysql_column_spec(
     spec.autoincrement = args.autoincrement;
     spec.enum_marker = args.enum_marker;
     spec.default = args.default;
+    spec.default_variant = args.default_variant;
     spec.has_default_fn = args.default_fn;
     spec.generated = args.generated;
     spec.check = args.check;
@@ -1905,6 +1937,7 @@ pub(crate) fn postgres_column_spec(
                     let raw_value = spanned_source(source, &expr);
                     spec.named_values.push((key, raw_value.clone()));
                     spec.default = Some(default_from_expr(&expr, Dialect::PostgreSQL)?);
+                    spec.default_variant = default_variant(&expr, true);
                     default_kind = Some("default");
                 }
                 "DEFAULT_FN" => {

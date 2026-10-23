@@ -6,6 +6,8 @@ use std::{collections::HashSet, fmt::Display};
 use syn::ext::IdentExt;
 use syn::{Attribute, Error, Expr, ExprPath, Field, Ident, Lit, Result, Token, Type};
 
+pub(crate) use crate::common::enum_utils::ENUM_DEFAULT_PLACEHOLDER;
+use crate::common::enum_utils::enum_variant_label;
 use crate::common::{
     is_option_type, option_inner_type, references_required_message,
     relation_requires_references_message, type_is_array_char, type_is_array_string,
@@ -625,6 +627,10 @@ pub enum PostgreSQLFlag {
 pub enum PostgreSQLDefault {
     /// SQL emitted after `DEFAULT`.
     Sql(String),
+    /// A variant of the column's enum type, by label. Its SQL is what the
+    /// column stores (`2`, `'High'`), read from the enum's
+    /// `SQLEnumVariants::DEFAULT_LITERALS` at compile time.
+    EnumVariant(String),
 }
 
 /// References specification for `PostgreSQL` foreign keys
@@ -961,6 +967,11 @@ impl FieldInfo {
                 identity_options = column_info.identity_options;
                 generated_column = column_info.generated_column;
                 is_pgenum = column_info.is_pgenum;
+                // An enum column's default names a variant; the enum decides
+                // the SQL it stores.
+                if is_pgenum && let Some(label) = column_info.default_variant {
+                    default = Some(PostgreSQLDefault::EnumVariant(label));
+                }
                 is_explicit_json = column_info.is_json;
                 is_explicit_jsonb = column_info.is_jsonb;
                 column_name = column_info.column_name;
@@ -1165,6 +1176,7 @@ impl FieldInfo {
         let mut initially_deferred: Option<Ident> = None;
         let mut fk_name: Option<(String, Ident)> = None;
         let mut default = None;
+        let mut default_variant = None;
         let mut default_kind: Option<&'static str> = None;
         let mut default_fn = None;
         let mut check_constraint = None;
@@ -1470,6 +1482,7 @@ impl FieldInfo {
                             &expr,
                             drizzle_types::Dialect::PostgreSQL,
                         )?));
+                        default_variant = enum_variant_label(&expr);
                         default_kind = Some("default");
                         marker_exprs.push(make_uppercase_path(path_ident, "DEFAULT"));
                     }
@@ -1654,6 +1667,7 @@ impl FieldInfo {
             is_json,
             is_jsonb,
             enum_type_name,
+            default_variant,
             column_name,
             collate,
             marker_exprs,
@@ -1836,7 +1850,25 @@ impl FieldInfo {
             .strip_prefix(&placeholder)
             .unwrap_or_default();
 
+        if let Some((before, after)) = suffix.split_once(ENUM_DEFAULT_PLACEHOLDER) {
+            let default = self.default_sql_expr();
+            return quote!(#const_format::concatcp!(#prefix, #sql_type, #before, #default, #after));
+        }
         quote!(#const_format::concatcp!(#prefix, #sql_type, #suffix))
+    }
+
+    /// The column `DEFAULT` as a const `&'static str` expression. An enum
+    /// variant default resolves through the enum's `SQLEnumVariants`, which
+    /// knows whether the column stores the label or the discriminant.
+    pub(crate) fn default_sql_expr(&self) -> Option<TokenStream> {
+        match self.default.as_ref()? {
+            PostgreSQLDefault::Sql(sql) => Some(quote!(#sql)),
+            PostgreSQLDefault::EnumVariant(label) => {
+                let base_type = &self.base_type;
+                let enum_default_literal = crate::paths::core::enum_default_literal();
+                Some(quote!(#enum_default_literal::<#base_type>(#label)))
+            }
+        }
     }
 }
 
@@ -1856,9 +1888,10 @@ impl FieldInfo {
 impl FieldInfo {
     /// Convert default value to a string for DDL metadata (when possible).
     fn default_to_string(&self) -> Option<String> {
-        self.default
-            .as_ref()
-            .map(|PostgreSQLDefault::Sql(sql)| sql.clone())
+        self.default.as_ref().map(|default| match default {
+            PostgreSQLDefault::Sql(sql) => sql.clone(),
+            PostgreSQLDefault::EnumVariant(label) => format!("'{label}'"),
+        })
     }
 
     /// Convert this field to a drizzle-schema Column type.
@@ -2110,6 +2143,9 @@ fn build_sql_definition(ctx: &SqlDefinitionContext<'_>) -> String {
             PostgreSQLDefault::Sql(lit) => {
                 let _ = write!(sql, " DEFAULT {lit}");
             }
+            PostgreSQLDefault::EnumVariant(_) => {
+                let _ = write!(sql, " DEFAULT {ENUM_DEFAULT_PLACEHOLDER}");
+            }
         }
     }
 
@@ -2172,6 +2208,9 @@ struct ColumnInfo {
     is_json: bool,
     is_jsonb: bool,
     enum_type_name: Option<String>,
+    /// The variant label a `default` names: a string literal or the last
+    /// segment of a path (`Level::High`).
+    default_variant: Option<String>,
     column_name: Option<String>,
     /// PostgreSQL collation name, from `#[column(COLLATE = "en_US")]`.
     collate: Option<String>,

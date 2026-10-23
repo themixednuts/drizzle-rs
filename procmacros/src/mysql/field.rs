@@ -10,6 +10,7 @@ use syn::{
     Type,
 };
 
+use crate::common::enum_utils::enum_variant_label;
 use crate::common::{
     Constraint, is_option_type, make_uppercase_path, option_inner_type, parse_relation_name,
     references_required_message, type_is_array_char, type_is_array_string, type_is_array_u8,
@@ -105,6 +106,8 @@ struct ParsedColumn {
     unique: bool,
     not_null: bool,
     default: Option<MySQLDefault>,
+    /// The variant a path `default` names (`Mood::Sad`), for an `ENUM` column.
+    default_variant: Option<String>,
     default_fn: Option<TokenStream>,
     generated: Option<GeneratedColumn>,
     check: Option<String>,
@@ -163,6 +166,13 @@ impl FieldInfo {
             .cloned()
             .unwrap_or_else(|| field_type.clone());
         let mut parsed = parse_column_attrs(field)?;
+        // An ENUM column stores the label: `default = Mood::Sad` is `'Sad'`.
+        if parsed.is_enum
+            && let Some(label) = parsed.default_variant.take()
+        {
+            let label = label.trim_start_matches("r#");
+            parsed.default = Some(MySQLDefault::Literal(format!("'{label}'")));
+        }
         let relation_key = if parsed.relation_name.is_some() {
             Some("relation")
         } else {
@@ -704,7 +714,12 @@ fn parse_column_meta(field: &Field, meta: Meta, out: &mut ParsedColumn) -> Resul
         },
         Meta::NameValue(value) => match upper.as_str() {
             "NAME" => out.name = Some(expect_string(&value.value, "NAME")?),
-            "DEFAULT" => out.default = Some(default_from_expr(&value.value)?),
+            "DEFAULT" => {
+                out.default = Some(default_from_expr(&value.value)?);
+                out.default_variant = matches!(value.value, Expr::Path(_))
+                    .then(|| enum_variant_label(&value.value))
+                    .flatten();
+            }
             "DEFAULT_FN" => out.default_fn = Some(value.value.to_token_stream()),
             "CHECK" => out.check = Some(expect_string(&value.value, "CHECK")?),
             "REFERENCES" => out.reference = Some(parse_reference_expr(&value.value)?),

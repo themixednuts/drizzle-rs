@@ -195,7 +195,7 @@ pub use scope::{
 pub use sql::{
     ColumnDialect, ColumnFlags, ColumnRef, ColumnSqlRef, ConstraintRef, EnumVariantRef,
     ForeignKeyRef, OwnedSQL, OwnedSQLChunk, PrimaryKeyRef, SQL, SQLChunk, SQLEnumVariants,
-    TableDialect, TableRef, TableSqlRef, Token,
+    TableDialect, TableRef, TableSqlRef, Token, enum_default_literal,
 };
 pub use traits::*;
 

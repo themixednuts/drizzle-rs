@@ -167,8 +167,43 @@ mod sqlite_parity {
         pub email: String,
     }
 
+    // Enum columns: an integer-stored enum is an INTEGER column, and a
+    // default naming a variant is what the column stores (the discriminant
+    // or the label), not the Rust path.
+    #[derive(SQLiteEnum, Default, Clone, Copy, PartialEq, Debug)]
+    pub enum Priority {
+        #[default]
+        Low = 1,
+        High = 2,
+    }
+
+    #[derive(SQLiteEnum, Default, Clone, Copy, PartialEq, Debug)]
+    pub enum Mood {
+        #[default]
+        Happy,
+        Sad,
+    }
+
+    #[SQLiteTable]
+    pub struct Tickets {
+        #[column(primary)]
+        pub id: i64,
+        #[column(enum, default = Priority::High)]
+        pub priority: Priority,
+        #[column(enum)]
+        pub previous_priority: Option<Priority>,
+        #[column(enum, default = Mood::Sad)]
+        pub mood: Mood,
+        // Without the `enum` marker the column still takes its storage and
+        // default from the enum.
+        #[column(default = Priority::Low)]
+        pub plain_priority: Priority,
+        pub plain_mood: Mood,
+    }
+
     #[derive(SQLiteSchema)]
     pub struct SqliteParitySchema {
+        pub tickets: Tickets,
         pub users: Users,
         pub order_items: OrderItems,
         pub shipments: Shipments,
@@ -223,6 +258,24 @@ mod sqlite_parity {
         // renamed-FK-target shapes on the macro side (parity extends them to
         // the parser side).
         use drizzle::migrations::sqlite::SqliteEntity;
+        let ticket_column = |name: &str| {
+            macro_snapshot
+                .ddl
+                .iter()
+                .find_map(|entity| match entity {
+                    SqliteEntity::Column(c) if c.table.as_ref() == "tickets" && c.name == name => {
+                        Some((c.sql_type.as_ref(), c.default.as_deref()))
+                    }
+                    _ => None,
+                })
+                .expect("tickets column")
+        };
+        assert_eq!(ticket_column("priority"), ("INTEGER", Some("2")));
+        assert_eq!(ticket_column("previous_priority"), ("INTEGER", None));
+        assert_eq!(ticket_column("mood"), ("TEXT", Some("'Sad'")));
+        assert_eq!(ticket_column("plain_priority"), ("INTEGER", Some("1")));
+        assert_eq!(ticket_column("plain_mood"), ("TEXT", None));
+
         let email_index = macro_snapshot.ddl.iter().find_map(|entity| match entity {
             SqliteEntity::Index(index) if index.name.as_ref() == "users_email_idx" => Some(index),
             _ => None,
@@ -405,6 +458,59 @@ mod postgres_parity {
         pub user_id: i64,
     }
 
+    // Text- and integer-stored enums create no type: their columns are
+    // text / integer columns sized by the repr, and neither is an Enum
+    // entity. `MemberRole` is declared after the table that uses it. A
+    // default naming a variant is what the column stores.
+    #[PostgresTable]
+    pub struct Memberships {
+        #[column(primary)]
+        pub id: i64,
+        #[column(enum, default = MemberRole::Admin)]
+        pub role: MemberRole,
+        #[column(enum)]
+        pub previous_role: Option<MemberRole>,
+        #[column(enum, default = "High")]
+        pub priority: Priority,
+        #[column(enum, default = MemberTier::Gold)]
+        pub tier: MemberTier,
+        #[column(enum)]
+        pub points: MemberPoints,
+        #[column(enum, default = AccountStatus::Suspended)]
+        pub status: AccountStatus,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    #[postgres_enum(text)]
+    pub enum MemberRole {
+        #[default]
+        Member,
+        Admin,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    pub enum Priority {
+        #[default]
+        Low = 1,
+        High = 2,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    #[repr(i16)]
+    pub enum MemberTier {
+        #[default]
+        Bronze,
+        Gold,
+    }
+
+    #[derive(PostgresEnum, Default, Clone, Copy, PartialEq, Debug)]
+    #[repr(u32)]
+    pub enum MemberPoints {
+        #[default]
+        None,
+        Some,
+    }
+
     #[derive(PostgresSchema)]
     pub struct PostgresParitySchema {
         pub account_status: AccountStatus,
@@ -420,6 +526,7 @@ mod postgres_parity {
         pub tenants: Tenants,
         pub tenant_users: TenantUsers,
         pub tenant_documents: TenantDocuments,
+        pub memberships: Memberships,
     }
 
     #[test]
@@ -569,6 +676,24 @@ mod postgres_parity {
             "nulls_not_distinct dropped"
         );
 
+        // A default naming a variant is what the column stores.
+        let membership_default = |name: &str| {
+            ddl.iter()
+                .find_map(|e| match e {
+                    PostgresEntity::Column(c)
+                        if c.table.as_ref() == "memberships" && c.name.as_ref() == name =>
+                    {
+                        Some(c.default.as_deref())
+                    }
+                    _ => None,
+                })
+                .expect("memberships column")
+        };
+        assert_eq!(membership_default("role"), Some("'Admin'"));
+        assert_eq!(membership_default("priority"), Some("2"));
+        assert_eq!(membership_default("tier"), Some("1"));
+        assert_eq!(membership_default("status"), Some("'Suspended'"));
+
         // Enum schema + cross-schema enum column type_schema.
         assert!(
             ddl.iter().any(|e| matches!(
@@ -651,6 +776,8 @@ mod mysql_parity {
         pub tenant_id: u64,
         #[column(ENUM, CHARSET = "utf8mb4", COLLATE = "utf8mb4_bin")]
         pub state: AccountState,
+        #[column(ENUM, DEFAULT = AccountState::Active)]
+        pub previous_state: AccountState,
         #[column(SET("reader", "writer", "admin"))]
         pub roles: String,
         /// Rust API documentation, not MySQL schema metadata.
@@ -782,6 +909,15 @@ mod mysql_parity {
         );
 
         let ddl = &macro_snapshot.ddl;
+        // An ENUM column stores the label: `DEFAULT = AccountState::Active`.
+        assert!(
+            ddl.iter().any(|entity| matches!(
+                entity,
+                MySQLEntity::Column(c)
+                    if c.name.as_ref() == "previous_state" && c.default.as_deref() == Some("'Active'")
+            )),
+            "MySQL enum path default not written as its label"
+        );
         let accounts = ddl
             .iter()
             .find_map(|entity| match entity {

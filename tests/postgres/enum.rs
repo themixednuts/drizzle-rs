@@ -334,6 +334,88 @@ mod execution {
         assert_eq!(second.optional_role, None);
     }
 
+    // A column default naming a variant is what the column stores: the
+    // discriminant of an integer-stored enum, the label otherwise.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PostgresEnum)]
+    enum DefaultLevel {
+        #[default]
+        Low = 1,
+        High = 2,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PostgresEnum)]
+    #[postgres_enum(text)]
+    enum DefaultRole {
+        #[default]
+        Reader,
+        Writer,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PostgresEnum)]
+    enum DefaultMood {
+        #[default]
+        Calm,
+        Busy,
+    }
+
+    #[PostgresTable(name = "enum_default_records")]
+    struct EnumDefaultRecord {
+        #[column(primary)]
+        id: i32,
+        #[column(enum, default = "High")]
+        level: DefaultLevel,
+        #[column(enum, default = DefaultLevel::High)]
+        path_level: DefaultLevel,
+        #[column(enum, default = DefaultRole::Writer)]
+        role: DefaultRole,
+        #[column(enum, default = DefaultMood::Busy)]
+        mood: DefaultMood,
+    }
+
+    #[derive(PostgresSchema)]
+    struct EnumDefaultSchema {
+        mood: DefaultMood,
+        records: EnumDefaultRecord,
+    }
+
+    #[test]
+    fn enum_defaults_are_what_the_column_stores() {
+        let ddl = EnumDefaultRecord::ddl_sql();
+        assert!(
+            ddl.contains(r#""level" integer DEFAULT 2 NOT NULL"#),
+            "{ddl}"
+        );
+        assert!(
+            ddl.contains(r#""path_level" integer DEFAULT 2 NOT NULL"#),
+            "{ddl}"
+        );
+        assert!(
+            ddl.contains(r#""role" text DEFAULT 'Writer' NOT NULL"#),
+            "{ddl}"
+        );
+        assert!(ddl.contains(r#"DEFAULT 'Busy' NOT NULL"#), "{ddl}");
+    }
+
+    #[drizzle::test]
+    fn enum_defaults_apply(db: &mut TestDb<EnumDefaultSchema>) {
+        let EnumDefaultSchema { records, .. } = schema;
+
+        db.insert(records)
+            .values([InsertEnumDefaultRecord::new(1)])
+            .execute();
+
+        let row: SelectEnumDefaultRecord = db
+            .select(())
+            .from(records)
+            .r#where(eq(records.id, 1))
+            .get()
+            .expect("a row");
+        assert_eq!(row.level, DefaultLevel::High);
+        assert_eq!(row.path_level, DefaultLevel::High);
+        assert_eq!(row.role, DefaultRole::Writer);
+        assert_eq!(row.mood, DefaultMood::Busy);
+    }
+
     #[allow(dead_code)]
     #[derive(Debug, PostgresFromRow)]
     struct PgComplexResult {

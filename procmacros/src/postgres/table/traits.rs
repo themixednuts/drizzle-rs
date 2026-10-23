@@ -3,7 +3,6 @@ use crate::common::ref_gen::{self, ColumnRefInput, ConstraintRefInput, ForeignKe
 use crate::generators::{DrizzleTableConfig, generate_drizzle_table};
 use crate::paths::core as core_paths;
 use crate::paths::postgres as postgres_paths;
-use crate::postgres::field::PostgreSQLDefault;
 use crate::postgres::generators::{
     SQLTableConfig, generate_postgres_table, generate_sql_schema, generate_sql_table,
     generate_to_sql,
@@ -181,14 +180,9 @@ pub(super) fn generate_table_impls(
                 .is_some_and(|generated| generated.stored);
             let default =
                 if !f.is_serial && !f.is_generated_identity && f.generated_column.is_none() {
-                    f.default.as_ref().map_or_else(
+                    f.default_sql_expr().map_or_else(
                         || quote! { ::core::option::Option::None },
-                        |default| {
-                            let default_str = match default {
-                                PostgreSQLDefault::Sql(s) => s.clone(),
-                            };
-                            quote! { ::core::option::Option::Some(#default_str) }
-                        },
+                        |default| quote! { ::core::option::Option::Some(#default) },
                     )
                 } else {
                     quote! { ::core::option::Option::None }

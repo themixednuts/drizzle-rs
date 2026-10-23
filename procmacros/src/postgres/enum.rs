@@ -1028,9 +1028,22 @@ pub fn generate_enum_impl(
             quote! { #enum_variant_ref { label: #label, discriminant: #value } }
         })
         .collect();
+    // A column `DEFAULT` writes what the column stores: the discriminant of
+    // an integer-stored enum, the quoted label otherwise.
+    let default_literals: Box<[_]> = resolved
+        .iter()
+        .map(|(ident, value)| {
+            if is_integer_storage {
+                value.to_string()
+            } else {
+                format!("'{ident}'")
+            }
+        })
+        .collect();
     let enum_variants_impl = quote! {
         impl #sql_enum_variants for #name {
             const VARIANTS: &'static [#enum_variant_ref] = &[#(#enum_variant_entries),*];
+            const DEFAULT_LITERALS: &'static [&'static str] = &[#(#default_literals),*];
         }
     };
 

@@ -157,7 +157,7 @@ pub fn generate_table_impls(
         .iter()
         .map(|f| {
             let autoincrement = f.is_autoincrement;
-            let default = f.default.as_ref().map_or_else(
+            let default = f.default_sql_expr().map_or_else(
                 || quote! { ::core::option::Option::None },
                 |default| quote! { ::core::option::Option::Some(#default) },
             );
