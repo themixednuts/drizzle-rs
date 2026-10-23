@@ -34,7 +34,7 @@ error[E0277]: selected column decodes as `drizzle::core::MaybeNull<std::string::
 note: required by a bound in `drizzle::builder::postgres::postgres_sync::<impl drizzle::builder::postgres::common::DrizzleBuilder<'_, &mut Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::get`
   --> src/builder/postgres/postgres_sync/mod.rs
    |
-   |     pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+   |     pub fn get<R, Proof, AggProof>(
    |            --- required by a bound in this associated function
 ...
    |             + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R, Proof>,

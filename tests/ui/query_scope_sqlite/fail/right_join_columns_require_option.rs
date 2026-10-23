@@ -31,6 +31,6 @@ fn main() {
     let (db, Schema { users, posts }) = Drizzle::new(conn);
 
     // RIGHT JOIN makes the left-hand `users` columns nullable.
-    let _row: drizzle::Result<(String, String)> =
-        db.select((users.name, posts.title)).from(users).right_join(posts).get().expect("a row");
+    let _row: drizzle::Result<Option<(String, String)>> =
+        db.select((users.name, posts.title)).from(users).right_join(posts).get();
 }

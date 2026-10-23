@@ -82,11 +82,11 @@ fn main() {
         .from(users)
         .left_join(posts)
         .all();
-    let _: drizzle::Result<(Option<String>, Option<String>, String)> = db
+    let _: drizzle::Result<Option<(Option<String>, Option<String>, String)>> = db
         .select((users.name, users.email, posts.title))
         .from(users)
         .right_join(posts)
-        .get().expect("a row");
+        .get();
     let _: drizzle::Result<Vec<(Option<String>, Option<String>)>> =
         db.select((users.name, posts.title)).from(users).full_join(posts).all();
     let _: drizzle::Result<Vec<(Option<i32>, i32)>> = db
