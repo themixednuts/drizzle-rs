@@ -69,14 +69,14 @@ drizzle-seed = { path = "./seed", version = "=0.4.0", default-features = false }
 anyhow = { version = "1.0" }
 clap = { version = "4.5", features = ["derive", "env", "color"] }
 bytes = { version = "1.11.1" }
-compact_str = { version = "0.9.0", default-features = false }
-hashbrown = { version = "0.16", default-features = false, features = [
+compact_str = { version = "0.10", default-features = false }
+hashbrown = { version = "0.17", default-features = false, features = [
   "default-hasher",
 ] }
 futures-util = { version = "0.3" }
-libsql = { version = ">=0.9.1, <0.10" }
-paste = { version = "1.0" }
-rand = { version = "0.9" }
+libsql = { version = ">=0.9.1, <0.11" }
+pastey = { version = "0.2" }
+rand = { version = "0.10" }
 # 0.40 is supported for rusqlite-only builds. Lock the workspace on 0.39:
 # rusqlite 0.40 bundles SQLite 3.53, which duplicate-symbols with libsql-ffi
 # when `--all-features` links both drivers into one binary (CLI / macros).
@@ -93,24 +93,15 @@ smallvec = { version = "1.15", default-features = false, features = [
   "const_generics",
 ] }
 thiserror = { version = "2.0", default-features = false }
-toml = { version = "0.9" }
+toml = { version = "1" }
 tokio = { version = ">=1.48, <2" }
-# The prerelease-bearing upper bound is what lets cargo match 0.8.0-pre.*
-# at all (a plain "<0.9" range never matches prereleases); bump the bound one
-# line per new upstream pre after re-running the turso suite against it.
-# Keep it on the *latest* pre: a pre's own `^0.8.0-pre.N` requirements float
-# to newer prereleases of turso's internal crates, so an older pre stops
-# compiling in fresh resolutions once upstream moves on (0.8.0-pre.2 broke
-# when turso_sdk_kit 0.8.0-pre.12 shipped). The downstream-crate CI job
-# resolves fresh and catches that. Crates that ask for `turso = "0.7"`
-# themselves still unify on 0.7.x.
-turso = { version = ">=0.7, <0.9", default-features = false, features = ["pure-rust-crypto"] }
+turso = { version = "0.8.3", default-features = false, features = ["pure-rust-crypto"] }
 worker = { version = ">=0.8, <0.9", default-features = false }
 wasm-bindgen = { version = "0.2" }
 js-sys = { version = "0.3" }
 uuid = { version = "1.18", features = ["v4"] }
 chrono = { version = "0.4", default-features = false }
-puffin = { version = "0.19" }
+puffin = { version = "0.20" }
 tracing = { version = "0.1" }
 arrayvec = { version = "0.7", default-features = false, features = ["serde"] }
 postgres = { version = ">=0.19.11, <0.20" }
@@ -134,9 +125,9 @@ tokio-postgres = { version = ">=0.7.18, <0.8", default-features = false }
 aws-sdk-rdsdata = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-config = { version = "1" }
 heck = { version = "0.5" }
-inquire = { version = "0.7" }
+inquire = { version = "0.9" }
 rust_decimal = { version = "1.40" }
-sha2 = { version = "0.10" }
+sha2 = { version = "0.11" }
 cidr = { version = "0.3" }
 geo-types = { version = "0.7" }
 bit-vec = { version = "0.8" }
@@ -431,7 +422,7 @@ drizzle-core = { workspace = true }
 drizzle-macros = { workspace = true }
 drizzle-migrations = { workspace = true, optional = true }
 drizzle-types = { workspace = true }
-paste = { workspace = true }
+pastey = { workspace = true }
 smallvec = { workspace = true }
 
 # Optional dependencies activated by features

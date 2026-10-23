@@ -20,7 +20,7 @@ quote = { version = "1.0" }
 proc-macro2 = { version = "1.0" }
 syn = { version = "2.0", features = ["full", "visit-mut"] }
 heck = { version = "0.5" }
-pluralizer = { version = "0.5" }
+pluralizer = { version = "0.6" }
 proc-macro-crate = "3.4"
 # Migration types for metadata generation
 drizzle-migrations = { workspace = true }

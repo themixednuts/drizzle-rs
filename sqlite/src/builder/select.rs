@@ -7,7 +7,7 @@ use crate::helpers::{self, JoinArg};
 use crate::values::SQLiteValue;
 use core::marker::PhantomData;
 use drizzle_core::{SQLTable, ToSQL};
-use paste::paste;
+use pastey::paste;
 
 //------------------------------------------------------------------------------
 // Type State Markers

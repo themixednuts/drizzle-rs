@@ -17,7 +17,7 @@ macro_rules! drizzle_builder_join_impl {
         drizzle_builder_join_impl!(inner, drizzle_core::InnerJoin);
     };
     (@natural $type:ident, $kind:ty) => {
-        paste::paste! {
+        pastey::paste! {
             /// Adds a NATURAL join: the database matches the columns both
             /// sides share by name, so it takes a source and no ON condition.
             pub fn [<$type _join>]<J: drizzle_sqlite::helpers::JoinSource<'a>>(
@@ -43,7 +43,7 @@ macro_rules! drizzle_builder_join_impl {
         }
     };
     ($type:ident, $kind:ty) => {
-        paste::paste! {
+        pastey::paste! {
             /// Adds the join this method names: `left_join` renders `LEFT JOIN`,
             /// `full_outer_join` renders `FULL OUTER JOIN`, and so on.
             ///
@@ -175,7 +175,7 @@ macro_rules! drizzle_pg_builder_join_impl {
         }
     };
     (@natural $type:ident, $kind:ty) => {
-        paste::paste! {
+        pastey::paste! {
             /// Adds a NATURAL join: the database matches the columns both
             /// sides share by name, so it takes a source and no ON condition.
             pub fn [<$type _join>]<J: drizzle_postgres::helpers::JoinSource<'a>>(
@@ -201,7 +201,7 @@ macro_rules! drizzle_pg_builder_join_impl {
         }
     };
     ($type:ident, $kind:ty) => {
-        paste::paste! {
+        pastey::paste! {
             /// Adds the join this method names: `left_join` renders `LEFT JOIN`,
             /// `full_outer_join` renders `FULL OUTER JOIN`, and so on.
             ///
@@ -279,7 +279,7 @@ macro_rules! drizzle_pg_builder_join_using_impl {
         }
     };
     ($type:ident, $kind:ty) => {
-        paste::paste! {
+        pastey::paste! {
             /// Adds the join this method names with a `USING (columns)`
             /// clause: `left_join_using` renders `LEFT JOIN table USING (...)`.
             pub fn [<$type _join_using>]<U: drizzle_postgres::traits::PostgresTable<'a>>(

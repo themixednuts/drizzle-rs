@@ -1,5 +1,5 @@
 use super::{Generator, RngCore, SeedValue};
-use rand::Rng;
+use rand::RngExt;
 
 /// Days from 1970-01-01 to the given civil date (proleptic Gregorian).
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
@@ -85,7 +85,7 @@ pub struct TimeTzGen;
 
 impl Generator for TimeTzGen {
     fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
-        use rand::Rng;
+        use rand::RngExt;
         let hour = rng.random_range(0u8..=23);
         let minute = rng.random_range(0u8..=59);
         let second = rng.random_range(0u8..=59);
@@ -102,7 +102,7 @@ pub struct IntervalGen;
 
 impl Generator for IntervalGen {
     fn generate(&self, rng: &mut dyn RngCore, _index: usize, _sql_type: &str) -> SeedValue {
-        use rand::Rng;
+        use rand::RngExt;
         let amount = rng.random_range(1u16..=72);
         SeedValue::Text(format!("{amount} hours"))
     }

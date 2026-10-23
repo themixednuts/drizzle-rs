@@ -11,7 +11,7 @@ use crate::values::PostgresValue;
 use core::marker::PhantomData;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::SQLTable;
-use paste::paste;
+use pastey::paste;
 
 // Import the ExecutableState trait
 use super::ExecutableState;

@@ -1,5 +1,5 @@
 use super::{Generator, RngCore, SeedValue};
-use rand::Rng;
+use rand::RngExt;
 
 fn one_indexed_i64(index: usize) -> i64 {
     i64::try_from(index).unwrap_or(i64::MAX - 1) + 1

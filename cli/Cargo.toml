@@ -68,7 +68,7 @@ mysql_common = { workspace = true, optional = true }
 
 # HTTP client for d1-http driver (Cloudflare REST API).
 # rustls-tls avoids requiring a system openssl on Windows/macOS devs.
-reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["json", "rustls"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

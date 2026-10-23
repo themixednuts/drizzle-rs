@@ -195,9 +195,10 @@ pub mod schema;
 pub use config::SeedConfig;
 pub use error::SeedError;
 pub use generator::{Generator, GeneratorKind, RngCore, SeedValue};
-/// Re-export of `rand::Rng`, for drawing values from the RNG a
-/// [`Generator`] receives (`rng.random_range(..)`, `rng.random_bool(..)`).
-pub use rand::Rng;
+/// rand's `RngExt` (named `Rng` before rand 0.10), for drawing values from
+/// the RNG a [`Generator`] receives (`rng.random_range(..)`,
+/// `rng.random_bool(..)`).
+pub use rand::RngExt as Rng;
 
 use drizzle_core::{ColumnRef, TableRef};
 use rand::rngs::StdRng;

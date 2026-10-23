@@ -65,7 +65,7 @@ pub(crate) fn table_column_rng(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::Rng;
+    use rand::RngExt;
 
     const CONST_SEED: u64 = column_seed("users", "email", 42);
 

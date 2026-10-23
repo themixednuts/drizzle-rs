@@ -2,7 +2,7 @@
 
 use crate::generator::{Generator, GeneratorKind, RngCore, SeedValue};
 use drizzle_core::{ColumnDialect, ColumnRef, EnumVariantRef};
-use rand::Rng;
+use rand::RngExt;
 
 #[cfg(feature = "mysql")]
 use crate::generator::{numeric::IntGen, special::BlobGen, string::TextGen};

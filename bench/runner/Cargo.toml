@@ -47,8 +47,8 @@ turso = { workspace = true }
 libsql = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 sysinfo = { version = "0.39.6" }
-jsonschema = { version = "0.49.2", default-features = false, features = ["resolve-file"] }
-parquet = { version = "59.1.0", default-features = false }
+jsonschema = { version = "0.60.0", default-features = false, features = ["resolve-file"] }
+parquet = { version = "60.0.0", default-features = false }
 tempfile = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
