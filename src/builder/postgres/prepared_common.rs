@@ -223,17 +223,23 @@ macro_rules! postgres_prepared_sync_impl {
 
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.execute.db");
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types)?;
+                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                 let mut result = client.execute(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types)?;
+                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                     result = client.execute(&statement, &params_refs);
                 }
-                result.map_err(Into::into)
+                result.with_query(context)
             }
 
             /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -292,17 +298,23 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types)?;
+                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                 let mut result = client.query(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types)?;
+                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                     result = client.query(&statement, &params_refs);
                 }
-                let rows = result?;
+                let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
                 // Consume rows by value so each decoded row can be dropped immediately.
@@ -373,17 +385,23 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types)?;
+                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                 let mut result = client.query_opt(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types)?;
+                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                     result = client.query_opt(&statement, &params_refs);
                 }
-                let row = result?;
+                let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }
@@ -438,17 +456,23 @@ macro_rules! postgres_prepared_sync_impl {
 
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_execute.db");
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types)?;
+                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                 let mut result = client.execute(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types)?;
+                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                     result = client.execute(&statement, &params_refs);
                 }
-                result.map_err(Into::into)
+                result.with_query(context)
             }
 
             /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -507,17 +531,23 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types)?;
+                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                 let mut result = client.query(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types)?;
+                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                     result = client.query(&statement, &params_refs);
                 }
-                let rows = result?;
+                let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
                 // Consume rows by value so each decoded row can be dropped immediately.
@@ -588,17 +618,23 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types)?;
+                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                 let mut result = client.query_opt(&statement, &params_refs);
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types)?;
+                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
                     result = client.query_opt(&statement, &params_refs);
                 }
-                let row = result?;
+                let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }
@@ -648,21 +684,29 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
-                    .await?;
+                    .await
+                    .with_query(context)?;
                 let mut result = client.execute(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
-                        .await?;
+                        .await
+                        .with_query(context)?;
                     result = client.execute(&statement, &params_refs).await;
                 }
-                result.map_err(Into::into)
+                result.with_query(context)
             }
 
             /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -721,21 +765,29 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
-                    .await?;
+                    .await
+                    .with_query(context)?;
                 let mut result = client.query(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
-                        .await?;
+                        .await
+                        .with_query(context)?;
                     result = client.query(&statement, &params_refs).await;
                 }
-                let rows = result?;
+                let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
                 // Consume rows by value so each decoded row can be dropped immediately.
@@ -806,21 +858,29 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
-                    .await?;
+                    .await
+                    .with_query(context)?;
                 let mut result = client.query_opt(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
-                        .await?;
+                        .await
+                        .with_query(context)?;
                     result = client.query_opt(&statement, &params_refs).await;
                 }
-                let row = result?;
+                let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }
@@ -869,21 +929,29 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
-                    .await?;
+                    .await
+                    .with_query(context)?;
                 let mut result = client.execute(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
-                        .await?;
+                        .await
+                        .with_query(context)?;
                     result = client.execute(&statement, &params_refs).await;
                 }
-                result.map_err(Into::into)
+                result.with_query(context)
             }
 
             /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -945,21 +1013,29 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
-                    .await?;
+                    .await
+                    .with_query(context)?;
                 let mut result = client.query(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
-                        .await?;
+                        .await
+                        .with_query(context)?;
                     result = client.query(&statement, &params_refs).await;
                 }
-                let rows = result?;
+                let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
                 // Consume rows by value so each decoded row can be dropped immediately.
@@ -1033,21 +1109,29 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec,
                     );
 
+                let context = || {
+                    drizzle_core::error::QueryContext::new(
+                        sql_str,
+                        &params_vec.iter().collect::<Vec<_>>(),
+                    )
+                };
                 // A statement cached before the schema changed, or on a connection
                 // that was replaced, is rejected while planning: prepare it again
                 // and retry once.
                 let mut statement = self
                     .driver_statement(client, sql_str, &param_types)
-                    .await?;
+                    .await
+                    .with_query(context)?;
                 let mut result = client.query_opt(&statement, &params_refs).await;
                 if result.as_ref().is_err_and(is_stale_statement) {
                     self.evict_statement(client, sql_str, &param_types);
                     statement = self
                         .driver_statement(client, sql_str, &param_types)
-                        .await?;
+                        .await
+                        .with_query(context)?;
                     result = client.query_opt(&statement, &params_refs).await;
                 }
-                let row = result?;
+                let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
         }

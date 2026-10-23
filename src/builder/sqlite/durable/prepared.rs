@@ -17,28 +17,20 @@ use std::{borrow::Cow, marker::PhantomData};
 use ::worker::{SqlStorage, SqlStorageValue};
 
 use super::{DurableStorage, sqlite_value_to_storage};
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
+use smallvec::SmallVec;
 
 /// Convert an iterator of borrowed SQLiteValue-bearing items into the typed
 /// [`SqlStorageValue`] vector DO SQL requires.
-fn borrowed_values_to_storage<'a, I>(bound: I) -> Vec<SqlStorageValue>
-where
-    I: IntoIterator<Item = SQLiteValue<'a>>,
-{
-    bound
-        .into_iter()
-        .map(|v| sqlite_value_to_storage(&v))
-        .collect()
+fn borrowed_values_to_storage(bound: &[SQLiteValue<'_>]) -> Vec<SqlStorageValue> {
+    bound.iter().map(sqlite_value_to_storage).collect()
 }
 
 /// Same, but for `OwnedSQLiteValue` — used by the `OwnedPreparedStatement`
 /// bind paths.
-fn owned_values_to_storage<I>(bound: I) -> Vec<SqlStorageValue>
-where
-    I: IntoIterator<Item = OwnedSQLiteValue>,
-{
+fn owned_values_to_storage(bound: &[OwnedSQLiteValue]) -> Vec<SqlStorageValue> {
     bound
-        .into_iter()
+        .iter()
         .map(|v| sqlite_value_to_storage(&SQLiteValue::from(v)))
         .collect()
 }
@@ -141,8 +133,10 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_storage(bound);
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let values = borrowed_values_to_storage(&bound);
         run_execute(conn.sql(), sql_str, values)
+            .with_query(|| QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>()))
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -168,8 +162,10 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_storage(bound);
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let values = borrowed_values_to_storage(&bound);
         run_all::<T>(conn.sql(), sql_str, values)
+            .with_query(|| QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>()))
     }
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
@@ -196,8 +192,10 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_storage(bound);
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let values = borrowed_values_to_storage(&bound);
         run_get::<T>(conn.sql(), sql_str, values)
+            .with_query(|| QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>()))
     }
 }
 
@@ -222,8 +220,10 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_storage(bound);
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let values = owned_values_to_storage(&bound);
         run_execute(conn.sql(), sql_str, values)
+            .with_query(|| QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>()))
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -249,8 +249,10 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_storage(bound);
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let values = owned_values_to_storage(&bound);
         run_all::<T>(conn.sql(), sql_str, values)
+            .with_query(|| QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>()))
     }
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
@@ -277,8 +279,10 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_storage(bound);
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let values = owned_values_to_storage(&bound);
         run_get::<T>(conn.sql(), sql_str, values)
+            .with_query(|| QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>()))
     }
 }
 

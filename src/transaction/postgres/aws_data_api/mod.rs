@@ -19,7 +19,7 @@ use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 use aws_sdk_rdsdata::Client;
 use drizzle_core::dialect::ParamStyle;
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::aws_data_api::Row;
 use drizzle_postgres::builder::{
@@ -239,7 +239,10 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -267,7 +270,10 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
         rows.into_iter()
             .map(|row| R::try_from(&row).map_err(Into::into))
@@ -297,7 +303,10 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
@@ -326,7 +335,10 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let row = decode_rows(out).into_iter().next();
         row.map(|row| R::try_from(&row).map_err(Into::into))
             .transpose()
@@ -446,7 +458,11 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -475,7 +491,11 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -506,7 +526,11 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
@@ -537,7 +561,11 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let row = decode_rows(out).into_iter().next();
         let row = row
             .map(|row| R::try_from(&row).map_err(Into::into))

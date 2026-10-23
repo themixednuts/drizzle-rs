@@ -22,6 +22,7 @@ use tokio_postgres::{
 };
 
 use crate::builder::postgres::prepared_common::postgres_prepared_async_impl;
+use drizzle_core::error::ResultExt as _;
 
 /// A query rendered once, ready to run many times with new placeholder values.
 ///

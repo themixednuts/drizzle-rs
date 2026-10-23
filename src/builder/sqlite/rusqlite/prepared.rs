@@ -1,4 +1,4 @@
-use drizzle_core::error::Result;
+use drizzle_core::error::{QueryContext, Result, ResultExt};
 use drizzle_core::param::{OwnedParam, Param, ParamBind};
 use drizzle_core::prepared::{
     OwnedPreparedStatement as CoreOwnedPreparedStatement,
@@ -6,6 +6,7 @@ use drizzle_core::prepared::{
 };
 use drizzle_core::traits::ToSQL;
 use drizzle_sqlite::values::{OwnedSQLiteValue, SQLiteValue};
+use smallvec::SmallVec;
 use std::{borrow::Cow, marker::PhantomData};
 
 use rusqlite::{Connection, OptionalExtension as _, Row, params_from_iter};
@@ -76,11 +77,13 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
             drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.execute.bind");
             self.inner.bind(params)?
         };
+        let params: SmallVec<[_; 8]> = params.collect();
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.execute.db");
-        let mut stmt = conn.prepare_cached(sql_str)?;
-        super::run_statement(&mut stmt, params_from_iter(params)).map_err(Into::into)
+        conn.prepare_cached(sql_str)
+            .and_then(|mut stmt| super::run_statement(&mut stmt, params_from_iter(params.iter())))
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -108,12 +111,17 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.all");
         let (sql_str, params) = self.inner.bind(params)?;
+        let params: SmallVec<[_; 8]> = params.collect();
 
-        let mut stmt = conn.prepare_cached(sql_str)?;
+        let mut stmt = conn
+            .prepare_cached(sql_str)
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?;
 
-        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
-            <Marker as drizzle_core::row::DecodeSelectedRef<&Row<'_>, T>>::decode(row)
-        })?;
+        let mut rows = stmt
+            .query_and_then(params_from_iter(params.iter()), |row| {
+                <Marker as drizzle_core::row::DecodeSelectedRef<&Row<'_>, T>>::decode(row)
+            })
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?;
 
         let (lower, _) = rows.size_hint();
         let mut results = Vec::with_capacity(lower);
@@ -150,16 +158,20 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.get");
         let (sql_str, params) = self.inner.bind(params)?;
+        let params: SmallVec<[_; 8]> = params.collect();
 
-        let mut stmt = conn.prepare_cached(sql_str)?;
+        let mut stmt = conn
+            .prepare_cached(sql_str)
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?;
 
-        stmt.query_row(params_from_iter(params), |row| {
+        stmt.query_row(params_from_iter(params.iter()), |row| {
             Ok(<Marker as drizzle_core::row::DecodeSelectedRef<
                 &Row<'_>,
                 T,
             >>::decode(row))
         })
-        .optional()?
+        .optional()
+        .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?
         .transpose()
     }
     /// Copies the embedded values so the statement no longer borrows them.
@@ -228,11 +240,13 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
             drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.execute.bind");
             self.inner.bind(params)?
         };
+        let params: SmallVec<[_; 8]> = params.collect();
 
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.execute.db");
-        let mut stmt = conn.prepare_cached(sql_str)?;
-        Ok(super::run_statement(&mut stmt, params_from_iter(params))?)
+        conn.prepare_cached(sql_str)
+            .and_then(|mut stmt| super::run_statement(&mut stmt, params_from_iter(params.iter())))
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -260,12 +274,17 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.all");
         let (sql_str, params) = self.inner.bind(params)?;
+        let params: SmallVec<[_; 8]> = params.collect();
 
-        let mut stmt = conn.prepare_cached(sql_str)?;
+        let mut stmt = conn
+            .prepare_cached(sql_str)
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?;
 
-        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
-            <Marker as drizzle_core::row::DecodeSelectedRef<&Row<'_>, T>>::decode(row)
-        })?;
+        let mut rows = stmt
+            .query_and_then(params_from_iter(params.iter()), |row| {
+                <Marker as drizzle_core::row::DecodeSelectedRef<&Row<'_>, T>>::decode(row)
+            })
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?;
 
         let (lower, _) = rows.size_hint();
         let mut results = Vec::with_capacity(lower);
@@ -302,16 +321,20 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.get");
         let (sql_str, params) = self.inner.bind(params)?;
+        let params: SmallVec<[_; 8]> = params.collect();
 
-        let mut stmt = conn.prepare_cached(sql_str)?;
+        let mut stmt = conn
+            .prepare_cached(sql_str)
+            .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?;
 
-        stmt.query_row(params_from_iter(params), |row| {
+        stmt.query_row(params_from_iter(params.iter()), |row| {
             Ok(<Marker as drizzle_core::row::DecodeSelectedRef<
                 &Row<'_>,
                 T,
             >>::decode(row))
         })
-        .optional()?
+        .optional()
+        .with_query(|| QueryContext::new(sql_str, &params.iter().collect::<Vec<_>>()))?
         .transpose()
     }
 }

@@ -19,25 +19,20 @@ use std::{borrow::Cow, marker::PhantomData};
 use ::worker::D1Database;
 
 use super::{bind_statement, sqlite_value_to_js};
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
+use smallvec::SmallVec;
 
 /// Convert an iterator of borrowed SQLiteValue-bearing items into the JS param
 /// array D1 requires.
-fn borrowed_values_to_js<'a, I>(bound: I) -> Vec<wasm_bindgen::JsValue>
-where
-    I: IntoIterator<Item = SQLiteValue<'a>>,
-{
-    bound.into_iter().map(|v| sqlite_value_to_js(&v)).collect()
+fn borrowed_values_to_js(bound: &[SQLiteValue<'_>]) -> Vec<wasm_bindgen::JsValue> {
+    bound.iter().map(sqlite_value_to_js).collect()
 }
 
 /// Same, but for `OwnedSQLiteValue` — used by the `OwnedPreparedStatement`
 /// bind paths.
-fn owned_values_to_js<I>(bound: I) -> Vec<wasm_bindgen::JsValue>
-where
-    I: IntoIterator<Item = OwnedSQLiteValue>,
-{
+fn owned_values_to_js(bound: &[OwnedSQLiteValue]) -> Vec<wasm_bindgen::JsValue> {
     bound
-        .into_iter()
+        .iter()
         .map(|v| sqlite_value_to_js(&SQLiteValue::from(v)))
         .collect()
 }
@@ -140,9 +135,11 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_execute(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = borrowed_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_execute(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -168,9 +165,11 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_all::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = borrowed_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_all::<T>(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
@@ -197,9 +196,11 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_get::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = borrowed_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_get::<T>(stmt).await.with_query(context)
     }
 }
 
@@ -224,9 +225,11 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_execute(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = owned_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_execute(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -252,9 +255,11 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_all::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = owned_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_all::<T>(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
@@ -281,9 +286,11 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_get::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = owned_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_get::<T>(stmt).await.with_query(context)
     }
 }
 

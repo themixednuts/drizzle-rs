@@ -111,7 +111,7 @@ mod storage;
 pub use storage::DurableStorage;
 
 use ::worker::{SqlStorage, SqlStorageValue};
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::prepared::prepare_render;
 use drizzle_core::traits::ToSQL;
 
@@ -169,9 +169,14 @@ where
     let sql = query.to_sql();
     let (sql_str, params) = sql.build();
     drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-    let values: Vec<SqlStorageValue> = params.into_iter().map(sqlite_value_to_storage).collect();
+    let values: Vec<SqlStorageValue> = params
+        .iter()
+        .copied()
+        .map(sqlite_value_to_storage)
+        .collect();
     conn.exec(&sql_str, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))
+        .with_query(|| QueryContext::new(&sql_str, &params))
 }
 
 impl<Schema> common::Drizzle<DurableStorage, Schema> {
@@ -183,7 +188,7 @@ impl<Schema> common::Drizzle<DurableStorage, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// Returns an error with the runtime's message when the
     /// statement fails.
     pub fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
@@ -208,7 +213,7 @@ impl<Schema> common::Drizzle<DurableStorage, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
     pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
@@ -234,7 +239,7 @@ impl<Schema> common::Drizzle<DurableStorage, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
     pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
@@ -591,7 +596,7 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// Returns an error with the runtime's message when the
     /// statement fails.
     pub fn execute(self) -> drizzle_core::error::Result<u64>
     where
@@ -615,7 +620,7 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
@@ -635,11 +640,15 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     /// `R` has the same requirements as in [`all`](Self::all). Every row is
     /// still read; add `.limit(1)` when the query could match many.
     ///
-    /// Returns `None` when no row matches.
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
     pub fn get<R, Proof, AggProof>(
         self,
@@ -724,11 +733,13 @@ where
     );
     let (sql, bind_params) = query_sql.build();
     let values: Vec<SqlStorageValue> = bind_params
-        .into_iter()
+        .iter()
+        .copied()
         .map(sqlite_value_to_storage)
         .collect();
 
-    let rows = query_json_rows(conn, &sql, values)?;
+    let rows =
+        query_json_rows(conn, &sql, values).with_query(|| QueryContext::new(&sql, &bind_params))?;
     rows.into_iter()
         .map(|row| row.into_row::<_, Rels>())
         .collect()
@@ -862,11 +873,13 @@ where
     );
     let (sql, bind_params) = query_sql.build();
     let values: Vec<SqlStorageValue> = bind_params
-        .into_iter()
+        .iter()
+        .copied()
         .map(sqlite_value_to_storage)
         .collect();
 
-    let rows = query_json_rows(conn, &sql, values)?;
+    let rows =
+        query_json_rows(conn, &sql, values).with_query(|| QueryContext::new(&sql, &bind_params))?;
     rows.into_iter()
         .map(|row| row.into_row::<_, Rels>())
         .collect()
@@ -983,8 +996,10 @@ impl<'a, T, Rels>
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let (sql, bound) = self.inner.bind(params)?;
-        let values: Vec<SqlStorageValue> = bound.map(|v| sqlite_value_to_storage(&v)).collect();
-        let rows = query_json_rows(conn.sql(), sql, values)?;
+        let bound: smallvec::SmallVec<[_; 8]> = bound.collect();
+        let values: Vec<SqlStorageValue> = bound.iter().map(sqlite_value_to_storage).collect();
+        let rows = query_json_rows(conn.sql(), sql, values)
+            .with_query(|| QueryContext::new(sql, &bound.iter().collect::<Vec<_>>()))?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()
@@ -1050,8 +1065,10 @@ impl<'a, T, Rels>
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let (sql, bound) = self.inner.bind(params)?;
-        let values: Vec<SqlStorageValue> = bound.map(|v| sqlite_value_to_storage(&v)).collect();
-        let rows = query_json_rows(conn.sql(), sql, values)?;
+        let bound: smallvec::SmallVec<[_; 8]> = bound.collect();
+        let values: Vec<SqlStorageValue> = bound.iter().map(sqlite_value_to_storage).collect();
+        let rows = query_json_rows(conn.sql(), sql, values)
+            .with_query(|| QueryContext::new(sql, &bound.iter().collect::<Vec<_>>()))?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()

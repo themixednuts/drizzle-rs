@@ -1,4 +1,4 @@
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext};
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
@@ -151,17 +151,23 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
         let row = tx
             .query_one(EXPORT_SNAPSHOT_SQL, &[])
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, EXPORT_SNAPSHOT_SQL, &[]))?;
         let id: &str = row.try_get(0).map_err(DrizzleError::from)?;
         exported_snapshot(id)
     }
 
-    /// Converts a driver error from a statement run in this transaction.
+    /// Converts a driver error from a statement run in this transaction,
+    /// with the statement's SQL and parameters.
     ///
     /// A server error aborts a PostgreSQL transaction (every later statement
     /// fails and `COMMIT` rolls back), so it is recorded: committing then
     /// reports the rollback instead of success.
-    fn statement_error(&self, error: postgres::Error) -> DrizzleError {
+    fn statement_error(
+        &self,
+        error: postgres::Error,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> DrizzleError {
         if error.as_db_error().is_some() {
             self.aborted.mark();
         }
@@ -170,7 +176,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         if crate::builder::postgres::postgres_sync::prepared::is_stale_statement(&error) {
             self.statement_cache.clear_client(self.client_id);
         }
-        DrizzleError::from(error)
+        DrizzleError::QueryFailed {
+            ctx: Box::new(QueryContext::new(sql, params)),
+            source: Box::new(DrizzleError::from(error)),
+        }
     }
 
     /// Executes a raw SQL string with no parameters.
@@ -271,10 +280,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.execute.db");
         let statement = self
             .cached_statement(tx, &sql, &param_types)
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql, &params))?;
         Ok(tx
             .execute(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error))?)
+            .map_err(|error| self.statement_error(error, &sql, &params))?)
     }
 
     /// Runs any SQL value inside the transaction and decodes every row into
@@ -322,10 +331,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         let statement = self
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
 
         Ok(Rows::new(rows))
     }
@@ -361,10 +370,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
 
         let statement = self
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
         let row = tx
             .query_opt(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
 
         row.map(|row| R::try_from(&row).map_err(Into::into))
             .transpose()
@@ -397,10 +406,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
         let statement = self
             .cached_statement(tx, &sql, &param_types)
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql, &params))?;
 
         tx.query(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error))
+            .map_err(|error| self.statement_error(error, &sql, &params))
     }
 
     /// Commits the transaction.
@@ -706,10 +715,10 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
         Ok(tx
             .execute(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error))?)
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?)
     }
 
     /// Runs the query inside the transaction and decodes every row into `R`.
@@ -750,10 +759,10 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -795,10 +804,10 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
 
         Ok(Rows::new(rows))
     }
@@ -843,10 +852,10 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let statement = self
             .runner
             .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
         let row = tx
             .query_opt(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
 
         let row = row
             .map(|row| {

@@ -216,11 +216,16 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.tx.prepare(&sql_str)?;
+        let mut stmt = self
+            .tx
+            .prepare(&sql_str)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
-            R::try_from(row).map_err(Into::into)
-        })?;
+        let mut rows = stmt
+            .query_and_then(params_from_iter(params.iter().copied()), |row| {
+                R::try_from(row).map_err(Into::into)
+            })
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         let (lower, _) = rows.size_hint();
         let mut results = Vec::with_capacity(lower);
@@ -254,12 +259,16 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.tx.prepare(&sql_str)?;
+        let mut stmt = self
+            .tx
+            .prepare(&sql_str)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        stmt.query_row(params_from_iter(params), |row| {
+        stmt.query_row(params_from_iter(params.iter().copied()), |row| {
             Ok(R::try_from(row).map_err(Into::into))
         })
-        .optional()?
+        .optional()
+        .with_query(|| QueryContext::new(&sql_str, &params))?
         .transpose()
     }
 
@@ -301,12 +310,13 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "tx_builder.execute");
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        Ok(crate::builder::sqlite::rusqlite::execute_sql(
+        crate::builder::sqlite::rusqlite::execute_sql(
             &self.runner.tx,
             &sql_str,
-            params_from_iter(params),
+            params_from_iter(params.iter().copied()),
             self.builder.sql.has_returning(),
-        )?)
+        )
+        .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs the query inside the transaction and decodes every row into `R`.
@@ -338,10 +348,19 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.runner.tx.prepare(&sql_str)?;
-        let mut raw_rows = stmt.query(params_from_iter(params))?;
+        let mut stmt = self
+            .runner
+            .tx
+            .prepare(&sql_str)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+        let mut raw_rows = stmt
+            .query(params_from_iter(params.iter().copied()))
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::new();
-        while let Some(row) = raw_rows.next()? {
+        while let Some(row) = raw_rows
+            .next()
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+        {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
                 &::rusqlite::Row<'_>,
                 R,
@@ -373,11 +392,17 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.runner.tx.prepare(&sql_str)?;
+        let mut stmt = self
+            .runner
+            .tx
+            .prepare(&sql_str)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        let mut rows = stmt.query_and_then(params_from_iter(params), |row| {
-            Rw::try_from(row).map_err(Into::into)
-        })?;
+        let mut rows = stmt
+            .query_and_then(params_from_iter(params.iter().copied()), |row| {
+                Rw::try_from(row).map_err(Into::into)
+            })
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         let (lower, _) = rows.size_hint();
         let mut results = Vec::with_capacity(lower);
@@ -391,13 +416,16 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and decodes its first row into
     /// `R`.
     ///
-    /// Returns `None` when no row matches.
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no `GROUP BY`, `HAVING`, `ORDER BY`,
+    /// `LIMIT`, `OFFSET` or set operation) returns the row itself.
     ///
     /// # Errors
     ///
     /// Returns an error
     /// when SQLite cannot prepare or run the query or the row cannot be
-    /// decoded into `R`.
+    /// decoded into `R`, and [`DrizzleError::NotFound`] when a query that
+    /// always returns one row returns none.
     ///
     /// # Compile-time checks
     ///
@@ -419,15 +447,20 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let mut stmt = self.runner.tx.prepare(&sql_str)?;
+        let mut stmt = self
+            .runner
+            .tx
+            .prepare(&sql_str)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let row = stmt
-            .query_row(params_from_iter(params), |row| {
+            .query_row(params_from_iter(params.iter().copied()), |row| {
                 Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
                     &::rusqlite::Row<'_>,
                     R,
                 >>::decode(row))
             })
-            .optional()?
+            .optional()
+            .with_query(|| QueryContext::new(&sql_str, &params))?
             .transpose()?;
         drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }

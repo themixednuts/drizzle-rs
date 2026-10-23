@@ -45,7 +45,7 @@ use std::sync::Arc;
 use aws_sdk_rdsdata::Client;
 use aws_sdk_rdsdata::types::{ColumnMetadata, SqlParameter};
 use drizzle_core::dialect::ParamStyle;
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::aws_data_api::{Row, encode_param, row_from_parts};
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
@@ -184,7 +184,8 @@ impl<Schema> Drizzle<Schema> {
         let sql_params = encode_params(params.as_slice());
         let out = self
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -238,7 +239,8 @@ impl<Schema> Drizzle<Schema> {
         let sql_params = encode_params(params.as_slice());
         let out = self
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
@@ -627,7 +629,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -662,7 +665,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -698,7 +702,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
@@ -707,7 +712,11 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// Rows after the first are ignored. `R` is checked as in
     /// [`all`](Self::all).
     ///
-    /// Returns `None` when no row matches.
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
     ///
     /// # Errors
     ///
@@ -736,7 +745,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
         let row = rows.into_iter().next();
         let row = row

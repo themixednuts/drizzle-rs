@@ -425,6 +425,35 @@ macro_rules! shared_prepared_statement_suite {
                     ("Alice", Some("Al"))
                 );
             }
+
+            #[drizzle::test($dialect)]
+            fn a_failed_prepared_statement_carries_its_query(
+                db: &mut TestDb<SharedPreparedSchema>,
+            ) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .value(InsertSharedPreparedUser::new("Alice").with_id(1))
+                    .execute();
+
+                let duplicate = db
+                    .insert(users)
+                    .value(InsertSharedPreparedUser::new("Bob").with_id(1))
+                    .prepare()
+                    .into_owned();
+                let error = result!(duplicate.execute(drizzle_client!(), []))
+                    .expect_err("a second row with the same id");
+                assert_eq!(
+                    error.kind(),
+                    drizzle::error::ErrorKind::UniqueViolation,
+                    "{error}"
+                );
+                assert!(
+                    error
+                        .query()
+                        .is_some_and(|query| query.sql.contains("shared_prepared_users")),
+                    "{error}"
+                );
+            }
         }
     };
 }

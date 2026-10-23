@@ -1,4 +1,4 @@
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
@@ -191,9 +191,16 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let query = query.to_sql();
         let (sql_str, params) = query.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        Ok(turso_transaction_execute_cached(&self.tx, &sql_str, params).await?)
+        turso_transaction_execute_cached(&self.tx, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs any SQL value inside the transaction and decodes every row into
@@ -229,9 +236,16 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        let rows = turso_transaction_query_cached(&self.tx, &sql_str, params).await?;
+        let rows = turso_transaction_query_cached(&self.tx, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(rows))
     }
 
@@ -255,14 +269,22 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        let mut rows = turso_transaction_query_cached(&self.tx, &sql_str, params).await?;
+        let mut rows = turso_transaction_query_cached(&self.tx, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         crate::builder::sqlite::turso::turso_decode_first_and_finish(&mut rows, |row| {
             R::try_from(row).map_err(Into::into)
         })
         .await
+        .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Commits the transaction.
@@ -306,9 +328,16 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        Ok(turso_transaction_execute_cached(&self.runner.tx, &sql_str, params).await?)
+        turso_transaction_execute_cached(&self.runner.tx, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs the query inside the transaction and decodes every row into `R`.
@@ -338,10 +367,22 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+        let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::new();
-        while let Some(row) = rows.next().await? {
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+        {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
                 &::turso::Row,
                 R,
@@ -370,21 +411,32 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        let rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
+        let rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(rows))
     }
 
     /// Runs the query inside the transaction and decodes its first row into
     /// `R`.
     ///
-    /// Returns `None` when no row matches.
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no `GROUP BY`, `HAVING`, `ORDER BY`,
+    /// `LIMIT`, `OFFSET` or set operation) returns the row itself.
     ///
     /// # Errors
     ///
     /// Returns an error when turso cannot prepare or run
-    /// the query or the row cannot be decoded into `R`.
+    /// the query or the row cannot be decoded into `R`, and
+    /// [`DrizzleError::NotFound`] when a query that always returns one row
+    /// returns none.
     ///
     /// # Compile-time checks
     ///
@@ -404,12 +456,20 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<turso::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, params).await?;
+        let driver_params: Vec<turso::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+        let mut rows = turso_transaction_query_cached(&self.runner.tx, &sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let row = crate::builder::sqlite::turso::turso_decode_first_and_finish(&mut rows, |row| {
             <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(row)
         })
-        .await?;
+        .await
+        .with_query(|| QueryContext::new(&sql_str, &params))?;
         drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

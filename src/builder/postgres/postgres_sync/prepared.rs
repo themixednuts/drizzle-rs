@@ -22,6 +22,7 @@ use postgres::{
 };
 
 use crate::builder::postgres::prepared_common::postgres_prepared_sync_impl;
+use drizzle_core::error::ResultExt as _;
 
 const STATEMENT_CACHE_CAP: usize = 32;
 
