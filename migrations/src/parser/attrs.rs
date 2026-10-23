@@ -2270,14 +2270,12 @@ fn parse_composite_fk(
                     ));
                 }
             }
-            Meta::NameValue(nv) if fk_key_is(&nv.path, "name") => {
-                match lit_str_value(&nv.value) {
-                    Some(name) if !name.is_empty() => fk.name = Some(name),
-                    _ => diags.errors.push(format!(
-                        "{desc}: FOREIGN_KEY name must be a non-empty string literal"
-                    )),
-                }
-            }
+            Meta::NameValue(nv) if fk_key_is(&nv.path, "name") => match lit_str_value(&nv.value) {
+                Some(name) if !name.is_empty() => fk.name = Some(name),
+                _ => diags.errors.push(format!(
+                    "{desc}: FOREIGN_KEY name must be a non-empty string literal"
+                )),
+            },
             Meta::Path(path)
                 if dialect == Dialect::PostgreSQL && fk_key_is(&path, "deferrable") =>
             {
