@@ -99,55 +99,127 @@ impl SchemaParser {
         let Walker { diags, .. } = walker;
         result.warnings.extend(diags.warnings);
         result.errors.extend(diags.errors);
-        resolve_postgres_enum_columns(&mut result);
+        resolve_enum_columns(&mut result);
         validate_mysql_database_scope(&mut result);
         result
     }
 }
 
-/// Give each Postgres `#[column(enum)]` column its enum's storage type, once
-/// every enum is known (an enum may be declared after the table using it, or
-/// in a later schema file). A native enum keeps its name as the column type;
-/// a text- or integer-stored enum is a `text` / integer column, like the
-/// derive's `DrizzlePostgresColumn::SQL_TYPE`.
-fn resolve_postgres_enum_columns(result: &mut ParseResult) {
-    let storages: std::collections::HashMap<String, PgEnumStorage> = result
+/// Give each `#[column(enum)]` column its enum's storage type and default,
+/// once every enum is known (an enum may be declared after the table using
+/// it, or in a later schema file).
+///
+/// On PostgreSQL a native enum keeps its name as the column type; a text- or
+/// integer-stored enum is a `text` / integer column, like the derive's
+/// `DrizzlePostgresColumn::SQL_TYPE`. On SQLite an integer-stored enum is an
+/// `INTEGER` column. A `default` naming a variant is what the column stores:
+/// the discriminant for an integer-stored enum, the label otherwise, as the
+/// derive's `SQLEnumVariants::DEFAULT_LITERALS` writes it.
+fn resolve_enum_columns(result: &mut ParseResult) {
+    let enums: std::collections::HashMap<(Dialect, String), ParsedEnum> = result
         .enums
         .values()
-        .filter(|e| e.dialect == Dialect::PostgreSQL)
-        .map(|e| (e.name.clone(), e.storage))
+        .map(|e| ((e.dialect, e.name.clone()), e.clone()))
         .collect();
-    let mut tables: Vec<_> = result
-        .tables
-        .values_mut()
-        .filter(|t| t.dialect == Dialect::PostgreSQL)
-        .collect();
+    let mut tables: Vec<_> = result.tables.values_mut().collect();
     tables.sort_by_key(|t| t.order);
     for table in tables {
+        let dialect = table.dialect;
         for field in &mut table.fields {
             let spec = &mut field.spec;
-            if !spec.enum_marker || spec.serial.is_some() || spec.pg_dimensions.is_some() {
+            // A SQLite enum column may leave out the `enum` marker; it is then
+            // a custom type, and the macro still reads its storage from the
+            // enum's derive.
+            let marker_free = !spec.enum_marker
+                && spec.is_custom_type
+                && dialect == Dialect::SQLite
+                && enum_type_name(&field.ty)
+                    .is_some_and(|name| enums.contains_key(&(dialect, name)));
+            if !spec.enum_marker && !marker_free {
                 continue;
             }
-            let Some(pg_type) = spec.pg_type.as_deref() else {
+            if dialect == Dialect::MySQL {
+                // A MySQL ENUM column stores the label.
+                if let Some(label) = spec.default_variant.take() {
+                    let label = label.trim_start_matches("r#").to_string();
+                    spec.default = Some(ParsedDefault::Str(label));
+                }
+                continue;
+            }
+            if dialect == Dialect::PostgreSQL
+                && (spec.serial.is_some() || spec.pg_dimensions.is_some())
+            {
+                continue;
+            }
+            let Some(enum_name) = enum_type_name(&field.ty) else {
                 continue;
             };
-            let enum_name = pg_type.rsplit("::").next().unwrap_or(pg_type);
-            match storages.get(enum_name) {
-                Some(storage) => {
-                    if let Some(column_type) = storage.column_type() {
-                        spec.pg_type = Some(column_type.to_string());
+            let Some(parsed) = enums.get(&(dialect, enum_name.clone())) else {
+                if dialect == Dialect::PostgreSQL {
+                    let pg_type = spec.pg_type.as_deref().unwrap_or(&enum_name);
+                    result.warnings.push(format!(
+                        "table `{}`.{}: `{pg_type}` is not a #[derive(PostgresEnum)] enum in the \
+                         parsed schema files; the column is typed as a native enum `{pg_type}`, \
+                         but no CREATE TYPE is generated for it. Add the file declaring the enum \
+                         to the schema paths",
+                        table.name, field.name
+                    ));
+                }
+                continue;
+            };
+            let integer = matches!(parsed.storage, PgEnumStorage::Integer(_));
+            match dialect {
+                Dialect::PostgreSQL => {
+                    spec.pg_type = Some(
+                        parsed
+                            .storage
+                            .column_type()
+                            .map_or_else(|| enum_name.clone(), str::to_string),
+                    );
+                }
+                _ => {
+                    if integer && (spec.sqlite_enum_storage || marker_free) {
+                        spec.sqlite_type = Some("INTEGER".to_string());
+                    } else if marker_free {
+                        spec.sqlite_type = Some("TEXT".to_string());
                     }
                 }
-                None => result.warnings.push(format!(
-                    "{}.{}: `{pg_type}` is not a #[derive(PostgresEnum)] enum in the parsed \
-                     schema files; the column is typed as a native enum `{pg_type}`, but no \
-                     CREATE TYPE is generated for it. Add the file declaring the enum to the \
-                     schema paths",
-                    table.name, field.name
-                )),
+            }
+            if marker_free {
+                spec.is_custom_type = false;
+                let unknown = format!("table `{}`.{}: unknown Rust type", table.name, field.name);
+                result.warnings.retain(|w| !w.starts_with(&unknown));
+            }
+            if let Some(label) = &spec.default_variant
+                && let Some(index) = parsed.variants.iter().position(|v| v == label)
+            {
+                spec.default = Some(if integer {
+                    ParsedDefault::Int(parsed.discriminants[index].to_string())
+                } else {
+                    ParsedDefault::Str(label.clone())
+                });
             }
         }
+    }
+}
+
+/// The enum a column's Rust type names: the last path segment, with an
+/// `Option<...>` unwrapped.
+fn enum_type_name(ty: &str) -> Option<String> {
+    let mut ty = syn::parse_str::<syn::Type>(ty).ok()?;
+    loop {
+        let syn::Type::Path(path) = &ty else {
+            return None;
+        };
+        let last = path.path.segments.last()?;
+        if last.ident == "Option"
+            && let syn::PathArguments::AngleBracketed(args) = &last.arguments
+            && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+        {
+            ty = inner.clone();
+            continue;
+        }
+        return Some(last.ident.to_string());
     }
 }
 
@@ -556,7 +628,11 @@ impl Walker<'_> {
                     }
                 }
             }
-            let (schema, storage) = if dialect == Dialect::PostgreSQL {
+            let (schema, storage) = if dialect == Dialect::SQLite {
+                // SQLiteEnum stores an integer by the same rule, in an
+                // INTEGER column whatever the repr.
+                (None, postgres_enum_storage(item, true))
+            } else if dialect == Dialect::PostgreSQL {
                 let (schema, text) = postgres_enum_attr(&item.attrs);
                 let storage = postgres_enum_storage(item, text);
                 if text && storage != PgEnumStorage::Text {
@@ -574,6 +650,7 @@ impl Walker<'_> {
                 (None, PgEnumStorage::Native)
             };
             let parsed = ParsedEnum {
+                discriminants: enum_discriminants(item),
                 name: name.clone(),
                 variants: item
                     .variants
@@ -658,6 +735,40 @@ fn postgres_enum_attr(attrs: &[syn::Attribute]) -> (Option<String>, bool) {
         });
     }
     (schema, text)
+}
+
+/// Each variant's discriminant, resolved like the derives: an explicit
+/// `= N` (or `= -N`), otherwise one more than the previous variant.
+fn enum_discriminants(item: &syn::ItemEnum) -> Vec<i64> {
+    let mut next = 0i64;
+    item.variants
+        .iter()
+        .map(|variant| {
+            let value = variant
+                .discriminant
+                .as_ref()
+                .and_then(|(_, expr)| discriminant_value(expr))
+                .unwrap_or(next);
+            next = value.wrapping_add(1);
+            value
+        })
+        .collect()
+}
+
+fn discriminant_value(expr: &syn::Expr) -> Option<i64> {
+    match expr {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Int(int),
+            ..
+        }) => int.base10_parse().ok(),
+        syn::Expr::Unary(syn::ExprUnary {
+            op: syn::UnOp::Neg(_),
+            expr,
+            ..
+        }) => discriminant_value(expr).map(i64::wrapping_neg),
+        syn::Expr::Group(group) => discriminant_value(&group.expr),
+        _ => None,
+    }
 }
 
 /// Storage the `PostgresEnum` derive picks: `text` when asked, an integer

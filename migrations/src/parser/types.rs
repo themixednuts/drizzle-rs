@@ -107,6 +107,12 @@ pub struct ColumnSpec {
     pub generated: Option<ParsedGenerated>,
     /// `default = <literal-or-expression>`.
     pub default: Option<ParsedDefault>,
+    /// The enum variant a `default` names (`"High"` or `Level::High`). On an
+    /// enum column the enum's storage decides the SQL `default` resolves to.
+    pub default_variant: Option<String>,
+    /// The `SQLite` type comes from the `enum` marker, not an explicit type,
+    /// so the enum's storage decides it (`INTEGER` or `TEXT`).
+    pub sqlite_enum_storage: bool,
     /// `default_fn = ...` present (runtime-only default; no DDL impact).
     pub has_default_fn: bool,
     /// `check = "..."` column-level check expression.
@@ -410,6 +416,9 @@ impl PgEnumStorage {
 /// Parsed enum deriving `SQLiteEnum`, `PostgresEnum`, or `MySQLEnum`.
 #[derive(Debug, Clone, Default)]
 pub struct ParsedEnum {
+    /// Variant discriminants in declaration order, resolved like the derive
+    /// (explicit `= N`, otherwise one more than the previous variant).
+    pub discriminants: Vec<i64>,
     /// Enum ident. For a native `PostgreSQL` enum this is also the SQL enum
     /// type name — the derive emits `CREATE TYPE <ident> AS ENUM (...)`
     /// verbatim.
@@ -421,7 +430,8 @@ pub struct ParsedEnum {
     /// `#[postgres_enum(schema = "...")]` (`PostgreSQL` only). `None` means
     /// the type is created in `public`.
     pub schema: Option<String>,
-    /// Column storage (`PostgreSQL` only; always `Native` elsewhere).
+    /// Column storage. A `SQLite` enum is `Text` or `Integer` (its column is
+    /// `INTEGER` whatever the size); a `MySQL` enum is always `Native`.
     pub storage: PgEnumStorage,
     /// Source position, see [`ParsedTable::order`].
     pub(crate) order: usize,

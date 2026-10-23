@@ -45,6 +45,35 @@ pub fn parse_discriminant(expr: &Expr) -> syn::Result<i64> {
     }
 }
 
+/// Stands in for an enum variant default in column SQL built at macro time;
+/// the const SQL splices in the variant's literal from
+/// `SQLEnumVariants::DEFAULT_LITERALS`, which only the enum derive knows.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
+pub const ENUM_DEFAULT_PLACEHOLDER: &str = "\u{0}drizzle-enum-default\u{0}";
+
+/// The variant label a column `default` names, when the column holds an
+/// enum: a string literal (`"High"`) or the last segment of a path with a
+/// type in front (`Level::High`). A one-segment path stays SQL
+/// (`CURRENT_TIMESTAMP`).
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
+pub fn enum_variant_label(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Lit(ExprLit {
+            lit: Lit::Str(label),
+            ..
+        }) => Some(label.value()),
+        Expr::Path(path)
+            if path.qself.is_none()
+                && path.path.segments.len() > 1
+                && path.path.segments.iter().all(|s| s.arguments.is_empty()) =>
+        {
+            path.path.segments.last().map(|s| s.ident.to_string())
+        }
+        Expr::Group(group) => enum_variant_label(&group.expr),
+        _ => None,
+    }
+}
+
 /// Check if the enum has any variant with an explicit discriminant (`= N`).
 #[cfg(any(feature = "sqlite", feature = "postgres"))]
 pub fn has_explicit_discriminants(data: &DataEnum) -> bool {

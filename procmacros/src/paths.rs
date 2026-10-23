@@ -105,6 +105,10 @@ pub mod core {
         quote!(drizzle::core::SQLEnumVariants)
     }
 
+    pub fn enum_default_literal() -> TokenStream {
+        quote!(drizzle::core::enum_default_literal)
+    }
+
     pub fn table_dialect() -> TokenStream {
         quote!(drizzle::core::TableDialect)
     }

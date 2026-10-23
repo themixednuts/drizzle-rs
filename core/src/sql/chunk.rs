@@ -25,6 +25,47 @@ pub struct EnumVariantRef {
 pub trait SQLEnumVariants {
     /// Every variant, in declaration order.
     const VARIANTS: &'static [EnumVariantRef];
+
+    /// The SQL literal a column `DEFAULT` writes for each variant, in
+    /// [`VARIANTS`](Self::VARIANTS) order: the discriminant for an
+    /// integer-stored enum, the quoted label otherwise.
+    const DEFAULT_LITERALS: &'static [&'static str] = &[];
+}
+
+/// The SQL literal of `T`'s variant `label` as a column `DEFAULT`, from
+/// [`SQLEnumVariants::DEFAULT_LITERALS`].
+///
+/// The table macros call this in a const context, so a `default` that names
+/// no variant fails to compile.
+///
+/// # Panics
+///
+/// When `label` is not a variant of `T`.
+#[must_use]
+pub const fn enum_default_literal<T: SQLEnumVariants>(label: &str) -> &'static str {
+    let mut index = 0;
+    while index < T::VARIANTS.len() {
+        if str_eq(T::VARIANTS[index].label, label) && index < T::DEFAULT_LITERALS.len() {
+            return T::DEFAULT_LITERALS[index];
+        }
+        index += 1;
+    }
+    panic!("the column default is not a variant of its enum type")
+}
+
+const fn str_eq(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
 }
 
 /// Column metadata that applies to one dialect only.

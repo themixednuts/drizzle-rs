@@ -212,6 +212,7 @@ mod tests {
             constraint,
             collate: None,
             default: None,
+            enum_default: None,
             default_literal: None,
             default_fn: None,
             generated_column: None,

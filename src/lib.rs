@@ -444,7 +444,7 @@ pub mod core {
         ColumnDialect, ColumnFlags, ColumnRef, ConstraintRef, Derived, DerivedField,
         EnumVariantRef, ForeignKeyRef, OrderBy, Param, ParamBind, ParamSet, Placeholder,
         PrimaryKeyRef, SQL, SQLChunk, SQLEnumVariants, TableDialect, TableRef, TableSqlRef, Token,
-        TypedPlaceholder, asc, desc,
+        TypedPlaceholder, asc, desc, enum_default_literal,
     };
 
     /// Conversion trait for SQL generation.

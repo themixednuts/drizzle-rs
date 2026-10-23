@@ -2265,11 +2265,11 @@ pub struct Timers {
 pub struct Members {
     #[column(primary)]
     pub id: i32,
-    #[column(enum)]
+    #[column(enum, default = Role::Admin)]
     pub role: Role,
     #[column(enum)]
     pub previous_role: Option<Role>,
-    #[column(enum)]
+    #[column(enum, default = "High")]
     pub level: Level,
     #[column(enum)]
     pub rank: Rank,
@@ -2342,6 +2342,9 @@ pub enum Mood {
             assert_eq!(col.type_schema, None, "{name}");
         }
         assert_eq!(column("mood").type_sql(), "\"Mood\"");
+        // A default naming a variant is what the column stores.
+        assert_eq!(column("role").default.as_deref(), Some("'Admin'"));
+        assert_eq!(column("level").default.as_deref(), Some("2"));
 
         let enums: Vec<_> = snap
             .ddl
@@ -2373,7 +2376,7 @@ pub struct Members {
             result
                 .warnings
                 .iter()
-                .any(|w| w.contains("Members.role") && w.contains("no CREATE TYPE")),
+                .any(|w| w.contains("`Members`.role") && w.contains("no CREATE TYPE")),
             "{:?}",
             result.warnings
         );

@@ -8,6 +8,7 @@ use syn::{
     parse::ParseStream, punctuated::Punctuated,
 };
 
+use crate::common::enum_utils::{ENUM_DEFAULT_PLACEHOLDER, enum_variant_label};
 use crate::common::{
     is_option_type, option_inner_type, references_required_message,
     relation_requires_references_message, type_is_array_string, type_is_array_u8,
@@ -282,6 +283,9 @@ pub struct FieldInfo<'a> {
 
     // Attribute values
     pub(crate) default: Option<String>,
+    /// The enum variant label `default` names on an enum column; `default`
+    /// then holds [`ENUM_DEFAULT_PLACEHOLDER`].
+    pub(crate) enum_default: Option<String>,
     pub(crate) default_literal: Option<syn::ExprLit>,
     pub(crate) default_fn: Option<Expr>,
     pub(crate) generated_column: Option<GeneratedColumn>,
@@ -1075,6 +1079,22 @@ impl<'a> FieldInfo<'a> {
             SQLiteType::Any
         };
 
+        // An enum column's default names a variant; the enum decides the SQL
+        // it stores (the label or the discriminant). A custom-type column may
+        // hold an enum without the `enum` marker: a `Type::Variant` path
+        // there is never SQL (it would be a column reference), so it resolves
+        // the same way.
+        let enum_default = match attrs.default_value.as_ref() {
+            Some(expr) if is_enum => enum_variant_label(expr),
+            Some(expr @ Expr::Path(_)) if is_custom_type => enum_variant_label(expr),
+            _ => None,
+        };
+        let default = if enum_default.is_some() {
+            Some(ENUM_DEFAULT_PLACEHOLDER.to_string())
+        } else {
+            default
+        };
+
         Self::validate_constraints(
             &column_type,
             ConstraintFlags {
@@ -1141,6 +1161,7 @@ impl<'a> FieldInfo<'a> {
             ),
             collate: attrs.collate,
             default,
+            enum_default,
             default_literal,
             default_fn: attrs.default_fn,
             generated_column: attrs.generated_column,
@@ -1439,7 +1460,23 @@ impl FieldInfo<'_> {
             .strip_prefix(&placeholder)
             .unwrap_or_default();
 
+        if let Some((before, after)) = suffix.split_once(ENUM_DEFAULT_PLACEHOLDER) {
+            let default = self.default_sql_expr();
+            return quote!(#const_format::concatcp!(#prefix, #sql_type, #before, #default, #after));
+        }
         quote!(#const_format::concatcp!(#prefix, #sql_type, #suffix))
+    }
+
+    /// The column `DEFAULT` as a const `&'static str` expression. An enum
+    /// variant default resolves through the enum's `SQLEnumVariants`, which
+    /// knows whether the column stores the label or the discriminant.
+    pub(crate) fn default_sql_expr(&self) -> Option<TokenStream> {
+        if let Some(label) = &self.enum_default {
+            let base_type = self.base_type;
+            let enum_default_literal = crate::paths::core::enum_default_literal();
+            return Some(quote!(#enum_default_literal::<#base_type>(#label)));
+        }
+        self.default.as_ref().map(|default| quote!(#default))
     }
 
     // =========================================================================
