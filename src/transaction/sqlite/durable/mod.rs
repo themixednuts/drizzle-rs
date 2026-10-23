@@ -244,7 +244,7 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         let rows = cursor
             .to_array::<R>()
             .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        let row = Ok(rows.into_iter().next())?;
+        let row = rows.into_iter().next();
         drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

@@ -175,12 +175,13 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-    /// statement's placeholders (missing, duplicated, or extra),
-    /// the database
-    /// error when the query fails, or a decode error when the row does not fit `T`.
+    /// statement's placeholders (missing, duplicated, or extra), the
+    /// database error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
@@ -191,7 +192,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         &self,
         conn: &D1Database,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> drizzle_core::error::Result<T>
+    ) -> drizzle_core::error::Result<Option<T>>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
@@ -258,12 +259,13 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-    /// statement's placeholders (missing, duplicated, or extra),
-    /// the database
-    /// error when the query fails, or a decode error when the row does not fit `T`.
+    /// statement's placeholders (missing, duplicated, or extra), the
+    /// database error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
@@ -274,7 +276,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         &self,
         conn: &D1Database,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> drizzle_core::error::Result<T>
+    ) -> drizzle_core::error::Result<Option<T>>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
