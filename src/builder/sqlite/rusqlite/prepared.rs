@@ -68,7 +68,7 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         &self,
         conn: &Connection,
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> Result<usize> {
+    ) -> Result<u64> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "prepared.execute");
         let (sql_str, params) = {
@@ -220,7 +220,7 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         &self,
         conn: &Connection,
         params: [ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> Result<usize> {
+    ) -> Result<u64> {
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("sqlite.rusqlite", "owned_prepared.execute");
         let (sql_str, params) = {

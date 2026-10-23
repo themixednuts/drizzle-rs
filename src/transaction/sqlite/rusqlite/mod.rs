@@ -1,4 +1,4 @@
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
@@ -156,9 +156,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns rusqlite's error when SQLite cannot prepare or run the
-    /// statement.
-    pub fn execute<'q, T>(&self, query: T) -> rusqlite::Result<usize>
+    /// Returns an error when SQLite cannot prepare or run the statement. The
+    /// error carries the SQL and its parameters
+    /// ([`DrizzleError::QueryFailed`]).
+    pub fn execute<'q, T>(&self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
@@ -171,9 +172,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         crate::builder::sqlite::rusqlite::execute_sql(
             &self.tx,
             &sql_str,
-            params_from_iter(params),
+            params_from_iter(params.iter().copied()),
             query.has_returning(),
         )
+        .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs any SQL value inside the transaction and decodes every row into
@@ -291,7 +293,7 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// Returns an error when SQLite cannot prepare or run the statement, for
     /// example on a constraint violation.
-    pub fn execute(self) -> drizzle_core::error::Result<usize>
+    pub fn execute(self) -> drizzle_core::error::Result<u64>
     where
         State: builder::ExecutableState,
     {

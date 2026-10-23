@@ -367,10 +367,10 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// # Errors
     ///
-    /// Returns the [`tokio_postgres::Error`] when the server rejects the
-    /// statement or the connection fails. Unlike the builder methods, the
-    /// error has no SQL attached.
-    pub async fn execute<'a, T>(&'a self, query: T) -> Result<u64, tokio_postgres::Error>
+    /// Returns an error when the server rejects the statement or the
+    /// connection fails. The error carries the SQL and its parameters, as the
+    /// builder's do ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
+    pub async fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -389,6 +389,7 @@ impl<Schema> Drizzle<Schema> {
             client.execute(&statement, param_refs).await
         })
         .await
+        .with_query(|| QueryContext::new(&sql, &params))
     }
 
     /// Runs any SQL value and collects its rows into `C` (for example

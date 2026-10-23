@@ -176,9 +176,10 @@ crate::drizzle_prepare_impl!();
 pub(crate) fn run_statement<P: rusqlite::Params>(
     statement: &mut rusqlite::Statement<'_>,
     params: P,
-) -> rusqlite::Result<usize> {
+) -> rusqlite::Result<u64> {
     if statement.column_count() == 0 {
-        return statement.execute(params);
+        // A row count fits in u64 on every target.
+        return statement.execute(params).map(|changed| changed as u64);
     }
     let mut rows = statement.query(params)?;
     let mut changed = 0;
@@ -196,11 +197,12 @@ pub(crate) fn execute_sql<P: rusqlite::Params>(
     sql: &str,
     params: P,
     returns_rows: bool,
-) -> rusqlite::Result<usize> {
+) -> rusqlite::Result<u64> {
     if returns_rows {
         run_statement(&mut conn.prepare(sql)?, params)
     } else {
-        conn.execute(sql, params)
+        // A row count fits in u64 on every target.
+        conn.execute(sql, params).map(|changed| changed as u64)
     }
 }
 
@@ -230,10 +232,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns rusqlite's error when SQLite cannot prepare or run the
-    /// statement. Unlike the builder methods, the error is a plain
-    /// [`rusqlite::Error`] without the SQL attached.
-    pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
+    /// Returns an error when SQLite cannot prepare or run the statement. The
+    /// error carries the SQL and its parameters, as the builder's do
+    /// ([`DrizzleError::QueryFailed`]).
+    pub fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -248,9 +250,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         execute_sql(
             &self.conn,
             &sql_str,
-            params_from_iter(params),
+            params_from_iter(params.iter().copied()),
             query.has_returning(),
         )
+        .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs any SQL value and collects its rows into `C` (for example
@@ -1676,7 +1679,7 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// Returns an error when SQLite cannot prepare or run the statement, for
     /// example on a constraint violation. The error carries the SQL and its
     /// parameters ([`DrizzleError::QueryFailed`]).
-    pub fn execute(self) -> drizzle_core::error::Result<usize>
+    pub fn execute(self) -> drizzle_core::error::Result<u64>
     where
         State: builder::ExecutableState,
     {
