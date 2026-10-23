@@ -26,10 +26,14 @@ pub(crate) fn server_error_kind(
     };
     match code {
         // ER_DUP_ENTRY, ER_DUP_ENTRY_WITH_KEY_NAME: `... for key 'users.users_email_unique'`
-        // (MySQL 8 writes the table before the key; MariaDB does not).
+        // (MySQL 8 writes the table before the key; MariaDB does not). The
+        // duplicate value comes first, unescaped, so the key is the last match.
         1062 | 1586 => (
             ErrorKind::UniqueViolation,
-            between("for key '", '\'').map(|key| key.rsplit('.').next().unwrap_or(key)),
+            message
+                .rsplit_once("for key '")
+                .and_then(|(_, rest)| rest.split_once('\''))
+                .map(|(key, _)| key.rsplit('.').next().unwrap_or(key)),
         ),
         // ER_ROW_IS_REFERENCED(_2), ER_NO_REFERENCED_ROW(_2): `... CONSTRAINT `name` FOREIGN KEY ...`
         1216 | 1217 | 1451 | 1452 => (ErrorKind::ForeignKeyViolation, between("CONSTRAINT `", '`')),
@@ -44,8 +48,11 @@ pub(crate) fn server_error_kind(
         4025 => (ErrorKind::CheckViolation, between("CONSTRAINT `", '`')),
         // ER_LOCK_DEADLOCK
         1213 => (ErrorKind::Deadlock, None),
-        // ER_LOCK_WAIT_TIMEOUT
-        1205 => (ErrorKind::Busy, None),
+        // ER_CHECKREAD: MariaDB's snapshot isolation saw a row change after
+        // the transaction's snapshot.
+        1020 => (ErrorKind::SerializationFailure, None),
+        // ER_LOCK_WAIT_TIMEOUT, ER_LOCK_NOWAIT (`NOWAIT` found the row locked)
+        1205 | 3572 => (ErrorKind::Busy, None),
         _ => (ErrorKind::Other, None),
     }
 }
@@ -433,6 +440,13 @@ mod error_kind_tests {
                 ErrorKind::UniqueViolation,
                 Some("users_email_unique"),
             ),
+            // The duplicate value is not escaped, so it can hold `for key '`.
+            (
+                1062,
+                "Duplicate entry 'x' for key 'admins_pk' for key 'users.users_email_unique'",
+                ErrorKind::UniqueViolation,
+                Some("users_email_unique"),
+            ),
             (
                 1452,
                 "Cannot add or update a child row: a foreign key constraint fails \
@@ -477,6 +491,19 @@ mod error_kind_tests {
                 1205,
                 "Lock wait timeout exceeded; try restarting transaction",
                 ErrorKind::Busy,
+                None,
+            ),
+            (
+                3572,
+                "Statement aborted because lock(s) could not be acquired immediately \
+                 and NOWAIT is set.",
+                ErrorKind::Busy,
+                None,
+            ),
+            (
+                1020,
+                "Record has changed since last read in table 'users'",
+                ErrorKind::SerializationFailure,
                 None,
             ),
             (

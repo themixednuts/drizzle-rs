@@ -373,9 +373,7 @@ impl DrizzleError {
             #[cfg(feature = "turso")]
             Self::Turso(error) => turso_kind(error),
             #[cfg(feature = "libsql")]
-            Self::LibSQL(libsql::Error::SqliteFailure(code, message)) => {
-                sqlite_code_kind(*code).unwrap_or_else(|| sqlite_message_kind(message))
-            }
+            Self::LibSQL(error) => libsql_kind(error),
             #[cfg(any(feature = "tokio-postgres", feature = "postgres-sync"))]
             Self::Postgres(error) => error
                 .as_db_error()
@@ -385,8 +383,9 @@ impl DrizzleError {
     }
 
     /// The name of the constraint the failure names, when the database
-    /// reports one: the constraint on PostgreSQL and MySQL, a named `CHECK`
-    /// on SQLite (SQLite names only the columns of a `UNIQUE` failure).
+    /// reports one: the constraint on PostgreSQL and MySQL, and a `CHECK` on
+    /// SQLite, which SQLite names by its expression when it has no name.
+    /// SQLite names only the columns of a `UNIQUE` failure, so that is `None`.
     ///
     /// It looks through [`QueryFailed`](Self::QueryFailed).
     #[must_use]
@@ -403,7 +402,10 @@ impl DrizzleError {
             #[cfg(feature = "turso")]
             Self::Turso(turso::Error::Constraint(message)) => sqlite_check_name(message),
             #[cfg(feature = "libsql")]
-            Self::LibSQL(libsql::Error::SqliteFailure(_, message)) => sqlite_check_name(message),
+            Self::LibSQL(
+                libsql::Error::SqliteFailure(_, message)
+                | libsql::Error::RemoteSqliteFailure(_, _, message),
+            ) => sqlite_check_name(message),
             #[cfg(any(feature = "tokio-postgres", feature = "postgres-sync"))]
             Self::Postgres(error) => error.as_db_error().and_then(|db| db.constraint()),
             _ => None,
@@ -464,39 +466,62 @@ fn rusqlite_kind(error: &rusqlite::Error) -> ErrorKind {
     }
 }
 
+#[cfg(feature = "libsql")]
+fn libsql_kind(error: &libsql::Error) -> ErrorKind {
+    match error {
+        libsql::Error::SqliteFailure(code, message)
+        | libsql::Error::RemoteSqliteFailure(_, code, message) => {
+            sqlite_code_kind(*code).unwrap_or_else(|| sqlite_message_kind(message))
+        }
+        // A remote (Hrana) connection reports only the server's message.
+        error => sqlite_message_kind(&error.to_string()),
+    }
+}
+
 #[cfg(feature = "turso")]
 fn turso_kind(error: &turso::Error) -> ErrorKind {
     match error {
+        // MVCC: another transaction wrote the row first, or committed after
+        // this one's snapshot. Only running the transaction again helps.
+        turso::Error::Error(message) if message.contains("Write-write conflict") => {
+            ErrorKind::SerializationFailure
+        }
+        turso::Error::BusySnapshot(_) => ErrorKind::SerializationFailure,
         turso::Error::Constraint(message) | turso::Error::Error(message) => {
             sqlite_message_kind(message)
         }
-        turso::Error::Busy(_) | turso::Error::BusySnapshot(_) => ErrorKind::Busy,
+        turso::Error::Busy(_) => ErrorKind::Busy,
         _ => ErrorKind::Other,
     }
 }
 
-/// The kind named by an error message: SQLite's constraint and lock text
-/// (D1, Durable Objects and turso report only text), else a PostgreSQL
-/// SQLSTATE written as `SQLState: 23505` (the AWS Data API).
+/// The kind named by an error message: a PostgreSQL SQLSTATE written as
+/// `SQLState: 23505` (the AWS Data API), else SQLite's constraint and lock
+/// text (D1, Durable Objects and turso report only text).
 fn message_kind(message: &str) -> ErrorKind {
-    match sqlite_message_kind(message) {
-        ErrorKind::Other => message
-            .split_once("SQLState: ")
-            .and_then(|(_, rest)| rest.get(..5))
-            .map_or(ErrorKind::Other, sqlstate_kind),
-        kind => kind,
+    // The SQLSTATE ends the message, after a detail line that can quote the
+    // row's values, so the last one is the server's.
+    match message.rsplit_once("SQLState: ") {
+        Some((_, code)) => code.get(..5).map_or(ErrorKind::Other, sqlstate_kind),
+        None => sqlite_message_kind(message),
     }
 }
 
-/// The constraint an error message names: a named SQLite `CHECK`, or a
-/// PostgreSQL message's `constraint "name"`.
+/// The constraint an error message names: a PostgreSQL message's
+/// `constraint "name"` (the AWS Data API), else an SQLite `CHECK`.
 fn message_constraint(message: &str) -> Option<&str> {
-    sqlite_check_name(message).or_else(|| {
-        message
-            .split_once("constraint \"")
-            .and_then(|(_, rest)| rest.split_once('"'))
-            .map(|(name, _)| name)
-    })
+    if !message.contains("SQLState: ") {
+        return sqlite_check_name(message);
+    }
+    // Only the first line: the detail line can quote the row's values.
+    let primary = message.lines().next().unwrap_or(message);
+    let primary = primary
+        .split_once("Detail:")
+        .map_or(primary, |(head, _)| head);
+    primary
+        .split_once("constraint \"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .map(|(name, _)| name)
 }
 
 /// The kind named by SQLite's error message text, which is stable across
@@ -520,13 +545,14 @@ fn sqlite_message_kind(message: &str) -> ErrorKind {
     }
 }
 
-/// The constraint named by SQLite's `CHECK constraint failed: <name>`.
+/// The constraint named by SQLite's `CHECK constraint failed: <name>`,
+/// without the `: SQLITE_CONSTRAINT` suffix D1 and Durable Objects add.
 fn sqlite_check_name(message: &str) -> Option<&str> {
     let (_, rest) = message.split_once("CHECK constraint failed: ")?;
+    let rest = rest.lines().next().unwrap_or(rest);
     let name = rest
-        .split([':', '\n'])
-        .next()
-        .unwrap_or(rest)
+        .split_once(": SQLITE_")
+        .map_or(rest, |(name, _)| name)
         .trim();
     (!name.is_empty()).then_some(name)
 }
@@ -734,6 +760,28 @@ mod kind_tests {
     }
 
     #[test]
+    fn row_values_in_a_detail_line_do_not_change_the_kind() {
+        // PostgreSQL's DETAIL quotes the row, and the SQLSTATE comes last.
+        let error = DrizzleError::Other(
+            "aws ExecuteStatement: ERROR: null value in column \"name\" of relation \"users\" \
+             violates not-null constraint\n  Detail: Failing row contains (1, database is locked, \
+             SQLState: 40001, constraint \"fake\").; SQLState: 23502"
+                .into(),
+        );
+        assert_eq!(error.kind(), ErrorKind::NotNullViolation);
+        assert!(!error.is_retryable());
+        assert_eq!(error.constraint(), None);
+    }
+
+    #[test]
+    fn an_unnamed_sqlite_check_is_named_by_its_expression() {
+        let error = DrizzleError::Other(
+            "D1_ERROR: CHECK constraint failed: time >= '00:00': SQLITE_CONSTRAINT".into(),
+        );
+        assert_eq!(error.constraint(), Some("time >= '00:00'"));
+    }
+
+    #[test]
     fn the_query_context_is_looked_through() {
         let error: Result<()> = Err(DrizzleError::Other(
             "CHECK constraint failed: positive_age".into(),
@@ -820,6 +868,13 @@ mod kind_tests {
             .kind(),
             ErrorKind::ForeignKeyViolation
         );
+        let conflict = DrizzleError::Turso(turso::Error::Error("Write-write conflict".into()));
+        assert_eq!(conflict.kind(), ErrorKind::SerializationFailure);
+        assert!(conflict.is_retryable());
+        assert_eq!(
+            DrizzleError::Turso(turso::Error::BusySnapshot("snapshot is stale".into())).kind(),
+            ErrorKind::SerializationFailure
+        );
     }
 
     #[cfg(feature = "libsql")]
@@ -833,6 +888,19 @@ mod kind_tests {
             .kind(),
             ErrorKind::NotNullViolation
         );
+        // An embedded replica forwards writes to its primary.
+        let remote = DrizzleError::LibSQL(libsql::Error::RemoteSqliteFailure(
+            19,
+            275,
+            "CHECK constraint failed: positive_age".into(),
+        ));
+        assert_eq!(remote.kind(), ErrorKind::CheckViolation);
+        assert_eq!(remote.constraint(), Some("positive_age"));
+        // A remote (Hrana) connection reports only the server's message.
+        let hrana = DrizzleError::LibSQL(libsql::Error::Hrana(
+            "SQLite error: UNIQUE constraint failed: users.email".into(),
+        ));
+        assert_eq!(hrana.kind(), ErrorKind::UniqueViolation);
     }
 
     #[cfg(feature = "driver-error")]
