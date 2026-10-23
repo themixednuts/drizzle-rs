@@ -186,7 +186,6 @@ fn optional_math_functions(db: &mut TestDb<ExpressionSchema>) {
         .select(count(rows.id))
         .from(rows)
         .r#where(gt(pi(), 3.1))
-        .get()
-        .expect("a row");
+        .get();
     assert_eq!(approximately_pi, 3);
 }
