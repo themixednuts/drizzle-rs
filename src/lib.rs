@@ -399,9 +399,14 @@ pub use drizzle_types::Casing;
 pub use const_format;
 
 /// The error type every driver returns: [`DrizzleError`](error::DrizzleError).
+///
+/// [`DrizzleError::kind`](error::DrizzleError::kind) names the failure the
+/// same way on every driver ([`ErrorKind`](error::ErrorKind)), and
+/// [`constraint`](error::DrizzleError::constraint) and
+/// [`query`](error::DrizzleError::query) give the constraint and the SQL.
 pub mod error {
     #[doc(inline)]
-    pub use drizzle_core::error::DrizzleError;
+    pub use drizzle_core::error::{DrizzleError, ErrorKind, QueryContext};
 }
 
 /// Per-dialect SQL type descriptions and DDL objects (tables, columns,

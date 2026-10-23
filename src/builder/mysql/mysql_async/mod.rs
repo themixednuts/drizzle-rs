@@ -90,7 +90,17 @@ pub type DrizzleBuilder<'db, Runner, Schema, Builder, State> =
 pub type Rows<R> = crate::builder::mysql::driver_common::Rows<R>;
 
 pub(crate) fn driver_error(error: mysql_async::Error) -> DrizzleError {
-    DrizzleError::driver("MySQL", error)
+    let (kind, constraint) = match &error {
+        mysql_async::Error::Server(server) => {
+            let (kind, constraint) = crate::builder::mysql::driver_common::server_error_kind(
+                server.code,
+                &server.message,
+            );
+            (kind, constraint.map(str::to_owned))
+        }
+        _ => (drizzle_core::error::ErrorKind::Other, None),
+    };
+    DrizzleError::driver("MySQL", error).classified(kind, constraint.as_deref())
 }
 
 pub(crate) async fn execute_request_observing<C: Queryable + ?Sized>(

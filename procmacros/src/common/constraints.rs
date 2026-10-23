@@ -163,6 +163,7 @@ pub fn validate_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
 
 /// Parses `primary_key(name = "...")`. The key's columns are the fields
 /// marked `#[column(primary)]`.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
 pub fn parse_primary_key_name(tokens: TokenStream) -> Result<String> {
     use syn::parse::Parser;
     use syn::spanned::Spanned;
