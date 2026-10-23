@@ -438,7 +438,7 @@ pub struct FromFn<F> {
 /// index, and returns anything that converts into a [`SeedValue`].
 ///
 /// Draw randomness only from the given RNG, so the same seed gives the same
-/// rows. Its methods come from [`Rng`], re-exported by this
+/// rows. Its methods come from [`Rng`](crate::Rng), re-exported by this
 /// crate.
 #[must_use]
 pub fn from_fn<F, V>(f: F) -> FromFn<F>
