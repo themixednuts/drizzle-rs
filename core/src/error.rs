@@ -524,7 +524,7 @@ fn sqlite_message_kind(message: &str) -> ErrorKind {
 fn sqlite_check_name(message: &str) -> Option<&str> {
     let (_, rest) = message.split_once("CHECK constraint failed: ")?;
     let name = rest
-        .split(|c: char| c == ':' || c == '\n')
+        .split([':', '\n'])
         .next()
         .unwrap_or(rest)
         .trim();
