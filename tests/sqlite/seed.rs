@@ -805,6 +805,20 @@ fn seeder_respects_max_params() {
 }
 
 #[test]
+fn generated_rows_keep_one_entry_per_table_under_a_parameter_limit() {
+    let schema = SimpleSchema::new();
+    let tables = SeedConfig::sqlite(&schema)
+        .seed(42)
+        .count(&schema.simple, 10)
+        .max_params(4)
+        .try_generate_rows()
+        .expect("rows");
+
+    assert_eq!(tables.len(), 1);
+    assert_eq!(tables[0].rows.len(), 10);
+}
+
+#[test]
 fn seeder_email_column_produces_emails() {
     let schema = ComplexSchema::new();
     let stmts = SeedConfig::sqlite(&schema)

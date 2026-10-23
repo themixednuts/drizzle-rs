@@ -806,19 +806,27 @@ where
                     .filter(|(_, column)| generated_expression(column).is_none())
                     .map(|(index, _)| index)
                     .collect();
-                out.push(SeedRows {
-                    schema: chunk.table.schema,
-                    table: chunk.table.name,
-                    columns: kept
-                        .iter()
-                        .map(|&index| chunk.table.columns[index].name)
-                        .collect(),
-                    rows: chunk
-                        .rows
-                        .into_iter()
-                        .map(|row| kept.iter().map(|&index| row[index].clone()).collect())
-                        .collect(),
-                });
+                let rows = chunk
+                    .rows
+                    .into_iter()
+                    .map(|row| kept.iter().map(|&index| row[index].clone()).collect());
+                // A parameter limit splits a table into several chunks.
+                match out.last_mut() {
+                    Some(last)
+                        if last.table == chunk.table.name && last.schema == chunk.table.schema =>
+                    {
+                        last.rows.extend(rows);
+                    }
+                    _ => out.push(SeedRows {
+                        schema: chunk.table.schema,
+                        table: chunk.table.name,
+                        columns: kept
+                            .iter()
+                            .map(|&index| chunk.table.columns[index].name)
+                            .collect(),
+                        rows: rows.collect(),
+                    }),
+                }
             }
         }
         Ok(out)
