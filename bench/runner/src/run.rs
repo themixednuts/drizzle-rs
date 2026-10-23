@@ -3488,8 +3488,12 @@ fn sha256_file(path: &Path) -> Result<String, Fail> {
     })?;
     let mut hasher = Sha256::new();
     hasher.update(data);
-    let sum = hasher.finalize();
-    Ok(format!("sha256:{sum:x}"))
+    use std::fmt::Write as _;
+    let mut out = String::from("sha256:");
+    for byte in hasher.finalize() {
+        let _ = write!(out, "{byte:02x}");
+    }
+    Ok(out)
 }
 
 fn box_metric(values: &[f64]) -> BoxMetricDoc {
