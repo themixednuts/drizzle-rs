@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3](https://github.com/themixednuts/drizzle-rs/compare/v0.4.2...v0.4.3) - 2026-10-23
+
+### Fixed
+
+- *(macros)* evaluate field cfgs before a table or view macro reads them
+- *(migrations)* read cfg_attr-gated derives and attributes per dialect
+
 ## [0.4.2](https://github.com/themixednuts/drizzle-rs/compare/v0.4.1...v0.4.2) - 2026-10-23
 
 ### Fixed
