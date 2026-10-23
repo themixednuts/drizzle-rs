@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/themixednuts/drizzle-rs/compare/v0.4.0...v0.4.1) - 2026-10-23
+
+### Added
+
+- classify database errors the same way on every driver
+- get returns the row itself when a query always returns one
+- get returns Result<Option<T>>
+- *(cli)* generate --fix-conflicts deletes conflicting migrations
+- *(seed)* generate statements lazily, one table at a time
+- *(sqlite)* name foreign keys and primary keys, and keep their names on pull
+- *(postgres)* share a transaction snapshot between connections
+- *(query)* use a relation as a correlated subquery
+- *(postgres)* store enums with discriminants as integers, sized by repr
+- *(macros)* one enum across dialects, and TEXT-stored Postgres enums
+
+### Changed
+
+- *(postgres)* name the snapshot export tx.snapshot()
+- *(macros)* probe nullable custom columns with AnyNullProbe
+
+### Documentation
+
+- describe the release policy without naming a version
+- *(readme)* map text({ enum }) to #[postgres_enum(text)] on PostgreSQL
+- *(core)* fix an unresolved link to r#where
+- *(postgres)* give the doc-test Row stand-in a len()
+- *(seed)* link the Rng re-export from the generator docs
+
+### Fixed
+
+- *(seed)* keep one SeedRows per table under a parameter limit
+- every driver attaches the failed statement to its error
+- *(query)* give a relation nested in its own where its own alias
+- *(core)* get after a set operation and ORDER BY returns Option
+- *(core)* classify remote libsql and turso conflicts; ignore row values in messages
+- raw execute returns DrizzleError with its SQL on every driver
+- *(sqlite)* finish get returning Option on D1 and Durable Objects
+- report a get with no row as NotFound on every driver
+- *(seed)* pick each foreign key's parent independently
+- *(migrations)* reconcile drizzle-kit rc.5 fixes
+- *(postgres)* decode bytea columns in relational queries
+- *(core)* a None condition filters nothing
+- show Postgres server messages and keep parameter values out of errors
+- *(postgres)* [u8; N] is bytes; the column's declared type decides
+- AWS Data API codecs, u64 round trips and Postgres [u8; N] columns
+- *(postgres)* get_column reports undecodable values instead of NULL
+- *(macros)* FromRow decodes the right column, raw names and custom types
+- *(macros)* decode table and view selects without panics or silent NULLs
+- treat a joined model as absent only when all its columns are NULL
+- re-export AnyNullProbe through the drizzle umbrella
+- *(macros)* probe LEFT JOIN misses with a type-agnostic NULL check
+- *(macros)* decode non-NULL values of nullable Postgres custom columns
+- *(core)* keep bound values out of QueryContext's Debug output
+- *(sqlite)* decode u64/usize through a generic helper
+- *(core)* move AnyNullProbe into drizzle-core next to NullProbeRow
+- *(macros)* allow has_integer_repr to be unused without sqlite
+- *(postgres)* send AWS Data API arrays as array literals
+- *(migrations)* find an identity's sequence by OID when introspecting
+- *(migrations)* read SQLite fk_name and primary_key(name) in the CLI parser
+- *(cli)* --fix-conflicts keeps shared history and deletes only on success
+- *(cli)* ask before push only when it loses data
+
+### Other
+
+- Merge remote-tracking branch 'origin/main' into claude/vigilant-archimedes-crmu30
+
+### Performance
+
+- *(query)* build a relation subquery's junction alias only for a junction
+- decode bytea in place and write array literals without temporaries
+
 ## [0.4.0](https://github.com/themixednuts/drizzle-rs/compare/v0.3.1...v0.4.0) - 2026-10-09
 
 ### Added
