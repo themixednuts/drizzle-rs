@@ -90,7 +90,17 @@ pub type DrizzleBuilder<'db, Runner, Schema, Builder, State> =
 pub type Rows<R> = crate::builder::mysql::driver_common::Rows<R>;
 
 pub(crate) fn driver_error(error: mysql_async::Error) -> DrizzleError {
-    DrizzleError::driver("MySQL", error)
+    let (kind, constraint) = match &error {
+        mysql_async::Error::Server(server) => {
+            let (kind, constraint) = crate::builder::mysql::driver_common::server_error_kind(
+                server.code,
+                &server.message,
+            );
+            (kind, constraint.map(str::to_owned))
+        }
+        _ => (drizzle_core::error::ErrorKind::Other, None),
+    };
+    DrizzleError::driver("MySQL", error).classified(kind, constraint.as_deref())
 }
 
 pub(crate) async fn execute_request_observing<C: Queryable + ?Sized>(
@@ -531,10 +541,12 @@ impl<Schema> Drizzle<Conn, Schema> {
 
     /// Executes typed SQL and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns an error if execution or decoding fails, or no row is returned.
-    pub async fn get<'q, R>(&mut self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
+    /// Returns an error if execution or decoding fails.
+    pub async fn get<'q, R>(&mut self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
@@ -717,11 +729,12 @@ impl<Schema> Drizzle<Pool, Schema> {
 
     /// Executes typed SQL on one checked-out connection and decodes its first row.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns an error when checkout, execution, or decoding fails, or when no
-    /// row is returned.
-    pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<R>
+    /// Returns an error when checkout, execution, or decoding fails.
+    pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
@@ -1390,12 +1403,20 @@ where
 
     /// Executes this query and decodes its first row.
     ///
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
+    ///
     /// # Errors
     ///
-    /// Returns an error when checkout, execution, or decoding fails, or when no
-    /// row is returned.
-    pub async fn get<R, ScopeProof, AggProof>(self) -> Result<R>
+    /// Returns an error when checkout, execution, or decoding fails.
+    pub async fn get<R, ScopeProof, AggProof>(
+        self,
+    ) -> Result<drizzle_core::row::GetRow<Marker, Grouped, State, R>>
     where
+        Marker: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'row> Marker: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>
             + MarkerScopeValidFor<ScopeProof>
@@ -1403,10 +1424,12 @@ where
             + MarkerColumnCountValid<MySQLRow<'row, Row>, DecodedRow, R, ScopeProof>,
         Marker: MarkerAggValidFor<Grouped, AggProof>,
     {
-        self.runner
+        let row = self
+            .runner
             .query_first_rendered(self.builder)
             .await?
-            .decode_first::<Marker, R>()
+            .decode_first::<Marker, R>()?;
+        drizzle_core::row::first_row::<Marker, Grouped, State, R>(row)
     }
 
     /// Detaches a reusable prepared query from this runner.

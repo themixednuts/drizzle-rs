@@ -127,8 +127,7 @@ pub struct ColumnSpec {
     pub deferrable: bool,
     /// `initially_deferred` FK marker (`PostgreSQL` only).
     pub initially_deferred: bool,
-    /// `fk_name = "..."`: the column foreign key's constraint name
-    /// (`PostgreSQL` and `MySQL`).
+    /// `fk_name = "..."`: the column foreign key's constraint name.
     pub fk_name: Option<String>,
     /// Explicit column name from `name = "..."`.
     pub explicit_name: Option<String>,
@@ -261,7 +260,8 @@ pub struct TableSpec {
     pub unique_constraints: Vec<TableUniqueSpec>,
     /// Table-level `CHECK(...)` attributes in declaration order.
     pub check_constraints: Vec<TableCheckSpec>,
-    /// `PRIMARY_KEY(name = "...")`: the primary key's name (`PostgreSQL`).
+    /// `PRIMARY_KEY(name = "...")`: the primary key's name (`PostgreSQL`,
+    /// `SQLite`).
     pub primary_key_name: Option<String>,
     /// Doc comment (used as the table comment for `PostgreSQL`).
     pub comment: Option<String>,

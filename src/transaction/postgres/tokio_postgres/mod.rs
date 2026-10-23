@@ -1,4 +1,4 @@
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext};
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
 use drizzle_postgres::traits::PostgresTable;
@@ -21,7 +21,9 @@ use drizzle_postgres::builder::{
     update::UpdateBuilder,
 };
 use drizzle_postgres::common::PostgresTransactionType;
-use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
+use drizzle_postgres::transaction::{IsolationLevel, SnapshotId, TransactionConfig};
+
+use crate::transaction::postgres::{EXPORT_SNAPSHOT_SQL, exported_snapshot};
 use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::tokio_postgres::tokio_postgres_materialize_params as materialize_params;
@@ -114,12 +116,76 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         self.config
     }
 
-    /// Converts a driver error from a statement run in this transaction.
+    /// Exports this transaction's snapshot (`pg_export_snapshot()`).
+    ///
+    /// A transaction started on another connection with
+    /// [`ConfigBuilder::snapshot`](drizzle_postgres::transaction::ConfigBuilder::snapshot)
+    /// then sees the same data as this one, which lets several connections
+    /// read one consistent state in parallel. The id can be imported only
+    /// while this transaction is open.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::tokio::Drizzle;
+    /// # use drizzle::postgres::TransactionConfig;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
+    /// # tokio::spawn(async move { conn.await.unwrap() });
+    /// # let (client2, conn2) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
+    /// # tokio::spawn(async move { conn2.await.unwrap() });
+    /// # let (mut db, S { user }) = Drizzle::new(client);
+    /// # let (mut other, _) = Drizzle::<S>::new(client2);
+    /// let config = TransactionConfig::builder().repeatable_read().build();
+    /// db.transaction(config, async |tx| {
+    ///     let snapshot = tx.snapshot().await?;
+    ///
+    ///     let config = TransactionConfig::builder()
+    ///         .repeatable_read()
+    ///         .snapshot(snapshot)
+    ///         .build();
+    ///     other
+    ///         .transaction(config, async |other_tx| {
+    ///             // Reads the same rows as `tx` does.
+    ///             let _users: Vec<SelectUser> = other_tx.select(()).from(user).all().await?;
+    ///             Ok(())
+    ///         })
+    ///         .await
+    /// })
+    /// .await?;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transaction was already consumed or the
+    /// query fails.
+    pub async fn snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+        self.savepoints.ensure_usable()?;
+        let tx = self.tx.as_ref().ok_or_else(tx_consumed_error)?;
+        let row = tx
+            .query_one(EXPORT_SNAPSHOT_SQL, &[])
+            .await
+            .map_err(|error| self.statement_error(error, EXPORT_SNAPSHOT_SQL, &[]))?;
+        let id: &str = row.try_get(0).map_err(DrizzleError::from)?;
+        exported_snapshot(id)
+    }
+
+    /// Converts a driver error from a statement run in this transaction,
+    /// with the statement's SQL and parameters.
     ///
     /// A server error aborts a PostgreSQL transaction (every later statement
     /// fails and `COMMIT` rolls back), so it is recorded: committing then
     /// reports the rollback instead of success.
-    fn statement_error(&self, error: tokio_postgres::Error) -> DrizzleError {
+    fn statement_error(
+        &self,
+        error: tokio_postgres::Error,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> DrizzleError {
         if error.as_db_error().is_some() {
             self.savepoints.aborted().mark();
         }
@@ -128,7 +194,10 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         if crate::builder::postgres::tokio_postgres::prepared::is_stale_statement(&error) {
             self.statement_cache.clear();
         }
-        DrizzleError::from(error)
+        DrizzleError::QueryFailed {
+            ctx: Box::new(QueryContext::new(sql, params)),
+            source: Box::new(DrizzleError::from(error)),
+        }
     }
 
     /// Executes a raw SQL string with no parameters.
@@ -231,11 +300,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             .statement_cache
             .transaction_statement(tx, &sql, &param_types)
             .await
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql, &params))?;
         Ok(tx
             .execute(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.statement_error(error))?)
+            .map_err(|error| self.statement_error(error, &sql, &params))?)
     }
 
     /// Runs any SQL value inside the transaction and decodes every row into
@@ -268,12 +337,12 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
 
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in rows {
@@ -311,11 +380,11 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
 
         Ok(Rows::new(rows))
     }
@@ -323,12 +392,14 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
     /// Runs any SQL value inside the transaction and decodes its single row
     /// into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
-    /// error when it returns several, when it fails, or when the row cannot be
+    /// Returns an error when the query returns several rows,
+    /// when it fails, or when the row cannot be
     /// decoded into `R`.
-    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -350,15 +421,15 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(|error| self.statement_error(error))?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
 
         let row = tx
             .query_opt(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.statement_error(error))?
-            .ok_or(DrizzleError::NotFound)?;
+            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
 
-        R::try_from(&row).map_err(Into::into)
+        row.map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()
     }
 
     /// Starts a relational query inside this transaction, like the database
@@ -478,11 +549,11 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
             .statement_cache
             .transaction_statement(tx, &sql, &param_types)
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql, &bind_params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -616,11 +687,11 @@ impl<'db, 'a, 'conn, Schema, T, Rels, Cl>
             .statement_cache
             .transaction_statement(tx, &sql, &param_types)
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql, &bind_params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in &rows {
@@ -724,12 +795,12 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
 
         Ok(tx
             .execute(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.runner.statement_error(error))?)
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?)
     }
 
     /// Runs the query inside the transaction and decodes every row into `R`.
@@ -772,11 +843,11 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -819,11 +890,11 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
         let rows = tx
             .query(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
 
         Ok(Rows::new(rows))
     }
@@ -831,17 +902,22 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and decodes its single row into
     /// `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when the query returns no row, and an
-    /// error when it returns several, when it fails, or when the row cannot be
+    /// Returns an error when the query returns several rows,
+    /// when it fails, or when the row cannot be
     /// decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::tokio_postgres::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -865,14 +941,20 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
             .statement_cache
             .transaction_statement(tx, &sql_str, &param_types)
             .await
-            .map_err(|error| self.runner.statement_error(error))?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
         let row = tx
             .query_opt(&statement, &param_refs[..])
             .await
-            .map_err(|error| self.runner.statement_error(error))?
-            .ok_or(DrizzleError::NotFound)?;
+            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
 
-        <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(&row)
+        let row = row
+            .map(|row| {
+                <Mk as drizzle_core::row::DecodeSelectedRef<&::tokio_postgres::Row, R>>::decode(
+                    &row,
+                )
+            })
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

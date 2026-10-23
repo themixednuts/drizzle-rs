@@ -1,5 +1,5 @@
 use super::{Generator, RngCore, SeedValue};
-use rand::Rng;
+use rand::RngExt;
 
 /// Generates UUID v4 strings (random, formatted as 8-4-4-4-12 hex).
 pub struct UuidGen;

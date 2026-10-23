@@ -60,7 +60,7 @@ fn check(mut db: Drizzle<mysql::Conn, Schema>, Schema { users, posts }: Schema) 
         .from(users)
         .left_join((posts, eq(posts.author_id, users.id)))
         .all();
-    let _: drizzle::Result<(Option<String>, Option<String>, String)> = db
+    let _: drizzle::Result<Option<(Option<String>, Option<String>, String)>> = db
         .select((users.name, users.email, posts.title))
         .from(users)
         .right_join((posts, eq(posts.author_id, users.id)))

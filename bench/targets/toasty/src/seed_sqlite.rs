@@ -161,7 +161,7 @@ pub async fn create_and_seed(path: &Path, seed: u64) -> Result<(), DynError> {
 
     // Identical config to bench/runner/src/load/turso.rs, including the 500
     // parameter batch cap (batching changes statement shape, not row values).
-    let stmts = SeedConfig::sqlite(&schema)
+    let config = SeedConfig::sqlite(&schema)
         .seed(seed)
         .max_params(500)
         .count(&schema.customer, SEED_CUSTOMERS)
@@ -170,8 +170,8 @@ pub async fn create_and_seed(path: &Path, seed: u64) -> Result<(), DynError> {
         .count(&schema.product, SEED_PRODUCTS)
         .count(&schema.order, SEED_ORDERS)
         .relation(&schema.order, &schema.detail, DETAILS_PER_ORDER)
-        .generate();
-    for stmt in stmts {
+;
+    for stmt in config.generate() {
         db.execute(stmt).await?;
     }
 

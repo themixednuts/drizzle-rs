@@ -42,14 +42,32 @@ pub struct SelectOffsetSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectSetOpSet;
 
-impl ExecutableState for SelectFromSet {}
-impl ExecutableState for SelectWhereSet {}
-impl ExecutableState for SelectLimitSet {}
-impl ExecutableState for SelectOffsetSet {}
-impl ExecutableState for SelectOrderSet {}
-impl ExecutableState for SelectGroupSet {}
-impl ExecutableState for SelectJoinSet {}
-impl ExecutableState for SelectSetOpSet {}
+impl ExecutableState for SelectFromSet {
+    type Rows<R: crate::row::RowCount> = R;
+}
+impl ExecutableState for SelectWhereSet {
+    type Rows<R: crate::row::RowCount> = R;
+}
+impl ExecutableState for SelectLimitSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for SelectOffsetSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+// A compound query reaches ORDER BY too, so it cannot keep an aggregate's
+// one row.
+impl ExecutableState for SelectOrderSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for SelectGroupSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for SelectJoinSet {
+    type Rows<R: crate::row::RowCount> = R;
+}
+impl ExecutableState for SelectSetOpSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
 
 impl ClauseAllowed<clause::Where> for SelectFromSet {}
 impl ClauseAllowed<clause::Where> for SelectJoinSet {}
@@ -131,10 +149,18 @@ pub struct InsertOnConflictSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertDoUpdateSet;
 
-impl ExecutableState for InsertValuesSet {}
-impl ExecutableState for InsertReturningSet {}
-impl ExecutableState for InsertOnConflictSet {}
-impl ExecutableState for InsertDoUpdateSet {}
+impl ExecutableState for InsertValuesSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for InsertReturningSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for InsertOnConflictSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for InsertDoUpdateSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
 
 //------------------------------------------------------------------------------
 // DELETE states
@@ -152,8 +178,12 @@ pub struct DeleteWhereSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DeleteReturningSet;
 
-impl ExecutableState for DeleteWhereSet {}
-impl ExecutableState for DeleteReturningSet {}
+impl ExecutableState for DeleteWhereSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for DeleteReturningSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
 
 //------------------------------------------------------------------------------
 // UPDATE states
@@ -175,5 +205,9 @@ pub struct UpdateWhereSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UpdateReturningSet;
 
-impl ExecutableState for UpdateWhereSet {}
-impl ExecutableState for UpdateReturningSet {}
+impl ExecutableState for UpdateWhereSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
+impl ExecutableState for UpdateReturningSet {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}

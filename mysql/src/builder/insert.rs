@@ -17,7 +17,9 @@ pub struct InsertIgnoreSet;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InsertOnDuplicateKeyUpdateSet;
 
-impl drizzle_core::ExecutableState for InsertOnDuplicateKeyUpdateSet {}
+impl drizzle_core::ExecutableState for InsertOnDuplicateKeyUpdateSet {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 
 /// An `INSERT` query being built for `MySQL`.
 ///

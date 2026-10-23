@@ -161,6 +161,47 @@ pub fn validate_keys<F: ConstraintFieldInfo, C: CompositeForeignKeyRef>(
     Ok(())
 }
 
+/// Parses `primary_key(name = "...")`. The key's columns are the fields
+/// marked `#[column(primary)]`.
+#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
+pub fn parse_primary_key_name(tokens: TokenStream) -> Result<String> {
+    use syn::parse::Parser;
+    use syn::spanned::Spanned;
+
+    let metas = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated
+        .parse2(tokens)?;
+    let mut name = None;
+    for meta in metas {
+        match meta {
+            syn::Meta::NameValue(nv) if nv.path.is_ident("name") || nv.path.is_ident("NAME") => {
+                if let syn::Expr::Lit(lit) = &nv.value
+                    && let syn::Lit::Str(s) = &lit.lit
+                    && !s.value().is_empty()
+                {
+                    name = Some(s.value());
+                } else {
+                    return Err(syn::Error::new(
+                        nv.span(),
+                        "name must be a non-empty string literal",
+                    ));
+                }
+            }
+            other => {
+                return Err(syn::Error::new(
+                    other.span(),
+                    "PRIMARY_KEY(...) takes only name = \"...\"; mark the key's fields with #[column(primary)]",
+                ));
+            }
+        }
+    }
+    name.ok_or_else(|| {
+        syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "PRIMARY_KEY(...) requires name = \"...\"",
+        )
+    })
+}
+
 /// Whether a table-level argument's key is `key`, in any case, as the
 /// table and column attributes accept them.
 pub fn is_key(path: &syn::Path, key: &str) -> bool {

@@ -29,7 +29,8 @@ fn transaction_config_reaches_the_server(db: &mut TestDb<SimpleSchema>) {
             "SELECT current_setting('transaction_isolation') AS isolation, \
              current_setting('transaction_read_only') AS read_only, \
              current_setting('transaction_deferrable') AS deferrable"
-        )))?;
+        )))?
+        .expect("a row");
 
         assert_eq!(settings.isolation, "serializable");
         assert_eq!(settings.read_only, "on");
@@ -159,4 +160,131 @@ fn transactions_select_distinct_on(db: &mut TestDb<SimpleSchema>) {
         Ok(rows.into_iter().map(|row| row.name).collect::<Vec<_>>())
     }))?;
     assert_eq!(names, ["a", "b"]);
+}
+
+#[derive(PostgresFromRow)]
+struct RowCount {
+    n: i64,
+}
+
+fn database_url() -> String {
+    std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "host=localhost user=postgres password=postgres dbname=drizzle_test".to_string()
+    })
+}
+
+// A transaction that imports another's snapshot sees that transaction's data,
+// not rows committed after the export.
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn an_imported_snapshot_reads_the_exporters_data_sync() {
+    use drizzle::postgres::sync::Drizzle;
+
+    let connect = || postgres::Client::connect(&database_url(), postgres::NoTls).unwrap();
+    let mut writer = connect();
+    writer
+        .batch_execute(
+            "DROP TABLE IF EXISTS snapshot_probe_sync; \
+             CREATE TABLE snapshot_probe_sync (id integer); \
+             INSERT INTO snapshot_probe_sync VALUES (1)",
+        )
+        .unwrap();
+    let (mut exporter, ()) = Drizzle::<()>::new(connect());
+    let (mut importer, ()) = Drizzle::<()>::new(connect());
+    let count = SQL::raw("SELECT count(*) AS n FROM snapshot_probe_sync");
+    let repeatable_read = TransactionConfig::builder().repeatable_read().build();
+
+    exporter
+        .transaction(repeatable_read, |tx| {
+            let snapshot = tx.snapshot()?;
+            writer
+                .execute("INSERT INTO snapshot_probe_sync VALUES (2)", &[])
+                .unwrap();
+
+            let config = TransactionConfig::builder()
+                .repeatable_read()
+                .snapshot(snapshot)
+                .build();
+            let seen: RowCount = importer
+                .transaction(config, |other| other.get(count.clone()))?
+                .expect("a row");
+            assert_eq!(seen.n, 1);
+
+            let fresh: RowCount = importer
+                .transaction(repeatable_read, |other| other.get(count.clone()))?
+                .expect("a row");
+            assert_eq!(fresh.n, 2);
+            Ok(())
+        })
+        .unwrap();
+
+    writer
+        .batch_execute("DROP TABLE snapshot_probe_sync")
+        .unwrap();
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[tokio::test]
+async fn an_imported_snapshot_reads_the_exporters_data_tokio() {
+    use drizzle::postgres::tokio::Drizzle;
+
+    async fn connect() -> tokio_postgres::Client {
+        let (client, connection) = tokio_postgres::connect(&database_url(), tokio_postgres::NoTls)
+            .await
+            .unwrap();
+        tokio::spawn(connection);
+        client
+    }
+
+    let writer = connect().await;
+    writer
+        .batch_execute(
+            "DROP TABLE IF EXISTS snapshot_probe_tokio; \
+             CREATE TABLE snapshot_probe_tokio (id integer); \
+             INSERT INTO snapshot_probe_tokio VALUES (1)",
+        )
+        .await
+        .unwrap();
+    let (mut exporter, ()) = Drizzle::<()>::new(connect().await);
+    let (mut importer, ()) = Drizzle::<()>::new(connect().await);
+    let count = SQL::raw("SELECT count(*) AS n FROM snapshot_probe_tokio");
+    let repeatable_read = TransactionConfig::builder().repeatable_read().build();
+
+    exporter
+        .transaction(repeatable_read, async |tx| {
+            let snapshot = tx.snapshot().await?;
+            writer
+                .execute("INSERT INTO snapshot_probe_tokio VALUES (2)", &[])
+                .await
+                .unwrap();
+
+            // The id is `Copy + 'static`, so it can reach a spawned task.
+            let count = count.clone();
+            let task = tokio::spawn(async move {
+                let config = TransactionConfig::builder()
+                    .repeatable_read()
+                    .snapshot(snapshot)
+                    .build();
+                let seen: RowCount = importer
+                    .transaction(config, async |other| other.get(count.clone()).await)
+                    .await?
+                    .expect("a row");
+                let fresh: RowCount = importer
+                    .transaction(repeatable_read, async |other| {
+                        other.get(count.clone()).await
+                    })
+                    .await?
+                    .expect("a row");
+                drizzle::Result::Ok((seen.n, fresh.n))
+            });
+            assert_eq!(task.await.unwrap()?, (1, 2));
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    writer
+        .batch_execute("DROP TABLE snapshot_probe_tokio")
+        .await
+        .unwrap();
 }

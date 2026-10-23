@@ -175,6 +175,9 @@ pub struct ForeignKeyReference {
     pub(crate) on_delete: Option<String>,
     /// ON UPDATE action (e.g., "CASCADE", "SET NULL")
     pub(crate) on_update: Option<String>,
+    /// `fk_name = "..."`: the constraint name (default
+    /// `fk_{table}_{column}_{target_table}_{target_column}_fk`).
+    pub(crate) name: Option<String>,
 }
 
 /// SQLite generated column metadata parsed from `#[column(generated(...))]`.
@@ -385,6 +388,7 @@ const SQLITE_COLUMN_KEYS: &[&str] = &[
     "many_to_many",
     "on_delete",
     "on_update",
+    "fk_name",
     "name",
     "collate",
     "check",
@@ -400,6 +404,9 @@ struct ParsedArgs {
     references: Option<Expr>,
     on_delete: Option<String>,
     on_update: Option<String>,
+    /// `fk_name = "..."`: the foreign key's constraint name, and where it
+    /// was written.
+    fk_name: Option<(String, proc_macro2::Span)>,
     /// Name from `relation = "..."` for the accessor that loads this table's
     /// rows from the referenced table.
     relation: Option<String>,
@@ -435,6 +442,8 @@ struct AttributeData {
     references_path: Option<ExprPath>,
     on_delete: Option<String>,
     on_update: Option<String>,
+    /// See [`ParsedArgs::fk_name`].
+    fk_name: Option<(String, proc_macro2::Span)>,
     /// See [`ParsedArgs::relation`].
     relation: Option<String>,
     /// See [`ParsedArgs::many_to_many`].
@@ -639,6 +648,20 @@ impl<'a> FieldInfo<'a> {
                                 args.marker_exprs
                                     .push(make_uppercase_path(action_ident, &action_upper));
                             }
+                            "FK_NAME" => match &*assign.right {
+                                Expr::Lit(syn::ExprLit {
+                                    lit: Lit::Str(name),
+                                    ..
+                                }) if !name.value().is_empty() => {
+                                    args.fk_name = Some((name.value(), param.span()));
+                                }
+                                other => {
+                                    return Err(Error::new_spanned(
+                                        other,
+                                        "fk_name requires a non-empty string literal, e.g. fk_name = \"posts_author_id_fk\"",
+                                    ));
+                                }
+                            },
                             "NAME" => {
                                 args.name = Some(*assign.right.clone());
                                 args.marker_exprs.push(make_uppercase_path(param, "NAME"));
@@ -874,6 +897,7 @@ impl<'a> FieldInfo<'a> {
                 data.marker_exprs.extend(args.marker_exprs);
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
+                data.fk_name = data.fk_name.or(args.fk_name);
                 data.relation = data.relation.or(args.relation);
                 data.many_to_many = data.many_to_many.or(args.many_to_many);
                 data.reference_option_spans
@@ -927,6 +951,7 @@ impl<'a> FieldInfo<'a> {
                 data.marker_exprs.extend(args.marker_exprs);
                 data.on_delete = data.on_delete.or(args.on_delete);
                 data.on_update = data.on_update.or(args.on_update);
+                data.fk_name = data.fk_name.or(args.fk_name);
                 data.relation = data.relation.or(args.relation);
                 data.many_to_many = data.many_to_many.or(args.many_to_many);
                 data.reference_option_spans
@@ -974,6 +999,16 @@ impl<'a> FieldInfo<'a> {
                 .copied()
                 .unwrap_or_else(proc_macro2::Span::call_site);
             return Err(Error::new(span, msg));
+        }
+
+        if let Some((_, span)) = &data.fk_name
+            && data.references_path.is_none()
+        {
+            return Err(Error::new(
+                *span,
+                "fk_name requires a references attribute.\n\
+                 Example: #[column(references = Table::column, fk_name = \"posts_author_id_fk\")]",
+            ));
         }
 
         Ok(data)
@@ -1073,6 +1108,10 @@ impl<'a> FieldInfo<'a> {
                 attrs.on_delete.clone(),
                 attrs.on_update.clone(),
             )
+            .map(|reference| ForeignKeyReference {
+                name: attrs.fk_name.as_ref().map(|(name, _)| name.clone()),
+                ..reference
+            })
         } else {
             None
         };
@@ -1455,10 +1494,12 @@ impl FieldInfo<'_> {
 
         let table_to = fk_ref.table_ident.to_string().to_snake_case();
         let target_column = fk_ref.column_ident.to_string().to_snake_case();
-        let fk_name = format!(
-            "fk_{}_{}_{}_{}_fk",
-            table_name, self.column_name, table_to, target_column
-        );
+        let fk_name = fk_ref.name.clone().unwrap_or_else(|| {
+            format!(
+                "fk_{}_{}_{}_{}_fk",
+                table_name, self.column_name, table_to, target_column
+            )
+        });
 
         // Convert Vec<String> to Cow<'static, [Cow<'static, str>]>
         let columns: Vec<Cow<'static, str>> = vec![Cow::Owned(self.column_name.clone())];
@@ -1467,7 +1508,7 @@ impl FieldInfo<'_> {
         let fk = drizzle_types::sqlite::ddl::ForeignKey {
             table: Cow::Owned(table_name.to_string()),
             name: Cow::Owned(fk_name),
-            name_explicit: false,
+            name_explicit: fk_ref.name.is_some(),
             columns: Cow::Owned(columns),
             table_to: Cow::Owned(table_to),
             columns_to: Cow::Owned(columns_to),
@@ -1489,8 +1530,7 @@ impl FieldInfo<'_> {
 pub fn generate_table_meta_json(
     table_name: &str,
     field_infos: &[FieldInfo],
-    strict: bool,
-    without_rowid: bool,
+    attrs: &super::table::attributes::TableAttributes,
 ) -> String {
     use drizzle_types::sqlite::ddl::{PrimaryKey, SqliteEntity, Table};
 
@@ -1499,8 +1539,8 @@ pub fn generate_table_meta_json(
 
     // Add Table entity (carrying the table options)
     let mut table = Table::new(table_name.to_string());
-    table.strict = strict;
-    table.without_rowid = without_rowid;
+    table.strict = attrs.strict;
+    table.without_rowid = attrs.without_rowid;
     entities.push(SqliteEntity::Table(table));
 
     // Add columns
@@ -1523,8 +1563,12 @@ pub fn generate_table_meta_json(
         .map(|f| f.column_name.clone())
         .collect();
     if !pk_columns.is_empty() {
-        let pk_name = format!("{table_name}_pk");
-        let pk = PrimaryKey::from_strings(table_name.to_string(), pk_name, pk_columns);
+        let pk_name = attrs
+            .primary_key_name
+            .clone()
+            .unwrap_or_else(|| format!("{table_name}_pk"));
+        let mut pk = PrimaryKey::from_strings(table_name.to_string(), pk_name, pk_columns);
+        pk.name_explicit = attrs.primary_key_name.is_some();
         entities.push(SqliteEntity::PrimaryKey(pk));
     }
 
@@ -1607,6 +1651,7 @@ pub fn detect_foreign_key_reference_from_path(
                 column_ident,
                 on_delete,
                 on_update,
+                name: None,
             });
         }
     } else {

@@ -114,7 +114,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .select(())
         .from(users)
         .r#where(eq(users.name, "Alex Smith"))
-        .get()?;
+        .get()?
+        .expect("Alex Smith was inserted above");
     assert_eq!(user.name, "Alex Smith");
 
     let names: Vec<(i64, String)> = db.select((users.id, users.name)).from(users).all()?;
@@ -291,6 +292,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _aliased: Vec<(i64,)> = db.select((u.id,)).from(u).all()?;
 
     // -------- Expressions --------
+    // An aggregate without GROUP BY always returns one row, so `get`
+    // returns it directly.
     let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
     assert!(total.0 >= 4);
 

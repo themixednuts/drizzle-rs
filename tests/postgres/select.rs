@@ -873,7 +873,7 @@ fn select_with_alias(db: &mut TestDb<SimpleSchema>) {
 
     let stmt = db.select(alias(simple.name, "user_name")).from(simple);
 
-    let result: PgAliasResult = stmt.get();
+    let result: PgAliasResult = stmt.get().expect("a row");
     assert_eq!(result.user_name, "test");
 }
 
@@ -895,7 +895,7 @@ fn select_with_coalesce(db: &mut TestDb<ComplexSchema>) {
         ))
         .from(complex);
 
-    let result: PgCoalesceResult = stmt.get();
+    let result: PgCoalesceResult = stmt.get().expect("a row");
     assert_eq!(result.email, "unknown@example.com");
 }
 
@@ -1073,32 +1073,39 @@ fn cached_statements_survive_a_column_type_change(db: &mut TestDb<SimpleSchema>)
     assert_eq!(prepared_names, ["a"]);
 }
 
-/// No matching row is `DrizzleError::NotFound`, as on every other driver;
-/// more than one row is still an error.
+/// ORDER BY after a set operation keeps `get` an `Option`: the set
+/// operation can remove an aggregate's one row.
 #[drizzle::test]
-fn get_without_a_matching_row_is_not_found(db: &mut TestDb<SimpleSchema>) {
+fn get_after_a_set_operation_and_order_by_is_an_option(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+    db.insert(simple).values([InsertSimple::new("a")]).execute();
+
+    let qb = || drizzle::postgres::builder::QueryBuilder::new::<SimpleSchema>();
+    let removed: Option<i64> = db
+        .select(count(simple.id))
+        .from(simple)
+        .except(qb().select(count(simple.id)).from(simple))
+        .order_by(SQL::raw("1"))
+        .get();
+    assert_eq!(removed, None);
+}
+
+/// No matching row is `None`, as on every other driver; more than one row
+/// is still an error.
+#[drizzle::test]
+fn get_without_a_matching_row_is_none(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
-    let missing: drizzle::Result<SelectSimple> =
-        result!(db.select(()).from(simple).r#where(eq(simple.id, 999)).get());
-    assert!(
-        matches!(missing, Err(drizzle::error::DrizzleError::NotFound)),
-        "{missing:?}"
-    );
+    let missing: Option<SelectSimple> =
+        db.select(()).from(simple).r#where(eq(simple.id, 999)).get();
+    assert_eq!(missing, None);
 
-    let raw: drizzle::Result<SelectSimple> =
-        result!(db.get(SQL::raw("SELECT id, name FROM simple WHERE id = 999")));
-    assert!(
-        matches!(raw, Err(drizzle::error::DrizzleError::NotFound)),
-        "{raw:?}"
-    );
+    let raw: Option<SelectSimple> = db.get(SQL::raw("SELECT id, name FROM simple WHERE id = 999"));
+    assert_eq!(raw, None);
 
     db.insert(simple)
         .values([InsertSimple::new("a"), InsertSimple::new("b")])
         .execute();
-    let several: drizzle::Result<SelectSimple> = result!(db.select(()).from(simple).get());
-    assert!(
-        several.is_err() && !matches!(several, Err(drizzle::error::DrizzleError::NotFound)),
-        "{several:?}"
-    );
+    let several: drizzle::Result<Option<SelectSimple>> = result!(db.select(()).from(simple).get());
+    assert!(several.is_err(), "{several:?}");
 }

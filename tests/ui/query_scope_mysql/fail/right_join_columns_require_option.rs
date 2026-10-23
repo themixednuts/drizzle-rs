@@ -31,7 +31,7 @@ struct Schema {
 
 fn check(mut db: Drizzle<mysql::Conn, Schema>, Schema { users, posts }: Schema) {
     // RIGHT JOIN makes the left-hand `users` columns nullable.
-    let _row: drizzle::Result<(String, String)> = db
+    let _row: drizzle::Result<Option<(String, String)>> = db
         .select((users.name, posts.title))
         .from(users)
         .right_join((posts, eq(posts.author_id, users.id)))

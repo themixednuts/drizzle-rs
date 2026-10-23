@@ -205,7 +205,14 @@ pub fn assemble_ddl(raw: RawIntrospection) -> super::SQLiteDDL {
     for foreign_key in foreign_keys {
         ddl.fks.push(foreign_key);
     }
-    for primary_key in primary_keys {
+    for mut primary_key in primary_keys {
+        if let Some(name) = parsed_sql
+            .get(primary_key.table.as_ref())
+            .and_then(|parsed| parsed.primary_key.as_ref())
+        {
+            primary_key.name_explicit = primary_key.name.as_ref() != name.as_str();
+            primary_key.name = name.clone().into();
+        }
         ddl.pks.push(primary_key);
     }
     for unique_constraint in unique_constraints {

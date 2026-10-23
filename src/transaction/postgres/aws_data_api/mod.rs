@@ -14,11 +14,12 @@
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
+use crate::transaction::postgres::{EXPORT_SNAPSHOT_SQL, exported_snapshot};
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
 
 use aws_sdk_rdsdata::Client;
 use drizzle_core::dialect::ParamStyle;
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::aws_data_api::Row;
 use drizzle_postgres::builder::{
@@ -27,7 +28,7 @@ use drizzle_postgres::builder::{
 };
 use drizzle_postgres::common::PostgresTransactionType;
 use drizzle_postgres::traits::PostgresTable;
-use drizzle_postgres::transaction::{IsolationLevel, TransactionConfig};
+use drizzle_postgres::transaction::{IsolationLevel, SnapshotId, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 
 use crate::builder::postgres::aws_data_api::{
@@ -163,6 +164,27 @@ impl<Schema> Transaction<Schema> {
         self.config
     }
 
+    /// Exports this transaction's snapshot (`pg_export_snapshot()`).
+    ///
+    /// A transaction started with
+    /// [`ConfigBuilder::snapshot`](drizzle_postgres::transaction::ConfigBuilder::snapshot)
+    /// then sees the same data as this one. The id can be imported only
+    /// while this transaction is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transaction was already consumed or the
+    /// Data API request fails.
+    pub async fn snapshot(&self) -> drizzle_core::error::Result<SnapshotId> {
+        let out = self.run_statement(EXPORT_SNAPSHOT_SQL, Vec::new()).await?;
+        let row = decode_rows(out)
+            .into_iter()
+            .next()
+            .ok_or(DrizzleError::NotFound)?;
+        let id: String = row.try_get(0)?;
+        exported_snapshot(&id)
+    }
+
     /// Returns the Data API transaction ID, or `None` once the transaction
     /// has ended.
     pub fn transaction_id(&self) -> Option<String> {
@@ -217,7 +239,10 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -245,7 +270,10 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
         rows.into_iter()
             .map(|row| R::try_from(&row).map_err(Into::into))
@@ -275,18 +303,23 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
     /// Runs any SQL value inside the transaction and decodes its first row
     /// into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -302,12 +335,13 @@ impl<Schema> Transaction<Schema> {
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.run_statement(&sql_str, sql_params).await?;
-        let row = decode_rows(out)
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)?;
-        R::try_from(&row).map_err(Into::into)
+        let out = self
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+        let row = decode_rows(out).into_iter().next();
+        row.map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()
     }
 
     /// Commit via the service-level `CommitTransaction` call.
@@ -424,7 +458,11 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -453,7 +491,11 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -484,19 +526,28 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
     /// Runs the query inside the transaction and decodes its first row into
     /// `R`, with the same (runtime) row checks as [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<R>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -510,12 +561,16 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
         };
 
         let sql_params = encode_params(params.as_slice());
-        let out = self.runner.run_statement(&sql_str, sql_params).await?;
-        let row = decode_rows(out)
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)?;
-        R::try_from(&row).map_err(Into::into)
+        let out = self
+            .runner
+            .run_statement(&sql_str, sql_params)
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+        let row = decode_rows(out).into_iter().next();
+        let row = row
+            .map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

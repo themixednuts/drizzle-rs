@@ -88,7 +88,8 @@ fn typeof_reports_storage_class(db: &mut TestDb<ExpressionSchema>) {
         .select((typeof_(rows.id), typeof_(rows.name), typeof_(rows.quantity)))
         .from(rows)
         .r#where(eq(rows.id, 2))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(
         classes,
         (
@@ -118,7 +119,8 @@ fn date_functions_split_and_convert_timestamps(db: &mut TestDb<ExpressionSchema>
         ))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(
         parts,
         (
@@ -132,14 +134,16 @@ fn date_functions_split_and_convert_timestamps(db: &mut TestDb<ExpressionSchema>
         .select(julianday(rows.occurred_at))
         .from(rows)
         .r#where(eq(rows.id, 3))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(julian, 2_451_544.5);
 
     let epoch: i64 = db
         .select(unixepoch(rows.occurred_at))
         .from(rows)
         .r#where(eq(rows.id, 2))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(epoch, 86_400);
 
     // Literal arguments are accepted wherever a temporal expression is.
@@ -147,7 +151,8 @@ fn date_functions_split_and_convert_timestamps(db: &mut TestDb<ExpressionSchema>
         .select(date("now"))
         .from(rows)
         .r#where(is_not_null(rows.id))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(today.len(), 10);
 }
 

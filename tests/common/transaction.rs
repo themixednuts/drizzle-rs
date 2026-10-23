@@ -484,6 +484,38 @@ macro_rules! shared_transaction_suite {
                 let persisted: Vec<SelectSharedTransactionRow> = db.select(()).from(rows).all();
                 assert_eq!(names(persisted), ["alice", "bob", "charlie"]);
             }
+
+            #[drizzle::test($dialect)]
+            fn a_failed_statement_in_a_transaction_carries_its_query(
+                db: &mut TestDb<SharedTransactionSchema>,
+            ) {
+                let SharedTransactionSchema { rows } = schema;
+                db.insert(rows)
+                    .value(InsertSharedTransactionRow::new("first").with_id(1))
+                    .execute();
+
+                let failed: drizzle::Result<()> =
+                    result!(db.transaction($transaction_config, |tx| {
+                        result!(
+                            tx.insert(rows)
+                                .value(InsertSharedTransactionRow::new("again").with_id(1))
+                                .execute()
+                        )?;
+                        Ok(())
+                    }));
+                let error = failed.expect_err("a second row with the same id");
+                assert_eq!(
+                    error.kind(),
+                    drizzle::error::ErrorKind::UniqueViolation,
+                    "{error}"
+                );
+                assert!(
+                    error
+                        .query()
+                        .is_some_and(|query| query.sql.contains("shared_transaction_rows")),
+                    "{error}"
+                );
+            }
         }
     };
 }

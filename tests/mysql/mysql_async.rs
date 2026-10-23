@@ -156,7 +156,10 @@ async fn prepared_queries_execute_through_one_pool_checkout() -> drizzle::Result
         .r#where(eq(users.name, name))
         .prepare()
         .into_owned();
-    let alice: SelectUser = prepared.get(db.conn(), [name.bind("Alice")]).await?;
+    let alice: SelectUser = prepared
+        .get(db.conn(), [name.bind("Alice")])
+        .await?
+        .expect("a row");
     assert_eq!(alice.name, "Alice");
 
     cleanup(db, &schema).await;
@@ -230,7 +233,8 @@ async fn pooled_migrations_use_one_checkout() -> drizzle::Result<()> {
     );
     let id: i64 = db
         .get(SQL::raw("SELECT `id` FROM `mysql_pool_migration`"))
-        .await?;
+        .await?
+        .expect("a row");
     assert_eq!(id, 1);
     assert!(
         db.migrate(&migrations, tracking.clone())

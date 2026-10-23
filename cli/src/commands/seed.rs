@@ -196,7 +196,8 @@ macro_rules! build_script {
                     .push(statement.inline_sql().map_err(seed_error)?);
             }
         }
-        for statement in config.try_generate().map_err(seed_error)? {
+        for statement in config.try_generate() {
+            let statement = statement.map_err(seed_error)?;
             script.add_rows(statement.table(), statement.rows());
             script
                 .inserts

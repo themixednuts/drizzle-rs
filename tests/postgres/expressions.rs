@@ -53,7 +53,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         ])
         .execute();
 
-    let sliced: (String, String, String, String, String, String) = db
+    let sliced: Option<(String, String, String, String, String, String)> = db
         .select((
             left(rows.name, 2),
             right(rows.name, 2),
@@ -65,6 +65,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         .from(rows)
         .r#where(eq(rows.name, "alice"))
         .get();
+    let sliced = sliced.expect("a row");
     assert_eq!(
         sliced,
         (
@@ -77,7 +78,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         )
     );
 
-    let reshaped: (String, String, String) = db
+    let reshaped: Option<(String, String, String)> = db
         .select((
             initcap(rows.name),
             split_part(rows.name, "i", 2),
@@ -86,6 +87,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         .from(rows)
         .r#where(eq(rows.name, "alice"))
         .get();
+    let reshaped = reshaped.expect("a row");
     assert_eq!(
         reshaped,
         ("Alice".to_string(), "ce".to_string(), "AliCE".to_string())
@@ -174,7 +176,8 @@ fn regular_expression_functions(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(replaced, ("aLice".to_string(), "_l_c_".to_string()));
 
     let captured: (Option<Vec<String>>, Option<Vec<String>>) = db
@@ -184,7 +187,8 @@ fn regular_expression_functions(db: &mut TestDb<ExpressionSchema>) {
         ))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(
         captured,
         (Some(vec!["a".to_string(), "l".to_string()]), None)
@@ -380,7 +384,8 @@ mod json_operators {
                 json_get_path_text(documents.payload, "{meta,level}"),
             ))
             .from(documents)
-            .get();
+            .get()
+            .expect("a row");
         assert_eq!(
             extracted,
             (
@@ -460,10 +465,11 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         .select(to_char(now(), "YYYY"))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(year.len(), 4);
 
-    let constructed: (String, String, String) = db
+    let constructed: Option<(String, String, String)> = db
         .select((
             to_char(make_date(2024, 2, 29), "YYYY-MM-DD"),
             to_char(make_timestamp(2024, 2, 29, 13, 45, 30), "HH24:MI:SS"),
@@ -472,6 +478,7 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         .from(rows)
         .r#where(eq(rows.name, "alice"))
         .get();
+    let constructed = constructed.expect("a row");
     assert_eq!(
         constructed,
         (
@@ -481,7 +488,7 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         )
     );
 
-    let truncated: (String, f64) = db
+    let truncated: Option<(String, f64)> = db
         .select((
             to_char(
                 date_trunc("year", make_timestamp(2024, 2, 29, 13, 45, 30)),
@@ -492,13 +499,15 @@ fn temporal_functions(db: &mut TestDb<ExpressionSchema>) {
         .from(rows)
         .r#where(eq(rows.name, "alice"))
         .get();
+    let truncated = truncated.expect("a row");
     assert_eq!(truncated, ("2024-01-01".to_string(), 29.0));
 
-    let epoch: String = db
+    let epoch: Option<String> = db
         .select(to_char(to_timestamp(86_400), "YYYY-MM-DD"))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
         .get();
+    let epoch = epoch.expect("a row");
     assert_eq!(epoch, "1970-01-02");
 
     let parsed: i64 = db
@@ -538,31 +547,35 @@ fn sequence_functions(db: &mut TestDb<ExpressionSchema>) {
         .execute();
 
     let sequence = "pg_expression_rows_id_seq";
-    let reset: i64 = db
+    let reset: Option<i64> = db
         .select(setval(sequence, 100))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
         .get();
+    let reset = reset.expect("a row");
     assert_eq!(reset, 100);
 
     let advanced: i64 = db
         .select(nextval(sequence))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(advanced, 101);
 
     let current: i64 = db
         .select(currval(sequence))
         .from(rows)
         .r#where(eq(rows.name, "alice"))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(current, 101);
 
     let next_id: i32 = db
         .insert(rows)
         .values([InsertExpressionRow::new("dave", true)])
         .returning(rows.id)
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(next_id, 102);
 }

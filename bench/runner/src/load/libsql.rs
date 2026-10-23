@@ -1060,16 +1060,15 @@ async fn serve_with_mode(seed: u64, mode: LibsqlMode) -> Result<ServerHandle, Fa
 
     // Same generator, seed and row counts as every other SQLite-family target,
     // so the data is identical.
-    let stmts = SeedConfig::sqlite(&schema)
+    let config = SeedConfig::sqlite(&schema)
         .seed(seed)
         .count(&schema.customer, super::SEED_CUSTOMERS)
         .count(&schema.employee, super::SEED_EMPLOYEES)
         .count(&schema.supplier, super::SEED_SUPPLIERS)
         .count(&schema.product, super::SEED_PRODUCTS)
         .count(&schema.order, super::SEED_ORDERS)
-        .relation(&schema.order, &schema.detail, 6)
-        .generate();
-    for stmt in stmts {
+        .relation(&schema.order, &schema.detail, 6);
+    for stmt in config.generate() {
         db.execute(stmt)
             .await
             .map_err(|err| Fail::new(Code::RunFail, format!("libsql seed failed: {err}")))?;

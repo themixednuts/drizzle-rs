@@ -25,7 +25,7 @@ rust_decimal = { workspace = true, optional = true }
 arrayvec = { workspace = true, optional = true }
 smallvec = { workspace = true, optional = true }
 compact_str = { workspace = true, optional = true }
-paste = { workspace = true }
+pastey = { workspace = true }
 postgres = { workspace = true, optional = true }
 tokio-postgres = { workspace = true, optional = true }
 aws-sdk-rdsdata = { workspace = true, optional = true }

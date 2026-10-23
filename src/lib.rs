@@ -110,7 +110,7 @@
 //! | Method      | Runs the query and returns                                      |
 //! |-------------|-----------------------------------------------------------------|
 //! | `.all()`    | every row, decoded into `Vec<R>`                                |
-//! | `.get()`    | one row; an error when there is none (PostgreSQL: not exactly one) |
+//! | `.get()`    | the first row as an `Option`, or the row itself for a query that always returns one (PostgreSQL: an error for more than one) |
 //! | `.rows()`   | an iterator over the rows, decoded into the query's own row type |
 //! | `.execute()`| the number of rows changed (MySQL: a `MySQLMutationResult`)    |
 //!
@@ -143,8 +143,13 @@
 //!     .limit(10)
 //!     .all()?;
 //!
-//! // One row. `.get()` fails when nothing matches.
-//! let dana: SelectUsers = db.select(()).from(users).r#where(eq(users.name, "Dana")).get()?;
+//! // One row, or `None` when nothing matches.
+//! let dana: SelectUsers = db
+//!     .select(())
+//!     .from(users)
+//!     .r#where(eq(users.name, "Dana"))
+//!     .get()?
+//!     .expect("Dana was inserted above");
 //!
 //! // UPDATE "users" SET "age" = ? WHERE "users"."id" = ?
 //! db.update(users)
@@ -302,9 +307,10 @@
 //! # }
 //! ```
 //!
-//! Database errors, such as a constraint violation or a row that does not
-//! match on `.get()`, are still runtime errors. They come back as
-//! [`DrizzleError`](error::DrizzleError) through [`Result`].
+//! Database errors, such as a constraint violation, are still runtime
+//! errors. They come back as [`DrizzleError`](error::DrizzleError) through
+//! [`Result`], and [`kind`](error::DrizzleError::kind) says which kind of
+//! failure it was.
 //!
 //! # Drivers and features
 //!
@@ -399,9 +405,14 @@ pub use drizzle_types::Casing;
 pub use const_format;
 
 /// The error type every driver returns: [`DrizzleError`](error::DrizzleError).
+///
+/// [`DrizzleError::kind`](error::DrizzleError::kind) names the failure the
+/// same way on every driver ([`ErrorKind`](error::ErrorKind)), and
+/// [`constraint`](error::DrizzleError::constraint) and
+/// [`query`](error::DrizzleError::query) give the constraint and the SQL.
 pub mod error {
     #[doc(inline)]
-    pub use drizzle_core::error::DrizzleError;
+    pub use drizzle_core::error::{DrizzleError, ErrorKind, QueryContext};
 }
 
 /// Per-dialect SQL type descriptions and DDL objects (tables, columns,
@@ -667,8 +678,8 @@ pub mod postgres {
     pub use drizzle_postgres::driver_types;
     #[doc(inline)]
     pub use drizzle_postgres::{
-        AccessMode, IsolationLevel, TransactionConfig, attrs, builder, common, expr, helpers,
-        traits, transaction, types, values,
+        AccessMode, IsolationLevel, SnapshotId, TransactionConfig, attrs, builder, common, expr,
+        helpers, traits, transaction, types, values,
     };
 
     #[cfg(all(
@@ -769,7 +780,7 @@ pub mod postgres {
         pub use drizzle_postgres::values::{
             OwnedPostgresValue, PostgresInsertValue, PostgresUpdateValue, PostgresValue,
         };
-        pub use drizzle_postgres::{AccessMode, IsolationLevel, TransactionConfig};
+        pub use drizzle_postgres::{AccessMode, IsolationLevel, SnapshotId, TransactionConfig};
     }
 }
 

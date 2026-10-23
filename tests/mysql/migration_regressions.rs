@@ -159,7 +159,9 @@ fn created_and_pushed_schemas_need_no_further_push(db: &mut TestDb<RegressionSch
     // ones push and generate use.
     let mut defaults = Vec::new();
     for query in CATALOG_DEFAULTS {
-        let value: String = result!(db.get(SQL::raw(query))).expect("read catalog defaults");
+        let value: String = result!(db.get(SQL::raw(query)))
+            .expect("read catalog defaults")
+            .expect("a row");
         defaults.push(value);
     }
     let defaults: [String; 4] = defaults.try_into().expect("four catalog values");

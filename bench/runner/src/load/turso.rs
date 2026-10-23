@@ -645,7 +645,7 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
         .map_err(|err| Fail::new(Code::RunFail, format!("turso create indexes failed: {err}")))?;
 
     // Seed via drizzle-seed — use smaller batch size for turso's parameter limits
-    let stmts = SeedConfig::sqlite(&schema)
+    let config = SeedConfig::sqlite(&schema)
         .seed(seed)
         .max_params(500)
         .count(&schema.customer, super::SEED_CUSTOMERS)
@@ -653,9 +653,8 @@ async fn serve_with_mode(seed: u64, mode: TursoMode) -> Result<ServerHandle, Fai
         .count(&schema.supplier, super::SEED_SUPPLIERS)
         .count(&schema.product, super::SEED_PRODUCTS)
         .count(&schema.order, super::SEED_ORDERS)
-        .relation(&schema.order, &schema.detail, 6)
-        .generate();
-    for stmt in stmts {
+        .relation(&schema.order, &schema.detail, 6);
+    for stmt in config.generate() {
         db.execute(stmt)
             .await
             .map_err(|err| Fail::new(Code::RunFail, format!("turso seed failed: {err}")))?;

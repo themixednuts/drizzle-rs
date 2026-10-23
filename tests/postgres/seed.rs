@@ -112,7 +112,7 @@ impl SeedContract for PostgresSeedContract {
             NameGenerator::Constant => config.generator(&ContractSimple::name, ConstantName),
             NameGenerator::Column => config.generator(&ContractSimple::name, &ContractSimple::name),
         };
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn related(options: RelatedOptions) -> Vec<Statement> {
@@ -133,7 +133,7 @@ impl SeedContract for PostgresSeedContract {
         if options.skip_child {
             config = config.skip(&schema.child);
         }
-        config.generate().into_iter().map(normalize).collect()
+        config.generate().map(normalize).collect()
     }
 
     fn reset_related() -> Vec<String> {
@@ -162,7 +162,8 @@ impl SeedContract for PostgresSeedContract {
             .count(&schema.simple, 1)
             .max_params(1)
             .try_generate()
-            .unwrap_err()
+            .find_map(Result::err)
+            .unwrap()
     }
 
     fn unsafe_reset_error() -> SeedError {
@@ -179,7 +180,6 @@ impl SeedContract for PostgresSeedContract {
             .seed(seed)
             .default_count(count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -190,7 +190,6 @@ impl SeedContract for PostgresSeedContract {
             .seed(seed)
             .count(&schema.profile, count)
             .generate()
-            .into_iter()
             .map(normalize)
             .collect()
     }
@@ -227,7 +226,8 @@ fn schema_qualified_tables_with_the_same_name_keep_distinct_counts() {
     let statements = SeedConfig::postgres(&schema)
         .count(&schema.first, 1)
         .count(&schema.second, 2)
-        .generate();
+        .generate()
+        .collect::<Vec<_>>();
 
     assert_eq!(statements.len(), 2);
     assert!(
@@ -385,7 +385,6 @@ mod executed {
             .relation(&schema.typed, &schema.child, 2)
             .generator(&schema.typed.level, generators::one_of([1, 5]))
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 
@@ -396,7 +395,6 @@ mod executed {
             .relation_by_name("public.seed_typed", "seed_typed_children", 2)
             .generator_by_name("seed_typed", "level", generators::one_of([1, 5]))
             .generate()
-            .iter()
             .map(|statement| statement.build())
             .collect();
 
@@ -482,7 +480,9 @@ mod executed {
         for statement in LIVE_TABLES {
             db.execute(SQL::raw(statement));
         }
-        let Text(namespace) = result!(db.get(SQL::raw("SELECT current_schema()::text"))).unwrap();
+        let Text(namespace) = result!(db.get(SQL::raw("SELECT current_schema()::text")))
+            .unwrap()
+            .expect("a row");
         let snapshot = result!(db.introspect_schemas(&[namespace.as_str()])).expect("introspect");
         let schema = Schema::from_snapshot(&snapshot)
             .unwrap()
@@ -500,13 +500,16 @@ mod executed {
         }
         let mut bound = Vec::new();
         for table in tables {
-            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table)))).unwrap();
+            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table))))
+                .unwrap()
+                .expect("a row");
             bound.push(rows);
         }
         let Text(plans) = result!(db.get(SQL::raw(
             "SELECT string_agg(DISTINCT plan, ',') FROM live_accounts",
         )))
-        .unwrap();
+        .unwrap()
+        .expect("a row");
         assert!(
             plans.split(',').all(|plan| plan == "free" || plan == "pro"),
             "{plans}"
@@ -520,7 +523,9 @@ mod executed {
         }
         let mut inline = Vec::new();
         for table in tables {
-            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table)))).unwrap();
+            let Text(rows) = result!(db.get(SQL::raw(fingerprint_sql(table))))
+                .unwrap()
+                .expect("a row");
             inline.push(rows);
         }
         assert_eq!(inline, bound);

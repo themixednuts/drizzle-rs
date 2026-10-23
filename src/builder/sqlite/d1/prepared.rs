@@ -19,25 +19,20 @@ use std::{borrow::Cow, marker::PhantomData};
 use ::worker::D1Database;
 
 use super::{bind_statement, sqlite_value_to_js};
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
+use smallvec::SmallVec;
 
 /// Convert an iterator of borrowed SQLiteValue-bearing items into the JS param
 /// array D1 requires.
-fn borrowed_values_to_js<'a, I>(bound: I) -> Vec<wasm_bindgen::JsValue>
-where
-    I: IntoIterator<Item = SQLiteValue<'a>>,
-{
-    bound.into_iter().map(|v| sqlite_value_to_js(&v)).collect()
+fn borrowed_values_to_js(bound: &[SQLiteValue<'_>]) -> Vec<wasm_bindgen::JsValue> {
+    bound.iter().map(sqlite_value_to_js).collect()
 }
 
 /// Same, but for `OwnedSQLiteValue` — used by the `OwnedPreparedStatement`
 /// bind paths.
-fn owned_values_to_js<I>(bound: I) -> Vec<wasm_bindgen::JsValue>
-where
-    I: IntoIterator<Item = OwnedSQLiteValue>,
-{
+fn owned_values_to_js(bound: &[OwnedSQLiteValue]) -> Vec<wasm_bindgen::JsValue> {
     bound
-        .into_iter()
+        .iter()
         .map(|v| sqlite_value_to_js(&SQLiteValue::from(v)))
         .collect()
 }
@@ -140,9 +135,11 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_execute(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = borrowed_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_execute(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -168,19 +165,22 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_all::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = borrowed_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_all::<T>(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-    /// statement's placeholders (missing, duplicated, or extra),
-    /// `DrizzleError::NotFound` when no row matches, the database
-    /// error when the query fails, or a decode error when the row does not fit `T`.
+    /// statement's placeholders (missing, duplicated, or extra), the
+    /// database error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
@@ -191,14 +191,16 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         &self,
         conn: &D1Database,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> drizzle_core::error::Result<T>
+    ) -> drizzle_core::error::Result<Option<T>>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = borrowed_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_get::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = borrowed_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_get::<T>(stmt).await.with_query(context)
     }
 }
 
@@ -223,9 +225,11 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
     ) -> drizzle_core::error::Result<u64> {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_execute(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = owned_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_execute(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes every row into `T`.
@@ -251,19 +255,22 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_all::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = owned_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_all::<T>(stmt).await.with_query(context)
     }
 
     /// Binds `params`, runs the query, and decodes its first row into `T`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
     /// Returns [`DrizzleError::ParameterError`] when `params` do not match the
-    /// statement's placeholders (missing, duplicated, or extra),
-    /// `DrizzleError::NotFound` when no row matches, the database
-    /// error when the query fails, or a decode error when the row does not fit `T`.
+    /// statement's placeholders (missing, duplicated, or extra), the
+    /// database error when the query fails, or a decode error when the row does not fit `T`.
     ///
     /// [`DrizzleError::ParameterError`]: drizzle_core::error::DrizzleError::ParameterError
     ///
@@ -274,14 +281,16 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
         &self,
         conn: &D1Database,
         params: [drizzle_core::param::ParamBind<'a, SQLiteValue<'a>>; N],
-    ) -> drizzle_core::error::Result<T>
+    ) -> drizzle_core::error::Result<Option<T>>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
         let (sql_str, bound) = self.inner.bind(params)?;
-        let values = owned_values_to_js(bound);
-        let stmt = bind_statement(conn.prepare(sql_str), &values)?;
-        run_get::<T>(stmt).await
+        let bound: SmallVec<[_; 8]> = bound.collect();
+        let context = || QueryContext::new(sql_str, &bound.iter().collect::<Vec<_>>());
+        let values = owned_values_to_js(&bound);
+        let stmt = bind_statement(conn.prepare(sql_str), &values).with_query(context)?;
+        run_get::<T>(stmt).await.with_query(context)
     }
 }
 
@@ -326,14 +335,13 @@ where
         .map_err(|e| DrizzleError::Other(e.to_string().into()))
 }
 
-async fn run_get<T>(stmt: ::worker::D1PreparedStatement) -> drizzle_core::error::Result<T>
+async fn run_get<T>(stmt: ::worker::D1PreparedStatement) -> drizzle_core::error::Result<Option<T>>
 where
     T: for<'de> serde::Deserialize<'de>,
 {
     stmt.first::<T>(None)
         .await
-        .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-        .ok_or(DrizzleError::NotFound)
+        .map_err(|e| DrizzleError::Other(e.to_string().into()))
 }
 
 impl<'a, Marker, DecodedRow> std::fmt::Display for PreparedStatement<'a, Marker, DecodedRow> {

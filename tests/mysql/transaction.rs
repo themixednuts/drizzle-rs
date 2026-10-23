@@ -20,7 +20,8 @@ fn consistent_snapshot_options_execute(db: &mut TestDb<TestSchema>) {
         .snapshot()
         .build();
     result!(db.transaction(config, |tx| {
-        let isolation: String = result!(tx.get(SQL::raw("SELECT @@transaction_isolation")))?;
+        let isolation: String =
+            result!(tx.get(SQL::raw("SELECT @@transaction_isolation")))?.expect("a row");
         assert_eq!(isolation, "REPEATABLE-READ");
         assert_eq!(
             result!(tx.select(count(users.id)).from(users).get::<i64, _, _>())?,
@@ -47,6 +48,8 @@ fn transaction_session_changes_are_repaired_on_parent_reuse(db: &mut TestDb<Test
         Ok(())
     });
 
-    let timezone: String = db.get(SQL::raw("SELECT @@SESSION.time_zone"));
+    let timezone: String = db
+        .get(SQL::raw("SELECT @@SESSION.time_zone"))
+        .expect("a row");
     assert_eq!(timezone, "+00:00");
 }

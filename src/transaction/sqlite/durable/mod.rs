@@ -8,7 +8,7 @@
 //! [`DurableStorage`](crate::builder::sqlite::durable::DurableStorage).
 
 use ::worker::{SqlStorage, SqlStorageValue};
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 
 #[cfg(feature = "sqlite")]
@@ -101,7 +101,7 @@ impl<Schema> Transaction<Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// Returns an error with the runtime's message when the
     /// statement fails.
     pub fn execute<'q, T>(&self, query: T) -> drizzle_core::error::Result<u64>
     where
@@ -121,7 +121,7 @@ impl<Schema> Transaction<Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
     pub fn all<'q, T, R, C>(&self, query: T) -> drizzle_core::error::Result<C>
     where
@@ -141,23 +141,22 @@ impl<Schema> Transaction<Schema> {
     /// Runs any SQL value inside the transaction and deserializes its first
     /// row into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
-    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'de> serde::Deserialize<'de>,
         T: ToSQL<'q, SQLiteValue<'q>>,
     {
         let cursor = exec_in_tx(self.conn.sql(), &query)?;
-        cursor
+        let rows = cursor
             .to_array::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        Ok(rows.into_iter().next())
     }
 }
 
@@ -171,9 +170,14 @@ where
     let sql = query.to_sql();
     let (sql_str, params) = sql.build();
     drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-    let values: Vec<SqlStorageValue> = params.into_iter().map(sqlite_value_to_storage).collect();
+    let values: Vec<SqlStorageValue> = params
+        .iter()
+        .copied()
+        .map(sqlite_value_to_storage)
+        .collect();
     conn.exec(&sql_str, Some(values))
         .map_err(|e| DrizzleError::Other(e.to_string().into()))
+        .with_query(|| QueryContext::new(&sql_str, &params))
 }
 
 // =============================================================================
@@ -189,7 +193,7 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] with the runtime's message when the
+    /// Returns an error with the runtime's message when the
     /// statement fails.
     pub fn execute(self) -> drizzle_core::error::Result<u64>
     where
@@ -211,7 +215,7 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
     pub fn all<R>(self) -> drizzle_core::error::Result<Vec<R>>
     where
@@ -227,23 +231,26 @@ impl<'tx, 'q, Schema, State, Table, Mk, Rw, Grouped>
     /// Runs the query inside the transaction and deserializes its first row
     /// into `R`, with the same requirements as [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when the query fails or a row cannot be
+    /// Returns an error when the query fails or a row cannot be
     /// deserialized into `R`.
-    pub fn get<R>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         R: for<'de> serde::Deserialize<'de>,
     {
         let cursor = exec_in_tx(self.runner.conn.sql(), &self.builder.sql)?;
-        cursor
+        let rows = cursor
             .to_array::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .into_iter()
-            .next()
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let row = rows.into_iter().next();
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 

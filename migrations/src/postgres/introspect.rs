@@ -863,13 +863,19 @@ pub mod queries {
                     'min', c.identity_minimum,
                     'max', c.identity_maximum,
                     'cycle', c.identity_cycle = 'YES',
+                    -- The identity's sequence by OID through pg_depend:
+                    -- pg_get_serial_sequence() resolves the table by name and
+                    -- fails when another session drops its schema mid-query.
                     'cache', (
                         SELECT seq.seqcache::text
-                        FROM pg_sequence seq
-                        WHERE seq.seqrelid = pg_get_serial_sequence(
-                            format('%I.%I', c.table_schema, c.table_name),
-                            c.column_name
-                        )::regclass
+                        FROM pg_depend dep
+                        JOIN pg_sequence seq ON seq.seqrelid = dep.objid
+                        WHERE dep.classid = 'pg_class'::regclass
+                          AND dep.refclassid = 'pg_class'::regclass
+                          AND dep.refobjid = cls.oid
+                          AND dep.refobjsubid = a.attnum
+                          AND dep.deptype IN ('a', 'i')
+                        LIMIT 1
                     )
                 )::text
                 ELSE NULL

@@ -117,7 +117,7 @@ macro_rules! shared_arrayvec_suite {
                     .r#where(eq(rows.id, 1))
                     .execute();
 
-                let stored: SelectArrayRow = db.select(()).from(rows).get();
+                let stored: SelectArrayRow = db.select(()).from(rows).get().expect("a row");
                 assert_eq!(stored.name.as_str(), "after");
                 assert_eq!(stored.data.as_slice(), &[10, 20, 30, 40]);
             }
@@ -138,7 +138,7 @@ macro_rules! shared_arrayvec_suite {
                     )
                     .execute();
 
-                let stored: SelectMixedRow = db.select(()).from(mixed).get();
+                let stored: SelectMixedRow = db.select(()).from(mixed).get().expect("a row");
                 assert_eq!(stored.short_name.as_str(), "Short");
                 assert_eq!(stored.long_name.as_str(), long_name);
                 assert_eq!(stored.small_data.as_slice(), &[1, 2, 3, 4, 5]);

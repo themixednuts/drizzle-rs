@@ -16,7 +16,7 @@ use parquet::data_type::{ByteArray, ByteArrayType, DoubleType};
 use parquet::file::properties::WriterProperties;
 use parquet::file::writer::SerializedFileWriter;
 use parquet::schema::parser::parse_message_type;
-use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use sha2::{Digest, Sha256};
@@ -3488,8 +3488,12 @@ fn sha256_file(path: &Path) -> Result<String, Fail> {
     })?;
     let mut hasher = Sha256::new();
     hasher.update(data);
-    let sum = hasher.finalize();
-    Ok(format!("sha256:{sum:x}"))
+    use std::fmt::Write as _;
+    let mut out = String::from("sha256:");
+    for byte in hasher.finalize() {
+        let _ = write!(out, "{byte:02x}");
+    }
+    Ok(out)
 }
 
 fn box_metric(values: &[f64]) -> BoxMetricDoc {

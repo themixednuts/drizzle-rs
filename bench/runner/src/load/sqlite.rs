@@ -601,16 +601,15 @@ pub(crate) fn create_and_seed(path: &Path, seed: u64) -> Result<(), Fail> {
         })?;
 
     // Seed via drizzle-seed (deterministic from seed value)
-    let stmts = SeedConfig::sqlite(&schema)
+    let config = SeedConfig::sqlite(&schema)
         .seed(seed)
         .count(&schema.customer, super::SEED_CUSTOMERS)
         .count(&schema.employee, super::SEED_EMPLOYEES)
         .count(&schema.supplier, super::SEED_SUPPLIERS)
         .count(&schema.product, super::SEED_PRODUCTS)
         .count(&schema.order, super::SEED_ORDERS)
-        .relation(&schema.order, &schema.detail, 6)
-        .generate();
-    for stmt in stmts {
+        .relation(&schema.order, &schema.detail, 6);
+    for stmt in config.generate() {
         db.execute(stmt)
             .map_err(|err| Fail::new(Code::RunFail, format!("sqlite seed failed: {err}")))?;
     }

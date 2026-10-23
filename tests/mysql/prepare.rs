@@ -26,6 +26,11 @@ fn prepared_mutation_reports_mysql_execution_metadata(db: &mut TestDb<TestSchema
     let result = prepared.execute(drizzle_client!(), [name.bind("Alicia"), user_id.bind(id)]);
     assert_eq!(result.affected_rows(), 1);
 
-    let renamed: SelectUser = db.select(()).from(users).r#where(eq(users.id, id)).get();
+    let renamed: SelectUser = db
+        .select(())
+        .from(users)
+        .r#where(eq(users.id, id))
+        .get()
+        .expect("a row");
     assert_eq!(renamed.name, "Alicia");
 }

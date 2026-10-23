@@ -286,7 +286,8 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// | `without_rowid` | Create a [WITHOUT ROWID table](https://sqlite.org/withoutrowid.html). Needs a primary key and rules out `autoincrement`. |
 /// | `unique(a, b)` or `unique(columns(a, b), name = "...")` | Table-level `UNIQUE` constraint over the named fields. |
 /// | `check(expr = "a < b", name = "...")` | Table-level `CHECK` constraint. The expression is raw SQL. |
-/// | `foreign_key(columns(a, b), references(Parent, x, y), on_delete = "CASCADE", on_update = "...", relation = "...", many_to_many = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. The actions are SQL text, such as `"SET NULL"`. `relation` and `many_to_many` name its relations (see [Relations](#relations)). |
+/// | `foreign_key(columns(a, b), references(Parent, x, y), name = "...", on_delete = "CASCADE", on_update = "...", relation = "...", many_to_many = "...")` | Composite foreign key from fields `a, b` to `Parent`'s fields `x, y`. `name` defaults to `fk_{table}_{a}_{b}_{parent}_{x}_{y}_fk`. The actions are SQL text, such as `"SET NULL"`. `relation` and `many_to_many` name its relations (see [Relations](#relations)). |
+/// | `primary_key(name = "...")` | Name the primary key formed by the `primary` fields (default `{table}_pk`). The key is then written as a table constraint, even on one field; an `INTEGER` key still aliases the rowid, but cannot use `autoincrement`. |
 ///
 /// # Column attributes
 ///
@@ -304,6 +305,7 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 /// | `default = value` | SQL `DEFAULT` clause. A string literal becomes a SQL string and `true`/`false` become `1`/`0`. A path or call is written as SQL in parentheses (`CURRENT_TIME`, `CURRENT_DATE` and `CURRENT_TIMESTAMP` stay bare). |
 /// | `default_fn = path` | Rust function called to fill the field when an insert model is created. Cannot be combined with `default`. |
 /// | `references = Table::column` | Foreign key to another table's column. |
+/// | `fk_name = "..."` | Name of that foreign key constraint (default `fk_{table}_{column}_{target_table}_{target_column}_fk`). Needs `references`. |
 /// | `on_delete = ACTION`, `on_update = ACTION` | Referential action for `references`: `CASCADE`, `SET_NULL`, `SET_DEFAULT`, `RESTRICT` or `NO_ACTION`. |
 /// | `relation = "name"` | Name of the reverse accessor the referenced table gets through this column (see [Relations](#relations)). Needs `references`. |
 /// | `many_to_many = "name"` | Name of the many-to-many accessor the referenced table gets through this link table; also makes a table with two foreign keys a link (see [Relations](#relations)). Needs `references`. |

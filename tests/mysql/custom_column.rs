@@ -197,7 +197,8 @@ fn custom_mysql_column_round_trips_through_both_adapters(db: &mut TestDb<CustomU
         .select(())
         .from(values)
         .r#where(and(eq(values.payload, value), eq(values.payload, &value)))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(selected.payload, value);
     assert_eq!(selected.signed, signed);
     assert_eq!(selected.optional_payload, Some(value));
@@ -213,7 +214,8 @@ fn custom_mysql_column_round_trips_through_both_adapters(db: &mut TestDb<CustomU
         .select(())
         .from(alias)
         .r#where(eq(alias.payload, &replacement))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(selected.payload, replacement);
 }
 
@@ -236,7 +238,7 @@ fn custom_json_round_trips_through_both_adapters(db: &mut TestDb<CustomJsonSchem
         )
         .execute();
 
-    let selected: SelectCustomJsonTest = db.select(()).from(values).get();
+    let selected: SelectCustomJsonTest = db.select(()).from(values).get().expect("a row");
     assert_eq!(selected.document, document);
     assert_eq!(selected.optional_document, Some(optional_document.clone()));
 

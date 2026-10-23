@@ -18,6 +18,8 @@ crate::common::derived::shared_derived_table_suite!(mysql, MySQLTable, MySQLSche
 crate::common::subquery::shared_subquery_suite!(mysql, MySQLTable, MySQLSchema, MySQLFromRow);
 crate::common::expressions::shared_expression_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::foreign_keys::shared_foreign_key_suite!(mysql, MySQLTable, MySQLSchema);
+crate::common::errors::shared_error_kind_suite!(mysql, MySQLTable, MySQLSchema);
+crate::common::get_rows::shared_get_rows_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::comment::shared_comment_suite!(mysql, MySQLTable, MySQLSchema);
 crate::common::wrappers::shared_wrapper_type_suite!(mysql, MySQLTable, MySQLSchema);
 #[cfg(feature = "serde")]

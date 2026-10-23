@@ -28,6 +28,12 @@
 //!   columns, with `Option` wherever an outer join can produce NULL.
 //! - [`StrictDecodeMarker`]: a raw `sql!` projection has an explicit type.
 
+mod count;
+pub use count::{
+    ExactlyOne, GetRow, GroupingRows, QueryRows, RowCount, SelectionRows, StatusRows, ZeroOrMore,
+    first_row,
+};
+
 // Driver-specific leaf FromDrizzleRow implementations
 #[cfg(feature = "libsql")]
 mod libsql;

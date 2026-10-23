@@ -247,17 +247,14 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
     let (second, _) = drizzle::sqlite::turso::Drizzle::<SimpleSchema>::new(second_connection);
     first.create().await.expect("create schema");
 
-    let missing: drizzle::Result<SelectSimple> = first
+    let missing: drizzle::Result<Option<SelectSimple>> = first
         .select(())
         .from(simple)
         .r#where(eq(simple.id, 999))
         .limit(1)
         .get()
         .await;
-    assert!(matches!(
-        missing,
-        Err(drizzle::error::DrizzleError::NotFound)
-    ));
+    assert!(matches!(missing, Ok(None)), "{missing:?}");
 
     let returned: SelectSimple = first
         .insert(simple)
@@ -265,7 +262,8 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
         .returning(())
         .get()
         .await
-        .expect("insert returning one row");
+        .expect("insert returning one row")
+        .expect("a row");
     assert_eq!(returned.id, 1);
 
     second
@@ -283,7 +281,8 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
     let returned: SelectSimple = prepared
         .get(first.conn(), [])
         .await
-        .expect("prepared insert returning one row");
+        .expect("prepared insert returning one row")
+        .expect("a row");
     assert_eq!(returned.id, 3);
 
     second
@@ -302,7 +301,8 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
                     .values([InsertSimple::new("transaction").with_id(5)])
                     .returning(())
                     .get()
-                    .await?;
+                    .await?
+                    .expect("a row");
                 assert_eq!(returned.id, 5);
                 Ok(())
             },
@@ -330,7 +330,8 @@ async fn turso_get_finishes_returning_cursor_before_another_connection_writes() 
                     .values([InsertSimple::new("cloned-transaction").with_id(6)])
                     .returning(())
                     .get()
-                    .await?;
+                    .await?
+                    .expect("a row");
                 transaction
                     .update(simple)
                     .set(UpdateSimple::default().with_name("updated-cloned-transaction"))
@@ -376,7 +377,8 @@ async fn turso_strict_insert_returning_generates_integer_primary_key() {
             },
         )
         .await
-        .expect("insert returning must observe SQLite's generated rowid");
+        .expect("insert returning must observe SQLite's generated rowid")
+        .expect("a row");
 
     assert_eq!(returned.id, 1);
     assert_eq!(returned.marker, None);
@@ -845,7 +847,8 @@ fn get_does_not_leave_its_statement_running(db: &mut TestDb<SimpleSchema>) {
         .select((simple.id, simple.name))
         .from(simple)
         .order_by([asc(simple.id)])
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(first.id, 1);
     result!(db.execute(SQL::raw(r#"DROP TABLE "simple""#)))?;
 }

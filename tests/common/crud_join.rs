@@ -59,8 +59,12 @@ macro_rules! shared_crud_join_suite {
                     ])
                     .execute();
 
-                let alice: SelectSharedCrudUser =
-                    db.select(()).from(users).r#where(eq(users.id, 1)).get();
+                let alice: SelectSharedCrudUser = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .get()
+                    .expect("a row");
                 assert_eq!(alice.name, "Alice");
                 assert!(alice.active);
                 assert_eq!(alice.nickname, None);
@@ -74,8 +78,12 @@ macro_rules! shared_crud_join_suite {
                     .r#where(eq(users.id, 2))
                     .execute();
 
-                let robert: SelectSharedCrudUser =
-                    db.select(()).from(users).r#where(eq(users.id, 2)).get();
+                let robert: SelectSharedCrudUser = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.id, 2))
+                    .get()
+                    .expect("a row");
                 assert_eq!(robert.name, "Robert");
                 assert!(robert.active);
                 assert_eq!(robert.nickname.as_deref(), Some("Bobby"));
@@ -89,8 +97,12 @@ macro_rules! shared_crud_join_suite {
                     .r#where(eq(users.id, 2))
                     .execute();
 
-                let visited: SelectSharedCrudUser =
-                    db.select(()).from(users).r#where(eq(users.id, 2)).get();
+                let visited: SelectSharedCrudUser = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.id, 2))
+                    .get()
+                    .expect("a row");
                 assert_eq!(visited.visits, 1);
                 assert_eq!(visited.nickname.as_deref(), Some("robert"));
 

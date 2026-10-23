@@ -68,7 +68,7 @@ pub fn integer_repr(attrs: &[Attribute]) -> Option<syn::Ident> {
 }
 
 /// Check if the type has a `#[repr(iN)]` or `#[repr(uN)]` attribute.
-#[cfg_attr(not(any(feature = "sqlite", feature = "postgres")), allow(dead_code))]
+#[cfg_attr(not(feature = "sqlite"), allow(dead_code))]
 pub fn has_integer_repr(attrs: &[Attribute]) -> bool {
     integer_repr(attrs).is_some()
 }

@@ -218,7 +218,8 @@ fn test_foreign_key_impl(db: &mut TestDb<ComplexPostSchema>) {
         .select(())
         .from(post)
         .r#where(eq(post.author_id, id))
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(Some(id), row.author_id);
 }

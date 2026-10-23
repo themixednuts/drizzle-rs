@@ -11,7 +11,7 @@ use crate::values::PostgresValue;
 use core::marker::PhantomData;
 use drizzle_core::ToSQL;
 use drizzle_core::traits::SQLTable;
-use paste::paste;
+use pastey::paste;
 
 // Import the ExecutableState trait
 use super::ExecutableState;
@@ -224,7 +224,9 @@ macro_rules! join_using_impl {
 // Capability trait impls for each state
 //------------------------------------------------------------------------------
 
-impl ExecutableState for SelectForSet {}
+impl ExecutableState for SelectForSet {
+    type Rows<R: drizzle_core::row::RowCount> = drizzle_core::row::ZeroOrMore;
+}
 // A locking SELECT still feeds a derived table or INSERT ... SELECT, but
 // cannot be a set operand.
 impl drizzle_core::ClauseAllowed<drizzle_core::clause::Source> for SelectForSet {}

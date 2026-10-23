@@ -146,4 +146,4 @@ pub mod driver_types {
 }
 
 pub use drizzle_core::ParamBind;
-pub use transaction::{AccessMode, IsolationLevel, TransactionConfig};
+pub use transaction::{AccessMode, IsolationLevel, SnapshotId, TransactionConfig};

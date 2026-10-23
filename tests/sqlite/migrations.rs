@@ -1478,3 +1478,139 @@ async fn turso_repair_finishes_an_interrupted_migration() {
         .expect("second migrate");
     assert!(outcome.is_up_to_date());
 }
+
+#[cfg(feature = "rusqlite")]
+#[SQLiteTable(NAME = "named_key_owners")]
+struct NamedKeyOwner {
+    #[column(PRIMARY)]
+    id: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[SQLiteTable(
+    NAME = "named_key_parents",
+    PRIMARY_KEY(name = "named_key_parents_key")
+)]
+struct NamedKeyParent {
+    #[column(PRIMARY)]
+    tenant: i64,
+    #[column(PRIMARY)]
+    id: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[SQLiteTable(
+    NAME = "named_key_children",
+    PRIMARY_KEY(name = "named_key_children_key"),
+    FOREIGN_KEY(
+        columns(tenant, parent),
+        references(NamedKeyParent, tenant, id),
+        name = "named_key_children_parent_fk"
+    )
+)]
+struct NamedKeyChild {
+    #[column(PRIMARY)]
+    id: i64,
+    tenant: i64,
+    parent: i64,
+    #[column(references = NamedKeyOwner::id, fk_name = "named_key_children_owner_fk")]
+    owner: i64,
+}
+
+#[cfg(feature = "rusqlite")]
+#[derive(SQLiteSchema)]
+struct NamedKeySchema {
+    owner: NamedKeyOwner,
+    parent: NamedKeyParent,
+    child: NamedKeyChild,
+}
+
+#[cfg(feature = "rusqlite")]
+#[test]
+fn constraint_names_reach_the_create_table_sql() {
+    assert_eq!(
+        NamedKeyChild::create_table_sql(),
+        "CREATE TABLE `named_key_children` (\n\t`id` INTEGER NOT NULL,\n\t`tenant` INTEGER NOT NULL,\n\t`parent` INTEGER NOT NULL,\n\t`owner` INTEGER NOT NULL,\n\tCONSTRAINT `named_key_children_key` PRIMARY KEY(`id`),\n\tCONSTRAINT `named_key_children_owner_fk` FOREIGN KEY (`owner`) REFERENCES `named_key_owners`(`id`),\n\tCONSTRAINT `named_key_children_parent_fk` FOREIGN KEY (`tenant`, `parent`) REFERENCES `named_key_parents`(`tenant`, `id`)\n);"
+    );
+}
+
+/// Named primary and foreign keys survive push, introspection and `pull`
+/// codegen, and a named `INTEGER` key still fills itself as the rowid.
+#[cfg(feature = "rusqlite")]
+#[test]
+fn rusqlite_constraint_names_round_trip_through_introspection() {
+    use drizzle::migrations::sqlite::{SQLiteDDL, SqliteEntity};
+    use drizzle_migrations::Schema as _;
+    use drizzle_migrations::sqlite::codegen::{CodegenOptions, generate_rust_schema};
+
+    let (
+        db,
+        NamedKeySchema {
+            owner,
+            parent,
+            child,
+        },
+    ) = crate::common::helpers::rusqlite_setup::setup_empty_db(NamedKeySchema::default());
+    db.push(&NamedKeySchema::default()).expect("first push");
+
+    let live = db.introspect().expect("introspect");
+    let plan =
+        drizzle_migrations::diff(&live, &NamedKeySchema::default().to_snapshot()).expect("diff");
+    assert!(
+        plan.statements.is_empty(),
+        "second push should be a no-op: {:#?}",
+        plan.statements
+    );
+
+    let drizzle::migrations::Snapshot::Sqlite(live) = live else {
+        panic!("expected sqlite snapshot");
+    };
+    let explicit: Vec<&str> = live
+        .ddl
+        .iter()
+        .filter_map(|entity| match entity {
+            SqliteEntity::PrimaryKey(key) if key.name_explicit => Some(key.name.as_ref()),
+            SqliteEntity::ForeignKey(key) if key.name_explicit => Some(key.name.as_ref()),
+            _ => None,
+        })
+        .collect();
+    for name in [
+        "named_key_parents_key",
+        "named_key_children_key",
+        "named_key_children_owner_fk",
+        "named_key_children_parent_fk",
+    ] {
+        assert!(explicit.contains(&name), "{name} missing from {explicit:?}");
+    }
+
+    let code = generate_rust_schema(
+        &SQLiteDDL::from_entities(live.ddl),
+        &CodegenOptions::default(),
+    )
+    .code;
+    for attribute in [
+        r#"primary_key(name = "named_key_children_key")"#,
+        r#"fk_name = "named_key_children_owner_fk""#,
+        r#"name = "named_key_children_parent_fk""#,
+    ] {
+        assert!(
+            code.contains(attribute),
+            "{attribute} missing from:\n{code}"
+        );
+    }
+
+    db.insert(owner)
+        .values([InsertNamedKeyOwner::new().with_id(1)])
+        .execute()
+        .expect("insert owner");
+    db.insert(parent)
+        .values([InsertNamedKeyParent::new(1, 1)])
+        .execute()
+        .expect("insert parent");
+    db.insert(child)
+        .values([InsertNamedKeyChild::new(1, 1, 1)])
+        .execute()
+        .expect("insert child without an id");
+    let rows: Vec<SelectNamedKeyChild> = db.select(()).from(child).all().expect("select");
+    assert_eq!(rows[0].id, 1);
+}

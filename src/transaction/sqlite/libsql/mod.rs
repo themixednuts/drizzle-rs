@@ -1,6 +1,6 @@
 use crate::builder::sqlite::rows::LibsqlRows as Rows;
 use crate::transaction::savepoint::{AsyncSavepointState, async_savepoint};
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 #[cfg(feature = "sqlite")]
 use drizzle_sqlite::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
@@ -179,15 +179,21 @@ impl<Schema> Transaction<Schema> {
         let query = query.to_sql();
         let (sql, params) = query.build();
         drizzle_core::drizzle_trace_query!(&sql, params.len());
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        Ok(crate::builder::sqlite::libsql::execute_sql(
+        crate::builder::sqlite::libsql::execute_sql(
             &self.tx,
             &sql,
-            params,
+            driver_params,
             query.has_returning(),
         )
-        .await?)
+        .await
+        .map_err(DrizzleError::from)
+        .with_query(|| QueryContext::new(&sql, &params))
     }
 
     /// Runs any SQL value inside the transaction and decodes every row into
@@ -223,21 +229,32 @@ impl<Schema> Transaction<Schema> {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        let rows = self.tx.query(&sql_str, params).await?;
+        let rows = self
+            .tx
+            .query(&sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(rows))
     }
 
     /// Runs any SQL value inside the transaction and decodes its first row
     /// into `R`.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when libsql cannot prepare or run the query or the row cannot be decoded
     /// into `R`.
-    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'q, T, R>(&self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -247,14 +264,25 @@ impl<Schema> Transaction<Schema> {
         let sql = query.to_sql();
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        let mut rows = self.tx.query(&sql_str, params).await?;
+        let mut rows = self
+            .tx
+            .query(&sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        rows.next().await?.map_or_else(
-            || Err(DrizzleError::NotFound),
-            |row| R::try_from(&row).map_err(Into::into),
-        )
+        rows.next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+            .map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()
     }
 
     /// Commits the transaction.
@@ -298,15 +326,21 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql, params.len());
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        Ok(crate::builder::sqlite::libsql::execute_sql(
+        crate::builder::sqlite::libsql::execute_sql(
             &self.runner.tx,
             &sql,
-            params,
+            driver_params,
             self.builder.sql.has_returning(),
         )
-        .await?)
+        .await
+        .map_err(DrizzleError::from)
+        .with_query(|| QueryContext::new(&sql, &params))
     }
 
     /// Runs the query inside the transaction and decodes every row into `R`.
@@ -336,10 +370,25 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.runner.tx.query(&sql_str, params).await?;
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+        let mut rows = self
+            .runner
+            .tx
+            .query(&sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::new();
-        while let Some(row) = rows.next().await? {
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+        {
             decoded.push(<Mk as drizzle_core::row::DecodeSelectedRef<
                 &::libsql::Row,
                 R,
@@ -368,26 +417,44 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
 
-        let rows = self.runner.tx.query(&sql_str, params).await?;
+        let rows = self
+            .runner
+            .tx
+            .query(&sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(rows))
     }
 
     /// Runs the query inside the transaction and decodes its first row into
     /// `R`.
     ///
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no `GROUP BY`, `HAVING`, `ORDER BY`,
+    /// `LIMIT`, `OFFSET` or set operation) returns the row itself.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
-    /// when no row matches, and an error when libsql cannot prepare or run
-    /// the query or the row cannot be decoded into `R`.
+    /// Returns an error when libsql cannot prepare or run
+    /// the query or the row cannot be decoded into `R`, and
+    /// [`DrizzleError::NotFound`] when a query that always returns one row
+    /// returns none.
     ///
     /// # Compile-time checks
     ///
     /// The same checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::libsql::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -398,12 +465,28 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         self.runner.savepoints.ensure_usable()?;
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let params: Vec<libsql::Value> = params.into_iter().map(std::convert::Into::into).collect();
-        let mut rows = self.runner.tx.query(&sql_str, params).await?;
-        rows.next().await?.map_or_else(
-            || Err(DrizzleError::NotFound),
-            |row| <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row),
-        )
+        let driver_params: Vec<libsql::Value> = params
+            .iter()
+            .copied()
+            .map(std::convert::Into::into)
+            .collect();
+        let mut rows = self
+            .runner
+            .tx
+            .query(&sql_str, driver_params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
+        let row = rows
+            .next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+            .map(|row| {
+                <Mk as drizzle_core::row::DecodeSelectedRef<&::libsql::Row, R>>::decode(&row)
+            })
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 
@@ -501,10 +584,21 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut raw_rows = self.runner.inner().query(&sql, params).await?;
+        let mut raw_rows = self
+            .runner
+            .inner()
+            .query(&sql, params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
-        while let Some(row) = raw_rows.next().await? {
+        while let Some(row) = raw_rows
+            .next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql, &bind_params))?
+        {
             let base = <T as drizzle_core::query::QueryTable>::Select::try_from(&row)
                 .map_err(Into::into)?;
 
@@ -638,10 +732,21 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             .copied()
             .map(std::convert::Into::into)
             .collect();
-        let mut raw_rows = self.runner.inner().query(&sql, params).await?;
+        let mut raw_rows = self
+            .runner
+            .inner()
+            .query(&sql, params)
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::new();
 
-        while let Some(row) = raw_rows.next().await? {
+        while let Some(row) = raw_rows
+            .next()
+            .await
+            .map_err(DrizzleError::from)
+            .with_query(|| QueryContext::new(&sql, &bind_params))?
+        {
             // Column 0 is the JSON "__base" object
             let base_json: String = row
                 .get::<String>(0)

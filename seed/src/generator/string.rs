@@ -1,6 +1,6 @@
 use super::{Generator, RngCore, SeedValue};
 use crate::datasets::{domains, locations, names};
-use rand::Rng;
+use rand::RngExt;
 
 /// Generates random text strings of a given length range.
 pub struct TextGen {

@@ -2520,8 +2520,8 @@ where
     ///     query.to_sql().sql(),
     ///     r#"INSERT INTO "users" ("name", "age") VALUES (?, ?) RETURNING "users"."id""#,
     /// );
-    /// let id: i64 = query.get()?;
-    /// assert_eq!(id, 4);
+    /// let id: Option<i64> = query.get()?;
+    /// assert_eq!(id, Some(4));
     /// # Ok(())
     /// # }
     /// # #[cfg(not(feature = "rusqlite"))]

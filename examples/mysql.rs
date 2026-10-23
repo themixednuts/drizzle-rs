@@ -48,7 +48,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .select(())
         .from(users)
         .r#where(eq(users.email, "alice@example.com"))
-        .get()?;
+        .get()?
+        .expect("Alice was inserted above");
     assert_eq!(alice.name, "Alice");
 
     let all_users: Vec<SelectUser> = db.select(()).from(users).all()?;

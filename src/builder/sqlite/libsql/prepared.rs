@@ -12,6 +12,7 @@ use std::{borrow::Cow, marker::PhantomData};
 use libsql::{Connection, Row};
 
 use super::super::prepared_common::sqlite_async_prepared_impl;
+use drizzle_core::error::ResultExt as _;
 
 /// A libsql connection or transaction that a prepared statement can run on.
 ///

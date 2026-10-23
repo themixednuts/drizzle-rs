@@ -785,6 +785,7 @@ fn postgres_seed_statements(
         .count(&schema.order, super::SEED_ORDERS)
         .relation(&schema.order, &schema.detail, 6)
         .generate()
+        .collect()
 }
 
 fn ensure_seed_cache(

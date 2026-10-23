@@ -1,6 +1,7 @@
 //! Reads the parts of a stored `CREATE TABLE` statement that SQLite's
 //! PRAGMAs do not report: CHECK constraints, column collations, generated
-//! column expressions, and the names of UNIQUE and FOREIGN KEY constraints.
+//! column expressions, and the names of PRIMARY KEY, UNIQUE and FOREIGN KEY
+//! constraints.
 //!
 //! SQLite keeps each table's original `CREATE TABLE` text in
 //! `sqlite_schema`. This scanner understands enough of its grammar to find
@@ -20,6 +21,8 @@ pub(crate) struct ParsedTableSql {
     pub uniques: Vec<(String, Vec<String>)>,
     /// Named FOREIGN KEY constraints: `(name, source columns)`.
     pub foreign_keys: Vec<(String, Vec<String>)>,
+    /// The PRIMARY KEY constraint's name, when it has one.
+    pub primary_key: Option<String>,
 }
 
 /// One column definition.
@@ -308,8 +311,8 @@ pub(crate) fn parse_table_sql(sql: &str) -> Option<ParsedTableSql> {
     Some(parsed)
 }
 
-/// Collects CHECK constraints and the names of UNIQUE and FOREIGN KEY
-/// constraints from `tokens`. `column` is set for a column definition,
+/// Collects CHECK constraints and the names of PRIMARY KEY, UNIQUE and
+/// FOREIGN KEY constraints from `tokens`. `column` is set for a column definition,
 /// whose constraints apply to that column.
 fn parse_constraints(tokens: &[Token<'_>], column: Option<&str>, parsed: &mut ParsedTableSql) {
     // `CONSTRAINT name` names only the constraint keyword right after it.
@@ -335,7 +338,11 @@ fn parse_constraints(tokens: &[Token<'_>], column: Option<&str>, parsed: &mut Pa
             i += 2;
             continue;
         }
-        if token.is_word("UNIQUE") {
+        if token.is_word("PRIMARY") {
+            if name.is_some() {
+                parsed.primary_key = name;
+            }
+        } else if token.is_word("UNIQUE") {
             let columns = match (column, tokens.get(i + 1)) {
                 (Some(column), _) => Some(vec![column.to_string()]),
                 (None, Some(Token::Group(list))) => Some(column_list(list)),
@@ -429,5 +436,19 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.checks, [(None, "id > 0".to_string())]);
         assert_eq!(parsed.uniques, [("u".to_string(), vec!["id".to_string()])]);
+        assert_eq!(parsed.primary_key.as_deref(), Some("pk"));
+    }
+
+    #[test]
+    fn table_primary_keys_keep_their_name() {
+        let parsed = parse_table_sql(
+            "CREATE TABLE t (a INTEGER, b INTEGER, CONSTRAINT t_key PRIMARY KEY(a, b))",
+        )
+        .unwrap();
+        assert_eq!(parsed.primary_key.as_deref(), Some("t_key"));
+
+        let parsed =
+            parse_table_sql("CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY(a, b))").unwrap();
+        assert_eq!(parsed.primary_key, None);
     }
 }

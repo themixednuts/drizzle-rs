@@ -60,6 +60,16 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
         Ok(FieldInfo::from_field(field, false)?.is_primary())
     })?;
     let is_composite_pk = primary_key_count > 1;
+    if primary_key_count == 0
+        && let Some(name) = &attrs.primary_key_name
+    {
+        return Err(syn::Error::new_spanned(
+            struct_ident,
+            format!(
+                "PRIMARY_KEY(name = \"{name}\") names the primary key, but no field is marked #[column(primary)]"
+            ),
+        ));
+    }
 
     let field_infos = fields
         .iter()
@@ -68,6 +78,17 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
 
     validate_strict_affinity(&field_infos, attrs.strict)?;
     validation::validate_autoincrement(&field_infos, attrs.without_rowid)?;
+    if attrs.primary_key_name.is_some()
+        && let Some(field) = field_infos.iter().find(|field| field.is_autoincrement)
+    {
+        return Err(syn::Error::new_spanned(
+            field.ident,
+            format!(
+                "column `{}` uses AUTOINCREMENT, which needs an unnamed inline PRIMARY KEY; PRIMARY_KEY(name = \"...\") writes a table constraint",
+                field.column_name
+            ),
+        ));
+    }
     crate::common::constraints::validate_keys(&field_infos, &attrs.composite_foreign_keys)?;
 
     // Calculate required fields pattern for const generic
@@ -80,8 +101,7 @@ pub fn table_attr_macro(input: &DeriveInput, attrs: &TableAttributes) -> Result<
     });
 
     // Generate table metadata JSON for drizzle-kit compatible migrations
-    let table_meta_json =
-        generate_table_meta_json(&table_name, &field_infos, attrs.strict, attrs.without_rowid);
+    let table_meta_json = generate_table_meta_json(&table_name, &field_infos, attrs);
 
     // Generate table marker const for IDE hover documentation
     let table_marker_const = generate_table_marker_const(struct_ident, &attrs.marker_exprs);

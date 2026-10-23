@@ -82,7 +82,7 @@ fn main() {
         .from(users)
         .left_join(posts)
         .all();
-    let _: drizzle::Result<(Option<String>, Option<String>, String)> = db
+    let _: drizzle::Result<Option<(Option<String>, Option<String>, String)>> = db
         .select((users.name, users.email, posts.title))
         .from(users)
         .right_join(posts)

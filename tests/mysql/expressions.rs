@@ -44,7 +44,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         ])
         .execute();
 
-    let sliced: (String, String, String, String, String, String) = db
+    let sliced: Option<(String, String, String, String, String, String)> = db
         .select((
             left(rows.name, 2),
             right(rows.name, 2),
@@ -56,6 +56,7 @@ fn string_slicing_and_padding(db: &mut TestDb<ExpressionSchema>) {
         .from(rows)
         .r#where(eq(rows.id, 1))
         .get();
+    let sliced = sliced.expect("a row");
     assert_eq!(
         sliced,
         (

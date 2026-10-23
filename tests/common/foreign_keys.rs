@@ -371,7 +371,8 @@ macro_rules! shared_foreign_key_suite {
                     .select(())
                     .from(both_actions)
                     .r#where(eq(both_actions.value, "Child1"))
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!(child1.parent_id, None, "ON UPDATE SET NULL");
 
                 db.delete(parents).r#where(eq(parents.id, 2)).execute();
@@ -414,7 +415,8 @@ macro_rules! shared_foreign_key_suite {
                     .select(())
                     .from(composite_children)
                     .r#where(eq(composite_children.value, "second"))
-                    .get();
+                    .get()
+                    .expect("a row");
                 assert_eq!((second.parent_a, second.parent_b), (Some(1), Some(20)));
 
                 db.delete(composite_parents)

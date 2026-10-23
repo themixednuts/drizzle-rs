@@ -40,6 +40,7 @@ fn bounded_columns_use_text_and_blob_storage(db: &mut TestDb<ArrayVecSchema>) {
         .select((typeof_(rows.name), typeof_(rows.data)))
         .from(rows)
         .r#where(eq(rows.id, 1))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(classes, ("text".to_string(), "blob".to_string()));
 }

@@ -325,8 +325,12 @@ mod execution {
             [(1, "Writer".to_string()), (2, "Writer".to_string())]
         );
 
-        let second: SelectTextEnumRecord =
-            db.select(()).from(records).r#where(eq(records.id, 2)).get();
+        let second: SelectTextEnumRecord = db
+            .select(())
+            .from(records)
+            .r#where(eq(records.id, 2))
+            .get()
+            .expect("a row");
         assert_eq!(second.optional_role, None);
     }
 
@@ -482,7 +486,7 @@ mod execution {
         db.insert(parents)
             .values([InsertNumericEnumParent::new(NumericRole::Admin)])
             .execute();
-        let parent: SelectNumericEnumParent = db.select(()).from(parents).get();
+        let parent: SelectNumericEnumParent = db.select(()).from(parents).get().expect("a row");
 
         db.insert(children)
             .values([InsertNumericEnumChild::new().with_parent_id(parent.id)])

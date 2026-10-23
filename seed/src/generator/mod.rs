@@ -120,8 +120,9 @@ impl<T: Into<SeedValue>> From<Option<T>> for SeedValue {
     }
 }
 
-/// Re-export of `rand::RngCore`, the RNG passed to [`Generator::generate`].
-pub use rand::RngCore;
+/// The RNG passed to [`Generator::generate`]: rand's `Rng` (named `RngCore`
+/// before rand 0.10).
+pub use rand::Rng as RngCore;
 
 /// A built-in generator, chosen by type/name inference or set with
 /// `SeedConfig::kind`.

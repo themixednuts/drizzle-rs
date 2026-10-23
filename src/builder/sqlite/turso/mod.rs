@@ -192,10 +192,10 @@ async fn turso_query_cached(
 pub(crate) async fn turso_decode_first_and_finish<R>(
     rows: &mut turso::Rows,
     decode: impl FnOnce(&Row) -> drizzle_core::error::Result<R>,
-) -> drizzle_core::error::Result<R> {
+) -> drizzle_core::error::Result<Option<R>> {
     let decoded = match rows.next().await? {
-        Some(row) => decode(&row),
-        None => Err(DrizzleError::NotFound),
+        Some(row) => decode(&row).map(Some),
+        None => Ok(None),
     };
 
     // Turso owns the live statement through `Rows`. Step it to `Done` before
@@ -324,12 +324,13 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// Like [`all`](Self::all), this skips the builder's compile-time checks.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
-    /// when no row matches, and an error when turso cannot prepare or run
+    /// Returns an error when turso cannot prepare or run
     /// the query or the row cannot be decoded into `R`.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<DrizzleError>,
@@ -350,12 +351,9 @@ impl<Schema> common::Drizzle<Connection, Schema> {
             .map_err(DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
-        match turso_decode_first_and_finish(&mut rows, |row| R::try_from(row).map_err(Into::into))
+        turso_decode_first_and_finish(&mut rows, |row| R::try_from(row).map_err(Into::into))
             .await
-        {
-            Err(DrizzleError::NotFound) => Err(DrizzleError::NotFound),
-            result => result.with_query(|| QueryContext::new(&sql_str, &params)),
-        }
+            .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     async fn start(
@@ -1945,22 +1943,31 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// # async fn example(db: &Drizzle<Schema>, users: Users) -> drizzle::Result<()> {
     /// use drizzle::core::expr::eq;
     ///
-    /// let user: SelectUsers = db.select(()).from(users).r#where(eq(users.id, 1)).get().await?;
+    /// let user: Option<SelectUsers> =
+    ///     db.select(()).from(users).r#where(eq(users.id, 1)).get().await?;
     /// # Ok(())
     /// # }
     /// ```
     ///
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
-    /// when no row matches, and an error when turso cannot prepare or run
+    /// Returns an error when turso cannot prepare or run
     /// the query or the row cannot be decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::turso::Row, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -1979,13 +1986,11 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             .await
             .map_err(drizzle_core::error::DrizzleError::from)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
-        match turso_decode_first_and_finish(&mut rows, |row| {
+        let row = turso_decode_first_and_finish(&mut rows, |row| {
             <Mk as drizzle_core::row::DecodeSelectedRef<&::turso::Row, R>>::decode(row)
         })
         .await
-        {
-            Err(DrizzleError::NotFound) => Err(DrizzleError::NotFound),
-            result => result.with_query(|| QueryContext::new(&sql_str, &params)),
-        }
+        .with_query(|| QueryContext::new(&sql_str, &params))?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

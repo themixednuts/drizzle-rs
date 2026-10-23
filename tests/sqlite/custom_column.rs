@@ -161,7 +161,8 @@ fn custom_sqlite_column_roundtrip_and_metadata(db: &mut TestDb<CustomU32BeSchema
         .select(r#typeof(table.payload).alias("payload_type"))
         .from(table)
         .r#where(eq(table.id, 1))
-        .get();
+        .get()
+        .expect("a row");
 
     assert_eq!(ty.0, "blob");
 }
@@ -195,7 +196,11 @@ fn custom_sqlite_column_decodes_in_from_row(db: &mut TestDb<CustomU32BeSchema>) 
         .values([InsertCustomU32BeTest::new(U32Be(7)).with_optional_payload(U32Be(9))])
         .execute();
 
-    let row: CustomU32BeRow = db.select(CustomU32BeRow::Select).from(table).get();
+    let row: CustomU32BeRow = db
+        .select(CustomU32BeRow::Select)
+        .from(table)
+        .get()
+        .expect("a row");
     assert_eq!(row.payload, U32Be(7));
     assert_eq!(row.optional_payload, Some(U32Be(9)));
 }

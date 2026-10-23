@@ -10,6 +10,53 @@ use drizzle_core::{
 use drizzle_mysql::{MySQLRow, values::MySQLValue};
 use mysql_common::{params::Params, row::Row, value::Value};
 
+/// The [`ErrorKind`](drizzle_core::error::ErrorKind) of a MySQL or MariaDB
+/// server error, and the constraint its message names.
+pub(crate) fn server_error_kind(
+    code: u16,
+    message: &str,
+) -> (drizzle_core::error::ErrorKind, Option<&str>) {
+    use drizzle_core::error::ErrorKind;
+
+    let between = |start: &str, end: char| {
+        message
+            .split_once(start)
+            .and_then(|(_, rest)| rest.split_once(end))
+            .map(|(name, _)| name)
+    };
+    match code {
+        // ER_DUP_ENTRY, ER_DUP_ENTRY_WITH_KEY_NAME: `... for key 'users.users_email_unique'`
+        // (MySQL 8 writes the table before the key; MariaDB does not). The
+        // duplicate value comes first, unescaped, so the key is the last match.
+        1062 | 1586 => (
+            ErrorKind::UniqueViolation,
+            message
+                .rsplit_once("for key '")
+                .and_then(|(_, rest)| rest.split_once('\''))
+                .map(|(key, _)| key.rsplit('.').next().unwrap_or(key)),
+        ),
+        // ER_ROW_IS_REFERENCED(_2), ER_NO_REFERENCED_ROW(_2): `... CONSTRAINT `name` FOREIGN KEY ...`
+        1216 | 1217 | 1451 | 1452 => (ErrorKind::ForeignKeyViolation, between("CONSTRAINT `", '`')),
+        // ER_BAD_NULL_ERROR, ER_NO_DEFAULT_FOR_FIELD
+        1048 | 1364 => (ErrorKind::NotNullViolation, None),
+        // ER_CHECK_CONSTRAINT_VIOLATED: `Check constraint 'name' is violated.`
+        3819 => (
+            ErrorKind::CheckViolation,
+            between("Check constraint '", '\''),
+        ),
+        // MariaDB's ER_CONSTRAINT_FAILED: `CONSTRAINT `name` failed for ...`
+        4025 => (ErrorKind::CheckViolation, between("CONSTRAINT `", '`')),
+        // ER_LOCK_DEADLOCK
+        1213 => (ErrorKind::Deadlock, None),
+        // ER_CHECKREAD: MariaDB's snapshot isolation saw a row change after
+        // the transaction's snapshot.
+        1020 => (ErrorKind::SerializationFailure, None),
+        // ER_LOCK_WAIT_TIMEOUT, ER_LOCK_NOWAIT (`NOWAIT` found the row locked)
+        1205 | 3572 => (ErrorKind::Busy, None),
+        _ => (ErrorKind::Other, None),
+    }
+}
+
 /// Marks a prepared statement for the blocking `mysql` adapter.
 #[derive(Debug, Clone, Copy)]
 pub struct BlockingPreparedAdapter;
@@ -271,14 +318,17 @@ impl<'q> QueryOutput<'q> {
             .collect()
     }
 
-    pub(crate) fn decode_first<Mk, R>(self) -> Result<R>
+    pub(crate) fn decode_first<Mk, R>(self) -> Result<Option<R>>
     where
         for<'row> Mk: DecodeSelectedRef<&'row MySQLRow<'row, Row>, R>,
     {
-        let row = self.rows.first().ok_or(DrizzleError::NotFound)?;
+        let Some(row) = self.rows.first() else {
+            return Ok(None);
+        };
         let context_values = self.values.iter().collect::<Vec<_>>();
         let row = MySQLRow::new(row);
         <Mk as DecodeSelectedRef<&MySQLRow<'_, Row>, R>>::decode(&row)
+            .map(Some)
             .with_query(|| QueryContext::new(&self.sql, &context_values))
     }
 
@@ -291,13 +341,16 @@ impl<'q> QueryOutput<'q> {
         Rows::new(self.rows, context)
     }
 
-    pub(crate) fn decode_first_row<R>(self) -> Result<R>
+    pub(crate) fn decode_first_row<R>(self) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
     {
-        let row = self.rows.first().ok_or(DrizzleError::NotFound)?;
+        let Some(row) = self.rows.first() else {
+            return Ok(None);
+        };
         let context_values = self.values.iter().collect::<Vec<_>>();
         R::from_row(&MySQLRow::new(row))
+            .map(Some)
             .with_query(|| QueryContext::new(&self.sql, &context_values))
     }
 
@@ -363,5 +416,109 @@ impl<'q> QueryOutput<'q> {
             })
             .collect::<Result<Vec<_>>>()
             .with_query(|| QueryContext::new(&self.sql, &context_values))
+    }
+}
+
+#[cfg(test)]
+mod error_kind_tests {
+    use super::server_error_kind;
+    use drizzle_core::error::ErrorKind;
+
+    #[test]
+    fn mysql_and_mariadb_errors_name_their_kind_and_constraint() {
+        let cases = [
+            // MySQL 8 writes the table before the key; MariaDB does not.
+            (
+                1062,
+                "Duplicate entry 'a@b.c' for key 'users.users_email_unique'",
+                ErrorKind::UniqueViolation,
+                Some("users_email_unique"),
+            ),
+            (
+                1062,
+                "Duplicate entry 'a@b.c' for key 'users_email_unique'",
+                ErrorKind::UniqueViolation,
+                Some("users_email_unique"),
+            ),
+            // The duplicate value is not escaped, so it can hold `for key '`.
+            (
+                1062,
+                "Duplicate entry 'x' for key 'admins_pk' for key 'users.users_email_unique'",
+                ErrorKind::UniqueViolation,
+                Some("users_email_unique"),
+            ),
+            (
+                1452,
+                "Cannot add or update a child row: a foreign key constraint fails \
+                 (`app`.`posts`, CONSTRAINT `posts_author_fk` FOREIGN KEY (`author_id`) \
+                 REFERENCES `users` (`id`))",
+                ErrorKind::ForeignKeyViolation,
+                Some("posts_author_fk"),
+            ),
+            (
+                1451,
+                "Cannot delete or update a parent row: a foreign key constraint fails \
+                 (`app`.`posts`, CONSTRAINT `posts_author_fk` FOREIGN KEY (`author_id`) \
+                 REFERENCES `users` (`id`))",
+                ErrorKind::ForeignKeyViolation,
+                Some("posts_author_fk"),
+            ),
+            (
+                1048,
+                "Column 'name' cannot be null",
+                ErrorKind::NotNullViolation,
+                None,
+            ),
+            (
+                3819,
+                "Check constraint 'users_age_check' is violated.",
+                ErrorKind::CheckViolation,
+                Some("users_age_check"),
+            ),
+            (
+                4025,
+                "CONSTRAINT `users_age_check` failed for `app`.`users`",
+                ErrorKind::CheckViolation,
+                Some("users_age_check"),
+            ),
+            (
+                1213,
+                "Deadlock found when trying to get lock; try restarting transaction",
+                ErrorKind::Deadlock,
+                None,
+            ),
+            (
+                1205,
+                "Lock wait timeout exceeded; try restarting transaction",
+                ErrorKind::Busy,
+                None,
+            ),
+            (
+                3572,
+                "Statement aborted because lock(s) could not be acquired immediately \
+                 and NOWAIT is set.",
+                ErrorKind::Busy,
+                None,
+            ),
+            (
+                1020,
+                "Record has changed since last read in table 'users'",
+                ErrorKind::SerializationFailure,
+                None,
+            ),
+            (
+                1146,
+                "Table 'app.missing' doesn't exist",
+                ErrorKind::Other,
+                None,
+            ),
+        ];
+        for (code, message, kind, constraint) in cases {
+            assert_eq!(
+                server_error_kind(code, message),
+                (kind, constraint),
+                "{code}: {message}"
+            );
+        }
     }
 }

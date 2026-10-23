@@ -176,9 +176,10 @@ crate::drizzle_prepare_impl!();
 pub(crate) fn run_statement<P: rusqlite::Params>(
     statement: &mut rusqlite::Statement<'_>,
     params: P,
-) -> rusqlite::Result<usize> {
+) -> rusqlite::Result<u64> {
     if statement.column_count() == 0 {
-        return statement.execute(params);
+        // A row count fits in u64 on every target.
+        return statement.execute(params).map(|changed| changed as u64);
     }
     let mut rows = statement.query(params)?;
     let mut changed = 0;
@@ -196,11 +197,12 @@ pub(crate) fn execute_sql<P: rusqlite::Params>(
     sql: &str,
     params: P,
     returns_rows: bool,
-) -> rusqlite::Result<usize> {
+) -> rusqlite::Result<u64> {
     if returns_rows {
         run_statement(&mut conn.prepare(sql)?, params)
     } else {
-        conn.execute(sql, params)
+        // A row count fits in u64 on every target.
+        conn.execute(sql, params).map(|changed| changed as u64)
     }
 }
 
@@ -230,10 +232,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns rusqlite's error when SQLite cannot prepare or run the
-    /// statement. Unlike the builder methods, the error is a plain
-    /// [`rusqlite::Error`] without the SQL attached.
-    pub fn execute<'a, T>(&'a self, query: T) -> rusqlite::Result<usize>
+    /// Returns an error when SQLite cannot prepare or run the statement. The
+    /// error carries the SQL and its parameters, as the builder's do
+    /// ([`DrizzleError::QueryFailed`]).
+    pub fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
@@ -248,9 +250,10 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         execute_sql(
             &self.conn,
             &sql_str,
-            params_from_iter(params),
+            params_from_iter(params.iter().copied()),
             query.has_returning(),
         )
+        .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
     /// Runs any SQL value and collects its rows into `C` (for example
@@ -342,12 +345,14 @@ impl<Schema> common::Drizzle<Connection, Schema> {
     ///
     /// Like [`all`](Self::all), this skips the builder's compile-time checks.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when SQLite cannot prepare or run the query, or when the row cannot be
     /// decoded into `R`.
-    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r rusqlite::Row<'r>>,
         for<'r> <R as TryFrom<&'r rusqlite::Row<'r>>>::Error:
@@ -372,7 +377,7 @@ impl<Schema> common::Drizzle<Connection, Schema> {
         })
         .optional()
         .with_query(|| QueryContext::new(&sql_str, &params))?
-        .unwrap_or(Err(DrizzleError::NotFound))
+        .transpose()
     }
 
     fn start(
@@ -1674,7 +1679,7 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// Returns an error when SQLite cannot prepare or run the statement, for
     /// example on a constraint violation. The error carries the SQL and its
     /// parameters ([`DrizzleError::QueryFailed`]).
-    pub fn execute(self) -> drizzle_core::error::Result<usize>
+    pub fn execute(self) -> drizzle_core::error::Result<u64>
     where
         State: builder::ExecutableState,
     {
@@ -1871,9 +1876,15 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// use drizzle::core::expr::{count, eq};
     /// # let (db, Schema { users, .. }) = app::database()?;
     ///
-    /// let alice: SelectUsers = db.select(()).from(users).r#where(eq(users.name, "Alice")).get()?;
-    /// assert_eq!(alice.age, 30);
+    /// let alice: Option<SelectUsers> =
+    ///     db.select(()).from(users).r#where(eq(users.name, "Alice")).get()?;
+    /// assert_eq!(alice.map(|alice| alice.age), Some(30));
     ///
+    /// let nobody: Option<SelectUsers> =
+    ///     db.select(()).from(users).r#where(eq(users.name, "Zed")).get()?;
+    /// assert!(nobody.is_none());
+    ///
+    /// // An aggregate without GROUP BY always returns one row.
     /// let (total,): (i64,) = db.select((count(users.id),)).from(users).get()?;
     /// assert_eq!(total, 3);
     /// # Ok(())
@@ -1882,17 +1893,26 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// # fn main() {}
     /// ```
     ///
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when SQLite cannot prepare or run the query, or when the row cannot be
     /// decoded into `R`.
     ///
     /// # Compile-time checks
     ///
     /// The same scope, `NULL`, and grouping checks as [`all`](Self::all).
-    pub fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         for<'r> Mk: drizzle_core::row::DecodeSelectedRef<&'r ::rusqlite::Row<'r>, R>
             + drizzle_core::row::MarkerScopeValidFor<Proof>
@@ -1910,14 +1930,16 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             .conn
             .prepare(&sql_str)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
-        stmt.query_row(params_from_iter(params.iter().copied()), |row| {
-            Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
-                &::rusqlite::Row<'_>,
-                R,
-            >>::decode(row))
-        })
-        .optional()
-        .with_query(|| QueryContext::new(&sql_str, &params))?
-        .unwrap_or(Err(DrizzleError::NotFound))
+        let row = stmt
+            .query_row(params_from_iter(params.iter().copied()), |row| {
+                Ok(<Mk as drizzle_core::row::DecodeSelectedRef<
+                    &::rusqlite::Row<'_>,
+                    R,
+                >>::decode(row))
+            })
+            .optional()
+            .with_query(|| QueryContext::new(&sql_str, &params))?
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

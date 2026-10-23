@@ -18,13 +18,22 @@ pub use states::*;
     note = "a SELECT needs `.from(...)`, an INSERT needs `.values(...)`, and an UPDATE \
             needs `.set(...)`"
 )]
-pub trait ExecutableState {}
+pub trait ExecutableState {
+    /// The row count of a query in this state whose selection alone has
+    /// [`RowCount`](crate::row::RowCount) `R`: `R` when the clauses so far
+    /// keep every row of the selection (FROM, JOIN, WHERE, ORDER BY), else
+    /// [`ZeroOrMore`](crate::row::ZeroOrMore) (LIMIT, OFFSET, a set
+    /// operation, or a statement other than SELECT).
+    type Rows<R: crate::row::RowCount>: crate::row::RowCount;
+}
 
 /// The state of a query builder before any statement has been started.
 #[derive(Debug, Clone)]
 pub struct BuilderInit;
 
-impl ExecutableState for BuilderInit {}
+impl ExecutableState for BuilderInit {
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
+}
 
 // =============================================================================
 // Capability marker traits for typestate method gating

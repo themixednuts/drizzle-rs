@@ -25,7 +25,7 @@ fn named_struct_maps_by_name(db: &mut TestDb<SimpleSchema>) {
 
     // Strict row-shape checks require selected column order to match struct field order.
     let stmt = db.select((simple.id, simple.name)).from(simple);
-    let result: NamedSimple = stmt.get();
+    let result: NamedSimple = stmt.get().expect("a row");
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
@@ -40,7 +40,7 @@ fn tuple_struct_maps_by_index(db: &mut TestDb<SimpleSchema>) {
 
     // Tuple structs decode positionally, so this follows SELECT order.
     let stmt = db.select((simple.name, simple.id)).from(simple);
-    let result: TupleNameId = stmt.get();
+    let result: TupleNameId = stmt.get().expect("a row");
 
     assert_eq!(result.0, "Alice");
     assert_eq!(result.1, 1);
@@ -54,7 +54,7 @@ fn fromrow_inferred_with_select_target(db: &mut TestDb<SimpleSchema>) {
     stmt.execute();
 
     let stmt = db.select(NamedSimple::Select).from(simple);
-    let result: NamedSimple = stmt.get();
+    let result: NamedSimple = stmt.get().expect("a row");
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
@@ -68,7 +68,7 @@ fn insert_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>) {
         .insert(simple)
         .values([InsertSimple::new("Alice")])
         .returning(NamedSimple::Select);
-    let result: NamedSimple = stmt.get();
+    let result: NamedSimple = stmt.get().expect("a row");
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
@@ -87,7 +87,7 @@ fn update_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>) {
         .set(UpdateSimple::default().with_name("Bob"))
         .r#where(eq(simple.id, 1))
         .returning(NamedSimple::Select);
-    let result: NamedSimple = stmt.get();
+    let result: NamedSimple = stmt.get().expect("a row");
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Bob");
@@ -105,7 +105,7 @@ fn delete_returning_select_target_infers_row(db: &mut TestDb<SimpleSchema>) {
         .delete(simple)
         .r#where(eq(simple.id, 1))
         .returning(NamedSimple::Select);
-    let result: NamedSimple = stmt.get();
+    let result: NamedSimple = stmt.get().expect("a row");
 
     assert_eq!(result.id, 1);
     assert_eq!(result.name, "Alice");
@@ -171,6 +171,6 @@ fn raw_identifier_field_reads_unprefixed_column(db: &mut TestDb<FromRowRawSchema
 
     let query = db.select(RawTypeName::Select).from(fromrow_raw);
     assert_eq!(query.to_sql().sql(), r#"SELECT "type" FROM "fromrow_raw""#);
-    let row: RawTypeName = query.get();
+    let row: RawTypeName = query.get().expect("a row");
     assert_eq!(row.r#type, "kind");
 }

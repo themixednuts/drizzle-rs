@@ -213,7 +213,10 @@ After a git merge brings in migrations generated on another branch,
 branches and records both as the new migration's parents (`prevIds`). If the
 branches changed the same objects it stops with a conflict report; regenerate
 one branch's migration on top of the other, or pass `--ignore-conflicts` to
-diff against the newest migration only.
+diff against the newest migration only. `--fix-conflicts` deletes the
+conflicting migrations on both branches (with every migration after them) and
+generates one migration in their place; use it only when no shared database
+ran them.
 
 If a change could be a rename, `drizzle generate` asks (or, without a terminal, reads `--hints`); see [Renames](#renames).
 
@@ -582,8 +585,8 @@ in `drizzle::core::expr`. Ordering helpers such as `asc` and `desc` live in
 // All rows
 let all: Vec<SelectUsers> = db.select(()).from(users).all()?;
 
-// Single row with filter
-let user: SelectUsers = db
+// Single row with filter: `None` when nothing matches
+let user: Option<SelectUsers> = db
     .select(())
     .from(users)
     .r#where(eq(users.name, "Alex Smith"))
@@ -964,6 +967,7 @@ Aggregate functions and common SQL expressions:
 # use readme::*;
 # let (db, Schema { users, .. }) = readme::database()?;
 // Aggregates
+// Aggregates without GROUP BY always return one row, so `get` returns it
 let total: (i64,) = db.select((count(users.id),)).from(users).get()?;
 let oldest: (Option<i64>,) = db.select((max(users.age),)).from(users).get()?;
 

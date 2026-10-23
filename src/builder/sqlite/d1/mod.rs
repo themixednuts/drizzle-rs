@@ -103,8 +103,9 @@
 pub(crate) mod prepared;
 
 use ::worker::{D1Database, D1PreparedStatement};
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::prepared::prepare_render;
+use drizzle_core::sql::SQL;
 use drizzle_core::traits::ToSQL;
 use js_sys::Uint8Array;
 use wasm_bindgen::JsValue;
@@ -169,19 +170,34 @@ pub(crate) fn bind_statement(
         .map_err(|e| DrizzleError::Other(e.to_string().into()))
 }
 
-fn prepare_and_bind<'a, T>(
+fn prepare_and_bind(
     conn: &D1Database,
-    query: &T,
-) -> drizzle_core::error::Result<D1PreparedStatement>
-where
-    T: ToSQL<'a, SQLiteValue<'a>>,
-{
-    let sql = query.to_sql();
+    sql: &SQL<'_, SQLiteValue<'_>>,
+) -> drizzle_core::error::Result<D1PreparedStatement> {
     let (sql_str, params) = sql.build();
     drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-    let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
+    let values: Vec<JsValue> = params.iter().copied().map(sqlite_value_to_js).collect();
     let stmt = conn.prepare(sql_str);
-    bind_statement(stmt, &values)
+    bind_statement(stmt, &values).with_query(|| query_context(sql))
+}
+
+/// The SQL and parameters of `sql`, for an error. D1 takes the rendered SQL
+/// by value, so the error path renders it again.
+fn query_context(sql: &SQL<'_, SQLiteValue<'_>>) -> QueryContext {
+    let (sql, params) = sql.build();
+    QueryContext::new(&sql, &params)
+}
+
+/// D1's `message` for a statement that failed, with the statement's SQL and
+/// parameters.
+fn statement_error(
+    sql: &SQL<'_, SQLiteValue<'_>>,
+    message: impl core::fmt::Display,
+) -> DrizzleError {
+    DrizzleError::QueryFailed {
+        ctx: Box::new(query_context(sql)),
+        source: Box::new(DrizzleError::Other(message.to_string().into())),
+    }
 }
 
 impl<Schema> common::Drizzle<D1Database, Schema> {
@@ -193,30 +209,28 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] with D1's message when binding fails or
+    /// Returns an error with D1's message when binding fails or
     /// D1 rejects the statement.
     pub async fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
-        let stmt = prepare_and_bind(&self.conn, &query)?;
-        let result = stmt
-            .run()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let sql = query.to_sql();
+        let stmt = prepare_and_bind(&self.conn, &sql)?;
+        let result = stmt.run().await.map_err(|e| statement_error(&sql, e))?;
 
         if !result.success() {
-            return Err(DrizzleError::Other(
+            return Err(statement_error(
+                &sql,
                 result
                     .error()
-                    .unwrap_or_else(|| "D1 statement failed".into())
-                    .into(),
+                    .unwrap_or_else(|| "D1 statement failed".into()),
             ));
         }
 
         let changes = result
             .meta()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
+            .map_err(|e| statement_error(&sql, e))?
             .and_then(|m| m.changes)
             .unwrap_or(0);
         Ok(changes as u64)
@@ -233,7 +247,7 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when binding fails, D1 rejects the
+    /// Returns an error when binding fails, D1 rejects the
     /// query, or a row cannot be deserialized into `R`.
     pub async fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
@@ -241,24 +255,20 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
         T: ToSQL<'a, SQLiteValue<'a>>,
         C: Default + Extend<R>,
     {
-        let stmt = prepare_and_bind(&self.conn, &query)?;
-        let result = stmt
-            .all()
-            .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+        let sql = query.to_sql();
+        let stmt = prepare_and_bind(&self.conn, &sql)?;
+        let result = stmt.all().await.map_err(|e| statement_error(&sql, e))?;
 
         if !result.success() {
-            return Err(DrizzleError::Other(
-                result
-                    .error()
-                    .unwrap_or_else(|| "D1 query failed".into())
-                    .into(),
+            return Err(statement_error(
+                &sql,
+                result.error().unwrap_or_else(|| "D1 query failed".into()),
             ));
         }
 
         let rows: Vec<R> = result
             .results::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(|e| statement_error(&sql, e))?;
 
         let mut out = C::default();
         out.extend(rows);
@@ -269,22 +279,24 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
     ///
     /// `R` has the same requirements as in [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when binding fails, D1 rejects the query, or
+    /// Returns an error when binding fails, D1 rejects the query, or
     /// the row cannot be deserialized into `R`.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'de> serde::Deserialize<'de>,
         T: ToSQL<'a, SQLiteValue<'a>>,
     {
-        let stmt = prepare_and_bind(&self.conn, &query)?;
+        let sql = query.to_sql();
+        let stmt = prepare_and_bind(&self.conn, &sql)?;
         let row = stmt
             .first::<R>(None)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
-        row.ok_or(DrizzleError::NotFound)
+            .map_err(|e| statement_error(&sql, e))?;
+        Ok(row)
     }
 
     /// Runs several statements as one D1 batch, which D1 applies atomically:
@@ -304,7 +316,7 @@ impl<Schema> common::Drizzle<D1Database, Schema> {
     {
         let prepared: Vec<D1PreparedStatement> = statements
             .into_iter()
-            .map(|q| prepare_and_bind(&self.conn, &q))
+            .map(|q| prepare_and_bind(&self.conn, &q.to_sql()))
             .collect::<drizzle_core::error::Result<_>>()?;
 
         let results = self
@@ -717,32 +729,28 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] with D1's message when binding fails or
+    /// Returns an error with D1's message when binding fails or
     /// D1 rejects the statement.
     pub async fn execute(self) -> drizzle_core::error::Result<u64>
     where
         State: builder::ExecutableState,
     {
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let stmt = self.runner.conn.prepare(sql_str);
-        let stmt = bind_statement(stmt, &values)?;
+        let stmt = prepare_and_bind(&self.runner.conn, &self.builder.sql)?;
         let result = stmt
             .run()
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(|e| statement_error(&self.builder.sql, e))?;
         if !result.success() {
-            return Err(DrizzleError::Other(
+            return Err(statement_error(
+                &self.builder.sql,
                 result
                     .error()
-                    .unwrap_or_else(|| "D1 statement failed".into())
-                    .into(),
+                    .unwrap_or_else(|| "D1 statement failed".into()),
             ));
         }
         let changes = result
             .meta()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
+            .map_err(|e| statement_error(&self.builder.sql, e))?
             .and_then(|m| m.changes)
             .unwrap_or(0);
         Ok(changes as u64)
@@ -759,7 +767,7 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
     ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::Other`] when binding fails, D1 rejects the
+    /// Returns an error when binding fails, D1 rejects the
     /// query, or a row cannot be deserialized into `R`.
     pub async fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
     where
@@ -768,53 +776,52 @@ impl<'a, 'b, Schema, State, Table, Mk, Rw, Grouped>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,
     {
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let stmt = self.runner.conn.prepare(sql_str);
-        let stmt = bind_statement(stmt, &values)?;
+        let stmt = prepare_and_bind(&self.runner.conn, &self.builder.sql)?;
         let result = stmt
             .all()
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?;
+            .map_err(|e| statement_error(&self.builder.sql, e))?;
         if !result.success() {
-            return Err(DrizzleError::Other(
-                result
-                    .error()
-                    .unwrap_or_else(|| "D1 query failed".into())
-                    .into(),
+            return Err(statement_error(
+                &self.builder.sql,
+                result.error().unwrap_or_else(|| "D1 query failed".into()),
             ));
         }
         result
             .results::<R>()
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))
+            .map_err(|e| statement_error(&self.builder.sql, e))
     }
 
     /// Runs the query and deserializes its first row into `R`.
     ///
     /// `R` has the same requirements as in [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and
-    /// [`DrizzleError::Other`] when binding fails, D1 rejects the query, or
+    /// Returns an error when binding fails, D1 rejects the query, or
     /// the row cannot be deserialized into `R`.
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
         R: for<'de> serde::Deserialize<'de>,
     {
-        let (sql_str, params) = self.builder.sql.build();
-        drizzle_core::drizzle_trace_query!(&sql_str, params.len());
-        let values: Vec<JsValue> = params.into_iter().map(sqlite_value_to_js).collect();
-        let stmt = self.runner.conn.prepare(sql_str);
-        let stmt = bind_statement(stmt, &values)?;
-        stmt.first::<R>(None)
+        let stmt = prepare_and_bind(&self.runner.conn, &self.builder.sql)?;
+        let row = stmt
+            .first::<R>(None)
             .await
-            .map_err(|e| DrizzleError::Other(e.to_string().into()))?
-            .ok_or(DrizzleError::NotFound)
+            .map_err(|e| statement_error(&self.builder.sql, e))?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }
 
@@ -904,9 +911,15 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             D1Database::WRAP_BASE_JSON,
         );
         let (sql, bind_params) = query_sql.build();
-        let values: Vec<JsValue> = bind_params.into_iter().map(sqlite_value_to_js).collect();
+        let values: Vec<JsValue> = bind_params
+            .iter()
+            .copied()
+            .map(sqlite_value_to_js)
+            .collect();
 
-        let rows = query_json_rows(&self.runner.conn, &sql, &values).await?;
+        let rows = query_json_rows(&self.runner.conn, &sql, &values)
+            .await
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()
@@ -1008,9 +1021,15 @@ impl<'db, 'a, Schema, T, Rels, Cl>
             true,
         );
         let (sql, bind_params) = query_sql.build();
-        let values: Vec<JsValue> = bind_params.into_iter().map(sqlite_value_to_js).collect();
+        let values: Vec<JsValue> = bind_params
+            .iter()
+            .copied()
+            .map(sqlite_value_to_js)
+            .collect();
 
-        let rows = query_json_rows(&self.runner.conn, &sql, &values).await?;
+        let rows = query_json_rows(&self.runner.conn, &sql, &values)
+            .await
+            .with_query(|| QueryContext::new(&sql, &bind_params))?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()
@@ -1088,8 +1107,11 @@ impl<'a, T, Rels>
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let (sql, bound) = self.inner.bind(params)?;
-        let values: Vec<JsValue> = bound.map(|v| sqlite_value_to_js(&v)).collect();
-        let rows = query_json_rows(conn, sql, &values).await?;
+        let bound: smallvec::SmallVec<[_; 8]> = bound.collect();
+        let values: Vec<JsValue> = bound.iter().map(sqlite_value_to_js).collect();
+        let rows = query_json_rows(conn, sql, &values)
+            .await
+            .with_query(|| QueryContext::new(sql, &bound.iter().collect::<Vec<_>>()))?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()
@@ -1155,8 +1177,11 @@ impl<'a, T, Rels>
         <Rels as drizzle_core::query::BuildStore>::Store: drizzle_core::query::DeserializeStore,
     {
         let (sql, bound) = self.inner.bind(params)?;
-        let values: Vec<JsValue> = bound.map(|v| sqlite_value_to_js(&v)).collect();
-        let rows = query_json_rows(conn, sql, &values).await?;
+        let bound: smallvec::SmallVec<[_; 8]> = bound.collect();
+        let values: Vec<JsValue> = bound.iter().map(sqlite_value_to_js).collect();
+        let rows = query_json_rows(conn, sql, &values)
+            .await
+            .with_query(|| QueryContext::new(sql, &bound.iter().collect::<Vec<_>>()))?;
         rows.into_iter()
             .map(|row| row.into_row::<_, Rels>())
             .collect()

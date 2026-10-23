@@ -39,7 +39,7 @@ mod jiff_values {
             .values([InsertJiffEvent::new(day, starts, local, instant).with_id(1)])
             .execute();
 
-        let row: SelectJiffEvent = db.select(()).from(events).get();
+        let row: SelectJiffEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(
             (row.day, row.starts, row.local, row.instant, row.ends),
             (day, starts, local, instant, None)
@@ -49,7 +49,8 @@ mod jiff_values {
         let (selected_day, selected_local, selected_instant): (Date, DateTime, Timestamp) = db
             .select((events.day, events.local, events.instant))
             .from(events)
-            .get();
+            .get()
+            .expect("a row");
         assert_eq!(
             (selected_day, selected_local, selected_instant),
             (day, local, instant)
@@ -74,7 +75,7 @@ mod jiff_values {
                VALUES (1, '2026-09-23', '09:30:15', '2026-09-23 09:30:15', '2026-09-23 07:30:15')"#
         )))?;
 
-        let row: SelectJiffEvent = db.select(()).from(events).get();
+        let row: SelectJiffEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(row.local, jiff::civil::date(2026, 9, 23).at(9, 30, 15, 0));
         assert_eq!(
             row.instant,
@@ -115,7 +116,7 @@ mod time_values {
             .values([InsertTimeEvent::new(day, starts, local, instant).with_id(1)])
             .execute();
 
-        let row: SelectTimeEvent = db.select(()).from(events).get();
+        let row: SelectTimeEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(
             (row.day, row.starts, row.local, row.instant),
             (day, starts, local, instant)
@@ -128,7 +129,8 @@ mod time_values {
         ) = db
             .select((events.day, events.local, events.instant))
             .from(events)
-            .get();
+            .get()
+            .expect("a row");
         assert_eq!(
             (selected_day, selected_local, selected_instant),
             (day, local, instant)
@@ -146,7 +148,7 @@ mod time_values {
                VALUES (1, '2026-09-23', 'T09:30:15.500000000', '2026-09-23 09:30:15', '2026-09-23 07:30:15')"#
         )))?;
 
-        let row: SelectTimeEvent = db.select(()).from(events).get();
+        let row: SelectTimeEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(
             (row.starts, row.local, row.instant),
             (
@@ -229,7 +231,7 @@ mod chrono_values {
 
         // A NaiveDateTime is stored with a space between date and time, which
         // chrono's own parser rejected.
-        let row: SelectChronoEvent = db.select(()).from(events).get();
+        let row: SelectChronoEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(
             (row.day, row.starts, row.local, row.zoned, row.instant),
             (day, starts, local, zoned, instant)
@@ -243,7 +245,8 @@ mod chrono_values {
         ) = db
             .select((events.day, events.starts, events.local, events.instant))
             .from(events)
-            .get();
+            .get()
+            .expect("a row");
         assert_eq!(
             (
                 selected_day,
@@ -279,14 +282,17 @@ mod chrono_values {
             .unwrap();
         let instant = DateTime::parse_from_rfc3339("2026-09-23T07:30:15Z").unwrap();
 
-        let row: SelectChronoEvent = db.select(()).from(events).get();
+        let row: SelectChronoEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(
             (row.local, row.zoned, row.instant),
             (local, instant, instant.with_timezone(&Utc))
         );
 
-        let (selected_local, selected_instant): (NaiveDateTime, DateTime<Utc>) =
-            db.select((events.local, events.instant)).from(events).get();
+        let (selected_local, selected_instant): (NaiveDateTime, DateTime<Utc>) = db
+            .select((events.local, events.instant))
+            .from(events)
+            .get()
+            .expect("a row");
         assert_eq!(
             (selected_local, selected_instant),
             (local, instant.with_timezone(&Utc))

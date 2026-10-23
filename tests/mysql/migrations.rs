@@ -133,14 +133,19 @@ fn introspect_and_push_work_across_connection_adapters(db: &mut TestDb<RuntimeMi
     let unmanaged: i32 = result!(db.get(SQL::raw(
         "SELECT id FROM mysql_push_unmanaged_view WHERE id = 11"
     )))
-    .expect("push preserves unmanaged views");
+    .expect("push preserves unmanaged views")
+    .expect("a row");
     assert_eq!(unmanaged, 11);
 
     db.insert(harness)
         .value(InsertMigrationHarness::new(7))
         .execute();
-    let selected: SelectMigrationHarness =
-        db.select(()).from(harness).r#where(eq(harness.id, 7)).get();
+    let selected: SelectMigrationHarness = db
+        .select(())
+        .from(harness)
+        .r#where(eq(harness.id, 7))
+        .get()
+        .expect("a row");
     assert_eq!(selected.id, 7);
 
     for statement in [
@@ -381,7 +386,8 @@ fn runtime_migrations_apply_in_order_and_only_once(db: &mut TestDb<RuntimeMigrat
         ]
     );
     let copied: i64 = result!(db.get(SQL::raw("SELECT `id` FROM `mysql_runtime_second`")))
-        .expect("read the second migration's effect");
+        .expect("read the second migration's effect")
+        .expect("a row");
     assert_eq!(copied, 2);
 
     let outcome = result!(db.migrate(&migrations, tracking.clone()))
@@ -415,7 +421,8 @@ fn runtime_migrations_keep_the_first_failure_dirty(db: &mut TestDb<RuntimeMigrat
     let dirty: i64 = result!(db.get(SQL::raw(
         "SELECT COUNT(*) FROM `__drizzle_runtime_dirty` WHERE `applied_at` IS NULL"
     )))
-    .expect("count dirty migrations");
+    .expect("count dirty migrations")
+    .expect("a row");
     assert_eq!(dirty, 1);
 
     let error = result!(db.migrate(std::slice::from_ref(&migration), tracking.clone()))
@@ -580,6 +587,7 @@ fn runtime_migrations_reject_disabled_autocommit_before_writing(
         "SELECT COUNT(*) FROM information_schema.tables \
          WHERE table_schema = DATABASE() AND table_name = '__drizzle_runtime_transaction'"
     )))
-    .expect("check tracking-table absence");
+    .expect("check tracking-table absence")
+    .expect("a row");
     assert_eq!(tracking_tables, 0, "preflight must not mutate the database");
 }

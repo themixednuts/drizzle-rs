@@ -26,16 +26,18 @@
 //! With a schema, set them per column:
 //!
 //! ```text
-//! SeedConfig::postgres(&schema)
+//! let config = SeedConfig::postgres(&schema)
 //!     .generator(&schema.users.age, generators::int(18..=90))
 //!     .generator(&schema.users.plan, generators::weighted([("free", 8), ("pro", 2)]))
-//!     .generator(&schema.users.nickname, generators::first_name().nullable(0.5))
-//!     .generate();
+//!     .generator(&schema.users.nickname, generators::first_name().nullable(0.5));
+//! for statement in config.generate() {
+//!     db.execute(statement)?;
+//! }
 //! ```
 
 use crate::generator::{Generator, GeneratorKind, RngCore, SeedValue, string};
 use core::range::RangeInclusive;
-use rand::Rng;
+use rand::RngExt;
 
 /// A range accepted by the generator constructors: `a..b` or `a..=b`,
 /// written with range syntax or as a `core::range` value.
@@ -436,7 +438,7 @@ pub struct FromFn<F> {
 /// index, and returns anything that converts into a [`SeedValue`].
 ///
 /// Draw randomness only from the given RNG, so the same seed gives the same
-/// rows. Its methods come from [`Rng`], re-exported by this
+/// rows. Its methods come from [`Rng`](crate::Rng), re-exported by this
 /// crate.
 #[must_use]
 pub fn from_fn<F, V>(f: F) -> FromFn<F>

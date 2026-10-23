@@ -46,15 +46,19 @@ macro_rules! shared_prepared_statement_suite {
 
                 let alice: Vec<SelectSharedPreparedUser> =
                     prepared.all(drizzle_client!(), [name.bind("Alice")]);
-                let bob: SelectSharedPreparedUser =
-                    prepared.get(drizzle_client!(), [name.bind("Bob")]);
+                let bob: SelectSharedPreparedUser = prepared
+                    .get(drizzle_client!(), [name.bind("Bob")])
+                    .expect("a row");
                 let nobody: Vec<SelectSharedPreparedUser> =
                     prepared.all(drizzle_client!(), [name.bind("Nobody")]);
+                let no_one: Option<SelectSharedPreparedUser> =
+                    prepared.get(drizzle_client!(), [name.bind("Nobody")]);
 
                 assert_eq!(alice.len(), 1);
                 assert_eq!(alice[0].name, "Alice");
                 assert_eq!(bob.name, "Bob");
                 assert!(nobody.is_empty());
+                assert!(no_one.is_none());
             }
 
             #[drizzle::test($dialect)]
@@ -112,8 +116,12 @@ macro_rules! shared_prepared_statement_suite {
 
                 prepared.execute(drizzle_client!(), [name.bind("Alicia"), user_id.bind(1)]);
 
-                let renamed: SelectSharedPreparedUser =
-                    db.select(()).from(users).r#where(eq(users.id, 1)).get();
+                let renamed: SelectSharedPreparedUser = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .get()
+                    .expect("a row");
                 assert_eq!(renamed.name, "Alicia");
             }
 
@@ -211,7 +219,7 @@ macro_rules! shared_prepared_statement_suite {
                     assert_eq!(alice.len(), 1);
                     assert_eq!(alice[0].name, "Alice");
 
-                    let bob: SelectSharedPreparedUser = result!(tx.get(&find_bob))?;
+                    let bob: SelectSharedPreparedUser = result!(tx.get(&find_bob))?.expect("a row");
                     assert_eq!(bob.name, "Bob");
                     Ok(())
                 });
@@ -406,11 +414,44 @@ macro_rules! shared_prepared_statement_suite {
 
                 let updated = stmt.execute();
                 assert_eq!(updated.affected_rows(), 1);
-                let row: SelectSharedPreparedUser =
-                    db.select(()).from(users).r#where(eq(users.id, 1)).get();
+                let row: SelectSharedPreparedUser = db
+                    .select(())
+                    .from(users)
+                    .r#where(eq(users.id, 1))
+                    .get()
+                    .expect("a row");
                 assert_eq!(
                     (row.name.as_str(), row.nickname.as_deref()),
                     ("Alice", Some("Al"))
+                );
+            }
+
+            #[drizzle::test($dialect)]
+            fn a_failed_prepared_statement_carries_its_query(
+                db: &mut TestDb<SharedPreparedSchema>,
+            ) {
+                let SharedPreparedSchema { users } = schema;
+                db.insert(users)
+                    .value(InsertSharedPreparedUser::new("Alice").with_id(1))
+                    .execute();
+
+                let duplicate = db
+                    .insert(users)
+                    .value(InsertSharedPreparedUser::new("Bob").with_id(1))
+                    .prepare()
+                    .into_owned();
+                let error = result!(duplicate.execute(drizzle_client!(), []))
+                    .expect_err("a second row with the same id");
+                assert_eq!(
+                    error.kind(),
+                    drizzle::error::ErrorKind::UniqueViolation,
+                    "{error}"
+                );
+                assert!(
+                    error
+                        .query()
+                        .is_some_and(|query| query.sql.contains("shared_prepared_users")),
+                    "{error}"
                 );
             }
         }

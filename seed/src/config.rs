@@ -413,28 +413,35 @@ macro_rules! dialect_seed_config {
             /// table's rows can be followed by a `SELECT setval(...)` that
             /// moves its `SERIAL`/`IDENTITY` sequences past the seeded ids.
             ///
-            /// Execute every statement, in order.
+            /// Execute every statement, in order. The statements are made
+            /// as the iterator advances, one table at a time, and a table's
+            /// values are kept only until the last table whose foreign keys
+            /// read them, so memory follows the largest table rather than
+            /// the whole seed.
             ///
             /// # Panics
             ///
-            /// Panics when [`try_generate`](Self::try_generate) would return
-            /// an error.
-            #[must_use]
-            pub fn generate(&self) -> Vec<$seed_statement> {
-                self.try_generate()
-                    .unwrap_or_else(|error| panic!("invalid seed plan: {error}"))
+            /// The iterator panics where [`try_generate`](Self::try_generate)
+            /// would yield an error.
+            pub fn generate(&self) -> impl Iterator<Item = $seed_statement> {
+                self.try_generate().map(|statement| {
+                    statement.unwrap_or_else(|error| panic!("invalid seed plan: {error}"))
+                })
             }
 
-            /// Like [`generate`](Self::generate), but returns an error instead
-            /// of panicking.
+            /// Like [`generate`](Self::generate), but yields an error instead
+            /// of panicking, and then ends.
             ///
             /// # Errors
             ///
-            /// Returns a [`SeedError`](crate::SeedError) when the tables have a
-            /// foreign-key cycle, a `NOT NULL` foreign key has no parent row
-            /// to point at, a value does not fit its column, or one row
-            /// exceeds the parameter limit.
-            pub fn try_generate(&self) -> Result<Vec<$seed_statement>, crate::SeedError> {
+            /// Yields a [`SeedError`](crate::SeedError) when the tables have a
+            /// foreign-key cycle (as the first item), a `NOT NULL` foreign key
+            /// has no parent row to point at, a value does not fit its column,
+            /// or one row exceeds the parameter limit. Statements yielded
+            /// before the error are valid on their own.
+            pub fn try_generate(
+                &self,
+            ) -> impl Iterator<Item = Result<$seed_statement, crate::SeedError>> {
                 crate::Seeder::new(self).$generate()
             }
 
@@ -451,8 +458,8 @@ macro_rules! dialect_seed_config {
             /// value with no literal form.
             pub fn try_generate_script(&self) -> Result<String, crate::SeedError> {
                 let mut script = String::new();
-                for statement in self.try_generate()? {
-                    script.push_str(&statement.inline_sql()?);
+                for statement in self.try_generate() {
+                    script.push_str(&statement?.inline_sql()?);
                     script.push_str(";\n");
                 }
                 Ok(script)

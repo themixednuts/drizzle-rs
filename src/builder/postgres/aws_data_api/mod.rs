@@ -45,7 +45,7 @@ use std::sync::Arc;
 use aws_sdk_rdsdata::Client;
 use aws_sdk_rdsdata::types::{ColumnMetadata, SqlParameter};
 use drizzle_core::dialect::ParamStyle;
-use drizzle_core::error::DrizzleError;
+use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
 use drizzle_core::traits::ToSQL;
 use drizzle_postgres::aws_data_api::{Row, encode_param, row_from_parts};
 use drizzle_postgres::builder::{DeleteInitial, InsertInitial, SelectInitial, UpdateInitial};
@@ -184,7 +184,8 @@ impl<Schema> Drizzle<Schema> {
         let sql_params = encode_params(params.as_slice());
         let out = self
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -238,7 +239,8 @@ impl<Schema> Drizzle<Schema> {
         let sql_params = encode_params(params.as_slice());
         let out = self
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
@@ -247,18 +249,20 @@ impl<Schema> Drizzle<Schema> {
     /// Rows after the first are ignored. Like [`all`](Self::all), this skips
     /// the builder's compile-time checks.
     ///
+    /// Returns `None` when no row matches.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<R>
+    pub async fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
         T: ToSQL<'a, PostgresValue<'a>>,
     {
         let mut rows = self.rows::<T, R>(query).await?;
-        rows.next().transpose()?.ok_or(DrizzleError::NotFound)
+        rows.next().transpose()
     }
 
     /// Runs the async closure `f` inside a transaction and returns its value.
@@ -324,9 +328,16 @@ impl<Schema> Drizzle<Schema> {
         if config.is_deferrable() {
             options.push("DEFERRABLE".to_owned());
         }
+        let mut preamble = Vec::new();
         if !options.is_empty() {
-            let preamble = format!("SET TRANSACTION {}", options.join(" "));
-            if let Err(error) = tx.execute(preamble.as_str()).await {
+            preamble.push(format!("SET TRANSACTION {}", options.join(" ")));
+        }
+        if let Some(snapshot) = config.snapshot() {
+            // The id holds only hex digits and `-`, so it is safe to inline.
+            preamble.push(format!("SET TRANSACTION SNAPSHOT '{snapshot}'"));
+        }
+        for statement in preamble {
+            if let Err(error) = tx.execute(statement.as_str()).await {
                 return Err(match tx.rollback().await {
                     Ok(()) => error,
                     Err(rollback) => crate::transaction::savepoint::cleanup_error(
@@ -618,7 +629,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(out.number_of_records_updated.max(0).cast_unsigned())
     }
 
@@ -653,7 +665,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -689,7 +702,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         Ok(Rows::new(decode_rows(out)))
     }
 
@@ -698,12 +712,21 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
     /// Rows after the first are ignored. `R` is checked as in
     /// [`all`](Self::all).
     ///
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
+    ///
     /// # Errors
     ///
-    /// Returns [`DrizzleError::NotFound`] when no row matches, and an error
+    /// Returns an error
     /// when the Data API request fails or the row cannot be decoded into `R`.
-    pub async fn get<R, Proof, AggProof>(self) -> drizzle_core::error::Result<R>
+    pub async fn get<R, Proof, AggProof>(
+        self,
+    ) -> drizzle_core::error::Result<drizzle_core::row::GetRow<Mk, Grouped, State, R>>
     where
+        Mk: drizzle_core::row::QueryRows<Grouped, State>,
         State: builder::ExecutableState,
         Mk: drizzle_core::row::MarkerScopeValidFor<Proof>
             + drizzle_core::row::MarkerAggValidFor<Grouped, AggProof>,
@@ -722,9 +745,13 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let out = self
             .runner
             .run_statement(&sql_str, sql_params, None::<&str>)
-            .await?;
+            .await
+            .with_query(|| QueryContext::new(&sql_str, &params))?;
         let rows = decode_rows(out);
-        let row = rows.into_iter().next().ok_or(DrizzleError::NotFound)?;
-        R::try_from(&row).map_err(Into::into)
+        let row = rows.into_iter().next();
+        let row = row
+            .map(|row| R::try_from(&row).map_err(Into::into))
+            .transpose()?;
+        drizzle_core::row::first_row::<Mk, Grouped, State, R>(row)
     }
 }

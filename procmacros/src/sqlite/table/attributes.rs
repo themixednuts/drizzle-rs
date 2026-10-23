@@ -3,7 +3,9 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{ExprPath, Ident, Meta, Result, Token, parse::Parse};
 
-use crate::common::constraints::{RelationNames, is_key, referential_action};
+use crate::common::constraints::{
+    RelationNames, is_key, parse_primary_key_name, referential_action,
+};
 use crate::common::make_uppercase_path;
 
 #[derive(Default)]
@@ -15,6 +17,9 @@ pub struct TableAttributes {
     pub(crate) composite_foreign_keys: Vec<CompositeForeignKeyAttr>,
     pub(crate) unique_constraints: Vec<UniqueConstraintAttr>,
     pub(crate) check_constraints: Vec<CheckConstraintAttr>,
+    /// `primary_key(name = "...")`: the primary key constraint's name
+    /// (default `{table}_pk`).
+    pub(crate) primary_key_name: Option<String>,
     /// Original marker paths for IDE hover documentation
     pub(crate) marker_exprs: Vec<ExprPath>,
 }
@@ -26,6 +31,9 @@ pub struct CompositeForeignKeyAttr {
     pub(crate) target_columns: Vec<Ident>,
     pub(crate) on_delete: Option<String>,
     pub(crate) on_update: Option<String>,
+    /// Explicit constraint name; `None` derives
+    /// `fk_{table}_{columns}_{target_table}_{target_columns}_fk`.
+    pub(crate) name: Option<String>,
     #[cfg_attr(not(feature = "query"), allow(dead_code))] // read by the relational query API
     pub(crate) relation_names: RelationNames,
 }
@@ -75,6 +83,7 @@ impl Parse for CompositeForeignKeyAttr {
         let mut target_columns: Option<Vec<Ident>> = None;
         let mut on_delete: Option<String> = None;
         let mut on_update: Option<String> = None;
+        let mut name: Option<String> = None;
         let mut relation_names = RelationNames::default();
 
         for meta in metas {
@@ -102,11 +111,24 @@ impl Parse for CompositeForeignKeyAttr {
                 Meta::NameValue(nv) if is_key(&nv.path, "on_update") => {
                     on_update = Some(referential_action(&nv.value, "on_update")?);
                 }
+                Meta::NameValue(nv) if is_key(&nv.path, "name") => {
+                    if let syn::Expr::Lit(lit) = &nv.value
+                        && let syn::Lit::Str(s) = &lit.lit
+                        && !s.value().is_empty()
+                    {
+                        name = Some(s.value());
+                    } else {
+                        return Err(syn::Error::new(
+                            nv.span(),
+                            "name must be a non-empty string literal",
+                        ));
+                    }
+                }
                 Meta::NameValue(nv) if relation_names.parse_key(&nv)? => {}
                 _ => {
                     return Err(syn::Error::new(
                         meta.span(),
-                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, on_update, relation, or many_to_many",
+                        "unrecognized FOREIGN_KEY argument; expected columns(...), references(...), on_delete, on_update, name, relation, or many_to_many",
                     ));
                 }
             }
@@ -141,6 +163,7 @@ impl Parse for CompositeForeignKeyAttr {
             target_columns,
             on_delete,
             on_update,
+            name,
             relation_names,
         })
     }
@@ -353,6 +376,20 @@ impl Parse for TableAttributes {
                             let check: CheckConstraintAttr = syn::parse2(list.tokens.clone())?;
                             attrs.check_constraints.push(check);
                             attrs.marker_exprs.push(make_uppercase_path(ident, "CHECK"));
+                            continue;
+                        }
+                        if ident_upper == "PRIMARY_KEY" {
+                            if attrs.primary_key_name.is_some() {
+                                return Err(syn::Error::new(
+                                    list.span(),
+                                    "PRIMARY_KEY(...) may appear only once",
+                                ));
+                            }
+                            attrs.primary_key_name =
+                                Some(parse_primary_key_name(list.tokens.clone())?);
+                            attrs
+                                .marker_exprs
+                                .push(make_uppercase_path(ident, "PRIMARY_KEY"));
                             continue;
                         }
                     }

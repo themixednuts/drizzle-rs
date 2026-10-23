@@ -42,7 +42,7 @@ mod jiff_values {
             .values([InsertPgJiffEvent::new(day, starts, local, instant)])
             .execute();
 
-        let row: SelectPgJiffEvent = db.select(()).from(events).get();
+        let row: SelectPgJiffEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(
             (row.day, row.starts, row.local, row.instant, row.ends),
             (day, starts, local, instant, None)
@@ -52,7 +52,8 @@ mod jiff_values {
         let (selected_day, selected_starts, selected_instant): (Date, Time, Timestamp) = db
             .select((events.day, events.starts, events.instant))
             .from(events)
-            .get();
+            .get()
+            .expect("a row");
         assert_eq!(
             (selected_day, selected_starts, selected_instant),
             (day, starts, instant)
@@ -99,7 +100,7 @@ mod time_values {
             .values([InsertPgTimeEvent::new(day, starts, local, instant)])
             .execute();
 
-        let row: SelectPgTimeEvent = db.select(()).from(events).get();
+        let row: SelectPgTimeEvent = db.select(()).from(events).get().expect("a row");
         assert_eq!(
             (row.day, row.starts, row.local, row.instant),
             (day, starts, local, instant)
@@ -112,7 +113,8 @@ mod time_values {
         ) = db
             .select((events.day, events.local, events.instant))
             .from(events)
-            .get();
+            .get()
+            .expect("a row");
         assert_eq!(
             (selected_day, selected_local, selected_instant),
             (day, local, instant)

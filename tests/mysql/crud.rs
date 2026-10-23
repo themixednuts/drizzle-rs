@@ -35,7 +35,8 @@ fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
         .select(())
         .from(users)
         .r#where(eq(users.id, alice_id))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(alice.name, "Alice");
     assert_eq!(alice.role, Role::Admin);
     assert_eq!(alice.note, None);
@@ -54,7 +55,8 @@ fn mysql_values_and_mutation_metadata_round_trip(db: &mut TestDb<TestSchema>) {
         .select(())
         .from(users)
         .r#where(eq(users.id, alice_id))
-        .get();
+        .get()
+        .expect("a row");
     assert_eq!(updated.note.as_deref(), Some("updated"));
 
     let deleted = db
