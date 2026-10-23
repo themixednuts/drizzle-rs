@@ -54,8 +54,10 @@ impl ExecutableState for SelectLimitSet {
 impl ExecutableState for SelectOffsetSet {
     type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
 }
+// A compound query reaches ORDER BY too, so it cannot keep an aggregate's
+// one row.
 impl ExecutableState for SelectOrderSet {
-    type Rows<R: crate::row::RowCount> = R;
+    type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;
 }
 impl ExecutableState for SelectGroupSet {
     type Rows<R: crate::row::RowCount> = crate::row::ZeroOrMore;

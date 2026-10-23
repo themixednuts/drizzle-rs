@@ -312,7 +312,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns an error if execution or decoding fails, or no row is returned.
+    /// Returns an error if execution or decoding fails.
     pub async fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,

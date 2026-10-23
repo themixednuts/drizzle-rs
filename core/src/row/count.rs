@@ -3,8 +3,8 @@
 //! `.get()` returns the first row. Most queries can return none, so it
 //! returns `Option<R>`. A query whose type proves it returns exactly one row
 //! returns `R` instead: a SELECT of only aggregates (`count`, `sum`, `max`,
-//! ...) with no GROUP BY, HAVING, LIMIT, OFFSET or set operation, which
-//! returns one row even when no row matches its WHERE.
+//! ...) with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET or set operation,
+//! which returns one row even when no row matches its WHERE.
 
 use super::{AggStatus, PkGroup, Scoped, SelectAs, SelectCols, SelectExpr, SelectStar};
 use crate::error::DrizzleError;

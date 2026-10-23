@@ -1,5 +1,6 @@
 /// `get` returns the row itself for a query that always returns exactly one
-/// row (an aggregate without GROUP BY), and `Option` otherwise.
+/// row (an aggregate without GROUP BY, ORDER BY, LIMIT or a set operation),
+/// and `Option` otherwise.
 macro_rules! shared_get_rows_suite {
     ($dialect:ident, $table:ident, $schema:ident) => {
         mod shared_get_rows {
@@ -49,6 +50,16 @@ macro_rules! shared_get_rows_suite {
                     .group_by(rows.name)
                     .get();
                 assert_eq!(grouped, Some(1));
+
+                // A set operation can remove the row, also with ORDER BY after it.
+                let qb = || drizzle::$dialect::builder::QueryBuilder::new::<GetRowsSchema>();
+                let removed: Option<i64> = db
+                    .select(count(rows.id))
+                    .from(rows)
+                    .except(qb().select(count(rows.id)).from(rows))
+                    .order_by(SQL::raw("1"))
+                    .get();
+                assert_eq!(removed, None);
             }
 
             #[drizzle::test($dialect)]

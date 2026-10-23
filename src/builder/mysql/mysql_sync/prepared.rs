@@ -75,8 +75,7 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
     ///
     /// # Errors
     ///
-    /// Returns an error when parameter binding, execution, or decoding fails,
-    /// or when the query returns no row.
+    /// Returns an error when parameter binding, execution, or decoding fails.
     pub fn get<R, ScopeProof, AggProof>(
         &self,
         connection: &mut impl Queryable,

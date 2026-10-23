@@ -95,7 +95,7 @@ impl<'q, Marker, DecodedRow, Grouped> PreparedStatement<'q, Marker, DecodedRow, 
     /// # Errors
     ///
     /// Returns an error when connection resolution, parameter binding,
-    /// execution, or decoding fails, or when the query returns no row.
+    /// execution, or decoding fails.
     pub async fn get<'connection, 'transaction, Connection, R, ScopeProof, AggProof>(
         &self,
         connection: Connection,

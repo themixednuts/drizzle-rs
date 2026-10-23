@@ -344,7 +344,7 @@ impl<'connection, Schema> Transaction<'connection, Schema> {
     ///
     /// # Errors
     ///
-    /// Returns an error if execution or decoding fails, or no row is returned.
+    /// Returns an error if execution or decoding fails.
     pub fn get<'q, R>(&self, query: impl ToSQL<'q, MySQLValue<'q>>) -> Result<Option<R>>
     where
         for<'row> R: FromDrizzleRow<MySQLRow<'row, Row>>,
@@ -574,11 +574,15 @@ impl<'db, 'connection, 'q, Schema, State, Table, Marker, DecodedRow, Grouped>
 
     /// Executes this query and decodes its first row.
     ///
-    /// Returns `None` when no row matches.
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no `GROUP BY`, `HAVING`, `ORDER BY`,
+    /// `LIMIT`, `OFFSET` or set operation) returns the row itself.
     ///
     /// # Errors
     ///
-    /// Returns an error if execution or decoding fails, or no row is returned.
+    /// Returns an error if execution or decoding fails, and
+    /// [`DrizzleError::NotFound`] when a query that always returns one row
+    /// returns none.
     pub fn get<R, ScopeProof, AggProof>(
         self,
     ) -> Result<drizzle_core::row::GetRow<Marker, Grouped, State, R>>

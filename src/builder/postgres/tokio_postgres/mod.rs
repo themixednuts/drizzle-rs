@@ -1694,10 +1694,14 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
 
     /// Runs the query and decodes its single row into `R`.
     ///
-    /// The query must return exactly one row; add `.limit(1)` if it could
-    /// match more.
+    /// The query must not return more than one row; add `.limit(1)` if it
+    /// could.
     ///
-    /// Returns `None` when no row matches.
+    /// Returns `None` when no row matches. A query that always returns one
+    /// row (only aggregates, with no GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
+    /// or set operation) returns the row itself, and fails with
+    /// [`DrizzleError::NotFound`](drizzle_core::error::DrizzleError::NotFound)
+    /// if the database returns none.
     ///
     /// # Errors
     ///
