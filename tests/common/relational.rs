@@ -381,6 +381,21 @@ macro_rules! shared_relational_api_suite {
                     .order_by(asc(authors.id))
                     .all();
                 assert_eq!(plain, [ALICE, BOB, CHARLIE]);
+
+                // A relation inside its own `where`: authors whose invitee
+                // invited someone. Each subquery needs its own alias.
+                db.insert(authors)
+                    .values([InsertSharedApiAuthor::new("Erin")
+                        .with_id(5)
+                        .with_invited_by(DAVE)])
+                    .execute();
+                let grand_inviters = db
+                    .query(authors)
+                    .r#where(exists(authors.invited_by_shared_api_authors().r#where(
+                        exists(authors.invited_by_shared_api_authors()),
+                    )))
+                    .find_many();
+                assert_eq!(ids(grand_inviters), [ALICE]);
             }
 
             // ---------------------------------------------------------------- roots

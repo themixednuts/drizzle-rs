@@ -678,16 +678,16 @@ fn write_fk_join_conditions(
 /// `SELECT <select> FROM target AS alias WHERE <join to the parent>
 /// [AND (<where>)] [ORDER BY ..] [LIMIT ..] [OFFSET ..]`.
 ///
-/// The target is written under `alias`, and the parent side of the join
-/// stays a column reference to `parent_table`, so a relational query that
-/// aliases the parent rewrites it like any other reference, even for a
+/// The target is written under `r_<relation>`, and the parent side of the
+/// join stays a column reference to `parent_table`, so a relational query
+/// that aliases the parent rewrites it like any other reference, even for a
 /// relation from a table to itself.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn relation_subquery_sql<'a, V: SQLParam>(
     select: SQL<'a, V>,
     target: TableSqlRef,
     parent_table: &'static str,
-    alias: &str,
+    relation: &str,
     junction: Option<JunctionMeta>,
     fk_columns: &'static [(&'static str, &'static str)],
     where_sql: SQL<'a, V>,
@@ -696,6 +696,17 @@ pub(crate) fn relation_subquery_sql<'a, V: SQLParam>(
     offset: Option<SQL<'a, V>>,
 ) -> SQL<'a, V> {
     let dialect = V::DIALECT;
+    let alias = relation_subquery_alias(
+        relation,
+        [
+            Some(&select),
+            Some(&where_sql),
+            Some(&order_by_sql),
+            limit.as_ref(),
+            offset.as_ref(),
+        ],
+    );
+    let alias = alias.as_str();
     let mut sql = QuerySql::new();
     sql.push_str("SELECT ");
     sql.push_fragment(select, target.name, alias);
@@ -751,6 +762,35 @@ pub(crate) fn relation_subquery_sql<'a, V: SQLParam>(
         sql.push_fragment(offset, target.name, alias);
     }
     sql.finish()
+}
+
+/// The alias a relation's target takes in its subquery: `r_<relation>`, or
+/// `r_<relation>_<n>` when a subquery already rendered into `fragments` uses
+/// that name. The same relation inside its own `where`
+/// (`users.children().r#where(exists(users.children()))`) is rendered first,
+/// and its alias would shadow this one.
+fn relation_subquery_alias<V: SQLParam>(
+    relation: &str,
+    fragments: [Option<&SQL<'_, V>>; 5],
+) -> String {
+    let mentions = |name: &str| {
+        fragments.iter().flatten().any(|sql| {
+            sql.chunks.iter().any(|chunk| {
+                matches!(chunk, SQLChunk::Raw(text) | SQLChunk::Ident(text) if text.contains(name))
+            })
+        })
+    };
+    let mut alias = String::with_capacity(4 + relation.len());
+    alias.push_str("r_");
+    alias.push_str(relation);
+    let base = alias.len();
+    let mut n = 1;
+    while mentions(&alias) {
+        n += 1;
+        alias.truncate(base);
+        let _ = write!(alias, "_{n}");
+    }
+    alias
 }
 
 /// Writes a correlated subquery for a single relation directly into `sql`.

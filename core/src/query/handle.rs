@@ -268,14 +268,6 @@ where
 // The relation's rows as a correlated subquery
 // =============================================================================
 
-/// The alias a relation's target table takes in its subquery.
-fn subquery_alias<R: RelationDef>() -> String {
-    let mut alias = String::with_capacity(2 + R::NAME.len());
-    alias.push_str("r_");
-    alias.push_str(R::NAME);
-    alias
-}
-
 impl<'a, V, R, Cols, Cl> RelationHandle<'a, V, R, (), Cols, Cl>
 where
     V: SQLParam + 'a,
@@ -287,7 +279,7 @@ where
             select,
             <R::Target as QueryTable>::TABLE,
             <R::Source as QueryTable>::TABLE_NAME,
-            &subquery_alias::<R>(),
+            R::NAME,
             R::junction(),
             R::fk_columns(),
             self.where_sql,
