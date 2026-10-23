@@ -4,6 +4,7 @@
 //! the dialect-specific macro implementations.
 
 pub mod alias_tag;
+pub mod cfg_eval;
 pub mod column_types;
 pub mod constraint;
 pub mod constraints;
