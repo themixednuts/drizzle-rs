@@ -72,10 +72,18 @@ jobs:
       - name: Format code with nightly
         run: cargo +nightly fmt
 
+      # The latest glibc build. install-action installs the musl build, which
+      # since 0.3.172 fails with "Template parse error: stack limit reached":
+      # pest 2.9.3 checks stack headroom through stacker, and stacker
+      # misreports the main thread's stack under musl.
       - name: Install release-plz
-        uses: taiki-e/install-action@v2
-        with:
-          tool: release-plz
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl --proto '=https' --tlsv1.2 -sSfL \
+            https://github.com/release-plz/release-plz/releases/latest/download/release-plz-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xz -C "$HOME/.local/bin" release-plz
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/release-plz" --version
 
       - name: Create release PR
         env:
