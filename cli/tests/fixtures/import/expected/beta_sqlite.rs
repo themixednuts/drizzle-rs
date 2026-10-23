@@ -33,7 +33,7 @@ pub struct PostTagVotes {
 pub struct PostTags {
     #[column(primary, references = Posts::id, on_delete = cascade)]
     pub post_id: i64,
-    #[column(primary, references = Tags::id, on_delete = restrict)]
+    #[column(primary, references = Tags::id, on_delete = restrict, fk_name = "post_tags_tag_fk")]
     pub tag_id: i64,
 }
 

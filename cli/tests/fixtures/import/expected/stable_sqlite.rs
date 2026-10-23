@@ -13,11 +13,11 @@ pub struct AuditLog {
     pub payload: Option<String>,
     #[column(default = "event")]
     pub type_: String,
-    #[column(name = "userId", references = Users::id, on_delete = set_null)]
+    #[column(name = "userId", references = Users::id, on_delete = set_null, fk_name = "auditLog_userId_users_id_fk")]
     pub user_id: Option<i64>,
 }
 
-#[SQLiteTable(foreign_key(columns(post_id, tag_id), references(PostTags, post_id, tag_id), on_delete = "cascade"))]
+#[SQLiteTable(primary_key(name = "post_tag_votes_post_id_tag_id_voter_id_pk"), foreign_key(columns(post_id, tag_id), references(PostTags, post_id, tag_id), on_delete = "cascade", name = "post_tag_votes_post_id_tag_id_post_tags_post_id_tag_id_fk"))]
 pub struct PostTagVotes {
     #[column(primary)]
     pub post_id: i64,
@@ -25,24 +25,24 @@ pub struct PostTagVotes {
     pub tag_id: i64,
     #[column(default = 1)]
     pub value: i64,
-    #[column(primary, references = Users::id)]
+    #[column(primary, references = Users::id, fk_name = "post_tag_votes_voter_id_users_id_fk")]
     pub voter_id: i64,
 }
 
-#[SQLiteTable]
+#[SQLiteTable(primary_key(name = "post_tags_post_id_tag_id_pk"))]
 pub struct PostTags {
-    #[column(primary, references = Posts::id, on_delete = cascade)]
+    #[column(primary, references = Posts::id, on_delete = cascade, fk_name = "post_tags_post_id_posts_id_fk")]
     pub post_id: i64,
-    #[column(primary, references = Tags::id, on_delete = restrict)]
+    #[column(primary, references = Tags::id, on_delete = restrict, fk_name = "post_tags_tag_fk")]
     pub tag_id: i64,
 }
 
 #[SQLiteTable]
 pub struct Posts {
-    #[column(references = Users::id, on_delete = cascade, on_update = cascade)]
+    #[column(references = Users::id, on_delete = cascade, on_update = cascade, fk_name = "posts_author_id_users_id_fk")]
     pub author_id: i64,
     pub body: Option<String>,
-    #[column(references = Users::id, on_delete = set_null)]
+    #[column(references = Users::id, on_delete = set_null, fk_name = "posts_editor_id_users_id_fk")]
     pub editor_id: Option<i64>,
     #[column(primary)]
     pub id: i64,

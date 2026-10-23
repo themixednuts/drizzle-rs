@@ -505,6 +505,7 @@ struct SqliteArgs {
     collate: Option<String>,
     relation: Option<String>,
     many_to_many: Option<String>,
+    fk_name: Option<String>,
     named_values: Vec<(String, String)>,
 }
 
@@ -740,6 +741,17 @@ fn parse_sqlite_args(
                             args.name = Some(lit_str.value());
                         }
                     }
+                    "FK_NAME" => match &*assign.right {
+                        Expr::Lit(syn::ExprLit {
+                            lit: Lit::Str(lit_str),
+                            ..
+                        }) if !lit_str.value().is_empty() => {
+                            args.fk_name = Some(lit_str.value());
+                        }
+                        _ => diags.errors.push(format!(
+                            "{field_desc}: fk_name requires a non-empty string literal"
+                        )),
+                    },
                     "COLLATE" => match &*assign.right {
                         Expr::Lit(syn::ExprLit {
                             lit: Lit::Str(lit_str),
@@ -949,6 +961,7 @@ pub(crate) fn sqlite_column_spec(
         spec.collate = spec.collate.take().or(args.collate);
         spec.relation = spec.relation.take().or(args.relation);
         spec.many_to_many = spec.many_to_many.take().or(args.many_to_many);
+        spec.fk_name = spec.fk_name.take().or(args.fk_name);
         spec.named_values.extend(args.named_values);
     }
 
@@ -960,6 +973,11 @@ pub(crate) fn sqlite_column_spec(
         ));
     }
     push_relation_key_errors(&spec, &field_desc, diags);
+    if spec.fk_name.is_some() && spec.references.is_none() {
+        diags.errors.push(format!(
+            "{field_desc}: fk_name requires a `references = Table::column` attribute"
+        ));
+    }
 
     // Resolve the SQLite storage type exactly like the macro: explicit type
     // wins; json/enum markers imply TEXT; unknown types fall back to ANY with
@@ -2252,7 +2270,7 @@ fn parse_composite_fk(
                     ));
                 }
             }
-            Meta::NameValue(nv) if dialect != Dialect::SQLite && fk_key_is(&nv.path, "name") => {
+            Meta::NameValue(nv) if fk_key_is(&nv.path, "name") => {
                 match lit_str_value(&nv.value) {
                     Some(name) if !name.is_empty() => fk.name = Some(name),
                     _ => diags.errors.push(format!(
@@ -2304,7 +2322,7 @@ fn parse_composite_fk(
     Some(fk)
 }
 
-/// `PRIMARY_KEY(name = "...")` (`PostgreSQL`): names the key formed by the
+/// `PRIMARY_KEY(name = "...")` (`PostgreSQL`, `SQLite`): names the key formed by the
 /// `#[column(primary)]` fields.
 fn parse_primary_key_name(
     tokens: proc_macro2::TokenStream,
@@ -2722,7 +2740,7 @@ pub(crate) fn table_spec(
                             }
                             continue;
                         }
-                        "PRIMARY_KEY" if dialect == Dialect::PostgreSQL => {
+                        "PRIMARY_KEY" if dialect != Dialect::MySQL => {
                             if spec.primary_key_name.is_some() {
                                 diags
                                     .errors
@@ -3512,6 +3530,22 @@ mod tests {
     fn sqlite_primary_key_spelling() {
         let (spec, _) = sqlite_spec("#[column(PRIMARY_KEY)] id: i64");
         assert!(spec.primary);
+    }
+
+    #[test]
+    fn sqlite_fk_name_names_the_foreign_key() {
+        let (spec, diags) = sqlite_spec(
+            r#"#[column(references = Users::id, fk_name = "posts_author_fk")] author_id: i64"#,
+        );
+        assert!(diags.errors.is_empty(), "{:?}", diags.errors);
+        assert_eq!(spec.fk_name.as_deref(), Some("posts_author_fk"));
+
+        let (_, diags) = sqlite_spec(r#"#[column(fk_name = "orphan_fk")] author_id: i64"#);
+        assert!(
+            diags.errors.iter().any(|e| e.contains("fk_name requires")),
+            "{:?}",
+            diags.errors
+        );
     }
 
     #[test]

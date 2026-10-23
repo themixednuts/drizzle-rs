@@ -323,26 +323,36 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
             if let Some(reference) = &spec.references {
                 let target_table = maps.table(&reference.table);
                 let target_column = maps.field(&reference.table, &reference.column);
+                let name = spec.fk_name.clone().unwrap_or_else(|| {
+                    format!("fk_{table_name}_{col_name}_{target_table}_{target_column}_fk")
+                });
                 let mut fk = ForeignKey::from_strings(
                     table_name.clone(),
-                    format!("fk_{table_name}_{col_name}_{target_table}_{target_column}_fk"),
+                    name,
                     vec![col_name.clone()],
                     target_table,
                     vec![target_column],
                 );
+                fk.name_explicit = spec.fk_name.is_some();
                 fk.on_delete = spec.on_delete.clone().map(Cow::Owned);
                 fk.on_update = spec.on_update.clone().map(Cow::Owned);
                 snapshot.add_entity(SqliteEntity::ForeignKey(fk));
             }
         }
 
-        // ONE PrimaryKey entity, canonical `{table}_pk` name.
+        // ONE PrimaryKey entity, `{table}_pk` unless `primary_key(name)`.
         if !pk_columns.is_empty() {
-            snapshot.add_entity(SqliteEntity::PrimaryKey(PrimaryKey::from_strings(
+            let mut pk = PrimaryKey::from_strings(
                 table_name.clone(),
-                format!("{table_name}_pk"),
+                table
+                    .spec
+                    .primary_key_name
+                    .clone()
+                    .unwrap_or_else(|| format!("{table_name}_pk")),
                 pk_columns,
-            )));
+            );
+            pk.name_explicit = table.spec.primary_key_name.is_some();
+            snapshot.add_entity(SqliteEntity::PrimaryKey(pk));
         }
 
         // Composite FOREIGN_KEY(...) attributes. Source and target columns
@@ -361,12 +371,14 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
                 .iter()
                 .map(|c| maps.field(&cfk.target_table, c))
                 .collect();
-            let fk_name = format!(
-                "fk_{table_name}_{}_{}_{}_fk",
-                source_columns.join("_"),
-                target_table,
-                target_columns.join("_")
-            );
+            let fk_name = cfk.name.clone().unwrap_or_else(|| {
+                format!(
+                    "fk_{table_name}_{}_{}_{}_fk",
+                    source_columns.join("_"),
+                    target_table,
+                    target_columns.join("_")
+                )
+            });
             let mut fk = ForeignKey::from_strings(
                 table_name.clone(),
                 fk_name,
@@ -374,6 +386,7 @@ fn build_sqlite_snapshot(result: &ParseResult) -> SQLiteSnapshot {
                 target_table,
                 target_columns,
             );
+            fk.name_explicit = cfk.name.is_some();
             fk.on_delete = cfk.on_delete.clone().map(Cow::Owned);
             fk.on_update = cfk.on_update.clone().map(Cow::Owned);
             snapshot.add_entity(SqliteEntity::ForeignKey(fk));
