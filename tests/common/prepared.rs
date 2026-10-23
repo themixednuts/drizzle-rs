@@ -51,11 +51,14 @@ macro_rules! shared_prepared_statement_suite {
                     .expect("a row");
                 let nobody: Vec<SelectSharedPreparedUser> =
                     prepared.all(drizzle_client!(), [name.bind("Nobody")]);
+                let no_one: Option<SelectSharedPreparedUser> =
+                    prepared.get(drizzle_client!(), [name.bind("Nobody")]);
 
                 assert_eq!(alice.len(), 1);
                 assert_eq!(alice[0].name, "Alice");
                 assert_eq!(bob.name, "Bob");
                 assert!(nobody.is_empty());
+                assert!(no_one.is_none());
             }
 
             #[drizzle::test($dialect)]

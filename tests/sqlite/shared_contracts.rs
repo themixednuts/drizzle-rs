@@ -23,6 +23,8 @@ crate::common::derived::shared_derived_table_suite!(sqlite, SQLiteTable, SQLiteS
 crate::common::subquery::shared_subquery_suite!(sqlite, SQLiteTable, SQLiteSchema, SQLiteFromRow);
 crate::common::expressions::shared_expression_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::foreign_keys::shared_foreign_key_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::errors::shared_error_kind_suite!(sqlite, SQLiteTable, SQLiteSchema);
+crate::common::get_rows::shared_get_rows_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::comment::shared_comment_suite!(sqlite, SQLiteTable, SQLiteSchema);
 crate::common::wrappers::shared_wrapper_type_suite!(sqlite, SQLiteTable, SQLiteSchema);
 #[cfg(feature = "serde")]

@@ -264,40 +264,6 @@ fn numeric_affinity_reals_stored_as_integers_decode(db: &mut TestDb<NumericAffin
     assert_eq!(rows[0].discount, Some(4.0));
 }
 
-/// An aggregate without GROUP BY always returns one row, so `get` returns
-/// it as is; LIMIT, OFFSET, GROUP BY or a plain column make it an `Option`.
-#[drizzle::test]
-fn get_returns_an_aggregate_row_directly(db: &mut TestDb<SimpleSchema>) {
-    let SimpleSchema { simple } = schema;
-    db.insert(simple)
-        .values([InsertSimple::new("a"), InsertSimple::new("b")])
-        .execute();
-
-    let total: i64 = db.select(count(simple.id)).from(simple).get();
-    assert_eq!(total, 2);
-
-    // Still one row when WHERE matches nothing.
-    let (none, longest): (i64, Option<String>) = db
-        .select((count(simple.id), max(simple.name)))
-        .from(simple)
-        .r#where(eq(simple.id, 999))
-        .get();
-    assert_eq!((none, longest), (0, None));
-
-    let limited: Option<i64> = db.select(count(simple.id)).from(simple).limit(1).get();
-    assert_eq!(limited, Some(2));
-
-    let grouped: Option<i64> = db
-        .select(count(simple.id))
-        .from(simple)
-        .group_by(simple.name)
-        .get();
-    assert_eq!(grouped, Some(1));
-
-    let first: Option<String> = db.select(simple.name).from(simple).get();
-    assert!(first.is_some());
-}
-
 /// No matching row is `None` on every driver, from the builder's `get` and
 /// from `get` on raw SQL alike.
 #[drizzle::test]

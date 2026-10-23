@@ -30,6 +30,8 @@ crate::common::subquery::shared_subquery_suite!(
 );
 crate::common::expressions::shared_expression_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::foreign_keys::shared_foreign_key_suite!(postgres, PostgresTable, PostgresSchema);
+crate::common::errors::shared_error_kind_suite!(postgres, PostgresTable, PostgresSchema);
+crate::common::get_rows::shared_get_rows_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::comment::shared_comment_suite!(postgres, PostgresTable, PostgresSchema);
 crate::common::wrappers::shared_wrapper_type_suite!(postgres, PostgresTable, PostgresSchema);
 // `json` columns hold the plain payloads; PostgreSQL defines `=` only for

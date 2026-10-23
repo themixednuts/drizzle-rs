@@ -15,8 +15,10 @@ pub mod conditions;
 pub mod crud_join;
 pub mod delete;
 pub mod derived;
+pub mod errors;
 pub mod expressions;
 pub mod foreign_keys;
+pub mod get_rows;
 pub mod helpers;
 #[cfg(feature = "serde")]
 pub mod json;
