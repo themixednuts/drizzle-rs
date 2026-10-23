@@ -802,3 +802,172 @@ pub struct Numbers {{
         }
     }
 }
+
+fn mysql_entities(code: &str) -> Vec<MySQLEntity> {
+    let result = SchemaParser::parse(code);
+    assert!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    match Snapshot::from_parse_result(&result, Dialect::MySQL, None) {
+        Snapshot::MySQL(s) => s.ddl,
+        Snapshot::Sqlite(_) | Snapshot::Postgres(_) => panic!("expected MySQL snapshot"),
+    }
+}
+
+/// One schema shared by several dialects, each derive and dialect-specific
+/// attribute behind `cfg_attr` for its Cargo feature. The parser cannot know
+/// which features a build enables, but it knows each dialect's own gate:
+/// every dialect sees its own `cfg_attr`s, not the other dialects', and only
+/// the fields and variants its `#[cfg]`s allow.
+const FEATURE_GATED_SCHEMA: &str = r#"
+#[cfg_attr(feature = "sqlite", derive(SQLiteEnum))]
+#[cfg_attr(feature = "postgres", derive(PostgresEnum), postgres_enum(text))]
+#[cfg_attr(feature = "mysql", derive(MySQLEnum))]
+#[derive(Clone, Copy, Default)]
+pub enum Role {
+    #[default]
+    Member,
+    Admin,
+    #[cfg(feature = "postgres")]
+    Auditor,
+}
+
+#[cfg_attr(feature = "sqlite", SQLiteTable)]
+#[cfg_attr(feature = "postgres", PostgresTable)]
+#[cfg_attr(feature = "mysql", MySQLTable)]
+pub struct Users {
+    #[cfg_attr(feature = "sqlite", column(primary, autoincrement))]
+    #[cfg_attr(feature = "postgres", column(primary, serial))]
+    #[cfg_attr(feature = "mysql", column(PRIMARY, AUTO_INCREMENT))]
+    pub id: i32,
+    #[cfg_attr(any(feature = "sqlite", feature = "postgres"), column(enum, default = Role::Admin))]
+    #[cfg_attr(feature = "mysql", column(ENUM, DEFAULT = Role::Admin))]
+    pub role: Role,
+    #[cfg(feature = "postgres")]
+    pub tags: Vec<String>,
+    #[cfg(not(feature = "postgres"))]
+    pub tags: String,
+    pub r#type: String,
+}
+
+#[cfg_attr(feature = "postgres", derive(PostgresSchema))]
+pub struct PgSchema {
+    pub users: Users,
+}
+
+#[cfg_attr(feature = "sqlite", derive(SQLiteSchema))]
+pub struct LiteSchema {
+    pub users: Users,
+}
+"#;
+
+#[test]
+fn cfg_attr_gated_entities_are_read_per_dialect() {
+    let result = SchemaParser::parse(FEATURE_GATED_SCHEMA);
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    for dialect in [Dialect::SQLite, Dialect::PostgreSQL, Dialect::MySQL] {
+        assert!(result.table("Users", dialect).is_some(), "{dialect:?}");
+        assert!(result.parsed_enum("Role", dialect).is_some(), "{dialect:?}");
+    }
+    assert_eq!(
+        result
+            .parsed_enum("Role", Dialect::PostgreSQL)
+            .unwrap()
+            .variants,
+        ["Member", "Admin", "Auditor"]
+    );
+    assert_eq!(
+        result.parsed_enum("Role", Dialect::MySQL).unwrap().variants,
+        ["Member", "Admin"]
+    );
+    assert_eq!(result.schemas[&Dialect::SQLite].name, "LiteSchema");
+    assert_eq!(result.schemas[&Dialect::PostgreSQL].name, "PgSchema");
+
+    let pg = postgres_entities(FEATURE_GATED_SCHEMA);
+    let pg_column = |name: &str| {
+        pg.iter()
+            .find_map(|e| match e {
+                PostgresEntity::Column(c) if c.name == name => Some(c.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("postgres column {name}"))
+    };
+    assert_eq!(pg_column("id").sql_type, "SERIAL");
+    // `postgres_enum(text)` is behind the Postgres gate: a text column, no type.
+    assert_eq!(pg_column("role").sql_type, "text");
+    assert_eq!(pg_column("role").default.as_deref(), Some("'Admin'"));
+    assert_eq!(pg_column("tags").dimensions, Some(1));
+    assert!(!pg.iter().any(|e| matches!(e, PostgresEntity::Enum(_))));
+
+    let sqlite = sqlite_entities(FEATURE_GATED_SCHEMA);
+    let sqlite_column = |name: &str| {
+        sqlite
+            .iter()
+            .find_map(|e| match e {
+                SqliteEntity::Column(c) if c.name == name => Some(c.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("sqlite column {name}"))
+    };
+    assert_eq!(sqlite_column("id").autoincrement, Some(true));
+    assert_eq!(sqlite_column("role").default.as_deref(), Some("'Admin'"));
+    assert_eq!(sqlite_column("tags").sql_type, "TEXT");
+    // A raw identifier names its column without the `r#`, like the macros.
+    assert_eq!(sqlite_column("type").sql_type, "TEXT");
+
+    let mysql = mysql_entities(FEATURE_GATED_SCHEMA);
+    let role = mysql
+        .iter()
+        .find_map(|e| match e {
+            MySQLEntity::Column(c) if c.name == "role" => Some(c.clone()),
+            _ => None,
+        })
+        .expect("mysql role column");
+    assert_eq!(role.sql_type, "ENUM('Member', 'Admin')");
+    assert_eq!(role.default.as_deref(), Some("'Admin'"));
+    let id = mysql
+        .iter()
+        .find_map(|e| match e {
+            MySQLEntity::Column(c) if c.name == "id" => Some(c.clone()),
+            _ => None,
+        })
+        .expect("mysql id column");
+    assert!(id.autoincrement);
+}
+
+#[test]
+fn same_named_fields_behind_undecided_cfgs_keep_the_first() {
+    let result = SchemaParser::parse(
+        r#"
+#[PostgresTable]
+pub struct Users {
+    #[column(primary)]
+    pub id: i64,
+    #[cfg(feature = "uuid")]
+    pub token: Uuid,
+    #[cfg(not(feature = "uuid"))]
+    pub token: String,
+}
+"#,
+    );
+    let table = result.table("Users", Dialect::PostgreSQL).expect("table");
+    assert_eq!(
+        table
+            .fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>(),
+        ["id", "token"]
+    );
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Users`.token") && w.contains("keeping the first")),
+        "{:?}",
+        result.warnings
+    );
+}

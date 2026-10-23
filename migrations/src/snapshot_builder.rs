@@ -85,7 +85,13 @@ fn resolve_field_name(field: &ParsedField) -> String {
         .spec
         .explicit_name
         .clone()
-        .unwrap_or_else(|| field.name.to_snake_case())
+        .unwrap_or_else(|| unraw(&field.name).to_snake_case())
+}
+
+/// An identifier without its `r#` prefix, as the table macros name columns
+/// (`r#type` is the column `type`).
+fn unraw(ident: &str) -> &str {
+    ident.strip_prefix("r#").unwrap_or(ident)
 }
 
 /// Name maps built once per snapshot: struct ident -> resolved table name and
@@ -125,7 +131,7 @@ impl NameMaps {
         self.fields
             .get(&(struct_name.to_string(), field_name.to_string()))
             .cloned()
-            .unwrap_or_else(|| field_name.to_snake_case())
+            .unwrap_or_else(|| unraw(field_name).to_snake_case())
     }
 }
 
@@ -138,9 +144,8 @@ impl NameMaps {
 /// schema structs. MySQL views are schema items and are filtered separately.
 fn schema_members(result: &ParseResult, dialect: Dialect) -> Option<HashSet<&str>> {
     result
-        .schema
-        .as_ref()
-        .filter(|schema| schema.dialect == dialect)
+        .schemas
+        .get(&dialect)
         .map(|schema| schema.member_types.iter().map(String::as_str).collect())
 }
 

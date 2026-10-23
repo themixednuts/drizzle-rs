@@ -379,6 +379,13 @@ pub use drizzle_core::error::Result;
 #[cfg(feature = "std")]
 #[doc(inline)]
 pub use drizzle_macros::include_migrations;
+
+/// Runs a table or view macro once the compiler has evaluated its fields'
+/// `cfg`s. Internal: the table and view macros emit it.
+#[doc(hidden)]
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+pub use drizzle_macros::__DrizzleCfgEval;
+
 /// SQL template macro.
 #[doc(inline)]
 pub use drizzle_macros::sql;

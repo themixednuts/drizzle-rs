@@ -524,7 +524,11 @@ pub fn sqlite_enum_derive(input: TokenStream) -> TokenStream {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(attr.clone());
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    if crate::common::cfg_eval::has_field_cfg(&input) {
+        return crate::common::cfg_eval::defer("SQLiteTable", args, &input).into();
+    }
     let attr_result = syn::parse_macro_input!(attr as crate::sqlite::table::TableAttributes);
 
     match crate::sqlite::table::table_attr_macro(&input, &attr_result) {
@@ -622,7 +626,11 @@ pub fn SQLiteTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn SQLiteView(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(attr.clone());
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    if crate::common::cfg_eval::has_field_cfg(&input) {
+        return crate::common::cfg_eval::defer("SQLiteView", args, &input).into();
+    }
     let attr_result = syn::parse_macro_input!(attr as crate::sqlite::view::ViewAttributes);
 
     match crate::sqlite::view::view_attr_macro(&input, &attr_result) {
@@ -1592,7 +1600,11 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(attr.clone());
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    if crate::common::cfg_eval::has_field_cfg(&input) {
+        return crate::common::cfg_eval::defer("PostgresTable", args, &input).into();
+    }
     let attr_result = syn::parse_macro_input!(attr as crate::postgres::table::TableAttributes);
 
     match crate::postgres::table::table_attr_macro(&input, &attr_result) {
@@ -1672,7 +1684,11 @@ pub fn PostgresTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn PostgresView(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(attr.clone());
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    if crate::common::cfg_eval::has_field_cfg(&input) {
+        return crate::common::cfg_eval::defer("PostgresView", args, &input).into();
+    }
     let attr_result = syn::parse_macro_input!(attr as crate::postgres::view::ViewAttributes);
 
     match crate::postgres::view::view_attr_macro(&input, &attr_result) {
@@ -2008,7 +2024,11 @@ pub fn mysql_enum_derive(input: TokenStream) -> TokenStream {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn MySQLTable(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(attr.clone());
     let input = parse_macro_input!(item as syn::DeriveInput);
+    if crate::common::cfg_eval::has_field_cfg(&input) {
+        return crate::common::cfg_eval::defer("MySQLTable", args, &input).into();
+    }
     let attrs = parse_macro_input!(attr as crate::mysql::table::TableAttributes);
 
     match crate::mysql::table::table_attr_macro(&input, &attrs) {
@@ -2079,7 +2099,11 @@ pub fn MySQLTable(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn MySQLView(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(attr.clone());
     let input = parse_macro_input!(item as syn::DeriveInput);
+    if crate::common::cfg_eval::has_field_cfg(&input) {
+        return crate::common::cfg_eval::defer("MySQLView", args, &input).into();
+    }
     let attrs = parse_macro_input!(attr as crate::mysql::view::ViewAttributes);
 
     match crate::mysql::view::view_attr_macro(&input, &attrs) {
@@ -2304,4 +2328,60 @@ pub fn mysql_from_row_derive(input: TokenStream) -> TokenStream {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
+}
+
+/// Runs a table or view macro on a struct whose field `cfg`s the compiler has
+/// evaluated; see `common::cfg_eval`. Internal to drizzle.
+#[doc(hidden)]
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+#[proc_macro_derive(
+    __DrizzleCfgEval,
+    attributes(
+        drizzle_cfg_eval,
+        column,
+        integer,
+        text,
+        blob,
+        real,
+        number,
+        numeric,
+        boolean,
+        any,
+        INTEGER,
+        TEXT,
+        BLOB,
+        REAL,
+        NUMBER,
+        NUMERIC,
+        BOOLEAN,
+        ANY
+    )
+)]
+pub fn drizzle_cfg_eval_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    let expanded = crate::common::cfg_eval::undefer(input).and_then(|(macro_name, args, input)| {
+        match macro_name.to_string().as_str() {
+            #[cfg(feature = "sqlite")]
+            "SQLiteTable" => crate::sqlite::table::table_attr_macro(&input, &syn::parse2(args)?),
+            #[cfg(feature = "sqlite")]
+            "SQLiteView" => crate::sqlite::view::view_attr_macro(&input, &syn::parse2(args)?),
+            #[cfg(feature = "postgres")]
+            "PostgresTable" => {
+                crate::postgres::table::table_attr_macro(&input, &syn::parse2(args)?)
+            }
+            #[cfg(feature = "postgres")]
+            "PostgresView" => crate::postgres::view::view_attr_macro(&input, &syn::parse2(args)?),
+            #[cfg(feature = "mysql")]
+            "MySQLTable" => crate::mysql::table::table_attr_macro(&input, &syn::parse2(args)?),
+            #[cfg(feature = "mysql")]
+            "MySQLView" => crate::mysql::view::view_attr_macro(&input, &syn::parse2(args)?),
+            _ => Err(syn::Error::new(
+                macro_name.span(),
+                "__DrizzleCfgEval is internal to drizzle",
+            )),
+        }
+    });
+    expanded
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }

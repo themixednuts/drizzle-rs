@@ -511,6 +511,27 @@ mod postgres_parity {
         Some,
     }
 
+    // Derives and dialect attributes behind `cfg_attr` for the crate's
+    // feature: the parser reads them as this dialect's build does.
+    #[cfg_attr(feature = "postgres", derive(PostgresEnum), postgres_enum(text))]
+    #[derive(Default, Clone, Copy, PartialEq, Debug)]
+    pub enum GatedRole {
+        #[default]
+        Viewer,
+        Editor,
+    }
+
+    #[cfg_attr(feature = "postgres", PostgresTable)]
+    pub struct GatedGrants {
+        #[cfg_attr(feature = "postgres", column(primary))]
+        pub id: i64,
+        #[cfg_attr(feature = "postgres", column(enum, default = GatedRole::Editor))]
+        pub role: GatedRole,
+        #[cfg(feature = "postgres")]
+        pub note: Option<String>,
+        pub r#type: String,
+    }
+
     #[derive(PostgresSchema)]
     pub struct PostgresParitySchema {
         pub account_status: AccountStatus,
@@ -527,6 +548,7 @@ mod postgres_parity {
         pub tenant_users: TenantUsers,
         pub tenant_documents: TenantDocuments,
         pub memberships: Memberships,
+        pub gated_grants: GatedGrants,
     }
 
     #[test]
@@ -693,6 +715,25 @@ mod postgres_parity {
         assert_eq!(membership_default("priority"), Some("2"));
         assert_eq!(membership_default("tier"), Some("1"));
         assert_eq!(membership_default("status"), Some("'Suspended'"));
+        assert!(
+            ddl.iter().any(|e| matches!(
+                e,
+                PostgresEntity::Column(c)
+                    if c.table.as_ref() == "gated_grants"
+                        && c.name.as_ref() == "role"
+                        && c.sql_type.as_ref() == "text"
+                        && c.default.as_deref() == Some("'Editor'")
+            )),
+            "cfg_attr-gated enum column lost its storage or default"
+        );
+        assert!(
+            ddl.iter().any(|e| matches!(
+                e,
+                PostgresEntity::Column(c)
+                    if c.table.as_ref() == "gated_grants" && c.name.as_ref() == "type"
+            )),
+            "raw-identifier field must name the column `type`"
+        );
 
         // Enum schema + cross-schema enum column type_schema.
         assert!(

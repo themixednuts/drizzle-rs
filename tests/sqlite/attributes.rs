@@ -665,3 +665,49 @@ fn test_schema_generation() {
 
     // If we reach this point, all table definitions compiled and didn't panic.
 }
+
+// Field `cfg`s reach the table macro unevaluated; it must still see the
+// `column` attribute behind a true `cfg_attr` and leave out a field behind a
+// false `cfg`, in the DDL and in every model.
+#[SQLiteTable]
+struct GatedColumns {
+    #[cfg_attr(all(), column(primary, autoincrement))]
+    id: i64,
+    #[cfg_attr(any(), column(unique))]
+    name: String,
+    #[cfg(any())]
+    ghost: i64,
+    #[cfg_attr(all(), column(default = 7))]
+    score: i64,
+}
+
+#[derive(SQLiteSchema)]
+struct GatedColumnsSchema {
+    gated_columns: GatedColumns,
+}
+
+#[test]
+fn field_cfgs_are_evaluated_before_the_table_macro_reads_them() {
+    let ddl = GatedColumns::ddl_sql();
+    assert!(
+        ddl.contains("`id` INTEGER PRIMARY KEY AUTOINCREMENT"),
+        "{ddl}"
+    );
+    assert!(ddl.contains("`name` TEXT NOT NULL"), "{ddl}");
+    assert!(!ddl.contains("UNIQUE"), "{ddl}");
+    assert!(!ddl.contains("ghost"), "{ddl}");
+    assert!(ddl.contains("`score` INTEGER DEFAULT 7 NOT NULL"), "{ddl}");
+}
+
+#[drizzle::test]
+fn gated_columns_round_trip(db: &mut TestDb<GatedColumnsSchema>) {
+    let table = schema.gated_columns;
+    db.insert(table)
+        .values([InsertGatedColumns::new("first")])
+        .execute();
+    let rows: Vec<SelectGatedColumns> = db.select(()).from(table).all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, 1);
+    assert_eq!(rows[0].name, "first");
+    assert_eq!(rows[0].score, 7);
+}
