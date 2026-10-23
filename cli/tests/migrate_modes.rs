@@ -446,3 +446,45 @@ fn generate_fix_conflicts_replaces_the_conflicting_branches() {
     assert_eq!(table_exists(&conn, "users"), 1);
     assert_eq!(table_exists(&conn, "extra"), 1);
 }
+
+/// `--fix-conflicts` removes the conflicting migrations only once the new
+/// migration is written: a diff that fails leaves them where they were.
+#[test]
+fn generate_fix_conflicts_keeps_the_migrations_when_generate_fails() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let db_path = root.join("dev.db");
+    let migrations_dir = root.join("migrations");
+    write_config(root, &db_path, &migrations_dir);
+    let copy = |tag: &str, from: &Path, to: &Path| {
+        fs::create_dir_all(to.join(tag)).expect("mkdir");
+        for file in ["migration.sql", "snapshot.json"] {
+            fs::copy(from.join(tag).join(file), to.join(tag).join(file)).expect("copy");
+        }
+    };
+
+    // A shared base, then both branches create the same table.
+    write_tables(root, &["Users"]);
+    generate(root, "a_base", &migrations_dir);
+    let other_branch = root.join("other_branch");
+    let base = migration_tags(&migrations_dir).pop().expect("base tag");
+    copy(&base, &migrations_dir, &other_branch);
+    write_tables(root, &["Users", "Extra"]);
+    generate(root, "b_left", &migrations_dir);
+    generate(root, "b_right", &other_branch);
+    let right = migration_tags(&other_branch).pop().expect("right tag");
+    copy(&right, &other_branch, &migrations_dir);
+    let before = migration_tags(&migrations_dir);
+    assert_eq!(before.len(), 3, "{before:?}");
+
+    // `users` disappears and `renamed` appears: an unanswered rename, which
+    // fails without a terminal.
+    write_tables(root, &["Renamed"]);
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["generate", "--name", "c_next", "--fix-conflicts"])
+        .assert()
+        .failure();
+    assert_eq!(migration_tags(&migrations_dir), before);
+    assert!(!root.join(".migrations.fix-conflicts").exists());
+}

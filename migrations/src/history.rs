@@ -340,20 +340,33 @@ fn analyze<'a>(nodes: &'a [Node], dialect: Dialect) -> Option<Analysis<'a>> {
             if let Some((previous, other)) = applied.get(&key) {
                 // Inherited from a nested fork below the LCA: same change.
                 if *previous != change {
-                    let other_changes = diff_entities(base, entities_of(other));
-                    let leaf_changes = diff_entities(base, entities_of(leaf));
-                    conflicts.push(Conflict {
-                        report: BranchConflict {
-                            parent: lca.and_then(folder_of),
-                            left: folder_of(other).unwrap_or_default(),
-                            right: folder_of(leaf).unwrap_or_default(),
-                            reason: format!("both change {}", describe(&key)),
-                        },
-                        culprits: [
-                            culprit(lca, other, &leaf_changes),
-                            culprit(lca, leaf, &other_changes),
-                        ],
+                    let left = folder_of(other).unwrap_or_default();
+                    let right = folder_of(leaf).unwrap_or_default();
+                    let reported = conflicts.iter().any(|conflict| {
+                        let report = &conflict.report;
+                        (report.left == left && report.right == right)
+                            || (report.left == right && report.right == left)
                     });
+                    if !reported {
+                        // Blame only migrations after the two leaves' own
+                        // fork: the ones before it are shared history.
+                        let fork = lowest_common_ancestor(&by_id, &[*other, *leaf]);
+                        let fork_base = fork.map_or(&empty, |id| entities_of(id));
+                        let other_changes = diff_entities(fork_base, entities_of(other));
+                        let leaf_changes = diff_entities(fork_base, entities_of(leaf));
+                        conflicts.push(Conflict {
+                            report: BranchConflict {
+                                parent: fork.and_then(folder_of),
+                                left,
+                                right,
+                                reason: format!("both change {}", describe(&key)),
+                            },
+                            culprits: [
+                                culprit(fork, other, &leaf_changes),
+                                culprit(fork, leaf, &other_changes),
+                            ],
+                        });
+                    }
                 }
                 continue;
             }
@@ -1025,6 +1038,55 @@ mod tests {
             conflict_fix(dir.path(), Dialect::SQLite)
                 .expect("fix")
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_fix_keeps_migrations_from_before_the_conflicting_fork() {
+        // base -> shared -> {left, right}, and base -> other. `left` and
+        // `right` conflict below `shared`, which both of them build on.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let users = || table("users");
+        let t = || table("t");
+        write(
+            dir.path(),
+            "20240101000000_base",
+            "base",
+            &[ORIGIN_UUID],
+            json!([users()]),
+        );
+        write(
+            dir.path(),
+            "20240102000000_shared",
+            "shared",
+            &["base"],
+            json!([users(), t(), column("t", "c", "integer")]),
+        );
+        write(
+            dir.path(),
+            "20240103000000_left",
+            "left",
+            &["shared"],
+            json!([users(), t(), column("t", "c", "bigint")]),
+        );
+        write(
+            dir.path(),
+            "20240103000001_right",
+            "right",
+            &["shared"],
+            json!([users(), t(), column("t", "c", "text")]),
+        );
+        write(
+            dir.path(),
+            "20240102000001_other",
+            "other",
+            &["base"],
+            json!([users(), table("o")]),
+        );
+
+        assert_eq!(
+            conflict_fix(dir.path(), Dialect::SQLite).expect("fix"),
+            ["20240103000000_left", "20240103000001_right"]
         );
     }
 }

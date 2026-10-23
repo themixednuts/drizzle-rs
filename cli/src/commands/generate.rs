@@ -1,7 +1,7 @@
 //! `drizzle generate`: writes a migration folder from schema changes.
 
 use std::fmt::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::commands::overrides;
 use crate::config::{Casing, Config, Dialect, Driver, MigrationPrefix};
@@ -164,8 +164,10 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
     // Build current snapshot from parsed schema (use config dialect, not parser-detected)
     let current_snapshot = Snapshot::from_parse_result(&parse_result, dialect, effective_casing);
 
-    // `--fix-conflicts`: delete the conflicting migrations first.
-    let mut deleted_migrations = false;
+    // `--fix-conflicts`: set the conflicting migrations aside, and delete
+    // them once the new migration is written. An aborted prompt or a failed
+    // diff puts them back.
+    let mut set_aside = None;
     if opts.fix_conflicts {
         let folders =
             drizzle_migrations::history::conflict_fix(&out_dir, dialect).map_err(history_error)?;
@@ -178,10 +180,8 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
             );
             for folder in &folders {
                 println!("  {folder}");
-                std::fs::remove_dir_all(out_dir.join(folder))
-                    .map_err(|e| CliError::IoError(e.to_string()))?;
             }
-            deleted_migrations = true;
+            set_aside = Some(SetAside::new(&out_dir, folders)?);
         }
     }
 
@@ -210,8 +210,11 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 
     if generated.is_empty() {
         println!("{}", output::warning("No schema changes detected 😴"));
-        if deleted_migrations && db.bundle_enabled() {
-            write_migrations_js(&out_dir)?;
+        if let Some(set_aside) = set_aside {
+            set_aside.delete()?;
+            if db.bundle_enabled() {
+                write_migrations_js(&out_dir)?;
+            }
         }
         return Ok(());
     }
@@ -243,6 +246,9 @@ pub fn run(config: &Config, db_name: Option<&str>, opts: GenerateOptions) -> Res
 
     let migration_dir =
         write_migration_files(&out_dir, &migration_tag, &generated, effective_breakpoints)?;
+    if let Some(set_aside) = set_aside {
+        set_aside.delete()?;
+    }
 
     // Regenerate {out_dir}/migrations.js bundle index when enabled.
     // Auto-enabled for driver = durable-sqlite (see `DatabaseConfig::bundle_enabled`).
@@ -317,7 +323,6 @@ fn write_migration_files(
     .map_err(map_migration_error)
 }
 
-/// Generate an empty custom migration for manual SQL
 fn history_error(error: drizzle_migrations::history::HistoryError) -> CliError {
     match error {
         drizzle_migrations::history::HistoryError::Io(error) => {
@@ -327,6 +332,76 @@ fn history_error(error: drizzle_migrations::history::HistoryError) -> CliError {
     }
 }
 
+/// Migration folders `--fix-conflicts` moved out of the migrations folder,
+/// into a sibling folder. Dropping it moves them back; [`delete`](Self::delete)
+/// removes them for good.
+struct SetAside {
+    out_dir: PathBuf,
+    stash: PathBuf,
+    folders: Vec<String>,
+}
+
+impl SetAside {
+    fn new(out_dir: &Path, folders: Vec<String>) -> Result<Self, CliError> {
+        let io = |e: std::io::Error| CliError::IoError(e.to_string());
+        let out_dir = std::fs::canonicalize(out_dir).map_err(io)?;
+        let name = out_dir
+            .file_name()
+            .map_or_else(|| "migrations".into(), |name| name.to_string_lossy());
+        let stash = out_dir.with_file_name(format!(".{name}.fix-conflicts"));
+        if stash.exists() {
+            return Err(CliError::IoError(format!(
+                "{} is left from an earlier run; move its folders back into {} or delete it",
+                stash.display(),
+                out_dir.display()
+            )));
+        }
+        std::fs::create_dir(&stash).map_err(io)?;
+        let mut set_aside = Self {
+            out_dir,
+            stash,
+            folders: Vec::with_capacity(folders.len()),
+        };
+        for folder in folders {
+            std::fs::rename(
+                set_aside.out_dir.join(&folder),
+                set_aside.stash.join(&folder),
+            )
+            .map_err(io)?;
+            set_aside.folders.push(folder);
+        }
+        Ok(set_aside)
+    }
+
+    fn delete(mut self) -> Result<(), CliError> {
+        self.folders.clear();
+        std::fs::remove_dir_all(&self.stash).map_err(|e| CliError::IoError(e.to_string()))
+    }
+}
+
+impl Drop for SetAside {
+    fn drop(&mut self) {
+        if self.folders.is_empty() {
+            return;
+        }
+        for folder in &self.folders {
+            if let Err(error) = std::fs::rename(self.stash.join(folder), self.out_dir.join(folder))
+            {
+                eprintln!(
+                    "{}",
+                    output::warning(&format!(
+                        "Could not move {folder} back from {}: {error}",
+                        self.stash.display()
+                    ))
+                );
+                return;
+            }
+        }
+        let _ = std::fs::remove_dir(&self.stash);
+    }
+}
+
+/// Generate an empty custom migration for manual SQL
 fn generate_custom_migration(
     out_dir: &Path,
     _breakpoints: bool,
