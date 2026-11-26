@@ -211,6 +211,22 @@ impl TypeCategory {
         Self::Unknown
     }
 
+    /// Whether this is a `chrono`, `time` or `jiff` date or time type.
+    #[cfg(feature = "query")]
+    pub(crate) const fn is_temporal(self) -> bool {
+        matches!(
+            self,
+            Self::NaiveDate
+                | Self::NaiveTime
+                | Self::NaiveDateTime
+                | Self::DateTimeTz
+                | Self::TimeDate
+                | Self::TimeTime
+                | Self::TimePrimitiveDateTime
+                | Self::TimeOffsetDateTime
+        )
+    }
+
     /// Infer the `PostgreSQL` type from this category.
     /// Returns None for Unknown types (should trigger compile error).
     pub(crate) const fn to_postgres_type(self) -> Option<PostgreSQLType> {

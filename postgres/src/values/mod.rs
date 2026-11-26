@@ -10,12 +10,23 @@ mod insert;
 #[cfg(feature = "serde")]
 mod json;
 mod owned;
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+pub(crate) mod temporal_text;
 mod update;
 
 pub use insert::*;
 #[cfg(feature = "serde")]
 pub use json::PostgresJsonType;
 pub use owned::*;
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+#[doc(hidden)]
+pub use temporal_text::FromTemporalText;
+#[cfg(all(
+    feature = "query",
+    any(feature = "chrono", feature = "time", feature = "jiff")
+))]
+#[doc(hidden)]
+pub use temporal_text::decode_projected_temporal;
 pub use update::*;
 
 use drizzle_core::{error::DrizzleError, sql::SQL, traits::SQLParam};

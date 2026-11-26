@@ -228,7 +228,7 @@ fn doc_comment_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {
 pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) -> TokenStream {
     use crate::common::query::{EnumStorage, FieldJsonInfo, TableKeys, generate_query_api};
     use crate::common::type_is_uuid;
-    use crate::postgres::field::PostgreSQLType;
+    use crate::postgres::field::{PostgreSQLType, TypeCategory};
 
     let struct_ident = ctx.struct_ident;
     let select_model_ident = &ctx.select_model_ident;
@@ -266,8 +266,9 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
                 None
             };
             // PostgreSQL handles most types natively in json_build_object,
-            // and produces JSON true/false for booleans. UUIDs and `bytea`
-            // (rendered as hex text) need their own reading; everything else
+            // and produces JSON true/false for booleans. UUIDs, `bytea`
+            // (rendered as hex text) and dates and times (rendered as
+            // PostgreSQL's ISO text) need their own reading; everything else
             // is plain.
             let storage = if type_is_uuid(&f.base_type) {
                 crate::common::query::FieldStorageKind::Uuid
@@ -284,6 +285,12 @@ pub fn generate_query_api_impls(ctx: &MacroContext, table_schema: Option<&str>) 
                         })
                 );
                 crate::common::query::FieldStorageKind::PostgresBytea { owned }
+            } else if f.dimensions.is_none()
+                && !f.is_json
+                && !f.is_custom_type
+                && TypeCategory::from_type(&f.base_type).is_temporal()
+            {
+                crate::common::query::FieldStorageKind::PostgresTemporal
             } else {
                 crate::common::query::FieldStorageKind::Plain
             };
