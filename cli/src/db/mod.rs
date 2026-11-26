@@ -226,7 +226,11 @@ pub fn plan_push_with_renames(
     apply_snapshot_filters(&mut current, connection.dialect, filters)?;
     // PostgreSQL rewrites stored expressions into its own form; compare them
     // the way drizzle-kit's push does, or every push would recreate them.
+    // A `serial` column comes back as an integer defaulting to its owned
+    // sequence; read it as `serial` again, or every push would recreate the
+    // sequence.
     if let (Snapshot::Postgres(live), Snapshot::Postgres(wanted)) = (&mut current, desired) {
+        live.normalize_columns_for_push();
         live.align_push_insensitive_fields(wanted);
     }
     let mut options = drizzle_migrations::DiffOptions::new();

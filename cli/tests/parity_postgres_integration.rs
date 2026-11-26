@@ -456,6 +456,26 @@ fn push_after_pull_keeps_expression_defaults() {
 }
 
 #[test]
+fn push_after_pull_keeps_serial_columns() {
+    let (schema_rs, push) = pull_then_explain_push(
+        r#"CREATE TABLE "{schema}"."posts" (
+            "id" serial PRIMARY KEY,
+            "views" bigserial,
+            "title" text
+        );"#,
+        &[],
+    );
+    assert!(
+        schema_rs.contains("#[column(serial, primary)]"),
+        "{schema_rs}"
+    );
+    assert!(
+        push.contains("No schema changes detected."),
+        "{schema_rs}\n{push}"
+    );
+}
+
+#[test]
 fn push_after_pull_keeps_timestamp_and_time_precision() {
     for date_time in ["chrono", "jiff"] {
         let (schema_rs, push) = pull_then_explain_push(
