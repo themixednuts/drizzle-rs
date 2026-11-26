@@ -698,6 +698,41 @@ fn identity_dropped_with_a_new_type_default_or_nullability() {
 }
 
 #[test]
+fn drop_column_named_by_a_changed_check() {
+    // drizzle-orm#6472: dropping `b` drops the check with it, so the new
+    // check is only added.
+    let mut db = TestSchema::new("drop_check_column");
+    let mut prev = PostgresDDL::new();
+    table(&mut prev, "public", "items");
+    column(&mut prev, "public", "items", "id", "integer");
+    col(&mut prev, "items", "id").not_null = true;
+    pk(&mut prev, "public", "items", &["id"]);
+    column(&mut prev, "public", "items", "a", "integer");
+    let mut cur = prev.clone();
+    column(&mut prev, "public", "items", "b", "integer");
+    prev.checks.push(CheckConstraint::new(
+        "public",
+        "items",
+        "items_a_b",
+        "\"a\" > 0 and \"b\" > 0",
+    ));
+    cur.checks.push(CheckConstraint::new(
+        "public",
+        "items",
+        "items_a_b",
+        "\"a\" > 0",
+    ));
+    let statements = db.apply(&prev, &cur, "INSERT INTO items VALUES (1, 1, 1);");
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"items\" DROP COLUMN \"b\";",
+            "ALTER TABLE \"items\" ADD CONSTRAINT \"items_a_b\" CHECK (\"a\" > 0);",
+        ]
+    );
+}
+
+#[test]
 fn new_table_fk_to_unique_added_in_the_same_migration() {
     let mut db = TestSchema::new("fk_new_unique");
     let mut prev = PostgresDDL::new();
