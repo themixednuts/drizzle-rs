@@ -783,10 +783,6 @@ macro_rules! impl_select_methods {
         ///
         /// Integers are sent as bound parameters, so the SQL text stays the same
         /// from page to page. An integer placeholder is bound when the query runs.
-        ///
-        /// # Panics
-        ///
-        /// Panics when an integer `limit` is negative or does not fit in `usize`.
         pub fn limit<P>(
             self,
             limit: P,
@@ -801,10 +797,6 @@ macro_rules! impl_select_methods {
 
     (@method offset) => {
         /// Skips the first `offset` rows (`OFFSET $n`).
-        ///
-        /// # Panics
-        ///
-        /// Panics when an integer `offset` is negative or does not fit in `usize`.
         pub fn offset<P>(
             self,
             offset: P,

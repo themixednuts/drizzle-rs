@@ -198,6 +198,51 @@ fn select_limit_offset_with_placeholders(db: &mut TestDb<SimpleSchema>) {
 }
 
 #[drizzle::test]
+fn non_positive_pagination_is_sent_to_the_database(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+        ])
+        .execute();
+
+    let none = db.select(simple.id).from(simple).limit(0);
+    assert_eq!(
+        none.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT $1"#
+    );
+    let ids: Vec<i32> = none.all();
+    assert!(ids.is_empty());
+
+    let from_start = db.select(simple.id).from(simple).offset(0);
+    assert_eq!(
+        from_start.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" OFFSET $1"#
+    );
+    let ids: Vec<i32> = from_start.all();
+    assert_eq!(ids.len(), 2);
+
+    // A negative value is written as a literal, and PostgreSQL rejects it.
+    let negative_limit = db.select(simple.id).from(simple).limit(-1);
+    assert_eq!(
+        negative_limit.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT -1"#
+    );
+    let rows: Result<Vec<i32>, _> = result!(negative_limit.all());
+    assert!(rows.is_err(), "LIMIT must not be negative");
+
+    let negative_offset = db.select(simple.id).from(simple).offset(-1_i64);
+    assert_eq!(
+        negative_offset.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" OFFSET -1"#
+    );
+    let rows: Result<Vec<i32>, _> = result!(negative_offset.all());
+    assert!(rows.is_err(), "OFFSET must not be negative");
+}
+
+#[drizzle::test]
 fn select_all_columns(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

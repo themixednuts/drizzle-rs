@@ -1336,7 +1336,7 @@ where
 {
     /// Adds `LIMIT n`, returning at most `n` rows.
     ///
-    /// `n` is a non-negative integer (bound as a parameter) or a placeholder.
+    /// `n` is an integer (bound as a parameter) or a placeholder.
     ///
     /// # Examples
     ///
@@ -1407,14 +1407,8 @@ where
     /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."id" FROM "users" LIMIT $1"#);
     /// # }
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics when a signed numeric argument is negative or a numeric value
-    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    #[track_caller]
     pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
@@ -1438,7 +1432,7 @@ where
 {
     /// Adds `OFFSET n`, skipping the first `n` rows.
     ///
-    /// `n` is a non-negative integer (bound as a parameter) or a placeholder.
+    /// `n` is an integer (bound as a parameter) or a placeholder.
     ///
     /// # Examples
     ///
@@ -1512,14 +1506,8 @@ where
     /// );
     /// # }
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics when a signed numeric argument is negative or a numeric value
-    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,

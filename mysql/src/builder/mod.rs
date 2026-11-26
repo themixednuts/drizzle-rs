@@ -58,12 +58,6 @@ macro_rules! mutation_builder_methods {
         $(
             impl<'a, S, T> $builder<'a, S, $limit, T> {
                 /// Adds LIMIT, which caps how many rows are changed.
-                ///
-                /// # Panics
-                ///
-                /// Panics when a numeric argument is negative or does not
-                /// fit in `usize`.
-                #[track_caller]
                 pub fn limit<P>(self, limit: P) -> $builder<'a, S, $limited, T>
                 where
                     P: drizzle_core::PaginationArg<'a, crate::values::MySQLValue<'a>>,

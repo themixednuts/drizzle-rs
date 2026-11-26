@@ -833,10 +833,6 @@ macro_rules! select_method {
         ///
         /// Integers are sent as bound parameters, so the SQL text stays the same
         /// from page to page. An integer placeholder is bound when the query runs.
-        ///
-        /// # Panics
-        ///
-        /// Panics when an integer `limit` is negative or does not fit in `usize`.
         pub fn limit<P>(
             self,
             limit: P,
@@ -857,10 +853,6 @@ macro_rules! select_method {
         /// Skips the first `offset` rows (`OFFSET ?`). MySQL has no bare
         /// `OFFSET`, so without a `LIMIT` this renders
         /// `LIMIT 9223372036854775807 OFFSET ?`.
-        ///
-        /// # Panics
-        ///
-        /// Panics when an integer `offset` is negative or does not fit in `usize`.
         pub fn offset<P>(
             self,
             offset: P,
@@ -2001,10 +1993,6 @@ macro_rules! mutation_method {
             DrizzleBuilder<'db, Runner, Schema, $builder<'q, Schema, $state, Table>, $state>
         {
             /// Changes or deletes at most `limit` rows (`LIMIT ?`).
-            ///
-            /// # Panics
-            ///
-            /// Panics when an integer `limit` is negative or does not fit in `usize`.
             pub fn limit<P>(
                 self,
                 limit: P,

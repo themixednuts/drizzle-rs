@@ -2,7 +2,7 @@ error[E0277]: `&str` cannot be used as a LIMIT/OFFSET argument
   --> tests/ui/pagination_sqlite/fail/string_limit.rs:20:44
    |
 20 |     let _ = db.select(()).from(user).limit("not a limit");
-   |                                      ----- ^^^^^^^^^^^^^ expected a non-negative integer value or an integer placeholder
+   |                                      ----- ^^^^^^^^^^^^^ expected an integer value or an integer placeholder
    |                                      |
    |                                      required by a bound introduced by this call
    |

@@ -311,3 +311,39 @@ fn left_join_matched_row_with_null_first_column(db: &mut TestDb<ProbeSchema>) {
     assert_eq!(note.owner_id, 1);
     assert!(rows[1].1.is_none());
 }
+
+#[drizzle::test]
+fn non_positive_pagination_is_sent_to_the_database(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0),
+            InsertUser::new("Bob", true, Role::Member, vec![], 0, 0.0),
+        ])
+        .execute();
+
+    let none = db.select(users.id).from(users).limit(0);
+    assert_eq!(
+        none.to_sql().sql(),
+        "SELECT `test_users`.`id` FROM `test_users` LIMIT ?"
+    );
+    let ids: Vec<u64> = none.all();
+    assert!(ids.is_empty());
+
+    let from_start = db.select(users.id).from(users).offset(0);
+    assert_eq!(
+        from_start.to_sql().sql(),
+        "SELECT `test_users`.`id` FROM `test_users` LIMIT 9223372036854775807 OFFSET ?"
+    );
+    let ids: Vec<u64> = from_start.all();
+    assert_eq!(ids.len(), 2);
+
+    // A negative value is written as a literal, and MySQL rejects it.
+    let negative = db.select(users.id).from(users).limit(-1);
+    assert_eq!(
+        negative.to_sql().sql(),
+        "SELECT `test_users`.`id` FROM `test_users` LIMIT -1"
+    );
+    let rows: Result<Vec<u64>, _> = result!(negative.all());
+    assert!(rows.is_err(), "LIMIT must not be negative");
+}

@@ -1621,10 +1621,6 @@ macro_rules! impl_select_methods {
         /// Pass an integer, which is written into the SQL, or an integer
         /// placeholder, which is bound when the query runs.
         ///
-        /// # Panics
-        ///
-        /// Panics when an integer `limit` is negative or does not fit in `usize`.
-        ///
         /// # Examples
         ///
         /// ```
@@ -1657,10 +1653,6 @@ macro_rules! impl_select_methods {
 
     (@method offset) => {
         /// Skips the first `offset` rows (`OFFSET n`).
-        ///
-        /// # Panics
-        ///
-        /// Panics when an integer `offset` is negative or does not fit in `usize`.
         ///
         /// # Examples
         ///

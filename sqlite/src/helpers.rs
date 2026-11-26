@@ -222,7 +222,6 @@ where
 ///
 /// `SQLite` only accepts `OFFSET` as part of a `LIMIT` clause; a negative
 /// limit means "no limit".
-#[track_caller]
 pub(crate) fn standalone_offset<'a, P>(offset: P) -> SQL<'a, SQLiteValue<'a>>
 where
     P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,

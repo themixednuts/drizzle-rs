@@ -836,14 +836,8 @@ where
 {
     /// Adds a LIMIT clause.
     ///
-    /// Pass a non-negative integer or an integer placeholder. Both are sent
+    /// Pass an integer or an integer placeholder. Both are sent
     /// as bound parameters.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a numeric argument is negative or does not fit in
-    /// `usize`.
-    #[track_caller]
     pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
@@ -892,12 +886,6 @@ where
     /// );
     /// # "####;
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics when a numeric argument is negative or does not fit in
-    /// `usize`.
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
@@ -908,12 +896,6 @@ where
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
     /// Adds an OFFSET clause after LIMIT.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a numeric argument is negative or does not fit in
-    /// `usize`.
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
