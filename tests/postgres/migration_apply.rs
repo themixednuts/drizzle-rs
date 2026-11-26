@@ -733,6 +733,26 @@ fn drop_column_named_by_a_changed_check() {
 }
 
 #[test]
+fn push_of_pulled_expression_defaults_is_empty() {
+    // drizzle-orm#6495: PostgreSQL stores `random() * 10` with the cast it
+    // implies, which pulled code leaves out.
+    let mut db = TestSchema::new("expr_defaults");
+    let s: &'static str = Box::leak(db.name.clone().into_boxed_str());
+    let mut desired = PostgresDDL::new();
+    desired.schemas.push(Schema::new(s));
+    table(&mut desired, s, "t");
+    for (name, sql_type) in [("price", "numeric"), ("amount", "bigint")] {
+        column(&mut desired, s, "t", name, sql_type);
+        col(&mut desired, "t", name).default = Some(Cow::Borrowed("(random() * (10))"));
+    }
+    let statements = db.push_twice(&desired);
+    assert!(
+        statements.is_empty(),
+        "second push must not change anything: {statements:#?}"
+    );
+}
+
+#[test]
 fn new_table_fk_to_unique_added_in_the_same_migration() {
     let mut db = TestSchema::new("fk_new_unique");
     let mut prev = PostgresDDL::new();

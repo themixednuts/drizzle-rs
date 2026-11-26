@@ -370,6 +370,39 @@ pub(crate) fn default_expression_with(sql: &str, backslash_escapes: bool) -> Opt
     syn::parse_str::<syn::Expr>(&rust).ok().map(|_| rust)
 }
 
+/// `sql` without its PostgreSQL `::type` casts, which [`default_expression`]
+/// leaves out of generated code. String literals and quoted identifiers are
+/// kept as they are.
+pub(crate) fn strip_postgres_casts(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut rest = sql;
+    while let Some(ch) = rest.chars().next() {
+        if ch == '\'' || ch == '"' {
+            // A quoted run ends at the next unpaired quote (`''` / `""`).
+            let mut end = 1;
+            loop {
+                let Some(offset) = rest[end..].find(ch) else {
+                    end = rest.len();
+                    break;
+                };
+                end += offset + 1;
+                if !rest[end..].starts_with(ch) {
+                    break;
+                }
+                end += 1;
+            }
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+        } else if let Some(tail) = rest.strip_prefix("::") {
+            rest = skip_cast_type(tail);
+        } else {
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+        }
+    }
+    out
+}
+
 /// Comment emitted in generated schema code when a database default cannot be
 /// rendered as `#[column(default = ...)]`, so the output still compiles and the
 /// omission is visible next to the field.
@@ -874,6 +907,19 @@ mod tests {
             ("(now() + '1 day'::interval)", r#"(now() + "1 day")"#),
         ] {
             assert_eq!(default_expression(sql).as_deref(), Some(expected), "{sql}");
+        }
+    }
+
+    #[test]
+    fn postgres_casts_are_stripped_outside_quotes() {
+        for (sql, expected) in [
+            ("(random() * (10)::double precision)", "(random() * (10))"),
+            ("'a''::b'::text", "'a''::b'"),
+            ("'ok'::\"app\".\"Mood Kind\"[]", "'ok'"),
+            ("\"a::b\"::text || 'x'", "\"a::b\" || 'x'"),
+            ("'unterminated::text", "'unterminated::text"),
+        ] {
+            assert_eq!(strip_postgres_casts(sql), expected, "{sql}");
         }
     }
 

@@ -693,25 +693,18 @@ pub(crate) fn normalize_expression(value: &str) -> String {
     value
 }
 
-/// Normalize a column default for comparison: strip trailing `::type` casts
-/// that `PostgreSQL` appends when it stores the expression, so
-/// `'active'::text` compares equal to `'active'` and `'{}'::jsonb` to
-/// `'{}'`. Non-cast defaults compare exactly.
+/// Normalize a column default for comparison: strip the `::type` casts
+/// `PostgreSQL` writes into a stored expression, which generated schema code
+/// leaves out, so `'active'::text` compares equal to `'active'` and
+/// `(random() * (10)::double precision)` to `(random() * (10))`.
 pub(crate) fn normalize_default_for_compare(default: &str) -> String {
-    let mut value = default.trim();
-    loop {
-        if let Some(stripped) = strip_trailing_cast(value) {
-            value = stripped;
-            continue;
-        }
-        // `(-1)` / `('a'::text)`: drop wrapping parentheses.
-        if let Some(stripped) = strip_outer_parens(value)
-            && stripped != value
-        {
-            value = stripped;
-            continue;
-        }
-        break;
+    let stripped = crate::utils::strip_postgres_casts(default);
+    let mut value = stripped.trim();
+    // `(-1)` / `('a'::text)`: drop wrapping parentheses.
+    while let Some(inner) = strip_outer_parens(value)
+        && inner != value
+    {
+        value = inner.trim();
     }
     // PostgreSQL stores `DEFAULT -1` as `'-1'::integer`: a quoted numeric
     // literal is the number itself.
@@ -739,47 +732,6 @@ fn is_numeric_literal(value: &str) -> bool {
         && digits
             .chars()
             .all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '-' | '+'))
-}
-
-/// Strip one trailing `::type` cast if — and only if — the `::` sits outside
-/// any single-quoted literal and everything after it is a plain type name
-/// (identifier characters, spaces, digits, parentheses, and `[]`, plus any
-/// character inside a double-quoted name such as `"mood-enum"`).
-fn strip_trailing_cast(value: &str) -> Option<&str> {
-    let bytes = value.as_bytes();
-    let mut in_quotes = false;
-    let mut cast_pos = None;
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\'' => in_quotes = !in_quotes,
-            b':' if !in_quotes && i + 1 < bytes.len() && bytes[i + 1] == b':' => {
-                cast_pos = Some(i);
-                i += 1;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-
-    let cast_pos = cast_pos?;
-    let suffix = &value[cast_pos + 2..];
-    let mut in_name = false;
-    let is_type_name = !suffix.is_empty()
-        && suffix.chars().all(|c| {
-            if c == '"' {
-                in_name = !in_name;
-                return true;
-            }
-            in_name
-                || c.is_alphanumeric()
-                || matches!(c, '_' | ' ' | '(' | ')' | ',' | '[' | ']' | '.')
-        });
-    if is_type_name {
-        Some(value[..cast_pos].trim_end())
-    } else {
-        None
-    }
 }
 
 /// Compare check constraints with normalized expressions, so the introspected
@@ -1225,6 +1177,15 @@ mod tests {
             ("'2020-01-01'::date", "'2020-01-01'"),
             ("'a''::b'::text", "'a''::b'"),
             ("'x'::character varying", "'x'"),
+            // drizzle-orm#6495: casts inside an expression, as pulled code
+            // writes it back.
+            ("(random() * (10)::double precision)", "(random() * (10))"),
+            ("(random() * (10)::double precision)", "random() * (10)"),
+            (
+                "nextval('users_id_seq'::regclass)",
+                "nextval('users_id_seq')",
+            ),
+            ("(now() + '1 day'::interval)", "(now() + '1 day')"),
         ];
 
         for (introspected, schema_side) in cases {
@@ -1243,6 +1204,9 @@ mod tests {
         left.default = Some("'active'::text".into());
         let mut right = column_with_type("text");
         right.default = Some("'archived'".into());
+        assert!(!columns_equivalent(&left, &right));
+        right.default = Some("(random() * (100))".into());
+        left.default = Some("(random() * (10)::double precision)".into());
         assert!(!columns_equivalent(&left, &right));
     }
 
