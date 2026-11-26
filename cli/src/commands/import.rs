@@ -21,6 +21,7 @@ use crate::codegen::{SchemaCode, SchemaCodeOptions, schema_code};
 use crate::config::{CONFIG_FILE, Config, Dialect, IntrospectCasing, Schema};
 use crate::error::CliError;
 use crate::output;
+use drizzle_migrations::postgres::reconstruct;
 use drizzle_migrations::schema::Snapshot;
 use drizzle_migrations::upgrade::upgrade_to_latest;
 use drizzle_migrations::version::{is_supported_version, needs_upgrade, snapshot_version};
@@ -159,7 +160,13 @@ pub fn run(
         (Some(wanted), _) => wanted,
         (None, detected) => detected?,
     };
-    let snapshot = load_snapshot(json, dialect, &source.snapshot_path)?;
+    let snapshot = if dialect.to_base() == drizzle_types::Dialect::PostgreSQL
+        && reconstruct::is_delta_snapshot(&json)
+    {
+        reconstruct_snapshot(&json, &source)?
+    } else {
+        load_snapshot(json, dialect, &source.snapshot_path)?
+    };
 
     let casing = opts.casing.or_else(|| {
         db.and_then(|db| db.introspect.as_ref())
@@ -380,6 +387,27 @@ fn snapshot_dialect(json: &Value, path: &Path) -> Result<Dialect, CliError> {
             path.display()
         ))),
     }
+}
+
+/// Reconstructs a drizzle-kit format 9 or 10 `PostgreSQL` snapshot from its
+/// migrations folder. A diff snapshot only stores the changes since its
+/// parent, so outside its folder only a base snapshot can be read.
+fn reconstruct_snapshot(json: &Value, source: &Source) -> Result<Snapshot, CliError> {
+    let path = &source.snapshot_path;
+    let id = json.get("id").and_then(Value::as_str).unwrap_or_default();
+    let snapshot = match &source.migrations {
+        Some((dir, Layout::Folders)) => reconstruct::reconstruct_folder(dir, id),
+        _ if json.get("type").and_then(Value::as_str) == Some("diff") => {
+            return Err(CliError::Other(format!(
+                "{} is a drizzle-kit diff snapshot, which only stores the changes since the \
+                 previous migration; pass its migrations folder instead",
+                path.display()
+            )));
+        }
+        _ => reconstruct::reconstruct(std::slice::from_ref(json), id),
+    }
+    .map_err(|e| CliError::Other(format!("{}: {e}", path.display())))?;
+    Ok(Snapshot::Postgres(snapshot))
 }
 
 /// Checks the version, upgrades the document to the current format, and
