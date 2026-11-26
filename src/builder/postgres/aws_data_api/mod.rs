@@ -425,11 +425,15 @@ where
 impl<Schema> Drizzle<Schema> {
     /// Applies the migrations that have not run yet.
     ///
-    /// Creates the tracking table (and its schema) if needed, then runs every
-    /// pending migration and its tracking row in one Data API transaction,
+    /// Creates the tracking table (and its schema) if needed, then runs the
+    /// pending migrations and their tracking rows in a Data API transaction,
     /// under `pg_advisory_xact_lock` so concurrent runs do not overlap.
-    /// `CREATE/DROP INDEX CONCURRENTLY` statements cannot run in a transaction
-    /// and are sent outside it, so they are not rolled back with the rest.
+    ///
+    /// `CREATE/DROP INDEX CONCURRENTLY` cannot run in a transaction: the
+    /// migrations before such a migration commit first, then it is marked
+    /// dirty, runs outside a transaction, and is marked complete, and the
+    /// migrations after it run in a new transaction. A failure partway
+    /// through leaves the dirty row for `migrate_with_repair`.
     ///
     /// # Errors
     ///
@@ -458,60 +462,107 @@ impl<Schema> Drizzle<Schema> {
         self.run_statement(&set.create_table_sql(), Vec::new(), None::<&str>)
             .await?;
 
-        let outcome = self
-            .transaction(TransactionConfig::default(), async |tx| {
-                tx.execute(
-                    format!(
-                        "SELECT pg_advisory_xact_lock({})",
-                        set.postgres_advisory_lock_key()
+        let mut applied = Vec::new();
+        loop {
+            // Applies pending migrations up to the first one with a
+            // `CONCURRENTLY` index, which is marked dirty and returned to run
+            // after this transaction commits.
+            let (tags, concurrent) = self
+                .transaction(TransactionConfig::default(), async |tx| {
+                    tx.execute(
+                        format!(
+                            "SELECT pg_advisory_xact_lock({})",
+                            set.postgres_advisory_lock_key()
+                        )
+                        .as_str(),
                     )
-                    .as_str(),
-                )
-                .await?;
-                // A migration left half-applied by a non-transactional runner
-                // is recorded with a NULL `applied_at`; stacking more DDL on
-                // top of it would re-run statements that already landed.
-                let dirty_rows = tx.run_statement(&set.dirty_names_sql(), Vec::new()).await?;
-                let dirty_names = decode_rows(dirty_rows)
-                    .into_iter()
-                    .map(|row| row.try_get::<String>(0))
-                    .collect::<drizzle_core::error::Result<Vec<_>>>()?;
-                if let Some(error) = set.interrupted_migration_error(&dirty_names) {
-                    return Err(DrizzleError::Other(error.to_string().into()));
-                }
-
-                let applied_rows = tx
-                    .run_statement(&set.applied_names_sql(), Vec::new())
                     .await?;
-                let applied_names = decode_rows(applied_rows)
-                    .into_iter()
-                    .map(|row| row.try_get::<String>(0))
-                    .collect::<drizzle_core::error::Result<Vec<_>>>()?;
-                let pending: Vec<_> = set.pending(&applied_names).collect();
-                if pending.is_empty() {
-                    return Ok(drizzle_migrations::MigrateOutcome::UpToDate);
-                }
-
-                let mut applied = Vec::with_capacity(pending.len());
-                for migration in &pending {
-                    for statement in migration.statements() {
-                        if statement.trim().is_empty() {
-                            continue;
-                        }
-                        if drizzle_migrations::is_postgres_concurrent_index_statement(statement) {
-                            self.run_statement(statement, Vec::new(), None::<&str>)
-                                .await?;
-                        } else {
-                            tx.execute(statement).await?;
-                        }
+                    // A migration left half-applied by a non-transactional
+                    // runner is recorded with a NULL `applied_at`; stacking more
+                    // DDL on top of it would re-run statements that already
+                    // landed.
+                    let dirty_rows = tx.run_statement(&set.dirty_names_sql(), Vec::new()).await?;
+                    let dirty_names = decode_rows(dirty_rows)
+                        .into_iter()
+                        .map(|row| row.try_get::<String>(0))
+                        .collect::<drizzle_core::error::Result<Vec<_>>>()?;
+                    if let Some(error) = set.interrupted_migration_error(&dirty_names) {
+                        return Err(DrizzleError::Other(error.to_string().into()));
                     }
-                    tx.execute(set.record_migration_sql(migration).as_str())
+
+                    let applied_rows = tx
+                        .run_statement(&set.applied_names_sql(), Vec::new())
                         .await?;
-                    applied.push(migration.tag().to_string());
+                    let applied_names = decode_rows(applied_rows)
+                        .into_iter()
+                        .map(|row| row.try_get::<String>(0))
+                        .collect::<drizzle_core::error::Result<Vec<_>>>()?;
+
+                    let mut tags = Vec::new();
+                    for migration in set.pending(&applied_names) {
+                        if migration.has_postgres_concurrent_index() {
+                            tx.execute(set.record_migration_started_sql(migration).as_str())
+                                .await?;
+                            return Ok((tags, Some(migration.clone())));
+                        }
+                        for statement in migration.statements() {
+                            if !statement.trim().is_empty() {
+                                tx.execute(statement).await?;
+                            }
+                        }
+                        tx.execute(set.record_migration_sql(migration).as_str())
+                            .await?;
+                        tags.push(migration.tag().to_string());
+                    }
+                    Ok((tags, None))
+                })
+                .await?;
+            applied.extend(tags);
+
+            let Some(migration) = concurrent else {
+                break;
+            };
+            // `CREATE/DROP INDEX CONCURRENTLY` cannot run in a transaction, so
+            // this migration runs autocommit between its dirty marker and the
+            // stamp that completes it.
+            let mut executed = 0usize;
+            for statement in migration.statements() {
+                if statement.trim().is_empty() {
+                    continue;
                 }
-                Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
-            })
+                if let Err(error) = self
+                    .run_statement(statement, Vec::new(), None::<&str>)
+                    .await
+                {
+                    // Nothing can have been applied yet, so drop the marker
+                    // rather than demand a pointless repair.
+                    if executed == 0 {
+                        let _ = self
+                            .run_statement(
+                                &set.clear_migration_started_sql(&migration),
+                                Vec::new(),
+                                None::<&str>,
+                            )
+                            .await;
+                    }
+                    return Err(error);
+                }
+                executed += 1;
+            }
+            self.run_statement(
+                &set.record_migration_finished_sql(&migration),
+                Vec::new(),
+                None::<&str>,
+            )
             .await?;
+            applied.push(migration.tag().to_string());
+        }
+
+        let outcome = if applied.is_empty() {
+            drizzle_migrations::MigrateOutcome::UpToDate
+        } else {
+            drizzle_migrations::MigrateOutcome::Applied { tags: applied }
+        };
         Ok(outcome)
     }
 }
