@@ -11,7 +11,7 @@ use drizzle::core::expr::*;
 use drizzle::sqlite::prelude::*;
 
 #[cfg(feature = "uuid")]
-use crate::common::schema::sqlite::ComplexSchema;
+use crate::common::schema::sqlite::{ComplexSchema, SimpleComplexSchema};
 
 #[cfg(feature = "uuid")]
 #[allow(dead_code)]
@@ -369,6 +369,56 @@ fn get_without_a_matching_row_is_none(db: &mut TestDb<SimpleSchema>) {
 
     let raw: Option<SelectSimple> = db.get(SQL::raw("SELECT id, name FROM simple WHERE id = 999"));
     assert_eq!(raw, None);
+}
+
+/// A scalar subquery selected as a column is parenthesized and decodes as an
+/// `Option`, like drizzle-orm's `| null`; a correlated one is evaluated per
+/// row.
+#[cfg(feature = "uuid")]
+#[drizzle::test]
+fn count_is_selectable_as_a_column(db: &mut TestDb<SimpleComplexSchema>) {
+    let SimpleComplexSchema { simple, complex } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+        ])
+        .execute();
+    db.insert(complex)
+        .values([
+            InsertComplex::new("alpha", true, Role::User),
+            InsertComplex::new("alpha", true, Role::User),
+        ])
+        .execute();
+
+    let totals = db
+        .select((simple.id, db.count(complex)))
+        .from(simple)
+        .order_by(asc(simple.id));
+    assert_eq!(
+        totals.to_sql().sql(),
+        r#"SELECT "simple"."id", (SELECT COUNT(*) FROM "complex") FROM "simple" ORDER BY "simple"."id" ASC"#
+    );
+    let rows: Vec<(i32, Option<i64>)> = totals.all();
+    assert_eq!(rows, [(1, Some(2)), (2, Some(2))]);
+
+    let per_name = db
+        .select((
+            simple.id,
+            alias(
+                db.count(complex).r#where(eq(complex.name, simple.name)),
+                "same_name",
+            ),
+        ))
+        .from(simple)
+        .order_by(asc(simple.id));
+    assert_eq!(
+        per_name.to_sql().sql(),
+        r#"SELECT "simple"."id", (SELECT COUNT(*) FROM "complex" WHERE "complex"."name" = "simple"."name") AS "same_name" FROM "simple" ORDER BY "simple"."id" ASC"#
+    );
+    let rows: Vec<(i32, Option<i64>)> = per_name.all();
+    assert_eq!(rows, [(1, Some(2)), (2, Some(0))]);
 }
 
 #[drizzle::test]

@@ -30,11 +30,11 @@ where
     E: ToSQL<'a, V>,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        self.expr.to_sql().alias(self.name)
+        self.expr.to_sql().parens_if_subquery().alias(self.name)
     }
 
     fn into_sql(self) -> SQL<'a, V> {
-        self.expr.into_sql().alias(self.name)
+        self.expr.into_sql().parens_if_subquery().alias(self.name)
     }
 }
 
@@ -175,11 +175,11 @@ where
     Name: crate::Tag,
 {
     fn to_sql(&self) -> SQL<'a, V> {
-        self.expr.to_sql().alias(Name::NAME)
+        self.expr.to_sql().parens_if_subquery().alias(Name::NAME)
     }
 
     fn into_sql(self) -> SQL<'a, V> {
-        self.expr.into_sql().alias(Name::NAME)
+        self.expr.into_sql().parens_if_subquery().alias(Name::NAME)
     }
 }
 

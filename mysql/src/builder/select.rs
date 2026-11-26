@@ -1214,6 +1214,23 @@ where
     type Aggregate = drizzle_core::expr::Scalar;
 }
 
+/// A scalar subquery selected as a column decodes as an `Option`: it is NULL
+/// when the subquery returns no row.
+impl<'a, S, State, T, M, R, G> drizzle_core::ExprValueType
+    for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound> + ExecutableState,
+    M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>> + drizzle_core::SelectSources,
+    <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType:
+        drizzle_core::SQLTypeToRust<drizzle_core::dialect::MySQLDialect>,
+{
+    type ValueType = Option<
+        <<M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType as drizzle_core::SQLTypeToRust<
+            drizzle_core::dialect::MySQLDialect,
+        >>::RustType,
+    >;
+}
+
 impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>
     drizzle_core::expr::SelectQuery for SelectBuilder<'_, S, State, T, M, R, G>
 {

@@ -44,8 +44,10 @@ macro_rules! mysql_builder_constructors {
         ///
         /// `source` is anything `.from(..)` accepts. Add `.r#where(..)` to count
         /// only the matching rows; `.get()` returns the count as an `i64`. The
-        /// query is also a scalar subquery to compare against, and its
-        /// condition may read the outer query's columns to count per row.
+        /// query is also a scalar subquery: compare against it, or select it as
+        /// a column, where it decodes as `Option<i64>` (name it with
+        /// `alias(..)`). Its condition may read the outer query's columns to
+        /// count per row.
         pub fn count<'db, 'q, Source>(
             $($receiver)*,
             source: Source,

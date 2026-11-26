@@ -539,6 +539,13 @@ where
     type Sources = T::Sources;
 }
 
+impl<Runner, S, T, State> drizzle_core::ExprValueType for DrizzleBuilder<'_, Runner, S, T, State>
+where
+    T: drizzle_core::ExprValueType,
+{
+    type ValueType = T::ValueType;
+}
+
 impl<'d, 'a, Runner, Schema>
     DrizzleBuilder<'d, Runner, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {

@@ -348,6 +348,58 @@ fn non_positive_pagination_is_sent_to_the_database(db: &mut TestDb<TestSchema>) 
     assert!(rows.is_err(), "LIMIT must not be negative");
 }
 
+/// A scalar subquery selected as a column is parenthesized and decodes as an
+/// `Option`, like drizzle-orm's `| null`; a correlated one is evaluated per
+/// row.
+#[drizzle::test]
+fn count_is_selectable_as_a_column(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, posts, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0),
+            InsertUser::new("Bob", false, Role::Member, vec![], 0, 0.0),
+        ])
+        .execute();
+    let ids: Vec<u64> = db
+        .select(users.id)
+        .from(users)
+        .r#where(eq(users.name, "Alice"))
+        .all();
+    let alice = ids[0];
+    db.insert(posts)
+        .values([InsertPost::new(alice, "one"), InsertPost::new(alice, "two")])
+        .execute();
+
+    // A handle that runs SQL through `&mut self` cannot also be borrowed for
+    // a subquery; a transaction can, as it takes `&self`.
+    let rows: Result<Vec<(String, Option<i64>)>, _> = result!(db.transaction(
+        drizzle::mysql::TransactionConfig::default(),
+        |tx| {
+            let query = tx
+                .select((
+                    users.name,
+                    drizzle::core::expr::alias(
+                        tx.count(posts).r#where(eq(posts.user_id, users.id)),
+                        "post_count",
+                    ),
+                ))
+                .from(users)
+                .order_by(asc(users.id));
+            assert_eq!(
+                query.to_sql().sql(),
+                "SELECT `test_users`.`name`, (SELECT COUNT(*) FROM `test_posts` WHERE \
+                 `test_posts`.`user_id` = `test_users`.`id`) AS `post_count` FROM `test_users` \
+                 ORDER BY `test_users`.`id` ASC"
+            );
+            result!(query.all())
+        }
+    ));
+    assert_eq!(
+        rows.expect("count as a column"),
+        [("Alice".to_string(), Some(2)), ("Bob".to_string(), Some(0))]
+    );
+}
+
 #[drizzle::test]
 fn count_runs_and_nests_as_a_subquery(db: &mut TestDb<TestSchema>) {
     let TestSchema { users, .. } = schema;

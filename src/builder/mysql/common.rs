@@ -581,6 +581,14 @@ where
     type Sources = Builder::Sources;
 }
 
+impl<Runner, Schema, Builder, State> drizzle_core::ExprValueType
+    for DrizzleBuilder<'_, Runner, Schema, Builder, State>
+where
+    Builder: drizzle_core::ExprValueType,
+{
+    type ValueType = Builder::ValueType;
+}
+
 impl<'db, 'q, Runner, Schema>
     DrizzleBuilder<
         'db,
