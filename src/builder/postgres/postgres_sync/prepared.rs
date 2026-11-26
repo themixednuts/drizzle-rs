@@ -21,7 +21,8 @@ use postgres::{
     types::{ToSql, Type},
 };
 
-use crate::builder::postgres::prepared_common::postgres_prepared_sync_impl;
+use super::postgres_sync_materialize_params;
+use crate::builder::postgres::prepared_common::{postgres_prepared_sync_impl, unnamed};
 use drizzle_core::error::ResultExt as _;
 
 const STATEMENT_CACHE_CAP: usize = 32;
@@ -33,13 +34,15 @@ static REGISTERED_CLIENTS: Mutex<Vec<ClientRegistration>> = Mutex::new(Vec::new(
 struct ClientRegistration {
     client_key: usize,
     client_id: u64,
+    // Set by `Drizzle::pooler`: run unnamed statements, cache nothing.
+    pooler: bool,
 }
 
 pub(crate) fn next_client_id() -> u64 {
     NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-pub(crate) fn register_client(client: &Client, client_id: u64) {
+pub(crate) fn register_client(client: &Client, client_id: u64, pooler: bool) {
     let client_key = client as *const Client as usize;
     let mut registrations = REGISTERED_CLIENTS
         .lock()
@@ -51,10 +54,12 @@ pub(crate) fn register_client(client: &Client, client_id: u64) {
         .find(|entry| entry.client_id == client_id)
     {
         entry.client_key = client_key;
+        entry.pooler = pooler;
     } else {
         registrations.push(ClientRegistration {
             client_key,
             client_id,
+            pooler,
         });
     }
 }
@@ -66,7 +71,7 @@ pub(crate) fn unregister_client(client_id: u64) {
     registrations.retain(|entry| entry.client_id != client_id);
 }
 
-fn registered_client_id(client: &Client) -> Option<u64> {
+fn registered_client(client: &Client) -> Option<ClientRegistration> {
     let client_key = client as *const Client as usize;
     let registrations = REGISTERED_CLIENTS
         .lock()
@@ -74,7 +79,7 @@ fn registered_client_id(client: &Client) -> Option<u64> {
     registrations
         .iter()
         .find(|entry| entry.client_key == client_key)
-        .map(|entry| entry.client_id)
+        .copied()
 }
 
 /// A query rendered once, ready to run many times with new placeholder values.
@@ -124,24 +129,105 @@ pub(crate) fn is_stale_statement(error: &postgres::Error) -> bool {
     }
 }
 
+/// Runs `sql` once without caching its statement: an unnamed one on a client
+/// in pooler mode, else a statement prepared for this call.
+pub(crate) fn query_uncached(
+    client: &mut Client,
+    sql: &str,
+    params: &[&PostgresValue<'_>],
+) -> Result<Vec<Row>, postgres::Error> {
+    if registered_client(client).is_some_and(|entry| entry.pooler) {
+        return client.query_typed(sql, &unnamed::params(params));
+    }
+    let (param_types, param_refs) = postgres_sync_materialize_params(params);
+    let statement = client.prepare_typed(sql, &param_types)?;
+    client.query(&statement, &param_refs)
+}
+
 impl StatementCache {
-    /// Drops the statement cached for `sql` on `client`, so the next use
-    /// prepares it again.
-    pub(crate) fn evict_for(&self, client: &Client, sql: &str, param_types: &[Type]) {
-        let Some(client_id) = registered_client_id(client) else {
-            return;
+    /// Runs the statement and returns the number of rows it changed.
+    pub(crate) fn execute(
+        &self,
+        client: &mut Client,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<u64, postgres::Error> {
+        let entry = registered_client(client);
+        if entry.is_some_and(|entry| entry.pooler) {
+            return client.execute_typed(sql, &unnamed::params(params));
+        }
+        let (param_types, param_refs) = postgres_sync_materialize_params(params);
+        self.run(entry, client, sql, &param_types, |client, statement| {
+            client.execute(statement, &param_refs)
+        })
+    }
+
+    /// Runs the query and returns its rows.
+    pub(crate) fn query(
+        &self,
+        client: &mut Client,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Vec<Row>, postgres::Error> {
+        let entry = registered_client(client);
+        if entry.is_some_and(|entry| entry.pooler) {
+            return client.query_typed(sql, &unnamed::params(params));
+        }
+        let (param_types, param_refs) = postgres_sync_materialize_params(params);
+        self.run(entry, client, sql, &param_types, |client, statement| {
+            client.query(statement, &param_refs)
+        })
+    }
+
+    /// Runs the query and returns its row, failing on more than one.
+    pub(crate) fn query_opt(
+        &self,
+        client: &mut Client,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Option<Row>, postgres::Error> {
+        let entry = registered_client(client);
+        if entry.is_some_and(|entry| entry.pooler) {
+            return client.query_typed_opt(sql, &unnamed::params(params));
+        }
+        let (param_types, param_refs) = postgres_sync_materialize_params(params);
+        self.run(entry, client, sql, &param_types, |client, statement| {
+            client.query_opt(statement, &param_refs)
+        })
+    }
+
+    /// Runs `run` with the statement for `sql`, cached when `client` is
+    /// registered.
+    ///
+    /// A statement cached before the schema changed, or on a connection that
+    /// was replaced, is rejected while planning: it is prepared again and
+    /// `run` is retried once.
+    fn run<T>(
+        &self,
+        entry: Option<ClientRegistration>,
+        client: &mut Client,
+        sql: &str,
+        param_types: &[Type],
+        mut run: impl FnMut(&mut Client, &Statement) -> Result<T, postgres::Error>,
+    ) -> Result<T, postgres::Error> {
+        let Some(entry) = entry else {
+            let statement = client.prepare_typed(sql, param_types)?;
+            return run(client, &statement);
         };
-        let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
-        cache.retain(|cached| {
-            !(cached.client_id == client_id
-                && cached.sql.as_ref() == sql
-                && cached.param_types.as_ref() == param_types)
-        });
+        let statement = self.statement(entry.client_id, client, sql, param_types)?;
+        match run(client, &statement) {
+            Err(error) if is_stale_statement(&error) => {
+                self.evict(entry.client_id, sql, param_types);
+                let statement = self.statement(entry.client_id, client, sql, param_types)?;
+                run(client, &statement)
+            }
+            result => result,
+        }
     }
 
     /// Drops the cached statement for `sql`, so the next use prepares it
     /// again.
-    pub(crate) fn evict(&self, client_id: u64, sql: &str, param_types: &[Type]) {
+    fn evict(&self, client_id: u64, sql: &str, param_types: &[Type]) {
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         cache.retain(|cached| {
             !(cached.client_id == client_id
@@ -157,16 +243,13 @@ impl StatementCache {
         cache.retain(|cached| cached.client_id != client_id);
     }
 
-    pub(crate) fn statement(
+    fn statement(
         &self,
+        client_id: u64,
         client: &mut Client,
         sql: &str,
         param_types: &[Type],
     ) -> Result<Statement, postgres::Error> {
-        let Some(client_id) = registered_client_id(client) else {
-            return client.prepare_typed(sql, param_types);
-        };
-
         if let Some(statement) = self.lookup(client_id, sql, param_types) {
             return Ok(statement);
         }
@@ -280,19 +363,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         self.inner.sql()
     }
 
-    pub(crate) fn driver_statement(
-        &self,
-        client: &mut Client,
-        sql: &str,
-        param_types: &[Type],
-    ) -> Result<Statement, postgres::Error> {
-        self.statement_cache.statement(client, sql, param_types)
-    }
-
-    pub(crate) fn evict_statement(&self, client: &Client, sql: &str, param_types: &[Type]) {
-        self.statement_cache.evict_for(client, sql, param_types);
-    }
-
     /// Returns how many `$n` parameters the SQL has, counting embedded values
     /// as well as placeholders.
     pub fn param_count(&self) -> usize {
@@ -353,22 +423,9 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     pub fn param_count(&self) -> usize {
         self.inner.params.len()
     }
-
-    pub(crate) fn driver_statement(
-        &self,
-        client: &mut Client,
-        sql: &str,
-        param_types: &[Type],
-    ) -> Result<Statement, postgres::Error> {
-        self.statement_cache.statement(client, sql, param_types)
-    }
-
-    pub(crate) fn evict_statement(&self, client: &Client, sql: &str, param_types: &[Type]) {
-        self.statement_cache.evict_for(client, sql, param_types);
-    }
 }
 
-postgres_prepared_sync_impl!(Client, Row, ToSql);
+postgres_prepared_sync_impl!(Client, Row);
 
 impl<Marker, DecodedRow> std::fmt::Display for PreparedStatement<'_, Marker, DecodedRow> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

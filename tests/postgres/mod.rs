@@ -21,6 +21,7 @@ pub mod joins;
 #[cfg(feature = "postgres-sync")]
 pub mod migration_apply;
 pub mod migrations;
+pub mod pooler;
 pub mod push_roundtrip;
 #[cfg(feature = "query")]
 pub mod query;

@@ -21,7 +21,8 @@ use tokio_postgres::{
     types::{ToSql, Type},
 };
 
-use crate::builder::postgres::prepared_common::postgres_prepared_async_impl;
+use super::tokio_postgres_materialize_params;
+use crate::builder::postgres::prepared_common::{postgres_prepared_async_impl, unnamed};
 use drizzle_core::error::ResultExt as _;
 
 /// A query rendered once, ready to run many times with new placeholder values.
@@ -46,6 +47,8 @@ static REGISTERED_CLIENTS: Mutex<Vec<ClientEntry>> = Mutex::new(Vec::new());
 struct ClientEntry {
     client_key: usize,
     client_id: u64,
+    // Set by `Drizzle::pooler`: run unnamed statements, cache nothing.
+    pooler: bool,
 }
 
 fn register_client(client: &Client, client_id: u64) {
@@ -66,6 +69,7 @@ fn register_client(client: &Client, client_id: u64) {
         registrations.push(ClientEntry {
             client_key,
             client_id,
+            pooler: false,
         });
     }
 }
@@ -77,7 +81,7 @@ fn unregister_client(client_id: u64) {
     registrations.retain(|entry| entry.client_id != client_id);
 }
 
-fn registered_client_id(client: &Client) -> Option<u64> {
+fn registered_client(client: &Client) -> Option<ClientEntry> {
     let client_key = std::ptr::from_ref(client) as usize;
     let registrations = REGISTERED_CLIENTS
         .lock()
@@ -85,7 +89,7 @@ fn registered_client_id(client: &Client) -> Option<u64> {
     registrations
         .iter()
         .find(|entry| entry.client_key == client_key)
-        .map(|entry| entry.client_id)
+        .copied()
 }
 
 /// Registers a `Drizzle`-owned client under a fresh identity for the
@@ -103,6 +107,20 @@ impl ClientRegistration {
         let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
         register_client(client, client_id);
         Self { client_id }
+    }
+
+    /// Records whether prepared statements run on this client go through a
+    /// transaction-mode pooler.
+    pub(crate) fn set_pooler(&self, pooler: bool) {
+        let mut registrations = REGISTERED_CLIENTS
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        if let Some(entry) = registrations
+            .iter_mut()
+            .find(|entry| entry.client_id == self.client_id)
+        {
+            entry.pooler = pooler;
+        }
     }
 }
 
@@ -141,13 +159,116 @@ impl std::fmt::Debug for StatementCache {
     }
 }
 
+/// Runs `sql` once without caching its statement: an unnamed one on a client
+/// in pooler mode, else a statement prepared for this call.
+pub(crate) async fn query_uncached(
+    client: &Client,
+    sql: &str,
+    params: &[&PostgresValue<'_>],
+) -> Result<Vec<Row>, tokio_postgres::Error> {
+    if registered_client(client).is_some_and(|entry| entry.pooler) {
+        return client.query_typed(sql, &unnamed::params(params)).await;
+    }
+    let (param_types, param_refs) = tokio_postgres_materialize_params(params);
+    let statement = client.prepare_typed(sql, &param_types).await?;
+    client.query(&statement, &param_refs).await
+}
+
 impl StatementCache {
-    /// Drops the statement cached for `sql` on `client`, so the next use
-    /// prepares it again.
-    pub(crate) fn evict_for(&self, client: &Client, sql: &str, param_types: &[Type]) {
-        let Some(client_id) = registered_client_id(client) else {
-            return;
+    /// Runs the statement and returns the number of rows it changed.
+    pub(crate) async fn execute(
+        &self,
+        client: &Client,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<u64, tokio_postgres::Error> {
+        let entry = registered_client(client);
+        if entry.is_some_and(|entry| entry.pooler) {
+            return client.execute_typed(sql, &unnamed::params(params)).await;
+        }
+        let (param_types, param_refs) = tokio_postgres_materialize_params(params);
+        let param_refs = &param_refs[..];
+        self.run(entry, client, sql, &param_types, |statement| async move {
+            client.execute(&statement, param_refs).await
+        })
+        .await
+    }
+
+    /// Runs the query and returns its rows.
+    pub(crate) async fn query(
+        &self,
+        client: &Client,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Vec<Row>, tokio_postgres::Error> {
+        let entry = registered_client(client);
+        if entry.is_some_and(|entry| entry.pooler) {
+            return client.query_typed(sql, &unnamed::params(params)).await;
+        }
+        let (param_types, param_refs) = tokio_postgres_materialize_params(params);
+        let param_refs = &param_refs[..];
+        self.run(entry, client, sql, &param_types, |statement| async move {
+            client.query(&statement, param_refs).await
+        })
+        .await
+    }
+
+    /// Runs the query and returns its row, failing on more than one.
+    pub(crate) async fn query_opt(
+        &self,
+        client: &Client,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Option<Row>, tokio_postgres::Error> {
+        let entry = registered_client(client);
+        if entry.is_some_and(|entry| entry.pooler) {
+            return client.query_typed_opt(sql, &unnamed::params(params)).await;
+        }
+        let (param_types, param_refs) = tokio_postgres_materialize_params(params);
+        let param_refs = &param_refs[..];
+        self.run(entry, client, sql, &param_types, |statement| async move {
+            client.query_opt(&statement, param_refs).await
+        })
+        .await
+    }
+
+    /// Runs `run` with the statement for `sql`, cached when `client` is
+    /// registered.
+    ///
+    /// A statement cached before the schema changed, or on a connection that
+    /// was replaced, is rejected while planning: it is prepared again and
+    /// `run` is retried once.
+    async fn run<T, F, Fut>(
+        &self,
+        entry: Option<ClientEntry>,
+        client: &Client,
+        sql: &str,
+        param_types: &[Type],
+        run: F,
+    ) -> Result<T, tokio_postgres::Error>
+    where
+        F: Fn(Statement) -> Fut,
+        Fut: core::future::Future<Output = Result<T, tokio_postgres::Error>>,
+    {
+        let Some(entry) = entry else {
+            return run(client.prepare_typed(sql, param_types).await?).await;
         };
+        let statement = self
+            .statement(entry.client_id, client, sql, param_types)
+            .await?;
+        match run(statement).await {
+            Err(error) if is_stale_statement(&error) => {
+                self.evict(entry.client_id, sql, param_types);
+                run(self
+                    .statement(entry.client_id, client, sql, param_types)
+                    .await?)
+                .await
+            }
+            result => result,
+        }
+    }
+
+    fn evict(&self, client_id: u64, sql: &str, param_types: &[Type]) {
         let mut cache = self.0.lock().unwrap_or_else(|err| err.into_inner());
         cache.retain(|cached| {
             !(cached.client_id == client_id
@@ -156,16 +277,13 @@ impl StatementCache {
         });
     }
 
-    pub(crate) async fn statement(
+    async fn statement(
         &self,
+        client_id: u64,
         client: &Client,
         sql: &str,
         param_types: &[Type],
     ) -> Result<Statement, tokio_postgres::Error> {
-        let Some(client_id) = registered_client_id(client) else {
-            return client.prepare_typed(sql, param_types).await;
-        };
-
         if let Some(statement) = self.lookup(client_id, sql, param_types) {
             return Ok(statement);
         }
@@ -371,21 +489,6 @@ impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
         self.inner.sql()
     }
 
-    pub(crate) async fn driver_statement(
-        &self,
-        client: &Client,
-        sql: &str,
-        param_types: &[Type],
-    ) -> Result<Statement, tokio_postgres::Error> {
-        self.statement_cache
-            .statement(client, sql, param_types)
-            .await
-    }
-
-    pub(crate) fn evict_statement(&self, client: &Client, sql: &str, param_types: &[Type]) {
-        self.statement_cache.evict_for(client, sql, param_types);
-    }
-
     /// Returns how many `$n` parameters the SQL has, counting embedded values
     /// as well as placeholders.
     pub fn param_count(&self) -> usize {
@@ -446,24 +549,9 @@ impl<Marker, DecodedRow> OwnedPreparedStatement<Marker, DecodedRow> {
     pub fn param_count(&self) -> usize {
         self.inner.params.len()
     }
-
-    pub(crate) async fn driver_statement(
-        &self,
-        client: &Client,
-        sql: &str,
-        param_types: &[Type],
-    ) -> Result<Statement, tokio_postgres::Error> {
-        self.statement_cache
-            .statement(client, sql, param_types)
-            .await
-    }
-
-    pub(crate) fn evict_statement(&self, client: &Client, sql: &str, param_types: &[Type]) {
-        self.statement_cache.evict_for(client, sql, param_types);
-    }
 }
 
-postgres_prepared_async_impl!(Client, Row, ToSql);
+postgres_prepared_async_impl!(Client, Row);
 
 impl<Marker, DecodedRow> std::fmt::Display for PreparedStatement<'_, Marker, DecodedRow> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

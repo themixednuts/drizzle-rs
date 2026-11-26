@@ -167,6 +167,7 @@ pub struct Drizzle<Schema = ()> {
     schema: Schema,
     client_id: OnceLock<u64>,
     statement_cache: OnceLock<prepared::StatementCache>,
+    pooler: bool,
 }
 
 /// Rows returned by `.rows()`: fetched up front, decoded as you iterate.
@@ -230,6 +231,7 @@ impl<Schema: Default> Drizzle<Schema> {
             schema: Schema::default(),
             client_id: OnceLock::new(),
             statement_cache: OnceLock::new(),
+            pooler: false,
         };
         (drizzle, Schema::default())
     }
@@ -261,40 +263,80 @@ impl<Schema> Drizzle<Schema> {
             .clone()
     }
 
-    fn cached_statement(
-        &mut self,
-        sql: &str,
-        param_types: &[Type],
-    ) -> Result<Statement, postgres::Error> {
-        let client_id = self.client_id();
-        prepared::register_client(&self.client, client_id);
-        let statement_cache = self.statement_cache();
-        statement_cache.statement(&mut self.client, sql, param_types)
+    /// Declares whether the client's connection goes through a
+    /// transaction-mode pooler, such as PgBouncer, Supabase's Supavisor on
+    /// port 6543, or a Neon `-pooler` host.
+    ///
+    /// Such a pooler hands each transaction whichever server connection is
+    /// free, so a named statement prepared on one may be missing on the next.
+    /// With `pooler` set, queries, transactions, and the prepared statements
+    /// run on [`conn_mut`](Self::conn_mut) go out as unnamed statements,
+    /// parsed and run in one round trip, and nothing is cached. drizzle-orm
+    /// detects poolers from the host and port; this handle wraps a client
+    /// that is already connected, so declare it here, right after
+    /// [`new`](Self::new):
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::sync::Drizzle;
+    /// # fn main() -> drizzle::Result<()> {
+    /// let client = ::postgres::Client::connect(
+    ///     "host=localhost port=6432 user=postgres", ::postgres::NoTls,
+    /// )?;
+    /// let (db, ()) = Drizzle::new(client);
+    /// let mut db = db.pooler(true);
+    /// # let _ = &mut db;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// [`migrate`](Self::migrate), [`push`](Self::push), and the
+    /// introspection methods still need a direct connection: they hold a
+    /// session-level advisory lock or run catalog queries as named statements.
+    /// The driver also prepares a named statement of its own the first time a
+    /// result carries a type it has not seen, such as an enum.
+    #[must_use]
+    pub fn pooler(mut self, pooler: bool) -> Self {
+        self.pooler = pooler;
+        if let Some(client_id) = self.client_id.get() {
+            self.statement_cache().clear_client(*client_id);
+        }
+        self
     }
 
-    /// Runs `run` with the cached statement for `sql`.
-    ///
-    /// A cached statement goes stale when the connection behind it was
-    /// replaced or the schema changed under it (see
-    /// [`prepared::is_stale_statement`]). The server rejects it while
-    /// planning, before it runs, so the entry is dropped and `run` is retried
-    /// once with a fresh statement.
-    fn run_cached<T>(
+    /// Registers the client, with its pooler mode, for the statement cache
+    /// and the prepared statements run on it.
+    fn registered_client(&mut self) -> &mut Client {
+        prepared::register_client(&self.client, self.client_id(), self.pooler);
+        &mut self.client
+    }
+
+    /// Runs the statement and returns the number of rows it changed.
+    fn run_execute(
         &mut self,
         sql: &str,
-        param_types: &[Type],
-        mut run: impl FnMut(&mut Client, &Statement) -> Result<T, postgres::Error>,
-    ) -> Result<T, postgres::Error> {
-        let statement = self.cached_statement(sql, param_types)?;
-        match run(&mut self.client, &statement) {
-            Err(error) if prepared::is_stale_statement(&error) => {
-                self.statement_cache()
-                    .evict(self.client_id(), sql, param_types);
-                let statement = self.cached_statement(sql, param_types)?;
-                run(&mut self.client, &statement)
-            }
-            result => result,
-        }
+        params: &[&PostgresValue<'_>],
+    ) -> Result<u64, postgres::Error> {
+        let statement_cache = self.statement_cache();
+        statement_cache.execute(self.registered_client(), sql, params)
+    }
+
+    /// Runs the query and returns its rows.
+    fn run_query(
+        &mut self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Vec<Row>, postgres::Error> {
+        let statement_cache = self.statement_cache();
+        statement_cache.query(self.registered_client(), sql, params)
+    }
+
+    /// Runs the query and returns its row, failing on more than one.
+    fn run_query_opt(
+        &mut self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Option<Row>, postgres::Error> {
+        let statement_cache = self.statement_cache();
+        statement_cache.query_opt(self.registered_client(), sql, params)
     }
 
     /// Returns the wrapped client, for calls drizzle does not cover.
@@ -307,9 +349,7 @@ impl<Schema> Drizzle<Schema> {
     /// statement.
     #[inline]
     pub fn conn_mut(&mut self) -> &mut Client {
-        let client_id = self.client_id();
-        prepared::register_client(&self.client, client_id);
-        &mut self.client
+        self.registered_client()
     }
 
     /// Returns the schema value this handle was created with.
@@ -344,15 +384,9 @@ impl<Schema> Drizzle<Schema> {
         drizzle_core::drizzle_trace_query!(&sql, params.len());
 
         #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
-        #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.db");
-        self.run_cached(&sql, &param_types, |client, statement| {
-            client.execute(statement, &param_refs[..])
-        })
-        .with_query(|| QueryContext::new(&sql, &params))
+        self.run_execute(&sql, &params)
+            .with_query(|| QueryContext::new(&sql, &params))
     }
 
     /// Runs any SQL value and collects its rows into `C` (for example
@@ -401,14 +435,8 @@ impl<Schema> Drizzle<Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let rows = self
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
@@ -439,14 +467,8 @@ impl<Schema> Drizzle<Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let row = self
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query_opt(statement, &param_refs[..])
-            })
+            .run_query_opt(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         row.map(|row| R::try_from(&row).map_err(Into::into))
@@ -521,6 +543,7 @@ impl<Schema> Drizzle<Schema> {
             self.schema,
             client_id,
             statement_cache,
+            self.pooler,
         ))
     }
 
@@ -601,7 +624,7 @@ where
         let statements = schema.create_statements()?;
 
         for statement in statements {
-            self.client.execute(&statement, &[])?;
+            self.client.batch_execute(&statement)?;
         }
 
         Ok(())
@@ -1477,14 +1500,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-        #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.db");
         self.runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.execute(statement, &param_refs[..])
-            })
+            .run_execute(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
@@ -1526,15 +1544,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let rows = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -1576,15 +1588,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.rows.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let rows = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
@@ -1627,15 +1633,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let row = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query_opt(statement, &param_refs[..])
-            })
+            .run_query_opt(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let row = row
             .map(|row| {
@@ -1714,13 +1714,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let (param_types, param_refs) = postgres_sync_materialize_params(&bind_params);
-
         let rows = self
             .runner
-            .run_cached(&sql, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql, &bind_params)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
@@ -1847,13 +1843,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let (param_types, param_refs) = postgres_sync_materialize_params(&bind_params);
-
         let rows = self
             .runner
-            .run_cached(&sql, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql, &bind_params)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
@@ -1960,16 +1952,8 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params_vec.len());
-        for param in &params_vec {
-            param_refs.push(param as &(dyn postgres::types::ToSql + Sync));
-        }
-        let param_types =
-            crate::builder::postgres::prepared_common::postgres_sync_param_types(&params_vec);
-
-        let statement = client.prepare_typed(sql_str, &param_types)?;
-        let rows = client.query(&statement, &param_refs)?;
+        let param_refs: SmallVec<[&PostgresValue<'_>; 8]> = params_vec.iter().collect();
+        let rows = prepared::query_uncached(client, sql_str, &param_refs)?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in rows {
@@ -2059,16 +2043,8 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params_vec.len());
-        for param in &params_vec {
-            param_refs.push(param as &(dyn postgres::types::ToSql + Sync));
-        }
-        let param_types =
-            crate::builder::postgres::prepared_common::postgres_sync_param_types(&params_vec);
-
-        let statement = client.prepare_typed(sql_str, &param_types)?;
-        let rows = client.query(&statement, &param_refs)?;
+        let param_refs: SmallVec<[&PostgresValue<'_>; 8]> = params_vec.iter().collect();
+        let rows = prepared::query_uncached(client, sql_str, &param_refs)?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in rows {
