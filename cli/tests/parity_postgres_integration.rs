@@ -456,6 +456,32 @@ fn push_after_pull_keeps_expression_defaults() {
 }
 
 #[test]
+fn push_after_pull_keeps_timestamp_and_time_precision() {
+    for date_time in ["chrono", "jiff"] {
+        let (schema_rs, push) = pull_then_explain_push(
+            r#"CREATE TABLE "{schema}"."events" (
+                "id" integer PRIMARY KEY,
+                "at" timestamp(3) NOT NULL,
+                "instant" timestamptz(0),
+                "starts" time(2)
+            );"#,
+            &["--datetime", date_time],
+        );
+        for attr in [
+            "#[column(TIMESTAMP(3))]",
+            "#[column(TIMESTAMPTZ(0))]",
+            "#[column(TIME(2))]",
+        ] {
+            assert!(schema_rs.contains(attr), "missing `{attr}`:\n{schema_rs}");
+        }
+        assert!(
+            push.contains("No schema changes detected."),
+            "{schema_rs}\n{push}"
+        );
+    }
+}
+
+#[test]
 fn pull_with_jiff_date_time_types_pushes_nothing() {
     let (schema_rs, push) = pull_then_explain_push(
         r#"CREATE TABLE "{schema}"."events" (

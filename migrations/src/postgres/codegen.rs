@@ -952,7 +952,7 @@ fn generate_column_field(
         ));
     }
 
-    if let Some(physical_type) = bounded_character_type_attr(column) {
+    if let Some(physical_type) = physical_type_attr(column) {
         attrs.push(physical_type);
     }
 
@@ -1180,11 +1180,19 @@ fn serial_attr(sql_type: &str) -> Option<&'static str> {
 
 /// Explains why a column's type cannot be kept by the generated field, or
 /// `None` when the field's Rust type (plus any `varchar(n)` / `char(n)` /
-/// `json` marker) produces the same SQL type.
+/// `timestamp(p)` / `json` marker) produces the same SQL type.
 fn unsupported_type_note(column: &Column, date_time: DateTimeCrate) -> Option<String> {
     let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
     let base = normalized.trim_end_matches("[]");
-    let base_name = base.split('(').next().unwrap_or(base).trim();
+    // The type name without its arguments: `timestamp(3) with time zone`
+    // is a `timestamp with time zone`.
+    let base_name = match (base.find('('), base.find(')')) {
+        (Some(open), Some(close)) if open < close => {
+            format!("{}{}", &base[..open], &base[close + 1..])
+        }
+        _ => base.to_string(),
+    };
+    let base_name = base_name.trim();
     let is_array = base.len() != normalized.len() || column.dimensions.is_some_and(|d| d > 0);
     let field_type =
         || rust_type_with_dimensions(&column.sql_type, column.dimensions, true, date_time);
@@ -1220,7 +1228,14 @@ fn unsupported_type_note(column: &Column, date_time: DateTimeCrate) -> Option<St
             | "inet"
             | "cidr"
     ) || (matches!(base_name, "character varying" | "character")
-        && bounded_character_type_attr(column).is_some());
+        && physical_type_attr(column).is_some());
+    if supported && has_unkept_precision(column) {
+        return Some(format!(
+            "`{}` keeps its precision only on a field that is not an array (#[column(TIMESTAMP(p))]); the field type `{}` maps to the default precision, so `drizzle generate` would change the column.",
+            column.sql_type,
+            field_type()
+        ));
+    }
     (!supported).then(|| {
         format!(
             "`{}` has no built-in Rust mapping in #[PostgresTable]; the field type `{}` maps to a different SQL type, so `drizzle generate` would change the column. Use a type implementing `DrizzlePostgresColumn`.",
@@ -1230,23 +1245,46 @@ fn unsupported_type_note(column: &Column, date_time: DateTimeCrate) -> Option<St
     })
 }
 
-fn bounded_character_type_attr(column: &Column) -> Option<String> {
+/// The `#[column(...)]` SQL type marker that keeps the declared length or
+/// precision of a column: `VARCHAR(n)`, `CHAR(n)`, or, on a column that is
+/// not an array, `TIMESTAMP(p)`, `TIMESTAMPTZ(p)` or `TIME(p)`.
+fn physical_type_attr(column: &Column) -> Option<String> {
     let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
-    for (prefix, marker) in [("character varying", "VARCHAR"), ("character", "CHAR")] {
-        let Some(arguments) = normalized
+    let is_array = column.dimensions.is_some_and(|d| d > 0);
+    for (prefix, qualifier, marker, min) in [
+        ("character varying", "", "VARCHAR", 1),
+        ("character", "", "CHAR", 1),
+        ("timestamp", " with time zone", "TIMESTAMPTZ", 0),
+        ("timestamp", "", "TIMESTAMP", 0),
+        ("time", "", "TIME", 0),
+    ] {
+        if is_array && min == 0 {
+            continue;
+        }
+        let Some(argument) = normalized
             .strip_prefix(prefix)
+            .and_then(|value| value.strip_suffix(qualifier))
             .and_then(|value| value.strip_prefix('('))
+            .and_then(|value| value.strip_suffix(')'))
         else {
             continue;
         };
-        let Some(length) = arguments.strip_suffix(')') else {
-            continue;
-        };
-        if !length.is_empty() && length.chars().all(|character| character.is_ascii_digit()) {
-            return Some(format!("{marker}({length})"));
+        if let Ok(value) = argument.parse::<u32>()
+            && value >= min
+            && argument.chars().all(|character| character.is_ascii_digit())
+        {
+            return Some(format!("{marker}({value})"));
         }
     }
     None
+}
+
+/// Whether the column declares a precision that the generated field cannot
+/// keep: `timestamp(p)`, `timestamptz(p)` or `time(p)` arrays.
+fn has_unkept_precision(column: &Column) -> bool {
+    let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
+    let base = normalized.trim_end_matches("[]");
+    base.starts_with("time") && base.contains('(') && physical_type_attr(column).is_none()
 }
 
 /// Generate a Rust enum definition from a `PostgreSQL` enum
@@ -1865,6 +1903,66 @@ mod tests {
         // Nullable types
         assert_eq!(sql_type_to_rust_type("int4", false), "Option<i32>");
         assert_eq!(sql_type_to_rust_type("text", false), "Option<String>");
+    }
+
+    #[test]
+    fn timestamp_and_time_precision_round_trip() {
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "events"));
+        for (name, sql_type) in [
+            ("at", "timestamp(3)"),
+            ("at_tz", "timestamptz(0)"),
+            ("at_tz_long", "timestamp(6) with time zone"),
+            ("starts", "time(2)"),
+            ("plain", "timestamp"),
+        ] {
+            ddl.columns
+                .push(Column::new("public", "events", name, sql_type).not_null());
+        }
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        for attr in [
+            "#[column(TIMESTAMP(3))]\n    at: chrono::NaiveDateTime,",
+            "#[column(TIMESTAMPTZ(0))]\n    at_tz: chrono::DateTime<chrono::Utc>,",
+            "#[column(TIMESTAMPTZ(6))]\n    at_tz_long: chrono::DateTime<chrono::Utc>,",
+            "#[column(TIME(2))]\n    starts: chrono::NaiveTime,",
+            "    plain: chrono::NaiveDateTime,",
+        ] {
+            assert!(
+                generated.code.contains(attr),
+                "missing `{attr}`:\n{}",
+                generated.code
+            );
+        }
+        assert!(!generated.code.contains("TODO"), "{}", generated.code);
+        assert_round_trips(&ddl, &generated);
+    }
+
+    #[test]
+    fn timestamp_precision_of_an_array_is_flagged() {
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "events"));
+        let mut times = Column::new("public", "events", "times", "timestamp(3)");
+        times.dimensions = Some(1);
+        ddl.columns.push(times);
+
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        assert!(
+            generated.code.contains(
+                "// TODO: `timestamp(3)` keeps its precision only on a field that is not an array"
+            ),
+            "{}",
+            generated.code
+        );
+        assert!(
+            !generated.code.contains("TIMESTAMP(3)"),
+            "{}",
+            generated.code
+        );
     }
 
     #[test]
