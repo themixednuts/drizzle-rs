@@ -40,6 +40,34 @@ macro_rules! mysql_builder_constructors {
             DrizzleBuilder::new($this, QueryBuilder::new::<Schema>().select_distinct(columns))
         }
 
+        /// Counts the rows of `source`: `SELECT COUNT(*) FROM source`.
+        ///
+        /// `source` is anything `.from(..)` accepts. Add `.r#where(..)` to count
+        /// only the matching rows; `.get()` returns the count as an `i64`. The
+        /// query is also a scalar subquery to compare against, and its
+        /// condition may read the outer query's columns to count per row.
+        pub fn count<'db, 'q, Source>(
+            $($receiver)*,
+            source: Source,
+        ) -> DrizzleBuilder<
+            'db,
+            $runner,
+            Schema,
+            crate::builder::mysql::CountSelect<'q, Schema, Source>,
+            drizzle_mysql::builder::SelectFromSet,
+        >
+        where
+            Source: ToSQL<'q, MySQLValue<'q>> + drizzle_core::ScopeEntry,
+            crate::builder::CountMarker<'q, MySQLValue<'q>>: drizzle_core::ResolveRow<Source>,
+        {
+            DrizzleBuilder::new(
+                $this,
+                QueryBuilder::new::<Schema>()
+                    .select(drizzle_core::expr::count(()))
+                    .from(source),
+            )
+        }
+
         /// Starts an `INSERT` into `table`.
         ///
         /// Follow it with `.values(..)` and `Insert*` models, or with `.select(..)`
@@ -118,6 +146,18 @@ macro_rules! mysql_builder_constructors {
 }
 
 pub mod common;
+
+/// The `SELECT COUNT(*) FROM source` query that `count(source)` starts.
+pub(crate) type CountSelect<'q, Schema, Source> = drizzle_mysql::builder::SelectBuilder<
+    'q,
+    Schema,
+    drizzle_mysql::builder::SelectFromSet,
+    Source,
+    drizzle_core::FromMarker<super::CountMarker<'q, drizzle_mysql::values::MySQLValue<'q>>, Source>,
+    <super::CountMarker<'q, drizzle_mysql::values::MySQLValue<'q>> as drizzle_core::ResolveRow<
+        Source,
+    >>::Row,
+>;
 
 #[cfg(any(feature = "mysql-sync", feature = "mysql-async"))]
 pub(crate) mod driver_common;

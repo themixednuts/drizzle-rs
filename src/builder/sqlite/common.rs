@@ -426,6 +426,65 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         }
     }
 
+    /// Counts the rows of `source`: `SELECT COUNT(*) FROM source`.
+    ///
+    /// `source` is anything [`from`](DrizzleBuilder::from) accepts. Add
+    /// `.r#where(..)` to count only the matching rows; `.get()` returns the
+    /// count as an `i64`. The query is also a scalar subquery to compare
+    /// against, and its condition may read the outer query's columns to
+    /// count per row.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::{eq, gt};
+    ///
+    /// let adults: i64 = db.count(users).r#where(gt(users.age, 18)).get()?;
+    /// assert_eq!(adults, 2);
+    ///
+    /// let authors: Vec<String> = db
+    ///     .select(users.name)
+    ///     .from(users)
+    ///     .r#where(gt(db.count(posts).r#where(eq(posts.author_id, users.id)), 0))
+    ///     .all()?;
+    /// assert_eq!(authors, ["Alex Smith"]);
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    #[cfg(feature = "sqlite")]
+    pub fn count<'a, 'b, Source>(
+        &'a self,
+        source: Source,
+    ) -> DrizzleBuilder<
+        'a,
+        Self,
+        Schema,
+        crate::builder::sqlite::CountSelect<'b, Schema, Source>,
+        SelectFromSet,
+    >
+    where
+        Source: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::ScopeEntry,
+        crate::builder::CountMarker<'b, SQLiteValue<'b>>: drizzle_core::ResolveRow<Source>,
+    {
+        let builder = QueryBuilder::new::<Schema>()
+            .select(drizzle_core::expr::count(()))
+            .from(source);
+        DrizzleBuilder {
+            runner: self,
+            builder,
+            state: PhantomData,
+        }
+    }
+
     /// Starts an `INSERT` into `table`.
     ///
     /// Follow it with [`value`](DrizzleBuilder::value) or

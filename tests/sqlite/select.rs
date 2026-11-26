@@ -294,3 +294,49 @@ fn get_without_a_matching_row_is_none(db: &mut TestDb<SimpleSchema>) {
     let raw: Option<SelectSimple> = db.get(SQL::raw("SELECT id, name FROM simple WHERE id = 999"));
     assert_eq!(raw, None);
 }
+
+#[drizzle::test]
+fn count_runs_and_nests_as_a_subquery(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+            InsertSimple::new("gamma").with_id(3),
+        ])
+        .execute();
+
+    let all = db.count(simple);
+    assert_eq!(all.to_sql().sql(), r#"SELECT COUNT(*) FROM "simple""#);
+    let total: i64 = all.get();
+    assert_eq!(total, 3);
+
+    let filtered = db.count(simple).r#where(gt(simple.id, 1));
+    assert_eq!(
+        filtered.to_sql().sql(),
+        r#"SELECT COUNT(*) FROM "simple" WHERE "simple"."id" > ?"#
+    );
+    let above_one: i64 = filtered.get();
+    assert_eq!(above_one, 2);
+
+    let none: i64 = db.count(simple).r#where(gt(simple.id, 10)).get();
+    assert_eq!(none, 0);
+
+    let below_total = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lt(simple.id, db.count(simple)));
+    assert_eq!(
+        below_total.to_sql().sql(),
+        r#"SELECT "simple"."name" FROM "simple" WHERE "simple"."id" <(SELECT COUNT(*) FROM "simple")"#
+    );
+    let names: Vec<String> = below_total.all();
+    assert_eq!(names, ["alpha", "beta"]);
+
+    let in_tx: Result<i64, _> = result!(db.transaction(
+        drizzle::sqlite::connection::SQLiteTransactionType::Deferred,
+        |tx| result!(tx.count(simple).r#where(lt(simple.id, 3)).get())
+    ));
+    assert_eq!(in_tx.expect("count inside a transaction"), 2);
+}

@@ -347,3 +347,44 @@ fn non_positive_pagination_is_sent_to_the_database(db: &mut TestDb<TestSchema>) 
     let rows: Result<Vec<u64>, _> = result!(negative.all());
     assert!(rows.is_err(), "LIMIT must not be negative");
 }
+
+#[drizzle::test]
+fn count_runs_and_nests_as_a_subquery(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0),
+            InsertUser::new("Bob", false, Role::Member, vec![], 2, 0.0),
+            InsertUser::new("Carol", true, Role::Member, vec![], 10, 0.0),
+        ])
+        .execute();
+
+    let all = db.count(users);
+    assert_eq!(all.to_sql().sql(), "SELECT COUNT(*) FROM `test_users`");
+    let total: i64 = all.get();
+    assert_eq!(total, 3);
+
+    let filtered = db.count(users).r#where(eq(users.active, true));
+    assert_eq!(
+        filtered.to_sql().sql(),
+        "SELECT COUNT(*) FROM `test_users` WHERE `test_users`.`active` = ?"
+    );
+    let active: i64 = filtered.get();
+    assert_eq!(active, 2);
+
+    // A handle that runs SQL through `&mut self` cannot also be borrowed for
+    // a subquery; a transaction's `count` can, as it takes `&self`.
+    let below_total: Result<Vec<String>, _> = result!(db.transaction(
+        drizzle::mysql::TransactionConfig::default(),
+        |tx| {
+            result!(
+                tx.select(users.name)
+                    .from(users)
+                    .r#where(drizzle::core::expr::lt(users.balance, tx.count(users)))
+                    .order_by(asc(users.id))
+                    .all()
+            )
+        }
+    ));
+    assert_eq!(below_total.expect("count as a subquery"), ["Alice", "Bob"]);
+}

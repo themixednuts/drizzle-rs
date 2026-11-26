@@ -58,6 +58,30 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
+        /// Counts the rows of `source`: `SELECT COUNT(*) FROM source`.
+        ///
+        /// `source` is anything `.from(..)` accepts. Add `.r#where(..)` to count
+        /// only the matching rows; `.get()` returns the count as an `i64`. The
+        /// query is also a scalar subquery to compare against, and its
+        /// condition may read the outer query's columns to count per row.
+        pub fn count<'a, 'b, Source>(
+            &'a self,
+            source: Source,
+        ) -> DrizzleBuilder<'a, Schema, crate::builder::postgres::CountSelect<'b, Schema, Source>, drizzle_postgres::builder::SelectFromSet>
+        where
+            Source: ToSQL<'b, PostgresValue<'b>> + drizzle_core::ScopeEntry,
+            crate::builder::CountMarker<'b, PostgresValue<'b>>: drizzle_core::ResolveRow<Source>,
+        {
+            let builder = QueryBuilder::new::<Schema>()
+                .select(drizzle_core::expr::count(()))
+                .from(source);
+            DrizzleBuilder {
+                runner: self,
+                builder,
+                state: ::std::marker::PhantomData,
+            }
+        }
+
         /// Starts an `INSERT` into `table`.
         ///
         /// Follow it with `.values(..)` and `Insert*` models, or with `.select(..)`
@@ -189,6 +213,30 @@ macro_rules! postgres_builder_constructors {
             }
         }
 
+        /// Counts the rows of `source`: `SELECT COUNT(*) FROM source`.
+        ///
+        /// `source` is anything `.from(..)` accepts. Add `.r#where(..)` to count
+        /// only the matching rows; `.get()` returns the count as an `i64`. The
+        /// query is also a scalar subquery to compare against, and its
+        /// condition may read the outer query's columns to count per row.
+        pub fn count<'a, 'b, Source>(
+            &'a mut self,
+            source: Source,
+        ) -> DrizzleBuilder<'a, Schema, crate::builder::postgres::CountSelect<'b, Schema, Source>, drizzle_postgres::builder::SelectFromSet>
+        where
+            Source: ToSQL<'b, PostgresValue<'b>> + drizzle_core::ScopeEntry,
+            crate::builder::CountMarker<'b, PostgresValue<'b>>: drizzle_core::ResolveRow<Source>,
+        {
+            let builder = QueryBuilder::new::<Schema>()
+                .select(drizzle_core::expr::count(()))
+                .from(source);
+            DrizzleBuilder {
+                runner: self,
+                builder,
+                state: ::std::marker::PhantomData,
+            }
+        }
+
         /// Starts an `INSERT` into `table`.
         ///
         /// Follow it with `.values(..)` and `Insert*` models, or with `.select(..)`
@@ -289,3 +337,18 @@ pub mod bulk;
 pub mod common;
 pub mod prepared_common;
 pub mod rows;
+
+/// The `SELECT COUNT(*) FROM source` query that `count(source)` starts.
+pub(crate) type CountSelect<'q, Schema, Source> = drizzle_postgres::builder::select::SelectBuilder<
+    'q,
+    Schema,
+    drizzle_postgres::builder::SelectFromSet,
+    Source,
+    drizzle_core::FromMarker<
+        super::CountMarker<'q, drizzle_postgres::values::PostgresValue<'q>>,
+        Source,
+    >,
+    <super::CountMarker<'q, drizzle_postgres::values::PostgresValue<'q>> as drizzle_core::ResolveRow<
+        Source,
+    >>::Row,
+>;

@@ -1154,3 +1154,43 @@ fn get_without_a_matching_row_is_none(db: &mut TestDb<SimpleSchema>) {
     let several: drizzle::Result<Option<SelectSimple>> = result!(db.select(()).from(simple).get());
     assert!(several.is_err(), "{several:?}");
 }
+
+#[drizzle::test]
+fn count_runs_and_nests_as_a_subquery(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+            InsertSimple::new("gamma").with_id(3),
+        ])
+        .execute();
+
+    let all = db.count(simple);
+    assert_eq!(all.to_sql().sql(), r#"SELECT COUNT(*) FROM "simple""#);
+    let total: i64 = all.get();
+    assert_eq!(total, 3);
+
+    let filtered = db.count(simple).r#where(gt(simple.id, 1));
+    assert_eq!(
+        filtered.to_sql().sql(),
+        r#"SELECT COUNT(*) FROM "simple" WHERE "simple"."id" > $1"#
+    );
+    let above_one: i64 = filtered.get();
+    assert_eq!(above_one, 2);
+
+    // A handle that runs SQL through `&mut self` cannot also be borrowed for
+    // a subquery; a transaction's `count` can, as it takes `&self`.
+    let below_total: Result<Vec<String>, _> = result!(db.transaction(
+        drizzle::postgres::TransactionConfig::default(),
+        |tx| result!(
+            tx.select(simple.name)
+                .from(simple)
+                .r#where(lt(simple.id, tx.count(simple)))
+                .order_by(asc(simple.id))
+                .all()
+        )
+    ));
+    assert_eq!(below_total.expect("count as a subquery"), ["alpha", "beta"]);
+}
