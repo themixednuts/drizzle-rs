@@ -2566,6 +2566,14 @@ impl Generator {
             |clause: &str| format!("ALTER TABLE {table_key} ALTER COLUMN {column} {clause};");
         let mut stmts = Vec::new();
 
+        let identity_changed = diff.contains_key("identity")
+            && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial();
+        // An identity column rejects a new default and most type changes, so
+        // dropping the identity comes before everything else.
+        if identity_changed && to.identity.is_none() {
+            stmts.push(alter("DROP IDENTITY"));
+        }
+
         let type_changed = diff.contains_key("type");
         let collate_changed = diff.contains_key("collate");
         // PostgreSQL cannot cast a default across enum types: drop it,
@@ -2677,9 +2685,7 @@ impl Generator {
             stmts.push(alter("DROP EXPRESSION"));
         }
 
-        if diff.contains_key("identity")
-            && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial()
-        {
+        if identity_changed {
             let old_identity = diff
                 .get("identity")
                 .and_then(|change| change.get("from"))
@@ -2703,8 +2709,8 @@ impl Generator {
                         stmts.push(alter(&set_sql));
                     }
                 }
-                // Some -> None: DROP IDENTITY.
-                (None, _) => stmts.push(alter("DROP IDENTITY")),
+                // Some -> None: DROP IDENTITY, emitted first above.
+                (None, _) => {}
             }
         }
 

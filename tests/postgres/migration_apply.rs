@@ -651,6 +651,53 @@ fn serial_transitions() {
 }
 
 #[test]
+fn identity_dropped_with_a_new_type_default_or_nullability() {
+    // drizzle-orm#4178: the identity goes first, or PostgreSQL rejects the
+    // new type and default of a column that is still an identity.
+    let mut prev = PostgresDDL::new();
+    table(&mut prev, "public", "t");
+    column(&mut prev, "public", "t", "id", "integer");
+    col(&mut prev, "t", "id").not_null = true;
+    col(&mut prev, "t", "id").identity = Some(Identity::always("t_id_seq"));
+    let without_identity = |edit: fn(&mut Column)| {
+        let mut cur = prev.clone();
+        let id = col(&mut cur, "t", "id");
+        id.identity = None;
+        edit(id);
+        cur
+    };
+
+    let mut db = TestSchema::new("identity_to_bigint");
+    let cur = without_identity(|id| {
+        id.sql_type = Cow::Borrowed("bigint");
+        id.default = Some(Cow::Borrowed("0"));
+    });
+    let statements = db.apply(&prev, &cur, "");
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" DROP IDENTITY;",
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" SET DATA TYPE bigint USING \"id\"::bigint;",
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" SET DEFAULT 0;",
+        ]
+    );
+    db.run(&["INSERT INTO t DEFAULT VALUES;".to_string()]);
+
+    // DROP IDENTITY keeps NOT NULL, so a nullable column drops it as well.
+    let mut db = TestSchema::new("identity_nullable");
+    let cur = without_identity(|id| id.not_null = false);
+    let statements = db.apply(&prev, &cur, "");
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" DROP IDENTITY;",
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" DROP NOT NULL;",
+        ]
+    );
+    db.run(&["INSERT INTO t VALUES (NULL);".to_string()]);
+}
+
+#[test]
 fn new_table_fk_to_unique_added_in_the_same_migration() {
     let mut db = TestSchema::new("fk_new_unique");
     let mut prev = PostgresDDL::new();
