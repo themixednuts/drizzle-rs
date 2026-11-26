@@ -21,7 +21,7 @@ error[E0277]: `drizzle::postgres::types::Text` is not an integer SQL type
 note: required by a bound in `substr`
  --> core/src/expr/string.rs
   |
-  | pub fn substr<'a, V, E, S, L>(
+  | pub fn substr<'a, V, E, S, L, M>(
   |        ------ required by a bound in this function
 ...
   |     S::SQLType: Integral,
@@ -47,11 +47,36 @@ error[E0277]: `drizzle::postgres::types::Text` is not an integer SQL type
             drizzle::ddl::mysql::types::IntUnsigned
             drizzle::ddl::mysql::types::MediumInt
           and $N others
+  = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text>` to implement `drizzle::core::expr::SubstrLength<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::core::expr::string::substr_length_private::Given>`
 note: required by a bound in `substr`
  --> core/src/expr/string.rs
   |
-  | pub fn substr<'a, V, E, S, L>(
+  | pub fn substr<'a, V, E, S, L, M>(
   |        ------ required by a bound in this function
 ...
-  |     L::SQLType: Integral,
-  |                 ^^^^^^^^ required by this bound in `substr`
+  |     L: SubstrLength<'a, V, M>,
+  |        ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `substr`
+
+error[E0277]: `drizzle::postgres::types::Text` is not an integer SQL type
+  --> tests/ui/scalar_types_postgres/fail/substr_text_position.rs:6:13
+   |
+ 6 |       let _ = substr(
+   |  _____________^
+ 7 | |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'hello'"),
+ 8 | |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'one'"),
+ 9 | |         raw_non_null::<PostgresValue, drizzle::postgres::types::Text>("'two'"),
+10 | |     );
+   | |_____^ expected SmallInt, Int, or BigInt
+   |
+   = help: the trait `Integral` is not implemented for `drizzle::postgres::types::Text`
+   = help: the following other types implement trait `Integral`:
+             Int2
+             Int4
+             Int8
+             drizzle::ddl::mysql::types::BigInt
+             drizzle::ddl::mysql::types::BigIntUnsigned
+             drizzle::ddl::mysql::types::Int
+             drizzle::ddl::mysql::types::IntUnsigned
+             drizzle::ddl::mysql::types::MediumInt
+           and $N others
+   = note: required for `SQLExpr<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::postgres::types::Text>` to implement `drizzle::core::expr::SubstrLength<'_, drizzle::postgres::prelude::PostgresValue<'_>, drizzle::core::expr::string::substr_length_private::Given>`

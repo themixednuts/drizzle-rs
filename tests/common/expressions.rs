@@ -290,6 +290,13 @@ macro_rules! shared_expression_suite {
                     .all();
                 assert_eq!(prefixes, ["Car"]);
 
+                let tails: Vec<String> = db
+                    .select(substr(rows.name, 2, ()))
+                    .from(rows)
+                    .r#where(eq(rows.id, 3))
+                    .all();
+                assert_eq!(tails, ["arol"]);
+
                 let replaced: Vec<String> = db
                     .select(replace(rows.name, "o", "0"))
                     .from(rows)

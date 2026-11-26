@@ -387,11 +387,61 @@ where
 // SUBSTRING
 // =============================================================================
 
-/// Part of a text value (`SUBSTR(expr, start, len)`).
+mod substr_length_private {
+    /// Marks `()`: no length.
+    pub struct Omitted;
+    /// Marks an integer expression.
+    pub struct Given;
+}
+
+/// Length argument accepted by [`substr`]: `()` to keep the rest of the
+/// text, or an integer expression.
 ///
-/// Returns `len` characters starting at `start`, counting from 1. `expr`
-/// must be text; `start` and `len` must be integers. The result is text,
-/// nullable if any argument is.
+/// Sealed: `M` is one of two unnameable markers that tell the kinds apart,
+/// so `substr(expr, start, ())` works without making `()` a general SQL
+/// expression.
+#[doc(hidden)]
+pub trait SubstrLength<'a, V: SQLParam, M>: ExprSources {
+    /// Nullability of the length, `NonNull` when there is none.
+    type Nullable: Nullability;
+    /// Aggregate kind of the length, `Scalar` when there is none.
+    type Aggregate: AggregateKind;
+
+    /// Renders the length, or `None` when there is none.
+    fn length_sql(self) -> Option<SQL<'a, V>>;
+}
+
+impl<'a, V: SQLParam + 'a> SubstrLength<'a, V, substr_length_private::Omitted> for () {
+    type Nullable = NonNull;
+    type Aggregate = super::Scalar;
+
+    fn length_sql(self) -> Option<SQL<'a, V>> {
+        None
+    }
+}
+
+impl<'a, V, E> SubstrLength<'a, V, substr_length_private::Given> for E
+where
+    V: SQLParam + 'a,
+    E: Expr<'a, V>,
+    E::SQLType: Integral,
+    E::Nullable: Nullability,
+    E::Aggregate: AggregateKind,
+{
+    type Nullable = E::Nullable;
+    type Aggregate = E::Aggregate;
+
+    fn length_sql(self) -> Option<SQL<'a, V>> {
+        Some(self.into_sql())
+    }
+}
+
+/// Part of a text value (`SUBSTR(expr, start[, len])`).
+///
+/// Returns `len` characters starting at `start`, counting from 1, or every
+/// character from `start` on when `len` is `()`. `expr` must be text;
+/// `start` and `len` must be integers. The result is text, nullable if any
+/// argument is.
 ///
 /// # Examples
 ///
@@ -410,9 +460,13 @@ where
 /// // The first three characters.
 /// let prefix = substr(users.name, 1, 3);
 /// assert_eq!(prefix.sql(), r#"SUBSTR ("users"."name", ?, ?)"#);
+///
+/// // Every character from the fourth on.
+/// let tail = substr(users.name, 4, ());
+/// assert_eq!(tail.sql(), r#"SUBSTR ("users"."name", ?)"#);
 /// ```
 #[allow(clippy::type_complexity)]
-pub fn substr<'a, V, E, S, L>(
+pub fn substr<'a, V, E, S, L, M>(
     expr: E,
     start: S,
     len: L,
@@ -432,19 +486,13 @@ where
     S::SQLType: Integral,
     S::Nullable: Nullability,
     S::Aggregate: AggregateKind,
-    L: Expr<'a, V>,
-    L::SQLType: Integral,
-    L::Nullable: Nullability,
-    L::Aggregate: AggregateKind,
+    L: SubstrLength<'a, V, M>,
 {
-    SQLExpr::new(SQL::func(
-        "SUBSTR",
-        expr.into_sql()
-            .push(Token::COMMA)
-            .append(start.into_sql())
-            .push(Token::COMMA)
-            .append(len.into_sql()),
-    ))
+    let mut args = expr.into_sql().push(Token::COMMA).append(start.into_sql());
+    if let Some(len) = len.length_sql() {
+        args = args.push(Token::COMMA).append(len);
+    }
+    SQLExpr::new(SQL::func("SUBSTR", args))
 }
 
 // =============================================================================

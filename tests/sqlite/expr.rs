@@ -1063,6 +1063,17 @@ fn test_string_substr(db: &mut TestDb<SimpleSchema>) {
         .from(simple)
         .all();
     assert_eq!(result[0].result, "World");
+
+    // Without a length: everything from the seventh character on
+    let tail = db
+        .select(alias(substr(simple.name, 7, ()), "result"))
+        .from(simple);
+    assert_eq!(
+        tail.to_sql().sql(),
+        r#"SELECT SUBSTR ("simple"."name", ?) AS "result" FROM "simple""#
+    );
+    let result: Vec<StringResult> = tail.all();
+    assert_eq!(result[0].result, "World");
 }
 
 #[drizzle::test]
