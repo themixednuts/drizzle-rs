@@ -115,7 +115,7 @@ fn postgres_sync_push_creates_table() {
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_push_is_idempotent() {
-    let (mut db, schema) = crate::common::helpers::postgres_sync_setup::setup_empty_named_db(
+    let (db, schema) = crate::common::helpers::postgres_sync_setup::setup_empty_named_db(
         "push_idempotent_test",
         PushIdempotentSchema::default(),
     );
