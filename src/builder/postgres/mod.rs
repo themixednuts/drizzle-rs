@@ -280,6 +280,12 @@ pub mod hyperdrive;
 #[cfg(feature = "aws-data-api")]
 pub mod aws_data_api;
 
+#[cfg(any(
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "hyperdrive"
+))]
+pub mod bulk;
 pub mod common;
 pub mod prepared_common;
 pub mod rows;

@@ -137,6 +137,7 @@ use drizzle_postgres::transaction::{AccessMode, IsolationLevel, TransactionConfi
 use drizzle_postgres::values::PostgresValue;
 use smallvec::SmallVec;
 
+use crate::builder::postgres::bulk::{self, BulkInsertOptions};
 use crate::builder::postgres::common;
 use crate::builder::postgres::rows::DecodeRows;
 use crate::transaction::savepoint::sync_transaction;
@@ -601,6 +602,64 @@ impl<Schema> Drizzle<Schema> {
             |transaction| transaction.commit(),
             |transaction| transaction.rollback(),
         )
+    }
+
+    /// Inserts `rows` into `table` in bulk, as multi-row `VALUES` statements,
+    /// and returns the number of rows inserted.
+    ///
+    /// The rows are the table's `Insert*` models, so `default_fn` values are
+    /// filled as for [`insert`](Self::insert). A cell a row leaves unset gets
+    /// the column's database default (`DEFAULT`), and a column no row sets is
+    /// left out of the statement. The rows are split into statements of at
+    /// most 65535 parameters, PostgreSQL's limit; by default those run in one
+    /// transaction. [`BulkInsertOptions::atomic`] set to `false` commits each
+    /// statement on its own instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first statement's error. An atomic insert then inserted
+    /// nothing; one that is not keeps the statements before the failing one.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::sync::Drizzle;
+    /// # use drizzle::postgres::BulkInsertOptions;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # fn main() -> drizzle::Result<()> {
+    /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
+    /// # let (mut db, S { user }) = Drizzle::new(client);
+    /// let rows = (0..100_000).map(|i| InsertUser::new(format!("user {i}")));
+    /// let inserted = db.bulk_insert(user, rows, BulkInsertOptions::default())?;
+    /// # Ok(()) }
+    /// ```
+    pub fn bulk_insert<'b, Table, T>(
+        &mut self,
+        table: Table,
+        rows: impl IntoIterator<Item = Table::Insert<T>>,
+        options: BulkInsertOptions,
+    ) -> drizzle_core::error::Result<u64>
+    where
+        Schema: Copy,
+        Table: PostgresTable<'b> + Copy,
+    {
+        let chunks = bulk::insert_chunks::<Table, T>(rows);
+        if options.atomic && chunks.len() > 1 {
+            return self.transaction(TransactionConfig::default(), |tx| {
+                let mut inserted = 0;
+                for chunk in chunks {
+                    inserted += tx.insert(table).values(chunk).execute()?;
+                }
+                Ok(inserted)
+            });
+        }
+        let mut inserted = 0;
+        for chunk in chunks {
+            inserted += self.insert(table).values(chunk).execute()?;
+        }
+        Ok(inserted)
     }
 }
 

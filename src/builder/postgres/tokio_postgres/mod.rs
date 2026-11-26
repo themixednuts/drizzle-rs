@@ -170,6 +170,7 @@ use drizzle_postgres::builder::{
 use drizzle_postgres::transaction::{AccessMode, IsolationLevel, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 
+use crate::builder::postgres::bulk::{self, BulkInsertOptions};
 use crate::builder::postgres::common;
 use crate::builder::postgres::prepared_common::unnamed;
 use crate::builder::postgres::rows::DecodeRows;
@@ -721,6 +722,71 @@ impl<Schema> Drizzle<Schema> {
                 }
             }
         }
+    }
+
+    /// Inserts `rows` into `table` in bulk, as multi-row `VALUES` statements,
+    /// and returns the number of rows inserted.
+    ///
+    /// The rows are the table's `Insert*` models, so `default_fn` values are
+    /// filled as for [`insert`](Self::insert). A cell a row leaves unset gets
+    /// the column's database default (`DEFAULT`), and a column no row sets is
+    /// left out of the statement. The rows are split into statements of at
+    /// most 65535 parameters, PostgreSQL's limit; by default those run in one
+    /// transaction, which needs the only handle, as
+    /// [`transaction`](Self::transaction) does.
+    /// [`BulkInsertOptions::atomic`] set to `false` commits each statement on
+    /// its own instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first statement's error. An atomic insert then inserted
+    /// nothing; one that is not keeps the statements before the failing one.
+    /// Also fails when an atomic insert needs a transaction while clones of
+    /// this handle exist.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::tokio::Drizzle;
+    /// # use drizzle::postgres::BulkInsertOptions;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
+    /// # tokio::spawn(async move { conn.await.unwrap() });
+    /// # let (mut db, S { user }) = Drizzle::new(client);
+    /// let rows = (0..100_000).map(|i| InsertUser::new(format!("user {i}")));
+    /// let inserted = db.bulk_insert(user, rows, BulkInsertOptions::default()).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn bulk_insert<'b, Table, T>(
+        &mut self,
+        table: Table,
+        rows: impl IntoIterator<Item = Table::Insert<T>>,
+        options: BulkInsertOptions,
+    ) -> drizzle_core::error::Result<u64>
+    where
+        Schema: Copy,
+        Table: PostgresTable<'b> + Copy,
+    {
+        let chunks = bulk::insert_chunks::<Table, T>(rows);
+        if options.atomic && chunks.len() > 1 {
+            return self
+                .transaction(TransactionConfig::default(), async |tx| {
+                    let mut inserted = 0;
+                    for chunk in chunks {
+                        inserted += tx.insert(table).values(chunk).execute().await?;
+                    }
+                    Ok(inserted)
+                })
+                .await;
+        }
+        let mut inserted = 0;
+        for chunk in chunks {
+            inserted += self.insert(table).values(chunk).execute().await?;
+        }
+        Ok(inserted)
     }
 }
 

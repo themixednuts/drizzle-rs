@@ -4,6 +4,7 @@
 
 pub mod array_ops;
 pub mod async_edge_cases;
+pub mod bulk;
 pub mod codecs;
 pub mod conditions;
 pub mod custom_column;
