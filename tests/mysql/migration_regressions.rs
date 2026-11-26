@@ -461,6 +461,47 @@ pub struct Alter {
     }
 
     #[test]
+    fn foreign_key_to_a_table_outside_the_schema_runs_on_mysql() {
+        // drizzle-orm#6534: the referenced table exists in the database but
+        // not in the schema.
+        let _guard = mysql_sync_setup::acquire_lock();
+        let mut connection = connect();
+        let tables = ["mysql_regress_wallets", "mysql_regress_accounts"];
+        drop_all(&mut connection, &tables);
+        connection
+            .query_drop("CREATE TABLE mysql_regress_accounts (id bigint unsigned PRIMARY KEY)")
+            .expect("create the referenced table");
+        migrate(
+            &mut connection,
+            Snapshot::empty(Dialect::MySQL),
+            &[
+                (
+                    r#"#[MySQLTable(NAME = "mysql_regress_wallets")]
+pub struct Wallets { #[column(PRIMARY, AUTO_INCREMENT)] pub id: u64 }"#,
+                    DiffOptions::new(),
+                ),
+                (
+                    r#"#[MySQLTable(NAME = "mysql_regress_wallets")]
+pub struct Wallets {
+    #[column(PRIMARY, AUTO_INCREMENT)] pub id: u64,
+    #[column(REFERENCES = MysqlRegressAccounts::id)] pub owner: Option<u64>,
+}"#,
+                    DiffOptions::new(),
+                ),
+            ],
+        );
+        let referenced: Option<String> = connection
+            .query_first(
+                "SELECT REFERENCED_TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE \
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mysql_regress_wallets' \
+                 AND REFERENCED_TABLE_NAME IS NOT NULL",
+            )
+            .expect("read the foreign key");
+        assert_eq!(referenced.as_deref(), Some("mysql_regress_accounts"));
+        drop_all(&mut connection, &tables);
+    }
+
+    #[test]
     fn key_and_generated_column_transitions_run_on_mysql() {
         let _guard = mysql_sync_setup::acquire_lock();
         let mut connection = connect();
