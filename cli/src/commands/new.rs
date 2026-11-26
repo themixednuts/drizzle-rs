@@ -19,7 +19,7 @@ use inquire::{Confirm, MultiSelect, Select, Text};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Config, Dialect};
+use crate::config::{Config, DateTimeCrate, Dialect};
 use crate::error::CliError;
 use crate::output;
 
@@ -106,6 +106,7 @@ pub fn run(config: Option<&Config>, options: &NewOptions) -> Result<(), CliError
             &def.enums,
             &def.schema_name,
             def.casing,
+            def.datetime,
         ),
         Dialect::Mysql => generate_mysql(
             &def.tables,
@@ -175,6 +176,10 @@ pub struct SchemaDefinition {
     /// Casing of generated Rust field names (default `snake_case`).
     #[serde(default = "default_casing")]
     pub casing: FieldCasing,
+    /// `PostgreSQL` only: the crate for date and time column types (default
+    /// `chrono`).
+    #[serde(default)]
+    pub datetime: DateTimeCrate,
     /// Name of the generated schema struct (default `AppSchema`).
     #[serde(default = "default_schema_name")]
     pub schema_name: String,
@@ -414,6 +419,11 @@ fn validate_schema(def: &SchemaDefinition) -> Result<(), CliError> {
     if def.tables.is_empty() {
         return Err(CliError::Other(
             "Schema must have at least one table".into(),
+        ));
+    }
+    if def.dialect != Dialect::Postgresql && def.datetime != DateTimeCrate::Chrono {
+        return Err(CliError::Other(
+            "'datetime' is only supported for PostgreSQL".into(),
         ));
     }
 
@@ -675,6 +685,11 @@ fn collect_interactively(
     // Phase 1: Setup
     let dialect = resolve_dialect(config, options.dialect)?;
     let casing = prompt_casing()?;
+    let datetime = if dialect == Dialect::Postgresql {
+        prompt_datetime()?
+    } else {
+        DateTimeCrate::Chrono
+    };
     let output_path = resolve_output_path(config, options.schema.clone())?;
     let schema_name = prompt_schema_name()?;
 
@@ -688,7 +703,7 @@ fn collect_interactively(
     // Phase 3 & 4: Tables + Columns
     let mut tables: Vec<TableDef> = Vec::new();
     loop {
-        let table = prompt_table(dialect, &enums)?;
+        let table = prompt_table(dialect, &enums, datetime)?;
         tables.push(table);
         if !confirm("Add another table?", false)? {
             break;
@@ -713,6 +728,7 @@ fn collect_interactively(
     Ok(SchemaDefinition {
         dialect,
         casing,
+        datetime,
         schema_name,
         output_path,
         enums,
@@ -756,6 +772,18 @@ fn prompt_casing() -> Result<FieldCasing, CliError> {
         s if s.starts_with("camel") => Ok(FieldCasing::Camel),
         _ => Ok(FieldCasing::Snake),
     }
+}
+
+fn prompt_datetime() -> Result<DateTimeCrate, CliError> {
+    let options = vec!["chrono (default)", "jiff"];
+    let answer = Select::new("Select date/time types:", options)
+        .prompt()
+        .map_err(|e| CliError::Other(format!("Prompt cancelled: {e}")))?;
+    Ok(if answer == "jiff" {
+        DateTimeCrate::Jiff
+    } else {
+        DateTimeCrate::Chrono
+    })
 }
 
 fn resolve_output_path(
@@ -829,7 +857,11 @@ fn prompt_enums() -> Result<Vec<EnumDef>, CliError> {
 
 // ── Phase 3 & 4: Tables + Columns ──────────────────────────────────────────
 
-fn prompt_table(dialect: Dialect, enums: &[EnumDef]) -> Result<TableDef, CliError> {
+fn prompt_table(
+    dialect: Dialect,
+    enums: &[EnumDef],
+    datetime: DateTimeCrate,
+) -> Result<TableDef, CliError> {
     let name = Text::new("Table name:")
         .with_validator(|s: &str| {
             if s.is_empty() {
@@ -872,7 +904,7 @@ fn prompt_table(dialect: Dialect, enums: &[EnumDef]) -> Result<TableDef, CliErro
     println!();
     println!("  Define columns for '{name}':");
     loop {
-        let col = prompt_column(dialect, enums)?;
+        let col = prompt_column(dialect, enums, datetime)?;
         columns.push(col);
         if !confirm("  Add another column?", true)? {
             break;
@@ -888,7 +920,11 @@ fn prompt_table(dialect: Dialect, enums: &[EnumDef]) -> Result<TableDef, CliErro
     })
 }
 
-fn prompt_column(dialect: Dialect, enums: &[EnumDef]) -> Result<ColumnDef, CliError> {
+fn prompt_column(
+    dialect: Dialect,
+    enums: &[EnumDef],
+    datetime: DateTimeCrate,
+) -> Result<ColumnDef, CliError> {
     let col_name = Text::new("  Column name:")
         .with_validator(|s: &str| {
             if s.is_empty() {
@@ -902,7 +938,7 @@ fn prompt_column(dialect: Dialect, enums: &[EnumDef]) -> Result<ColumnDef, CliEr
         .prompt()
         .map_err(|e| CliError::Other(format!("Prompt cancelled: {e}")))?;
 
-    let (sql_type, enum_name) = prompt_type(dialect, enums)?;
+    let (sql_type, enum_name) = prompt_type(dialect, enums, datetime)?;
 
     let nullable = confirm("  Nullable (Option<T>)?", false)?;
 
@@ -961,7 +997,28 @@ fn prompt_column(dialect: Dialect, enums: &[EnumDef]) -> Result<ColumnDef, CliEr
     })
 }
 
-fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<String>), CliError> {
+/// The Rust types `new` offers for PostgreSQL date and time columns, with
+/// their SQL types, in the crate `datetime` names.
+const fn postgres_date_time_types(datetime: DateTimeCrate) -> [(&'static str, &'static str); 3] {
+    match datetime {
+        DateTimeCrate::Chrono => [
+            ("chrono::NaiveDate", "date"),
+            ("chrono::NaiveDateTime", "timestamp"),
+            ("chrono::DateTime<chrono::Utc>", "timestamptz"),
+        ],
+        DateTimeCrate::Jiff => [
+            ("jiff::civil::Date", "date"),
+            ("jiff::civil::DateTime", "timestamp"),
+            ("jiff::Timestamp", "timestamptz"),
+        ],
+    }
+}
+
+fn prompt_type(
+    dialect: Dialect,
+    enums: &[EnumDef],
+    datetime: DateTimeCrate,
+) -> Result<(String, Option<String>), CliError> {
     let mut options: Vec<String> = match dialect {
         Dialect::Sqlite | Dialect::Turso => {
             vec![
@@ -973,23 +1030,25 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
                 "Vec<u8>".into(),
             ]
         }
-        Dialect::Postgresql => {
-            vec![
-                "i16".into(),
-                "i32".into(),
-                "i64".into(),
-                "f32".into(),
-                "f64".into(),
-                "String".into(),
-                "bool".into(),
-                "Vec<u8>".into(),
-                "uuid::Uuid".into(),
-                "chrono::NaiveDate".into(),
-                "chrono::NaiveDateTime".into(),
-                "chrono::DateTime<chrono::Utc>".into(),
-                "serde_json::Value".into(),
-            ]
-        }
+        Dialect::Postgresql => vec![
+            "i16".into(),
+            "i32".into(),
+            "i64".into(),
+            "f32".into(),
+            "f64".into(),
+            "String".into(),
+            "bool".into(),
+            "Vec<u8>".into(),
+            "uuid::Uuid".into(),
+        ]
+        .into_iter()
+        .chain(
+            postgres_date_time_types(datetime)
+                .into_iter()
+                .map(|(rust, _)| rust.into()),
+        )
+        .chain(["serde_json::Value".into()])
+        .collect(),
         Dialect::Mysql => {
             vec![
                 "i8".into(),
@@ -1036,21 +1095,24 @@ fn prompt_type(dialect: Dialect, enums: &[EnumDef]) -> Result<(String, Option<St
             "Vec<u8>" => "blob",
             _ => "text",
         },
-        Dialect::Postgresql => match chosen {
-            "i16" => "int2",
-            "i32" => "int4",
-            "i64" => "int8",
-            "f32" => "float4",
-            "f64" => "float8",
-            "bool" => "bool",
-            "Vec<u8>" => "bytea",
-            "uuid::Uuid" => "uuid",
-            "chrono::NaiveDate" => "date",
-            "chrono::NaiveDateTime" => "timestamp",
-            "chrono::DateTime<chrono::Utc>" => "timestamptz",
-            "serde_json::Value" => "jsonb",
-            _ => "text",
-        },
+        Dialect::Postgresql => postgres_date_time_types(datetime)
+            .into_iter()
+            .find(|(rust, _)| *rust == chosen)
+            .map_or_else(
+                || match chosen {
+                    "i16" => "int2",
+                    "i32" => "int4",
+                    "i64" => "int8",
+                    "f32" => "float4",
+                    "f64" => "float8",
+                    "bool" => "bool",
+                    "Vec<u8>" => "bytea",
+                    "uuid::Uuid" => "uuid",
+                    "serde_json::Value" => "jsonb",
+                    _ => "text",
+                },
+                |(_, sql)| sql,
+            ),
         Dialect::Mysql => match chosen {
             "i8" => "tinyint",
             "u8" => "tinyint unsigned",
@@ -1462,6 +1524,7 @@ fn generate_postgres(
     enums: &[EnumDef],
     schema_name: &str,
     casing: FieldCasing,
+    datetime: DateTimeCrate,
 ) -> String {
     use drizzle_migrations::postgres::codegen;
     use drizzle_migrations::postgres::collection::PostgresDDL;
@@ -1501,6 +1564,10 @@ fn generate_postgres(
         schema_name: schema_name.to_string(),
         use_pub: true,
         field_casing,
+        date_time: match datetime {
+            DateTimeCrate::Chrono => codegen::DateTimeCrate::Chrono,
+            DateTimeCrate::Jiff => codegen::DateTimeCrate::Jiff,
+        },
     };
 
     codegen::generate_rust_schema(&ddl, &options).code
@@ -1654,6 +1721,7 @@ mod tests {
         SchemaDefinition {
             dialect: Dialect::Sqlite,
             casing: FieldCasing::Snake,
+            datetime: DateTimeCrate::Chrono,
             schema_name: "TestSchema".into(),
             output_path: "src/schema.rs".into(),
             enums: vec![],
@@ -1823,6 +1891,38 @@ mod tests {
         let err = validate_schema(&def).unwrap_err();
         assert!(err.to_string().contains("strict"));
         assert!(err.to_string().contains("SQLite"));
+    }
+
+    #[test]
+    fn postgres_generation_uses_the_chosen_date_time_types() {
+        let mut def = minimal_sqlite_def();
+        def.dialect = Dialect::Postgresql;
+        def.datetime = DateTimeCrate::Jiff;
+        def.tables[0].columns.push(ColumnDef {
+            name: "created_at".into(),
+            sql_type: "timestamptz".into(),
+            not_null: true,
+            primary_key: false,
+            unique: false,
+            default: None,
+            auto_gen: None,
+            enum_name: None,
+        });
+        validate_schema(&def).expect("valid PostgreSQL definition");
+        let code = generate_postgres(
+            &def.tables,
+            &def.indexes,
+            &def.foreign_keys,
+            &def.enums,
+            &def.schema_name,
+            def.casing,
+            def.datetime,
+        );
+        assert!(code.contains("pub created_at: jiff::Timestamp,"), "{code}");
+
+        def.dialect = Dialect::Sqlite;
+        let err = validate_schema(&def).unwrap_err();
+        assert!(err.to_string().contains("'datetime'"), "{err}");
     }
 
     #[test]

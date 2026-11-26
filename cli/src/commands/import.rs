@@ -18,7 +18,7 @@
 //! The migration files are left where they are unless `--upgrade` is given.
 
 use crate::codegen::{SchemaCode, SchemaCodeOptions, schema_code};
-use crate::config::{CONFIG_FILE, Config, Dialect, IntrospectCasing, Schema};
+use crate::config::{CONFIG_FILE, Config, DateTimeCrate, Dialect, IntrospectCasing, Schema};
 use crate::error::CliError;
 use crate::output;
 use drizzle_migrations::postgres::reconstruct;
@@ -56,6 +56,11 @@ pub struct ImportOptions {
     /// `introspect.casing` when set, else snake_case]
     #[arg(long)]
     pub casing: Option<IntrospectCasing>,
+
+    /// Crate for PostgreSQL date and time column types (chrono or jiff)
+    /// [default: the config's `introspect.datetime`, else chrono]
+    #[arg(long)]
+    pub datetime: Option<DateTimeCrate>,
 
     /// Name of the generated schema struct
     #[arg(long, value_name = "NAME", default_value = "Schema")]
@@ -172,6 +177,10 @@ pub fn run(
         db.and_then(|db| db.introspect.as_ref())
             .map(|introspect| introspect.casing)
     });
+    let datetime = opts.datetime.unwrap_or_else(|| {
+        db.map(crate::config::DatabaseConfig::effective_introspect_datetime)
+            .unwrap_or_default()
+    });
     let module_doc = format!(
         "Imported from the drizzle-kit snapshot {}",
         forward_slashes(&source.snapshot_path)
@@ -180,6 +189,7 @@ pub fn run(
         &snapshot,
         &SchemaCodeOptions {
             casing,
+            datetime,
             module_doc: &module_doc,
             schema_name: &opts.schema_name,
         },

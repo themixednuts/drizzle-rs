@@ -2,7 +2,7 @@
 //! Rust schema file (and optionally initial migration metadata).
 
 use crate::commands::overrides::{self, ConnectionOverrides, FilterArgs};
-use crate::config::{Config, Dialect, IntrospectCasing};
+use crate::config::{Config, DateTimeCrate, Dialect, IntrospectCasing};
 use crate::error::CliError;
 use crate::output;
 
@@ -15,6 +15,11 @@ pub struct IntrospectOptions {
     /// Casing for introspected identifiers (camel or preserve)
     #[arg(long)]
     pub casing: Option<IntrospectCasing>,
+
+    /// Crate for PostgreSQL date and time column types (chrono or jiff)
+    /// [default: the config's `introspect.datetime`, else chrono]
+    #[arg(long)]
+    pub datetime: Option<DateTimeCrate>,
 
     /// Override output directory
     #[arg(long)]
@@ -62,6 +67,9 @@ pub fn run(
     let effective_casing = opts
         .casing
         .unwrap_or_else(|| db.effective_introspect_casing());
+    let effective_datetime = opts
+        .datetime
+        .unwrap_or_else(|| db.effective_introspect_datetime());
     let effective_dialect = overrides::resolve_dialect(db, opts.dialect);
     let effective_out = opts.out.as_deref().unwrap_or_else(|| db.migrations_dir());
     let effective_breakpoints = opts.breakpoints.unwrap_or(db.breakpoints);
@@ -140,6 +148,7 @@ pub fn run(
         opts.init_metadata,
         effective_breakpoints,
         Some(effective_casing),
+        effective_datetime,
         &filters,
         db.migrations_table(),
         db.migrations_schema(),

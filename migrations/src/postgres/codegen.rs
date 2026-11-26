@@ -50,6 +50,56 @@ pub struct CodegenOptions {
     pub use_pub: bool,
     /// Field naming style for generated Rust members
     pub field_casing: FieldCasing,
+    /// Crate whose types date and time columns use
+    pub date_time: DateTimeCrate,
+}
+
+/// The crate whose types generated fields use for `date`, `time`,
+/// `timestamp` and `timestamptz` columns. The matching `drizzle` feature
+/// (`chrono` or `jiff`) must be enabled for the generated schema to build.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DateTimeCrate {
+    /// `chrono::NaiveDate`, `chrono::NaiveTime`, `chrono::NaiveDateTime`
+    /// and `chrono::DateTime<chrono::Utc>` (default)
+    #[default]
+    Chrono,
+    /// `jiff::civil::Date`, `jiff::civil::Time`, `jiff::civil::DateTime`
+    /// and `jiff::Timestamp`
+    Jiff,
+}
+
+impl DateTimeCrate {
+    /// The Rust type for a `date` column.
+    const fn date(self) -> &'static str {
+        match self {
+            Self::Chrono => "chrono::NaiveDate",
+            Self::Jiff => "jiff::civil::Date",
+        }
+    }
+
+    /// The Rust type for a `time` column.
+    const fn time(self) -> &'static str {
+        match self {
+            Self::Chrono => "chrono::NaiveTime",
+            Self::Jiff => "jiff::civil::Time",
+        }
+    }
+
+    /// The Rust type for a `timestamp` column.
+    const fn timestamp(self) -> &'static str {
+        match self {
+            Self::Chrono => "chrono::NaiveDateTime",
+            Self::Jiff => "jiff::civil::DateTime",
+        }
+    }
+
+    /// The Rust type for a `timestamptz` column.
+    const fn timestamptz(self) -> &'static str {
+        match self {
+            Self::Chrono => "chrono::DateTime<chrono::Utc>",
+            Self::Jiff => "jiff::Timestamp",
+        }
+    }
 }
 
 /// Casing strategy for generated Rust field names.
@@ -353,6 +403,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
                 standalone_sequences: &standalone_sequences,
                 use_pub: options.use_pub,
                 field_casing: options.field_casing,
+                date_time: options.date_time,
             },
             &mut result.warnings,
         ));
@@ -413,6 +464,7 @@ pub fn generate_rust_schema(ddl: &PostgresDDL, options: &CodegenOptions) -> Gene
             &maps.enum_map,
             options.use_pub,
             options.field_casing,
+            options.date_time,
         ));
         code.push('\n');
         result.views.push(view.name.to_string());
@@ -459,6 +511,7 @@ struct TableGenContext<'a> {
     standalone_sequences: &'a HashSet<(String, String)>,
     use_pub: bool,
     field_casing: FieldCasing,
+    date_time: DateTimeCrate,
 }
 
 /// Generate a single table struct
@@ -986,7 +1039,7 @@ fn generate_column_field(
     }
     if enum_type.is_none()
         && serial_kind.is_none()
-        && let Some(note) = unsupported_type_note(column)
+        && let Some(note) = unsupported_type_note(column, ctx.date_time)
     {
         let _ = writeln!(result, "    // TODO: {note}");
         warnings.push(format!("column `{}.{}`: {note}", column.table, column.name));
@@ -1001,10 +1054,11 @@ fn generate_column_field(
     // Determine Rust type - use enum type if available, otherwise map SQL type
     let rust_type = enum_type.map_or_else(
         || {
-            sql_type_to_rust_type_with_dimensions(
+            rust_type_with_dimensions(
                 &column.sql_type,
                 column.dimensions,
                 column.not_null,
+                ctx.date_time,
             )
         },
         |enum_name| {
@@ -1123,10 +1177,23 @@ fn serial_attr(sql_type: &str) -> Option<&'static str> {
 /// Explains why a column's type cannot be kept by the generated field, or
 /// `None` when the field's Rust type (plus any `varchar(n)` / `char(n)` /
 /// `json` marker) produces the same SQL type.
-fn unsupported_type_note(column: &Column) -> Option<String> {
+fn unsupported_type_note(column: &Column, date_time: DateTimeCrate) -> Option<String> {
     let normalized = super::collection::normalize_type_for_compare(&column.sql_type);
     let base = normalized.trim_end_matches("[]");
     let base_name = base.split('(').next().unwrap_or(base).trim();
+    let is_array = base.len() != normalized.len() || column.dimensions.is_some_and(|d| d > 0);
+    let field_type =
+        || rust_type_with_dimensions(&column.sql_type, column.dimensions, true, date_time);
+    if is_array
+        && date_time == DateTimeCrate::Jiff
+        && rust_type(base, true, date_time).starts_with("jiff::")
+    {
+        return Some(format!(
+            "`{}` has no jiff mapping in #[PostgresTable], which takes arrays of chrono date and time types only; the field type `{}` maps to a different SQL type, so `drizzle generate` would change the column.",
+            column.sql_type,
+            field_type()
+        ));
+    }
     let supported = matches!(
         base_name,
         "smallint"
@@ -1154,7 +1221,7 @@ fn unsupported_type_note(column: &Column) -> Option<String> {
         format!(
             "`{}` has no built-in Rust mapping in #[PostgresTable]; the field type `{}` maps to a different SQL type, so `drizzle generate` would change the column. Use a type implementing `DrizzlePostgresColumn`.",
             column.sql_type,
-            sql_type_to_rust_type_with_dimensions(&column.sql_type, column.dimensions, true)
+            field_type()
         )
     })
 }
@@ -1291,13 +1358,18 @@ fn format_default_value(default: &str, sql_type: &str) -> Option<String> {
     None
 }
 
-/// Convert `PostgreSQL` type to Rust type
+/// Convert `PostgreSQL` type to Rust type, with chrono date and time types
 #[must_use]
 pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
+    rust_type(sql_type, not_null, DateTimeCrate::Chrono)
+}
+
+/// [`sql_type_to_rust_type`] with the date and time types of `date_time`.
+fn rust_type(sql_type: &str, not_null: bool, date_time: DateTimeCrate) -> String {
     // Handle PostgreSQL array types, which are often represented as "_typename" (udt_name).
     // Keep this intentionally simple: one-dimensional arrays map to Vec<T>.
     if let Some(elem) = sql_type.strip_prefix('_') {
-        let elem_ty = sql_type_to_rust_type(elem, true);
+        let elem_ty = array_element_type(elem, date_time);
         let base = format!("Vec<{elem_ty}>");
         return if not_null {
             base
@@ -1308,7 +1380,7 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
 
     // drizzle-kit snapshots spell arrays `text[]`.
     if let Some(elem) = sql_type.trim().strip_suffix("[]") {
-        let elem_ty = sql_type_to_rust_type(elem, true);
+        let elem_ty = array_element_type(elem, date_time);
         let base = format!("Vec<{elem_ty}>");
         return if not_null {
             base
@@ -1329,9 +1401,9 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
     let sql_type = without_params.trim();
 
     let base_type = match sql_type {
-        "timestamp with time zone" => "chrono::DateTime<chrono::Utc>",
-        "timestamp without time zone" => "chrono::NaiveDateTime",
-        "time without time zone" => "chrono::NaiveTime",
+        "timestamp with time zone" => date_time.timestamptz(),
+        "timestamp without time zone" => date_time.timestamp(),
+        "time without time zone" => date_time.time(),
         "character varying" | "character" => "String",
         "inet" => "cidr::IpInet",
         "cidr" => "cidr::IpCidr",
@@ -1375,10 +1447,10 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
         s if s.eq_ignore_ascii_case("uuid") => "uuid::Uuid",
 
         // Date/Time types
-        s if s.eq_ignore_ascii_case("date") => "chrono::NaiveDate",
-        s if s.eq_ignore_ascii_case("time") => "chrono::NaiveTime",
-        s if s.eq_ignore_ascii_case("timestamp") => "chrono::NaiveDateTime",
-        s if s.eq_ignore_ascii_case("timestamptz") => "chrono::DateTime<chrono::Utc>",
+        s if s.eq_ignore_ascii_case("date") => date_time.date(),
+        s if s.eq_ignore_ascii_case("time") => date_time.time(),
+        s if s.eq_ignore_ascii_case("timestamp") => date_time.timestamp(),
+        s if s.eq_ignore_ascii_case("timestamptz") => date_time.timestamptz(),
 
         // JSON
         s if s.eq_ignore_ascii_case("json") || s.eq_ignore_ascii_case("jsonb") => {
@@ -1396,18 +1468,42 @@ pub fn sql_type_to_rust_type(sql_type: &str, not_null: bool) -> String {
     }
 }
 
-/// Convert `PostgreSQL` type and array dimensions to a Rust type.
+/// Convert `PostgreSQL` type and array dimensions to a Rust type, with
+/// chrono date and time types.
 #[must_use]
 pub fn sql_type_to_rust_type_with_dimensions(
     sql_type: &str,
     dimensions: Option<i32>,
     not_null: bool,
 ) -> String {
+    rust_type_with_dimensions(sql_type, dimensions, not_null, DateTimeCrate::Chrono)
+}
+
+/// The Rust element type of an array column. `#[PostgresTable]` maps arrays
+/// of chrono's date and time types but not of jiff's, which stay `String`
+/// (flagged by [`unsupported_type_note`]).
+fn array_element_type(sql_type: &str, date_time: DateTimeCrate) -> String {
+    let element = rust_type(sql_type, true, date_time);
+    if element.starts_with("jiff::") {
+        "String".to_string()
+    } else {
+        element
+    }
+}
+
+/// [`sql_type_to_rust_type_with_dimensions`] with the date and time types of
+/// `date_time`.
+fn rust_type_with_dimensions(
+    sql_type: &str,
+    dimensions: Option<i32>,
+    not_null: bool,
+    date_time: DateTimeCrate,
+) -> String {
     let Some(dimensions) = dimensions.filter(|dims| *dims > 0) else {
-        return sql_type_to_rust_type(sql_type, not_null);
+        return rust_type(sql_type, not_null, date_time);
     };
 
-    let mut base = sql_type_to_rust_type(sql_type.trim_start_matches('_'), true);
+    let mut base = array_element_type(sql_type.trim_start_matches('_'), date_time);
     for _ in 0..dimensions {
         base = format!("Vec<{base}>");
     }
@@ -1517,6 +1613,7 @@ fn generate_view_struct(
     enum_map: &HashMap<(String, String), String>,
     use_pub: bool,
     field_casing: FieldCasing,
+    date_time: DateTimeCrate,
 ) -> String {
     let struct_name = struct_ident(&view.name);
     let vis = if use_pub { "pub " } else { "" };
@@ -1598,10 +1695,11 @@ fn generate_view_struct(
         // Determine Rust type - use enum type if available, otherwise map SQL type
         let rust_type = enum_type.map_or_else(
             || {
-                sql_type_to_rust_type_with_dimensions(
+                rust_type_with_dimensions(
                     &column.sql_type,
                     column.dimensions,
                     column.not_null,
+                    date_time,
                 )
             },
             |enum_name| {
@@ -1797,6 +1895,64 @@ mod tests {
         );
         assert!(generated.code.contains("aliases: Option<Vec<String>>"));
         assert_round_trips(&ddl, &generated);
+    }
+
+    #[test]
+    fn date_time_columns_use_the_chosen_crate() {
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "events"));
+        for (name, sql_type) in [
+            ("day", "date"),
+            ("at", "time without time zone"),
+            ("local", "timestamp without time zone"),
+            ("instant", "timestamp with time zone"),
+        ] {
+            ddl.columns
+                .push(Column::new("public", "events", name, sql_type).not_null());
+        }
+
+        let chrono = generate_rust_schema(&ddl, &CodegenOptions::default());
+        assert!(
+            chrono
+                .code
+                .contains("instant: chrono::DateTime<chrono::Utc>,")
+        );
+
+        let options = CodegenOptions {
+            date_time: DateTimeCrate::Jiff,
+            ..CodegenOptions::default()
+        };
+        let generated = generate_rust_schema(&ddl, &options);
+        for field in [
+            "day: jiff::civil::Date,",
+            "at: jiff::civil::Time,",
+            "local: jiff::civil::DateTime,",
+            "instant: jiff::Timestamp,",
+        ] {
+            assert!(
+                generated.code.contains(field),
+                "missing `{field}`:\n{}",
+                generated.code
+            );
+        }
+        assert!(!generated.code.contains("chrono"), "{}", generated.code);
+        assert_round_trips(&ddl, &generated);
+
+        // The macros take no arrays of jiff types.
+        let mut days = Column::new("public", "events", "days", "date");
+        days.dimensions = Some(1);
+        ddl.columns.push(days);
+        let generated = generate_rust_schema(&ddl, &options);
+        assert!(
+            generated.code.contains(
+                "// TODO: `date` has no jiff mapping in #[PostgresTable], which takes arrays of chrono date and time types only; the field type `Vec<String>`"
+            ),
+            "{}",
+            generated.code
+        );
+        assert!(generated.code.contains("days: Option<Vec<String>>,"));
+        assert_eq!(generated.warnings.len(), 1, "{:?}", generated.warnings);
     }
 
     #[test]

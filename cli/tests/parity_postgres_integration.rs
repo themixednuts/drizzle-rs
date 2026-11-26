@@ -454,3 +454,29 @@ fn push_after_pull_keeps_expression_defaults() {
         "{schema_rs}\n{push}"
     );
 }
+
+#[test]
+fn pull_with_jiff_date_time_types_pushes_nothing() {
+    let (schema_rs, push) = pull_then_explain_push(
+        r#"CREATE TABLE "{schema}"."events" (
+            "id" integer PRIMARY KEY,
+            "day" date NOT NULL,
+            "at" time,
+            "local" timestamp NOT NULL,
+            "instant" timestamptz DEFAULT now()
+        );"#,
+        &["--datetime", "jiff"],
+    );
+    for field in [
+        "pub day: jiff::civil::Date,",
+        "pub at: Option<jiff::civil::Time>,",
+        "pub local: jiff::civil::DateTime,",
+        "pub instant: Option<jiff::Timestamp>,",
+    ] {
+        assert!(schema_rs.contains(field), "missing `{field}`:\n{schema_rs}");
+    }
+    assert!(
+        push.contains("No schema changes detected."),
+        "{schema_rs}\n{push}"
+    );
+}

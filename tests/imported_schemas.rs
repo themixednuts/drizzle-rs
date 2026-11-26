@@ -37,6 +37,16 @@ mod beta_postgres;
 #[rustfmt::skip] // Compared byte for byte with `drizzle import` output.
 #[path = "../cli/tests/fixtures/import/expected/stable_postgres.rs"]
 mod stable_postgres;
+#[cfg(all(
+    feature = "postgres",
+    feature = "serde",
+    feature = "uuid",
+    feature = "jiff",
+    feature = "cidr"
+))]
+#[rustfmt::skip] // Compared byte for byte with `drizzle import --datetime jiff` output.
+#[path = "../cli/tests/fixtures/import/expected/stable_postgres_jiff.rs"]
+mod stable_postgres_jiff;
 
 #[cfg(all(feature = "mysql", feature = "serde"))]
 #[rustfmt::skip] // Compared byte for byte with `drizzle import` output.
@@ -135,6 +145,22 @@ fn imported_postgres_schemas_match_drizzle_kit() {
     ] {
         assert!(ddl.contains(expected), "missing `{expected}` in:\n{ddl}");
     }
+}
+
+#[cfg(all(
+    feature = "postgres",
+    feature = "serde",
+    feature = "uuid",
+    feature = "jiff",
+    feature = "cidr"
+))]
+#[test]
+fn imported_postgres_schema_with_jiff_types_matches_drizzle_kit() {
+    use drizzle::migrations::schema::Schema as _;
+    support::assert_matches_kit(
+        "stable/postgres",
+        &stable_postgres_jiff::Schema::new().to_snapshot(),
+    );
 }
 
 #[cfg(all(feature = "mysql", feature = "serde"))]

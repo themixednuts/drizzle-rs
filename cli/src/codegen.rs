@@ -1,7 +1,7 @@
 //! Rust schema source from a snapshot, shared by `introspect` / `pull` and
 //! `import`.
 
-use crate::config::IntrospectCasing;
+use crate::config::{DateTimeCrate, IntrospectCasing};
 use crate::error::CliError;
 use drizzle_migrations::schema::Snapshot;
 
@@ -25,6 +25,8 @@ pub struct SchemaCode {
 pub struct SchemaCodeOptions<'a> {
     /// Field casing; `None` writes snake_case fields.
     pub casing: Option<IntrospectCasing>,
+    /// Crate for PostgreSQL date and time column types.
+    pub datetime: DateTimeCrate,
     /// Line added to the module doc comment.
     pub module_doc: &'a str,
     /// Name of the generated `#[derive(...Schema)]` struct.
@@ -78,7 +80,9 @@ pub fn schema_code(
         }
         Snapshot::Postgres(snap) => {
             use drizzle_migrations::postgres::PostgresDDL;
-            use drizzle_migrations::postgres::codegen::{CodegenOptions, generate_rust_schema};
+            use drizzle_migrations::postgres::codegen::{
+                CodegenOptions, DateTimeCrate as DateTimeTypes, generate_rust_schema,
+            };
 
             let ddl = PostgresDDL::from_entities(snap.ddl.clone());
             let generated = generate_rust_schema(
@@ -89,6 +93,10 @@ pub fn schema_code(
                     schema_name: options.schema_name.into(),
                     use_pub: true,
                     field_casing: field_casing!(drizzle_migrations::postgres::codegen::FieldCasing),
+                    date_time: match options.datetime {
+                        DateTimeCrate::Chrono => DateTimeTypes::Chrono,
+                        DateTimeCrate::Jiff => DateTimeTypes::Jiff,
+                    },
                 },
             );
             Ok(SchemaCode {

@@ -54,12 +54,21 @@
       "enum": ["camel", "preserve"],
       "default": "camel"
     },
+    "introspectDatetime": {
+      "description": "Crate whose types generated code uses for PostgreSQL date and time columns (needs the drizzle feature of the same name)",
+      "type": "string",
+      "enum": ["chrono", "jiff"],
+      "default": "chrono"
+    },
     "introspect": {
       "description": "Introspection configuration",
       "type": "object",
       "properties": {
         "casing": {
           "$ref": "#/definitions/introspectCasing"
+        },
+        "datetime": {
+          "$ref": "#/definitions/introspectDatetime"
         }
       },
       "additionalProperties": false

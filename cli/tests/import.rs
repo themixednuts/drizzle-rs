@@ -86,8 +86,15 @@ fn newest_snapshot(dir: &Path, dialect: Dialect) -> Snapshot {
 /// file, and asserts that the generated schema diffs clean against the
 /// imported snapshot.
 fn assert_round_trip(rel: &str, dialect: Dialect) {
+    assert_round_trip_with(rel, dialect, &[], &rel.replace('/', "_"));
+}
+
+/// [`assert_round_trip`] with extra `import` arguments, against
+/// `fixtures/import/expected/<expected>.rs`.
+fn assert_round_trip_with(rel: &str, dialect: Dialect, args: &[&str], expected: &str) {
     let output = drizzle(&fixtures())
         .args(["import", rel, "--out", "-"])
+        .args(args)
         .output()
         .expect("run drizzle import");
     assert!(
@@ -97,9 +104,7 @@ fn assert_round_trip(rel: &str, dialect: Dialect) {
     );
     let code = String::from_utf8(output.stdout).expect("utf-8 schema");
 
-    let expected_path = fixtures()
-        .join("expected")
-        .join(format!("{}.rs", rel.replace('/', "_")));
+    let expected_path = fixtures().join("expected").join(format!("{expected}.rs"));
     if std::env::var_os("UPDATE_IMPORT_GOLDEN").is_some() {
         fs::write(&expected_path, &code).expect("write expected schema");
     }
@@ -162,6 +167,16 @@ fn postgres_delta_snapshots_hold_the_same_schema_as_full_snapshots() {
         plan.statements.is_empty(),
         "planned: {:#?}",
         plan.statements
+    );
+}
+
+#[test]
+fn postgres_round_trips_with_jiff_date_time_types() {
+    assert_round_trip_with(
+        "stable/postgres",
+        Dialect::PostgreSQL,
+        &["--datetime", "jiff"],
+        "stable_postgres_jiff",
     );
 }
 
