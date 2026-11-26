@@ -1265,6 +1265,46 @@ impl FieldInfo {
                         type_args.push(length);
                         marker_exprs.push(make_uppercase_path(path_ident, &path));
                     }
+                    "TIMESTAMP" | "TIMESTAMPTZ" | "TIME" => {
+                        // drizzle-orm's `{ precision }` of `timestamp` and
+                        // `time`: the field type already picks the SQL type.
+                        let marked = match path.as_str() {
+                            "TIMESTAMP" => PostgreSQLType::Timestamp,
+                            "TIMESTAMPTZ" => PostgreSQLType::Timestamptz,
+                            _ => PostgreSQLType::Time,
+                        };
+                        if type_category.to_postgres_type().as_ref() != Some(&marked) {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                format!("{path}(p) requires a field type that maps to {path}"),
+                            ));
+                        }
+                        if explicit_type.is_some() {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                "a PostgreSQL column may specify only one SQL type",
+                            ));
+                        }
+                        let content;
+                        syn::parenthesized!(content in meta.input);
+                        let precision: syn::LitInt = content.parse()?;
+                        if !content.is_empty() {
+                            return Err(syn::Error::new_spanned(
+                                content.parse::<proc_macro2::TokenStream>()?,
+                                format!("{path} takes exactly one precision argument"),
+                            ));
+                        }
+                        let value = precision.base10_parse::<u32>()?;
+                        if value > 6 {
+                            return Err(syn::Error::new_spanned(
+                                precision,
+                                format!("{path} precision must be between 0 and 6"),
+                            ));
+                        }
+                        explicit_type = Some(marked);
+                        type_args.push(value);
+                        marker_exprs.push(make_uppercase_path(path_ident, &path));
+                    }
                     "SERIAL" => {
                         // Validate: serial only valid on i32
                         if !type_category.is_valid_constraint("serial") {

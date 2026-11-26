@@ -1797,6 +1797,33 @@ pub(crate) fn postgres_column_spec(
                         key.to_ascii_uppercase()
                     ));
                 }
+                marker @ ("TIMESTAMP" | "TIMESTAMPTZ" | "TIME") => {
+                    if infer_postgres_scalar_type(&base_type) != Some(marker) {
+                        return Err(meta.error(format!(
+                            "{marker}(p) requires a field type that maps to {marker}"
+                        )));
+                    }
+                    if explicit_pg_type.is_some() {
+                        return Err(meta.error(
+                            "a PostgreSQL column may specify only one SQL type",
+                        ));
+                    }
+                    let content;
+                    syn::parenthesized!(content in meta.input);
+                    let precision: syn::LitInt = content.parse()?;
+                    if !content.is_empty() {
+                        return Err(meta.error(format!(
+                            "{marker} takes exactly one precision argument"
+                        )));
+                    }
+                    let precision = precision.base10_parse::<u32>()?;
+                    if precision > 6 {
+                        return Err(meta.error(format!(
+                            "{marker} precision must be between 0 and 6"
+                        )));
+                    }
+                    explicit_pg_type = Some(format!("{marker}({precision})"));
+                }
                 "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" => {
                     let (kind, required) = match key.to_ascii_uppercase().as_str() {
                         "SERIAL" => (SerialKind::Serial, "i32"),
@@ -3869,6 +3896,51 @@ mod tests {
         assert!(array_diags.errors.is_empty(), "{:#?}", array_diags.errors);
         assert_eq!(array.pg_type.as_deref(), Some("VARCHAR(64)"));
         assert_eq!(array.pg_dimensions, Some(1));
+    }
+
+    #[test]
+    fn pg_timestamp_and_time_precision() {
+        for (field, expected) in [
+            (
+                "#[column(TIMESTAMP(3))] at: chrono::NaiveDateTime",
+                "TIMESTAMP(3)",
+            ),
+            (
+                "#[column(TIMESTAMPTZ(0))] at: chrono::DateTime<chrono::Utc>",
+                "TIMESTAMPTZ(0)",
+            ),
+            (
+                "#[column(TIMESTAMPTZ(6))] at: jiff::Timestamp",
+                "TIMESTAMPTZ(6)",
+            ),
+            ("#[column(TIME(2))] at: Option<time::Time>", "TIME(2)"),
+        ] {
+            let (spec, diags) = pg_spec(field);
+            assert!(diags.errors.is_empty(), "{field}: {:#?}", diags.errors);
+            assert_eq!(spec.pg_type.as_deref(), Some(expected), "{field}");
+        }
+
+        for (field, error) in [
+            (
+                "#[column(TIMESTAMP(3))] at: chrono::DateTime<chrono::Utc>",
+                "TIMESTAMP(p) requires a field type that maps to TIMESTAMP",
+            ),
+            (
+                "#[column(TIME(3))] at: Vec<chrono::NaiveTime>",
+                "TIME(p) requires a field type that maps to TIME",
+            ),
+            (
+                "#[column(TIMESTAMP(7))] at: chrono::NaiveDateTime",
+                "TIMESTAMP precision must be between 0 and 6",
+            ),
+        ] {
+            let (_, diags) = pg_spec(field);
+            assert!(
+                diags.errors.iter().any(|message| message.contains(error)),
+                "{field}: {:#?}",
+                diags.errors
+            );
+        }
     }
 
     #[test]

@@ -439,6 +439,78 @@ fn postgres_sync_second_push_of_mixed_case_quoted_schema_plans_nothing() {
 }
 
 // =============================================================================
+// Timestamp and time precision
+// =============================================================================
+
+#[cfg(feature = "chrono")]
+const PRECISION_SCHEMA: &str = "push_precision_test";
+
+#[cfg(feature = "chrono")]
+#[PostgresTable(schema = "push_precision_test")]
+struct PushPrecisionEvents {
+    #[column(primary)]
+    id: i32,
+    #[column(TIMESTAMP(3))]
+    at: chrono::NaiveDateTime,
+    #[column(TIMESTAMPTZ(0))]
+    at_tz: Option<chrono::DateTime<chrono::Utc>>,
+    #[column(TIME(2))]
+    starts: chrono::NaiveTime,
+    plain: chrono::NaiveDateTime,
+}
+
+#[cfg(feature = "chrono")]
+#[derive(PostgresSchema)]
+struct PushPrecisionSchema {
+    events: PushPrecisionEvents,
+}
+
+#[cfg(feature = "chrono")]
+#[test]
+fn postgres_sync_push_keeps_timestamp_and_time_precision() {
+    let (mut db, schema) = crate::common::helpers::postgres_sync_setup::setup_empty_named_db(
+        PRECISION_SCHEMA,
+        PushPrecisionSchema::default(),
+    );
+
+    db.push(&schema).expect("first push");
+
+    let precisions: Vec<(String, Option<i32>)> = db
+        .conn_mut()
+        .query(
+            "SELECT column_name::text, datetime_precision FROM information_schema.columns \
+             WHERE table_schema = $1 AND table_name = 'push_precision_events' \
+             AND column_name <> 'id' ORDER BY column_name",
+            &[&PRECISION_SCHEMA],
+        )
+        .expect("column precisions")
+        .into_iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
+    assert_eq!(
+        precisions,
+        [
+            ("at".to_string(), Some(3)),
+            ("at_tz".to_string(), Some(0)),
+            ("plain".to_string(), Some(6)),
+            ("starts".to_string(), Some(2)),
+        ]
+    );
+
+    let Snapshot::Postgres(desired) = schema.to_snapshot() else {
+        panic!("expected a PostgreSQL snapshot");
+    };
+    let live = introspect_schema(db.conn_mut(), PRECISION_SCHEMA).prepare_for_push(&desired);
+    let plan = drizzle_migrations::diff(&Snapshot::Postgres(live), &Snapshot::Postgres(desired))
+        .expect("diff");
+    assert!(
+        plan.statements.is_empty(),
+        "an unchanged schema must push nothing: {:#?}",
+        plan.statements
+    );
+}
+
+// =============================================================================
 // create_statements in a non-public schema
 // =============================================================================
 

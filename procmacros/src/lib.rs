@@ -1456,6 +1456,7 @@ pub fn postgres_enum_derive(input: TokenStream) -> TokenStream {
 /// | `serial`, `smallserial`, `bigserial` | Auto-incrementing column. The field must be `i32`, `i16` or `i64` respectively. |
 /// | `identity`, `identity(always)`, `identity(by_default)` | `GENERATED ... AS IDENTITY` (`always` when no mode is given). Sequence options may follow the mode: `identity(always, start = 100, increment = 10, min_value = 1, max_value = 1000, cache = 5, cycle)`. |
 /// | `varchar(n)`, `char(n)` | `VARCHAR(n)` / `CHAR(n)` instead of `TEXT`, on a `String` field. |
+/// | `timestamp(p)`, `timestamptz(p)`, `time(p)` | Fractional-second precision `p` (0 to 6) of a field whose type already maps to `TIMESTAMP` / `TIMESTAMPTZ` / `TIME`, like drizzle-orm's `{ precision }`. |
 /// | `enum` | The field's type derives [`PostgresEnum`]; the enum decides native enum or `integer` storage. |
 /// | `json`, `jsonb` | Store a `serde` type as `JSON` / `JSONB` (needs the `serde` feature). |
 /// | `name = "col"` | SQL column name. Defaults to the field name in `snake_case`. |
