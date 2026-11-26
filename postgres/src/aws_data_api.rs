@@ -1062,111 +1062,111 @@ mod decimal_impls {
 // Array impls — decode Field::ArrayValue into Vec<T>
 // =============================================================================
 
-/// Decode a single `ArrayValue` variant into `Vec<T>`. Nested arrays are not
-/// supported here (flat arrays only — the common case for Aurora Data API).
-/// The SDK models elements as `Option<T>`; a null element in a non-nullable
-/// `Vec<T>` target is a conversion error, matching scalar null handling.
-fn require_non_null_elements<T: Clone>(
-    values: &[Option<T>],
+/// The elements of a flat array returned as the `ArrayValue` variant
+/// `variant` (nested arrays are not supported here; flat arrays are the
+/// common case for the Aurora Data API). The SDK models elements as
+/// `Option<T>`.
+fn array_elements<'a, T>(
+    array: &'a ArrayValue,
     variant: &'static str,
-) -> Result<Vec<T>, DrizzleError> {
-    values
-        .iter()
-        .map(|v| {
-            v.clone().ok_or_else(|| {
-                DrizzleError::ConversionError(
-                    format!("AWS Data API array: null element in {variant}").into(),
-                )
-            })
-        })
-        .collect()
+    elements: impl FnOnce(&'a ArrayValue) -> Option<&'a [Option<T>]>,
+) -> Result<&'a [Option<T>], DrizzleError> {
+    elements(array).ok_or_else(|| {
+        DrizzleError::ConversionError(
+            format!("AWS Data API array: expected {variant}, got {array:?}").into(),
+        )
+    })
 }
 
-fn decode_array_i64(array: &ArrayValue) -> Result<Vec<i64>, DrizzleError> {
-    match array {
-        ArrayValue::LongValues(v) => require_non_null_elements(v, "LongValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected LongValues, got {other:?}").into(),
-        )),
-    }
+/// A null element in a non-nullable `Vec<T>` target is a conversion error,
+/// matching scalar null handling.
+fn non_null_element<T>(value: Option<T>, variant: &'static str) -> Result<T, DrizzleError> {
+    value.ok_or_else(|| {
+        DrizzleError::ConversionError(
+            format!("AWS Data API array: null element in {variant}").into(),
+        )
+    })
 }
 
-fn decode_array_f64(array: &ArrayValue) -> Result<Vec<f64>, DrizzleError> {
-    match array {
-        ArrayValue::DoubleValues(v) => require_non_null_elements(v, "DoubleValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected DoubleValues, got {other:?}").into(),
-        )),
-    }
-}
-
-fn decode_array_bool(array: &ArrayValue) -> Result<Vec<bool>, DrizzleError> {
-    match array {
-        ArrayValue::BooleanValues(v) => require_non_null_elements(v, "BooleanValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected BooleanValues, got {other:?}").into(),
-        )),
-    }
-}
-
-fn decode_array_string(array: &ArrayValue) -> Result<Vec<String>, DrizzleError> {
-    match array {
-        ArrayValue::StringValues(v) => require_non_null_elements(v, "StringValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected StringValues, got {other:?}").into(),
-        )),
-    }
-}
-
+/// Decodes `Vec<$ty>` and `Vec<Option<$ty>>` (and their `Option`s) from the
+/// `$variant` array, converting each element with `$transform`.
+///
+/// The Data API drops NULL elements from the arrays it returns, so a
+/// `Vec<Option<$ty>>` reads the array without them.
 macro_rules! impl_array_leaf {
-    ($ty:ty, $decode:ident, $transform:expr) => {
+    ($ty:ty, $variant:ident, $transform:expr) => {
         impl FromDrizzleRow<Row> for Vec<$ty> {
             const COLUMN_COUNT: usize = 1;
             fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-                let field = field_at(row, offset)?;
-                if field_is_null(field) {
-                    return null_error::<Self>("array");
-                }
-                let arr = expect_array(field)?;
-                let raw = $decode(arr)?;
-                raw.into_iter().map($transform).collect()
+                <Vec<Option<$ty>> as FromDrizzleRow<Row>>::from_row_at(row, offset)?
+                    .into_iter()
+                    .map(|value| non_null_element(value, stringify!($variant)))
+                    .collect()
             }
         }
 
         impl FromDrizzleRow<Row> for Option<Vec<$ty>> {
             const COLUMN_COUNT: usize = 1;
             fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-                let field = field_at(row, offset)?;
-                if field_is_null(field) {
+                if field_is_null(field_at(row, offset)?) {
                     return Ok(None);
                 }
-                let arr = expect_array(field)?;
-                let raw = $decode(arr)?;
-                let out: Result<Vec<$ty>, DrizzleError> = raw.into_iter().map($transform).collect();
-                out.map(Some)
+                <Vec<$ty> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
+            }
+        }
+
+        impl FromDrizzleRow<Row> for Vec<Option<$ty>> {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                let field = field_at(row, offset)?;
+                if field_is_null(field) {
+                    return null_error::<Self>("array");
+                }
+                let elements = array_elements(
+                    expect_array(field)?,
+                    stringify!($variant),
+                    |array| match array {
+                        ArrayValue::$variant(values) => Some(values.as_slice()),
+                        _ => None,
+                    },
+                )?;
+                elements
+                    .iter()
+                    .cloned()
+                    .map(|value| value.map($transform).transpose())
+                    .collect()
+            }
+        }
+
+        impl FromDrizzleRow<Row> for Option<Vec<Option<$ty>>> {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                if field_is_null(field_at(row, offset)?) {
+                    return Ok(None);
+                }
+                <Vec<Option<$ty>> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
             }
         }
     };
 }
 
-// Narrowed integer arrays reuse decode_array_i64 + TryFrom
-impl_array_leaf!(i64, decode_array_i64, |v: i64| Ok::<i64, DrizzleError>(v));
-impl_array_leaf!(i32, decode_array_i64, |v: i64| i32::try_from(v).map_err(
-    |e| DrizzleError::ConversionError(format!("i32 narrow: {e}").into())
-));
-impl_array_leaf!(i16, decode_array_i64, |v: i64| i16::try_from(v).map_err(
-    |e| DrizzleError::ConversionError(format!("i16 narrow: {e}").into())
-));
+// Narrowed integer arrays read `LongValues` + TryFrom
+impl_array_leaf!(i64, LongValues, |v: i64| Ok::<i64, DrizzleError>(v));
+impl_array_leaf!(i32, LongValues, |v: i64| i32::try_from(v).map_err(|e| {
+    DrizzleError::ConversionError(format!("i32 narrow: {e}").into())
+}));
+impl_array_leaf!(i16, LongValues, |v: i64| i16::try_from(v).map_err(|e| {
+    DrizzleError::ConversionError(format!("i16 narrow: {e}").into())
+}));
 
-impl_array_leaf!(f64, decode_array_f64, |v: f64| Ok::<f64, DrizzleError>(v));
-impl_array_leaf!(f32, decode_array_f64, |v: f64| double_to_f32(v));
-impl_array_leaf!(bool, decode_array_bool, |v: bool| Ok::<bool, DrizzleError>(
-    v
-));
-impl_array_leaf!(String, decode_array_string, |v: String| Ok::<
+impl_array_leaf!(f64, DoubleValues, |v: f64| Ok::<f64, DrizzleError>(v));
+impl_array_leaf!(f32, DoubleValues, double_to_f32);
+impl_array_leaf!(bool, BooleanValues, |v: bool| Ok::<bool, DrizzleError>(v));
+impl_array_leaf!(
     String,
-    DrizzleError,
->(v));
+    StringValues,
+    |v: String| Ok::<String, DrizzleError>(v)
+);
 
 // =============================================================================
 // Wrapper-type leaf impls — delegate through String / Vec<u8>
@@ -2011,6 +2011,27 @@ mod tests {
                 <time::Duration as FromDrizzleRow<Row>>::from_row_at(&text_row(&text), 0).unwrap();
             assert_eq!(decoded, duration, "{text}");
         }
+    }
+
+    #[test]
+    fn arrays_decode_into_nullable_elements() {
+        let row = Row::new(
+            vec![
+                Field::ArrayValue(ArrayValue::LongValues(vec![Some(1), None, Some(3)])),
+                Field::IsNull(true),
+            ],
+            Arc::from(Vec::new()),
+        );
+
+        let scores = <Vec<Option<i32>> as FromDrizzleRow<Row>>::from_row_at(&row, 0).unwrap();
+        assert_eq!(scores, [Some(1), None, Some(3)]);
+        let missing =
+            <Option<Vec<Option<String>>> as FromDrizzleRow<Row>>::from_row_at(&row, 1).unwrap();
+        assert_eq!(missing, None);
+        // A NULL element has no place in `Vec<i32>`.
+        assert!(<Vec<i32> as FromDrizzleRow<Row>>::from_row_at(&row, 0).is_err());
+        assert!(<Vec<Option<i32>> as FromDrizzleRow<Row>>::from_row_at(&row, 1).is_err());
+        assert!(<Vec<Option<bool>> as FromDrizzleRow<Row>>::from_row_at(&row, 0).is_err());
     }
 
     #[test]

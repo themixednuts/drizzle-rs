@@ -879,6 +879,21 @@ impl From<Vec<bool>> for PostgresValue<'_> {
     }
 }
 
+/// An array whose `None` elements are NULL.
+impl<'a, T> From<Vec<Option<T>>> for PostgresValue<'a>
+where
+    T: Into<Self>,
+{
+    fn from(value: Vec<Option<T>>) -> Self {
+        PostgresValue::Array(
+            value
+                .into_iter()
+                .map(|element| element.map_or(PostgresValue::Null, Into::into))
+                .collect(),
+        )
+    }
+}
+
 // --- Extended Array Types ---
 
 #[cfg(feature = "uuid")]

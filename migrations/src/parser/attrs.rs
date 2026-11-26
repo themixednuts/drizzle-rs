@@ -472,13 +472,14 @@ fn date_time_has_zone(ty: &Type) -> Option<bool> {
 }
 
 /// `Vec<T>` array detection mirroring `postgres::field::postgres_array_info`
-/// (rejects `Vec<u8>` and nested `Vec<Vec<T>>`).
+/// (rejects `Vec<u8>` and nested `Vec<Vec<T>>`). `Vec<Option<T>>` is the
+/// same array with NULL elements.
 pub(crate) fn infer_postgres_array(ty: &Type) -> Option<&'static str> {
     let ty = unwrap_option(ty);
     if is_vec_u8(ty) {
         return None;
     }
-    let inner = vec_inner_type(ty)?;
+    let inner = unwrap_option(vec_inner_type(ty)?);
     if vec_inner_type(inner).is_some() {
         return None;
     }
@@ -3844,6 +3845,12 @@ mod tests {
         let (blob, _) = pg_spec("data: Vec<u8>");
         assert_eq!(blob.pg_type.as_deref(), Some("BYTEA"));
         assert_eq!(blob.pg_dimensions, None);
+
+        let (nullable_elements, diags) = pg_spec("scores: Option<Vec<Option<i32>>>");
+        assert!(diags.errors.is_empty(), "{:#?}", diags.errors);
+        assert_eq!(nullable_elements.pg_type.as_deref(), Some("INTEGER"));
+        assert_eq!(nullable_elements.pg_dimensions, Some(1));
+        assert!(nullable_elements.nullable);
     }
 
     #[test]

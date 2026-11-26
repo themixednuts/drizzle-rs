@@ -834,7 +834,8 @@ fn postgres_array_info(ty: &Type) -> Option<PostgreSQLType> {
         return None;
     }
 
-    let inner = vec_inner_type(ty)?;
+    // `Vec<Option<T>>` is an array whose elements may be NULL.
+    let inner = unwrap_option(vec_inner_type(ty)?);
     if vec_inner_type(inner).is_some() {
         return None;
     }
