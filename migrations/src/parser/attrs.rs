@@ -333,6 +333,7 @@ pub(crate) fn infer_sqlite_type(ty: &Type) -> Option<SQLiteType> {
         "Time",
         "PrimitiveDateTime",
         "OffsetDateTime",
+        "Timestamp",
     ]
     .iter()
     .any(|name| last_ident_is(ty, name))
@@ -387,15 +388,18 @@ pub(crate) fn infer_postgres_scalar_type(ty: &Type) -> Option<&'static str> {
     if is_json_value(ty) {
         return Some("JSONB");
     }
+    if let Some(zoned) = date_time_has_zone(ty) {
+        return Some(if zoned { "TIMESTAMPTZ" } else { "TIMESTAMP" });
+    }
     for (name, sql) in [
         ("NaiveDate", "DATE"),
         ("NaiveTime", "TIME"),
         ("NaiveDateTime", "TIMESTAMP"),
-        ("DateTime", "TIMESTAMPTZ"),
         ("Date", "DATE"),
         ("Time", "TIME"),
         ("PrimitiveDateTime", "TIMESTAMP"),
         ("OffsetDateTime", "TIMESTAMPTZ"),
+        ("Timestamp", "TIMESTAMPTZ"),
         ("Point", "POINT"),
         ("Rect", "BOX"),
         ("LineString", "PATH"),
@@ -449,13 +453,22 @@ fn postgres_array_element_type(ty: &Type) -> Option<&'static str> {
         ("NaiveDate", "DATE"),
         ("NaiveTime", "TIME"),
         ("NaiveDateTime", "TIMESTAMP"),
-        ("DateTime", "TIMESTAMPTZ"),
     ] {
         if last_ident_is(ty, name) {
             return Some(sql);
         }
     }
-    None
+    // jiff's `civil::DateTime` is not an array element type.
+    (date_time_has_zone(ty) == Some(true)).then_some("TIMESTAMPTZ")
+}
+
+/// For a `DateTime` type, whether it has a time zone: chrono's
+/// `DateTime<Tz>` does, jiff's `civil::DateTime` (no type parameter) does
+/// not, like the macros' `type_is_datetime_tz`. `None` for other types.
+fn date_time_has_zone(ty: &Type) -> Option<bool> {
+    let Type::Path(path) = ty else { return None };
+    let segment = path.path.segments.last()?;
+    (segment.ident == "DateTime").then(|| !segment.arguments.is_empty())
 }
 
 /// `Vec<T>` array detection mirroring `postgres::field::postgres_array_info`
@@ -3890,6 +3903,8 @@ mod tests {
             ("bytes::Bytes", "BLOB"),
             ("smallvec::SmallVec<[u8; 16]>", "BLOB"),
             ("chrono::NaiveDateTime", "TEXT"),
+            ("jiff::civil::DateTime", "TEXT"),
+            ("jiff::Timestamp", "TEXT"),
         ] {
             let (spec, _) = sqlite_spec(&format!("v: {ty}"));
             assert_eq!(spec.sqlite_type.as_deref(), Some(expected), "type {ty}");
@@ -3919,6 +3934,10 @@ mod tests {
             ("compact_str::CompactString", "VARCHAR"),
             ("arrayvec::ArrayString<32>", "VARCHAR"),
             ("chrono::DateTime<chrono::Utc>", "TIMESTAMPTZ"),
+            ("jiff::civil::Date", "DATE"),
+            ("jiff::civil::Time", "TIME"),
+            ("jiff::civil::DateTime", "TIMESTAMP"),
+            ("jiff::Timestamp", "TIMESTAMPTZ"),
         ] {
             let (spec, _) = pg_spec(&format!("v: {ty}"));
             assert_eq!(spec.pg_type.as_deref(), Some(expected), "type {ty}");
