@@ -403,6 +403,188 @@ pub(crate) fn strip_postgres_casts(sql: &str) -> String {
     out
 }
 
+/// Whether every `::type` cast in the PostgreSQL expression `sql` can be
+/// left out without changing what the expression means, as generated code
+/// leaves them out (drizzle-orm#6493). That holds for a cast of a literal
+/// that is the whole expression (the column type then gives the literal its
+/// type), for a number cast to a numeric type, and for a string cast to a
+/// text type or `regclass` (a bare string literal resolves to text, and the
+/// sequence functions take only `regclass`), as well as for an interval
+/// added to `now()`. Any other cast may pick a
+/// different function or operator, or none: `md5(random()::text)` has no
+/// `md5(double precision)`, and `trunc('…'::macaddr)` cannot choose between
+/// the `trunc` overloads without it.
+pub(crate) fn postgres_casts_are_redundant(sql: &str) -> bool {
+    let sql = sql.trim();
+    let mut out = String::with_capacity(sql.len());
+    // Start and end in `out` of the last quoted string literal.
+    let mut last_string: Option<(usize, usize)> = None;
+    let mut rest = sql;
+    while let Some(ch) = rest.chars().next() {
+        if ch == '\'' || ch == '"' {
+            let mut end = 1;
+            loop {
+                let Some(offset) = rest[end..].find(ch) else {
+                    end = rest.len();
+                    break;
+                };
+                end += offset + 1;
+                if !rest[end..].starts_with(ch) {
+                    break;
+                }
+                end += 1;
+            }
+            if ch == '\'' {
+                last_string = Some((out.len(), out.len() + end));
+            }
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+        } else if let Some(tail) = rest.strip_prefix("::") {
+            let after = skip_cast_type(tail);
+            let target = tail[..tail.len() - after.len()].trim();
+            let Some((operand_start, literal)) = cast_operand(&out, last_string) else {
+                return false;
+            };
+            let remainder = after.trim_start_matches(|c: char| c == ')' || c.is_whitespace());
+            let whole = out[..operand_start]
+                .chars()
+                .all(|c| matches!(c, '(' | '+' | '-') || c.is_whitespace())
+                && (remainder.is_empty() || remainder.starts_with("::"));
+            if !(whole
+                || cast_keeps_literal_meaning(literal, target)
+                || interval_added_to_now(&out[..operand_start], literal, target))
+            {
+                return false;
+            }
+            rest = after;
+        } else {
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+        }
+    }
+    true
+}
+
+/// `now() + '1 day'::interval`: a timestamp has one `+` operator, which
+/// takes an interval, so the string resolves to an interval without the cast.
+/// (`now() - '1 day'` would read it as a timestamp.)
+fn interval_added_to_now(before: &str, literal: CastLiteral, target: &str) -> bool {
+    let Some(left) = before.trim_end().strip_suffix('+') else {
+        return false;
+    };
+    let left = left.trim_end().to_ascii_lowercase();
+    matches!(literal, CastLiteral::String)
+        && target.to_ascii_lowercase().starts_with("interval")
+        && [
+            "now()",
+            "current_timestamp",
+            "localtimestamp",
+            "transaction_timestamp()",
+            "statement_timestamp()",
+            "clock_timestamp()",
+        ]
+        .iter()
+        .any(|call| left.ends_with(call))
+}
+
+/// The kind of literal a cast applies to.
+#[derive(Clone, Copy)]
+enum CastLiteral {
+    Number,
+    String,
+}
+
+/// Where in `out` the operand of a cast that follows `out` starts, and what
+/// literal it is, or `None` when it is not a literal.
+fn cast_operand(out: &str, last_string: Option<(usize, usize)>) -> Option<(usize, CastLiteral)> {
+    let operand = out.trim_end();
+    if operand.ends_with('\'') {
+        let (start, end) = last_string?;
+        return (end == operand.len()).then_some((start, CastLiteral::String));
+    }
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '"' || c == '$';
+    let (start, number) = if operand.ends_with(')') {
+        // `(10)` or `(-1)`, not a function call such as `random()`.
+        let mut depth = 0usize;
+        let open = operand.char_indices().rev().find_map(|(index, c)| {
+            match c {
+                ')' => depth += 1,
+                '(' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                }
+                _ => {}
+            }
+            None
+        })?;
+        let inner = operand[open + 1..operand.len() - 1].trim();
+        (open, inner.strip_prefix(['-', '+']).unwrap_or(inner).trim())
+    } else {
+        let start = operand
+            .char_indices()
+            .rev()
+            .take_while(|(_, c)| c.is_ascii_digit() || *c == '.')
+            .last()
+            .map(|(index, _)| index)?;
+        (start, &operand[start..])
+    };
+    let before_word = operand[..start]
+        .trim_end()
+        .chars()
+        .last()
+        .is_some_and(is_word);
+    let numeric = !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && number.chars().any(|c| c.is_ascii_digit());
+    (numeric && !before_word).then_some((start, CastLiteral::Number))
+}
+
+/// Whether dropping a cast of `literal` to `target` inside a larger
+/// expression keeps its meaning (see [`postgres_casts_are_redundant`]).
+fn cast_keeps_literal_meaning(literal: CastLiteral, target: &str) -> bool {
+    let target = target.to_ascii_lowercase();
+    let base = target
+        .split(['(', '['])
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches("pg_catalog.");
+    if target.contains('[') {
+        return false;
+    }
+    match literal {
+        CastLiteral::Number => matches!(
+            base,
+            "smallint"
+                | "integer"
+                | "int"
+                | "bigint"
+                | "int2"
+                | "int4"
+                | "int8"
+                | "numeric"
+                | "decimal"
+                | "real"
+                | "double precision"
+                | "float4"
+                | "float8"
+        ),
+        CastLiteral::String => matches!(
+            base,
+            "text"
+                | "character varying"
+                | "varchar"
+                | "character"
+                | "char"
+                | "bpchar"
+                | "name"
+                | "regclass"
+        ),
+    }
+}
+
 /// Comment emitted in generated schema code when a database default cannot be
 /// rendered as `#[column(default = ...)]`, so the output still compiles and the
 /// omission is visible next to the field.
@@ -920,6 +1102,43 @@ mod tests {
             ("'unterminated::text", "'unterminated::text"),
         ] {
             assert_eq!(strip_postgres_casts(sql), expected, "{sql}");
+        }
+    }
+
+    #[test]
+    fn postgres_casts_that_carry_meaning_are_detected() {
+        for sql in [
+            "(random() * (10)::double precision)",
+            "(random() * (-1)::integer)",
+            "(10)::bigint",
+            "'anon'::character varying",
+            "'{}'::jsonb",
+            "'{}'::text[]",
+            "'active'::public.\"Status\"",
+            "'a'::text::character varying(20)",
+            "nextval('users_id_seq'::regclass)",
+            "('a'::text || 'b'::text)",
+            "md5('x'::text)",
+            "now()",
+            "'a''::b'",
+            "(now() + '1 day'::interval)",
+        ] {
+            assert!(postgres_casts_are_redundant(sql), "{sql}");
+        }
+        for sql in [
+            "md5(random()::text)::uuid",
+            "md5((random())::text)",
+            "trunc('08:00:2b:01:02:03'::macaddr)",
+            "(now() - '1 day'::interval)",
+            "(CURRENT_DATE + '1 day'::interval)",
+            "now()::date",
+            "ARRAY[]::text[]",
+            "x1::integer",
+            "\"col\"::text",
+            "'1'::numeric(10,2) + 1",
+            "coalesce(null, ARRAY['a'::text])::text[] || '{}'::text[]",
+        ] {
+            assert!(!postgres_casts_are_redundant(sql), "{sql}");
         }
     }
 

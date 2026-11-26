@@ -1013,7 +1013,11 @@ fn generate_column_field(
         if let Some(formatted) = format_default_value(default, &column.sql_type) {
             attrs.push(format!("default = {formatted}"));
         } else if !default.trim().eq_ignore_ascii_case("null") {
-            match default_expression(default) {
+            // Generated defaults leave the casts out; one that matters would
+            // change the expression or make it invalid (drizzle-orm#6493).
+            match default_expression(default)
+                .filter(|_| crate::utils::postgres_casts_are_redundant(default))
+            {
                 Some(expression) => attrs.push(format!("default = {expression}")),
                 None => unsupported_default = Some(default.as_ref()),
             }
@@ -1953,6 +1957,83 @@ mod tests {
         );
         assert!(generated.code.contains("days: Option<Vec<String>>,"));
         assert_eq!(generated.warnings.len(), 1, "{:?}", generated.warnings);
+    }
+
+    #[test]
+    fn defaults_keep_only_casts_they_can_lose() {
+        let mut ddl = PostgresDDL::new();
+        ddl.schemas.push(Schema::new("public"));
+        ddl.tables.push(Table::new("public", "items"));
+        ddl.columns
+            .push(Column::new("public", "items", "id", "int4").not_null());
+        // Casts that only restate a type: the defaults are generated.
+        for (name, sql_type, default) in [
+            ("ratio", "float8", "(random() * (10)::double precision)"),
+            ("label", "text", "'anon'::text"),
+            ("settings", "jsonb", "'{}'::jsonb"),
+            ("digest", "text", "md5('x'::text)"),
+        ] {
+            ddl.columns.push(
+                Column::new("public", "items", name, sql_type)
+                    .not_null()
+                    .default_value(default),
+            );
+        }
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+        for attr in [
+            "#[column(default = (random() * (10)))]",
+            "#[column(default = \"anon\")]",
+            "default = \"{}\"",
+            "#[column(default = md5(\"x\"))]",
+        ] {
+            assert!(
+                generated.code.contains(attr),
+                "missing `{attr}`:\n{}",
+                generated.code
+            );
+        }
+        assert!(!generated.code.contains("TODO"), "{}", generated.code);
+        assert_round_trips(&ddl, &generated);
+
+        // Casts that pick a function or operator: leaving them out would
+        // write `md5((random()))` or an ambiguous `trunc('…')`, so the
+        // default is left to the user with the original SQL.
+        for (name, sql_type, default) in [
+            ("token", "uuid", "md5((random())::text)::uuid"),
+            ("mac", "macaddr", "trunc('08:00:2b:01:02:03'::macaddr)"),
+            ("due", "timestamp", "(now() - '1 day'::interval)"),
+        ] {
+            ddl.columns.push(
+                Column::new("public", "items", name, sql_type)
+                    .not_null()
+                    .default_value(default),
+            );
+        }
+        let generated = generate_rust_schema(&ddl, &CodegenOptions::default());
+        for default in [
+            "md5((random())::text)::uuid",
+            "trunc('08:00:2b:01:02:03'::macaddr)",
+            "(now() - '1 day'::interval)",
+        ] {
+            assert!(
+                generated.code.contains(&format!(
+                    "// TODO: default `{default}` cannot be expressed as `#[column(default = ...)]`; add it manually."
+                )),
+                "missing the TODO for `{default}`:\n{}",
+                generated.code
+            );
+        }
+        assert!(
+            !generated.code.contains("md5((random()))"),
+            "{}",
+            generated.code
+        );
+        assert!(!generated.code.contains("trunc(\""), "{}", generated.code);
+        assert!(
+            !generated.code.contains("(now() - \"1 day\")"),
+            "{}",
+            generated.code
+        );
     }
 
     #[test]
