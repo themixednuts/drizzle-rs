@@ -17,7 +17,9 @@
 //! `cell_at`-based default impl. Drivers that can probe NULL without
 //! allocating (e.g. `rusqlite::Row::get_ref`) override it.
 
+use crate::conv::{checked_float_to_int, parse_bool_text, parse_number_text};
 use crate::error::DrizzleError;
+use crate::prelude::format;
 use crate::row::FromDrizzleRow;
 
 /// SQLite-flavored cell value. The union of the four storage classes plus NULL,
@@ -79,24 +81,43 @@ fn i64_to_f64(i: i64) -> f64 {
     f64::from(high) * 4_294_967_296.0_f64 + f64::from(low)
 }
 
+/// Decodes an integer cell the way `drizzle-sqlite`'s `FromSQLiteValue` does,
+/// so a builder select reads what a table model reads: an INTEGER through
+/// `from_integer`, TEXT holding an integer, or an integral REAL in range
+/// (SQLite's NUMERIC affinity and columns declared TEXT or REAL store either).
+fn integer_from_cell<T>(
+    cell: SqliteCell,
+    type_name: &str,
+    from_integer: impl FnOnce(i64) -> Result<T, DrizzleError>,
+) -> Result<T, DrizzleError>
+where
+    T: core::str::FromStr + TryFrom<i128>,
+    <T as core::str::FromStr>::Err: core::fmt::Display,
+    <T as TryFrom<i128>>::Error: core::fmt::Display,
+{
+    match cell {
+        SqliteCell::Integer(i) => from_integer(i),
+        SqliteCell::Text(s) => parse_number_text(&s, type_name),
+        SqliteCell::Real(r) => checked_float_to_int(r, type_name),
+        SqliteCell::Null => Err(DrizzleError::ConversionError(
+            "unexpected NULL for integer".into(),
+        )),
+        SqliteCell::Blob(_) => Err(DrizzleError::ConversionError(
+            format!("cannot convert BLOB to {type_name}").into(),
+        )),
+    }
+}
+
 macro_rules! sqlite_value_int_impl {
     ($($ty:ty),*) => { $(
         impl<R: SqliteValueRow> FromDrizzleRow<R> for $ty {
             const COLUMN_COUNT: usize = 1;
             fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
-                match row.cell_at(offset)? {
-                    SqliteCell::Integer(i) => i.try_into().map_err(
-                        |e: core::num::TryFromIntError| {
-                            DrizzleError::ConversionError(e.to_string().into())
-                        },
-                    ),
-                    SqliteCell::Null => Err(DrizzleError::ConversionError(
-                        "unexpected NULL for integer".into(),
-                    )),
-                    _ => Err(DrizzleError::ConversionError(
-                        "expected integer value".into(),
-                    )),
-                }
+                integer_from_cell(row.cell_at(offset)?, stringify!($ty), |i| {
+                    i.try_into().map_err(|e: core::num::TryFromIntError| {
+                        DrizzleError::ConversionError(e.to_string().into())
+                    })
+                })
             }
         }
     )* }
@@ -121,15 +142,7 @@ macro_rules! sqlite_value_unsigned64_impl {
         impl<R: SqliteValueRow> FromDrizzleRow<R> for $ty {
             const COLUMN_COUNT: usize = 1;
             fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
-                match row.cell_at(offset)? {
-                    SqliteCell::Integer(i) => unsigned_from_stored_bits(i),
-                    SqliteCell::Null => Err(DrizzleError::ConversionError(
-                        "unexpected NULL for integer".into(),
-                    )),
-                    _ => Err(DrizzleError::ConversionError(
-                        "expected integer value".into(),
-                    )),
-                }
+                integer_from_cell(row.cell_at(offset)?, stringify!($ty), unsigned_from_stored_bits)
             }
         }
     )* }
@@ -137,20 +150,10 @@ macro_rules! sqlite_value_unsigned64_impl {
 
 sqlite_value_unsigned64_impl!(u64, usize);
 
-// `i64` is the identity conversion — skip the `try_into` indirection so the
-// fast path doesn't even mention `TryFromIntError`.
 impl<R: SqliteValueRow> FromDrizzleRow<R> for i64 {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
-        match row.cell_at(offset)? {
-            SqliteCell::Integer(i) => Ok(i),
-            SqliteCell::Null => Err(DrizzleError::ConversionError(
-                "unexpected NULL for integer".into(),
-            )),
-            _ => Err(DrizzleError::ConversionError(
-                "expected integer value".into(),
-            )),
-        }
+        integer_from_cell(row.cell_at(offset)?, "i64", Ok)
     }
 }
 
@@ -204,13 +207,16 @@ impl<R: SqliteValueRow> FromDrizzleRow<R> for f32 {
 impl<R: SqliteValueRow> FromDrizzleRow<R> for bool {
     const COLUMN_COUNT: usize = 1;
     fn from_row_at(row: &R, offset: usize) -> Result<Self, DrizzleError> {
+        // As `drizzle-sqlite`'s `FromSQLiteValue` decodes a bool.
         match row.cell_at(offset)? {
             SqliteCell::Integer(i) => Ok(i != 0),
+            SqliteCell::Real(r) => Ok(r != 0.0),
+            SqliteCell::Text(s) => parse_bool_text(&s),
             SqliteCell::Null => Err(DrizzleError::ConversionError(
                 "unexpected NULL for bool".into(),
             )),
-            _ => Err(DrizzleError::ConversionError(
-                "expected integer for bool".into(),
+            SqliteCell::Blob(_) => Err(DrizzleError::ConversionError(
+                "cannot convert BLOB to bool".into(),
             )),
         }
     }
@@ -551,5 +557,52 @@ mod tests {
         );
         assert_eq!(usize::from_row_at(&IntegerCell(7), 0).unwrap(), 7);
         assert!(u32::from_row_at(&IntegerCell(-1), 0).is_err());
+    }
+
+    struct Cell(SqliteCell);
+
+    impl SqliteValueRow for Cell {
+        fn cell_at(&self, _offset: usize) -> Result<SqliteCell, DrizzleError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn text(value: &str) -> Cell {
+        Cell(SqliteCell::Text(value.into()))
+    }
+
+    fn real(value: f64) -> Cell {
+        Cell(SqliteCell::Real(value))
+    }
+
+    // Integer TEXT and integral REAL in range decode, as `FromSQLiteValue`
+    // decodes them for a table model.
+    #[test]
+    fn integers_decode_from_text_and_real() {
+        assert_eq!(i64::from_row_at(&text("-42"), 0).unwrap(), -42);
+        assert_eq!(i64::from_row_at(&real(42.0), 0).unwrap(), 42);
+        assert_eq!(i32::from_row_at(&text("7"), 0).unwrap(), 7);
+        assert_eq!(
+            u64::from_row_at(&text("18446744073709551615"), 0).unwrap(),
+            u64::MAX
+        );
+        assert_eq!(u64::from_row_at(&real(7.0), 0).unwrap(), 7);
+
+        assert!(i64::from_row_at(&real(1.5), 0).is_err());
+        assert!(i64::from_row_at(&text("4.2"), 0).is_err());
+        assert!(i32::from_row_at(&text("3000000000"), 0).is_err());
+        assert!(u8::from_row_at(&real(256.0), 0).is_err());
+        assert!(u64::from_row_at(&text("-1"), 0).is_err());
+        assert!(i64::from_row_at(&Cell(SqliteCell::Blob(vec![1])), 0).is_err());
+    }
+
+    #[test]
+    fn bools_decode_from_text_and_real() {
+        for (value, expected) in [("1", true), ("YES", true), ("on", true), ("False", false)] {
+            assert_eq!(bool::from_row_at(&text(value), 0).unwrap(), expected);
+        }
+        assert!(bool::from_row_at(&real(1.0), 0).unwrap());
+        assert!(!bool::from_row_at(&real(0.0), 0).unwrap());
+        assert!(bool::from_row_at(&text("maybe"), 0).is_err());
     }
 }

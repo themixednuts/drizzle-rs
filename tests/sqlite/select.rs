@@ -264,6 +264,82 @@ fn numeric_affinity_reals_stored_as_integers_decode(db: &mut TestDb<NumericAffin
     assert_eq!(rows[0].discount, Some(4.0));
 }
 
+#[SQLiteTable(NAME = "loose_integers")]
+struct LooseInteger {
+    #[column(primary)]
+    id: i32,
+    n: i64,
+    small: i32,
+    flag: bool,
+}
+
+#[derive(SQLiteSchema)]
+struct LooseIntegerSchema {
+    loose_integers: LooseInteger,
+}
+
+/// A column without INTEGER affinity keeps integers written as TEXT or REAL
+/// in that storage class. A selected column decodes them as a table model
+/// does: integer TEXT, an integral REAL in range, and `'1'`/`'yes'` or
+/// `1.0` for a bool.
+#[drizzle::test]
+fn integers_stored_as_text_or_real_decode_in_selected_columns(db: &mut TestDb<LooseIntegerSchema>) {
+    let LooseIntegerSchema { loose_integers } = schema;
+    result!(db.execute(SQL::raw(r#"DROP TABLE "loose_integers""#)))?;
+    result!(db.execute(SQL::raw(
+        r#"CREATE TABLE "loose_integers" ("id" INTEGER PRIMARY KEY, "n", "small", "flag")"#
+    )))?;
+    result!(db.execute(SQL::raw(
+        r#"INSERT INTO "loose_integers" VALUES
+           (1, '42', '-7', '1'),
+           (2, 42.0, -7.0, 1.0),
+           (3, '9007199254740993', '0', 'no')"#
+    )))?;
+
+    let expected = [
+        (42, -7, true),
+        (42, -7, true),
+        (9_007_199_254_740_993, 0, false),
+    ];
+    let selected: Vec<(i64, i32, bool)> = db
+        .select((loose_integers.n, loose_integers.small, loose_integers.flag))
+        .from(loose_integers)
+        .order_by([asc(loose_integers.id)])
+        .all();
+    assert_eq!(selected, expected);
+
+    let models: Vec<SelectLooseInteger> = db
+        .select(())
+        .from(loose_integers)
+        .order_by([asc(loose_integers.id)])
+        .all();
+    let from_models: Vec<_> = models
+        .iter()
+        .map(|row| (row.n, row.small, row.flag))
+        .collect();
+    assert_eq!(from_models, expected);
+
+    // Values that are not integers fail in both, rather than truncating.
+    result!(db.execute(SQL::raw(
+        r#"UPDATE "loose_integers" SET "n" = 1.5, "small" = '3000000000', "flag" = 'maybe'"#
+    )))?;
+    let n: Result<Vec<(i64,)>, _> =
+        result!(db.select((loose_integers.n,)).from(loose_integers).all());
+    assert!(n.is_err(), "a fractional REAL is not an i64");
+    let small: Result<Vec<(i32,)>, _> = result!(
+        db.select((loose_integers.small,))
+            .from(loose_integers)
+            .all()
+    );
+    assert!(small.is_err(), "TEXT out of range for i32");
+    let flag: Result<Vec<(bool,)>, _> =
+        result!(db.select((loose_integers.flag,)).from(loose_integers).all());
+    assert!(flag.is_err(), "TEXT that is not a bool");
+    let models: Result<Vec<SelectLooseInteger>, _> =
+        result!(db.select(()).from(loose_integers).all());
+    assert!(models.is_err());
+}
+
 /// ORDER BY after a set operation keeps `get` an `Option`: the set
 /// operation can remove an aggregate's one row.
 #[drizzle::test]
