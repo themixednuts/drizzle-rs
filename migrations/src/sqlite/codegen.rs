@@ -1444,6 +1444,31 @@ pub struct AppSchema {
     }
 
     #[test]
+    fn string_concatenation_defaults_are_not_written_as_or() {
+        let mut ddl = SQLiteDDL::new();
+        ddl.tables.push(Table::new("labels"));
+        ddl.columns
+            .push(Column::new("labels", "name", "text").default_value("('a' || 'b')"));
+
+        let result = generate_rust_schema(&ddl, &CodegenOptions::default());
+
+        // `#[column(default = ("a" || "b"))]` would render as `('a' OR 'b')`.
+        assert!(
+            !result
+                .code
+                .lines()
+                .any(|line| line.trim_start().starts_with("#[column(")),
+            "{}",
+            result.code
+        );
+        assert!(
+            result.code.contains("TODO: default `('a' || 'b')`"),
+            "{}",
+            result.code
+        );
+    }
+
+    #[test]
     fn test_sql_type_to_rust_type() {
         assert_eq!(sql_type_to_rust_type("integer", true), "i64");
         assert_eq!(sql_type_to_rust_type("integer", false), "Option<i64>");

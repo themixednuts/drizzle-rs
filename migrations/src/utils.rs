@@ -367,7 +367,68 @@ pub(crate) fn default_expression_with(sql: &str, backslash_escapes: bool) -> Opt
         }
     }
 
-    syn::parse_str::<syn::Expr>(&rust).ok().map(|_| rust)
+    let expr = syn::parse_str::<syn::Expr>(&rust).ok()?;
+    renders_as_written(&expr).then_some(rust)
+}
+
+/// Whether the `#[column(default = ...)]` renderer accepts `expr` and writes
+/// back the SQL it was copied from.
+///
+/// [`default_expression`] copies SQL operators into Rust syntax, and the
+/// renderer reads the Rust ones: `&&` and `||` become `AND` and `OR`, and
+/// `!` becomes `NOT`, so a pulled PostgreSQL or SQLite `'a' || 'b'` (string
+/// concatenation) or `a && b` (array overlap) would come back as a logical
+/// operator. A bare `=` parses as an assignment, which the renderer rejects.
+fn renders_as_written(expr: &syn::Expr) -> bool {
+    use syn::{BinOp, Expr, UnOp};
+    match expr {
+        Expr::Lit(_) => true,
+        Expr::Path(path) => {
+            path.qself.is_none()
+                && path
+                    .path
+                    .segments
+                    .iter()
+                    .all(|segment| segment.arguments.is_empty())
+        }
+        Expr::Call(call) => {
+            renders_as_written(&call.func) && call.args.iter().all(renders_as_written)
+        }
+        Expr::MethodCall(call) => {
+            call.turbofish.is_none()
+                && renders_as_written(&call.receiver)
+                && call.args.iter().all(renders_as_written)
+        }
+        Expr::Paren(paren) => renders_as_written(&paren.expr),
+        Expr::Group(group) => renders_as_written(&group.expr),
+        Expr::Unary(unary) => matches!(unary.op, UnOp::Neg(_)) && renders_as_written(&unary.expr),
+        // The operators the renderer writes as the same SQL operator (`!=`
+        // as `<>`).
+        Expr::Binary(binary) => {
+            matches!(
+                binary.op,
+                BinOp::Add(_)
+                    | BinOp::Sub(_)
+                    | BinOp::Mul(_)
+                    | BinOp::Div(_)
+                    | BinOp::Rem(_)
+                    | BinOp::BitXor(_)
+                    | BinOp::BitAnd(_)
+                    | BinOp::BitOr(_)
+                    | BinOp::Shl(_)
+                    | BinOp::Shr(_)
+                    | BinOp::Eq(_)
+                    | BinOp::Lt(_)
+                    | BinOp::Le(_)
+                    | BinOp::Ne(_)
+                    | BinOp::Ge(_)
+                    | BinOp::Gt(_)
+            ) && renders_as_written(&binary.left)
+                && renders_as_written(&binary.right)
+        }
+        Expr::Tuple(tuple) => tuple.elems.iter().all(renders_as_written),
+        _ => false,
+    }
 }
 
 /// `sql` without its PostgreSQL `::type` casts, which [`default_expression`]
@@ -1085,7 +1146,6 @@ mod tests {
             ("'{}'::jsonb", r#""{}""#),
             ("'active'::public.\"Status\"", r#""active""#),
             ("'1'::numeric(10,2) + 1", r#""1" + 1"#),
-            ("('a'::text || 'b'::text)", r#"("a" || "b")"#),
             ("(now() + '1 day'::interval)", r#"(now() + "1 day")"#),
         ] {
             assert_eq!(default_expression(sql).as_deref(), Some(expected), "{sql}");
@@ -1148,5 +1208,22 @@ mod tests {
         assert_eq!(default_expression("x'00'"), None);
         assert_eq!(default_expression("ARRAY[]::text[]"), None);
         assert_eq!(default_expression("CAST(1 AS int)"), None);
+    }
+
+    #[test]
+    fn defaults_whose_operators_mean_something_else_in_rust_are_rejected() {
+        // String concatenation and array overlap would render as OR and AND.
+        assert_eq!(default_expression("'a'::text || 'b'::text"), None);
+        assert_eq!(default_expression("'{1}'::int[] && '{2}'::int[]"), None);
+        // `=` parses as an assignment.
+        assert_eq!(default_expression("a = b"), None);
+        // Operators the renderer writes back as they are.
+        assert_eq!(
+            default_expression("(random() * (10)::double precision)").as_deref(),
+            Some("(random() * (10))")
+        );
+        assert_eq!(default_expression("1 << 4").as_deref(), Some("1 << 4"));
+        assert_eq!(default_expression("1 != 2").as_deref(), Some("1 != 2"));
+        assert_eq!(default_expression("-1").as_deref(), Some("-1"));
     }
 }

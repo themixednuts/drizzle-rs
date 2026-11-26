@@ -2002,6 +2002,8 @@ mod tests {
             ("token", "uuid", "md5((random())::text)::uuid"),
             ("mac", "macaddr", "trunc('08:00:2b:01:02:03'::macaddr)"),
             ("due", "timestamp", "(now() - '1 day'::interval)"),
+            // `||` would come back from the Rust default as `OR`.
+            ("full_name", "text", "('a'::text || 'b'::text)"),
         ] {
             ddl.columns.push(
                 Column::new("public", "items", name, sql_type)
@@ -2014,6 +2016,7 @@ mod tests {
             "md5((random())::text)::uuid",
             "trunc('08:00:2b:01:02:03'::macaddr)",
             "(now() - '1 day'::interval)",
+            "('a'::text || 'b'::text)",
         ] {
             assert!(
                 generated.code.contains(&format!(
