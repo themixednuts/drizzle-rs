@@ -406,10 +406,25 @@ fn load_nodes(out_dir: &Path, dialect: Dialect) -> Result<Vec<Node>, HistoryErro
     }
     folders.sort();
 
+    let snapshots: Vec<Snapshot> = if dialect == Dialect::PostgreSQL {
+        // drizzle-kit's format 9 and 10 snapshots store deltas, which only
+        // the whole folder turns into states.
+        let paths: Vec<PathBuf> = folders.iter().map(|(_, path)| path.clone()).collect();
+        crate::postgres::reconstruct::load_snapshots(&paths)?
+            .into_iter()
+            .map(Snapshot::Postgres)
+            .collect()
+    } else {
+        folders
+            .iter()
+            .map(|(_, path)| Snapshot::load(path, dialect))
+            .collect::<Result<_, _>>()?
+    };
+
     folders
         .into_iter()
-        .map(|(folder, path)| {
-            let snapshot = Snapshot::load(&path, dialect)?;
+        .zip(snapshots)
+        .map(|((folder, _), snapshot)| {
             let json = to_json(&snapshot)?;
             let prev_ids = json
                 .get("prevIds")
