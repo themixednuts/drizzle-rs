@@ -368,3 +368,89 @@ DROP SCHEMA IF EXISTS "{schema}";
     ))
     .expect("cleanup postgres tables");
 }
+
+/// Creates `table_sql` (`{schema}` stands for a fresh schema), pulls that
+/// schema with `pull_args`, then plans a push of the pulled schema. Returns
+/// the pulled `schema.rs` and the `push --explain` output.
+fn pull_then_explain_push(table_sql: &str, pull_args: &[&str]) -> (String, String) {
+    let _database = lock_database();
+    let dir = tempdir().expect("temp dir");
+    let root = dir.path();
+    let cfg_path = root.join("drizzle.config.toml");
+    let out_dir = root.join("pulled");
+    let schema = format!("cli_pull_push_{}", unique_suffix());
+
+    let mut pg = pg_client();
+    pg.batch_execute(&format!(
+        "CREATE SCHEMA \"{schema}\"; {}",
+        table_sql.replace("{schema}", &schema)
+    ))
+    .expect("create the pulled schema");
+
+    fs::write(
+        &cfg_path,
+        format!(
+            r#"
+dialect = "postgresql"
+schema = '{schema_rs}'
+out = '{out}'
+schemaFilter = ["{schema}"]
+
+[dbCredentials]
+url = '{url}'
+"#,
+            schema_rs = out_dir.join("schema.rs").to_string_lossy(),
+            out = out_dir.to_string_lossy(),
+            url = pg_url(),
+        ),
+    )
+    .expect("write config");
+
+    cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["--config", &cfg_path.to_string_lossy(), "pull"])
+        .args(pull_args)
+        .assert()
+        .success();
+    let schema_rs = fs::read_to_string(out_dir.join("schema.rs")).expect("read schema.rs");
+
+    let push = cargo_bin_cmd!("drizzle")
+        .current_dir(root)
+        .args(["--config", &cfg_path.to_string_lossy(), "push", "--explain"])
+        .output()
+        .expect("run push --explain");
+    pg.batch_execute(&format!("DROP SCHEMA \"{schema}\" CASCADE;"))
+        .expect("drop the pulled schema");
+    assert!(
+        push.status.success(),
+        "push --explain failed:\n{}",
+        String::from_utf8_lossy(&push.stderr)
+    );
+    (
+        schema_rs,
+        String::from_utf8_lossy(&push.stdout).into_owned(),
+    )
+}
+
+/// drizzle-orm#6495: PostgreSQL stores `random() * 10` with the cast it
+/// implies, which the pulled schema leaves out. (`numeric`, the column type
+/// of the issue, has no field type that keeps it.)
+#[test]
+fn push_after_pull_keeps_expression_defaults() {
+    let (schema_rs, push) = pull_then_explain_push(
+        r#"CREATE TABLE "{schema}"."t" (
+            "id" integer PRIMARY KEY,
+            "ratio" double precision DEFAULT (random() * 10),
+            "amount" bigint DEFAULT (random() * 10)
+        );"#,
+        &[],
+    );
+    assert!(
+        schema_rs.contains("default = (random() * (10))"),
+        "{schema_rs}"
+    );
+    assert!(
+        push.contains("No schema changes detected."),
+        "{schema_rs}\n{push}"
+    );
+}
