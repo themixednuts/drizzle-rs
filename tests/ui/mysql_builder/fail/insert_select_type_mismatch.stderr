@@ -26,8 +26,9 @@ error[E0277]: SQL type `drizzle::mysql::types::Text` is not assignable from `dri
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
+   | impl<'a, Schema, State, Table> InsertBuilder<'a, Schema, State, Table>
+...
    |     pub fn select<Q, R, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |         Q::Marker: InsertSelectCompatible<'a, MySQLValue<'a>, Table, R>
    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`

@@ -651,6 +651,108 @@ fn serial_transitions() {
 }
 
 #[test]
+fn identity_dropped_with_a_new_type_default_or_nullability() {
+    // drizzle-orm#4178: the identity goes first, or PostgreSQL rejects the
+    // new type and default of a column that is still an identity.
+    let mut prev = PostgresDDL::new();
+    table(&mut prev, "public", "t");
+    column(&mut prev, "public", "t", "id", "integer");
+    col(&mut prev, "t", "id").not_null = true;
+    col(&mut prev, "t", "id").identity = Some(Identity::always("t_id_seq"));
+    let without_identity = |edit: fn(&mut Column)| {
+        let mut cur = prev.clone();
+        let id = col(&mut cur, "t", "id");
+        id.identity = None;
+        edit(id);
+        cur
+    };
+
+    let mut db = TestSchema::new("identity_to_bigint");
+    let cur = without_identity(|id| {
+        id.sql_type = Cow::Borrowed("bigint");
+        id.default = Some(Cow::Borrowed("0"));
+    });
+    let statements = db.apply(&prev, &cur, "");
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" DROP IDENTITY;",
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" SET DATA TYPE bigint USING \"id\"::bigint;",
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" SET DEFAULT 0;",
+        ]
+    );
+    db.run(&["INSERT INTO t DEFAULT VALUES;".to_string()]);
+
+    // DROP IDENTITY keeps NOT NULL, so a nullable column drops it as well.
+    let mut db = TestSchema::new("identity_nullable");
+    let cur = without_identity(|id| id.not_null = false);
+    let statements = db.apply(&prev, &cur, "");
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" DROP IDENTITY;",
+            "ALTER TABLE \"t\" ALTER COLUMN \"id\" DROP NOT NULL;",
+        ]
+    );
+    db.run(&["INSERT INTO t VALUES (NULL);".to_string()]);
+}
+
+#[test]
+fn drop_column_named_by_a_changed_check() {
+    // drizzle-orm#6472: dropping `b` drops the check with it, so the new
+    // check is only added.
+    let mut db = TestSchema::new("drop_check_column");
+    let mut prev = PostgresDDL::new();
+    table(&mut prev, "public", "items");
+    column(&mut prev, "public", "items", "id", "integer");
+    col(&mut prev, "items", "id").not_null = true;
+    pk(&mut prev, "public", "items", &["id"]);
+    column(&mut prev, "public", "items", "a", "integer");
+    let mut cur = prev.clone();
+    column(&mut prev, "public", "items", "b", "integer");
+    prev.checks.push(CheckConstraint::new(
+        "public",
+        "items",
+        "items_a_b",
+        "\"a\" > 0 and \"b\" > 0",
+    ));
+    cur.checks.push(CheckConstraint::new(
+        "public",
+        "items",
+        "items_a_b",
+        "\"a\" > 0",
+    ));
+    let statements = db.apply(&prev, &cur, "INSERT INTO items VALUES (1, 1, 1);");
+    assert_eq!(
+        statements,
+        [
+            "ALTER TABLE \"items\" DROP COLUMN \"b\";",
+            "ALTER TABLE \"items\" ADD CONSTRAINT \"items_a_b\" CHECK (\"a\" > 0);",
+        ]
+    );
+}
+
+#[test]
+fn push_of_pulled_expression_defaults_is_empty() {
+    // drizzle-orm#6495: PostgreSQL stores `random() * 10` with the cast it
+    // implies, which pulled code leaves out.
+    let mut db = TestSchema::new("expr_defaults");
+    let s: &'static str = Box::leak(db.name.clone().into_boxed_str());
+    let mut desired = PostgresDDL::new();
+    desired.schemas.push(Schema::new(s));
+    table(&mut desired, s, "t");
+    for (name, sql_type) in [("price", "numeric"), ("amount", "bigint")] {
+        column(&mut desired, s, "t", name, sql_type);
+        col(&mut desired, "t", name).default = Some(Cow::Borrowed("(random() * (10))"));
+    }
+    let statements = db.push_twice(&desired);
+    assert!(
+        statements.is_empty(),
+        "second push must not change anything: {statements:#?}"
+    );
+}
+
+#[test]
 fn new_table_fk_to_unique_added_in_the_same_migration() {
     let mut db = TestSchema::new("fk_new_unique");
     let mut prev = PostgresDDL::new();

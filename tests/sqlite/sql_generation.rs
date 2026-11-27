@@ -392,6 +392,49 @@ fn offset_without_limit_renders_unbounded_limit(db: &mut TestDb<SimpleSchema>) {
 }
 
 #[drizzle::test]
+fn non_positive_pagination_is_sent_to_the_database(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alice").with_id(1),
+            InsertSimple::new("bob").with_id(2),
+            InsertSimple::new("carol").with_id(3),
+        ])
+        .execute();
+
+    let none = db.select(simple.id).from(simple).limit(0);
+    assert_eq!(
+        none.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT 0"#
+    );
+    let ids: Vec<i32> = none.all();
+    assert!(ids.is_empty());
+
+    let from_start = db.select(simple.id).from(simple).offset(0);
+    assert_eq!(
+        from_start.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT -1 OFFSET 0"#
+    );
+    let ids: Vec<i32> = from_start.all();
+    assert_eq!(ids.len(), 3);
+
+    // SQLite reads a negative LIMIT as no limit and a negative OFFSET as 0.
+    let unbounded = db
+        .select(simple.id)
+        .from(simple)
+        .order_by(asc(simple.id))
+        .limit(-1_i64)
+        .offset(-2_i32);
+    assert_eq!(
+        unbounded.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" ORDER BY "simple"."id" ASC LIMIT -1 OFFSET -2"#
+    );
+    let ids: Vec<i32> = unbounded.all();
+    assert_eq!(ids, [1, 2, 3]);
+}
+
+#[drizzle::test]
 fn select_distinct_all_columns_sql(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 

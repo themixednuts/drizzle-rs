@@ -14,10 +14,10 @@ mod postgres_tosql_impl {
 
     // Import from whichever crate is available
     #[cfg(feature = "postgres-sync")]
-    use postgres::types::{IsNull, Kind, ToSql, Type};
+    use postgres::types::{Format, IsNull, Kind, ToSql, Type};
 
     #[cfg(all(feature = "tokio-postgres", not(feature = "postgres-sync")))]
-    use tokio_postgres::types::{IsNull, Kind, ToSql, Type};
+    use tokio_postgres::types::{Format, IsNull, Kind, ToSql, Type};
 
     use bytes::BytesMut;
 
@@ -54,6 +54,10 @@ mod postgres_tosql_impl {
         ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        if ty.oid() == UNSPECIFIED {
+            write_array_literal(arr, out)?;
+            return Ok(IsNull::No);
+        }
         if !matches!(ty.kind(), Kind::Array(_)) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -279,6 +283,53 @@ mod postgres_tosql_impl {
         values.to_sql(ty, out)
     }
 
+    /// The OID of a parameter whose type the server infers, which an unnamed
+    /// statement declares for values with no type of their own.
+    const UNSPECIFIED: u32 = 0;
+
+    /// Writes an array of text, enum labels and `NULL`s (nested to any depth)
+    /// as an array literal, for a parameter of unspecified type: the server
+    /// parses it as the array type it infers.
+    fn write_array_literal(
+        arr: &[PostgresValue<'_>],
+        out: &mut BytesMut,
+    ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+        out.extend_from_slice(b"{");
+        for (index, value) in arr.iter().enumerate() {
+            if index > 0 {
+                out.extend_from_slice(b",");
+            }
+            let text = match value {
+                PostgresValue::Null => {
+                    out.extend_from_slice(b"NULL");
+                    continue;
+                }
+                PostgresValue::Array(inner) => {
+                    write_array_literal(inner, out)?;
+                    continue;
+                }
+                PostgresValue::Text(text) => text.as_ref(),
+                PostgresValue::Enum(value) => value.variant_name(),
+                other => {
+                    return Err(format!(
+                        "cannot encode {other:?} as an element of an array of unspecified type"
+                    )
+                    .into());
+                }
+            };
+            out.extend_from_slice(b"\"");
+            for byte in text.bytes() {
+                if matches!(byte, b'"' | b'\\') {
+                    out.extend_from_slice(b"\\");
+                }
+                out.extend_from_slice(&[byte]);
+            }
+            out.extend_from_slice(b"\"");
+        }
+        out.extend_from_slice(b"}");
+        Ok(())
+    }
+
     /// Writes bytes for a BYTEA, MACADDR or MACADDR8 parameter: the column's
     /// declared type decides, and the binary format of all three is the
     /// bytes themselves (MAC types checked for length).
@@ -399,6 +450,17 @@ mod postgres_tosql_impl {
         fn accepts(_ty: &Type) -> bool {
             // Accept all types - we'll handle conversion on a case-by-case basis
             true
+        }
+
+        /// Binary, except for a parameter of unspecified type: the server
+        /// reads it as the type it infers, and only the text format fits any
+        /// type. (A `NULL` and an enum label are the same bytes in either.)
+        fn encode_format(&self, ty: &Type) -> Format {
+            if ty.oid() == UNSPECIFIED {
+                Format::Text
+            } else {
+                Format::Binary
+            }
         }
 
         // Use the appropriate macro based on which feature is enabled

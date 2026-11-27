@@ -211,6 +211,22 @@ impl TypeCategory {
         Self::Unknown
     }
 
+    /// Whether this is a `chrono`, `time` or `jiff` date or time type.
+    #[cfg(feature = "query")]
+    pub(crate) const fn is_temporal(self) -> bool {
+        matches!(
+            self,
+            Self::NaiveDate
+                | Self::NaiveTime
+                | Self::NaiveDateTime
+                | Self::DateTimeTz
+                | Self::TimeDate
+                | Self::TimeTime
+                | Self::TimePrimitiveDateTime
+                | Self::TimeOffsetDateTime
+        )
+    }
+
     /// Infer the `PostgreSQL` type from this category.
     /// Returns None for Unknown types (should trigger compile error).
     pub(crate) const fn to_postgres_type(self) -> Option<PostgreSQLType> {
@@ -834,7 +850,8 @@ fn postgres_array_info(ty: &Type) -> Option<PostgreSQLType> {
         return None;
     }
 
-    let inner = vec_inner_type(ty)?;
+    // `Vec<Option<T>>` is an array whose elements may be NULL.
+    let inner = unwrap_option(vec_inner_type(ty)?);
     if vec_inner_type(inner).is_some() {
         return None;
     }
@@ -1246,6 +1263,46 @@ impl FieldInfo {
                             PostgreSQLType::Char
                         });
                         type_args.push(length);
+                        marker_exprs.push(make_uppercase_path(path_ident, &path));
+                    }
+                    "TIMESTAMP" | "TIMESTAMPTZ" | "TIME" => {
+                        // drizzle-orm's `{ precision }` of `timestamp` and
+                        // `time`: the field type already picks the SQL type.
+                        let marked = match path.as_str() {
+                            "TIMESTAMP" => PostgreSQLType::Timestamp,
+                            "TIMESTAMPTZ" => PostgreSQLType::Timestamptz,
+                            _ => PostgreSQLType::Time,
+                        };
+                        if type_category.to_postgres_type().as_ref() != Some(&marked) {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                format!("{path}(p) requires a field type that maps to {path}"),
+                            ));
+                        }
+                        if explicit_type.is_some() {
+                            return Err(syn::Error::new_spanned(
+                                path_ident,
+                                "a PostgreSQL column may specify only one SQL type",
+                            ));
+                        }
+                        let content;
+                        syn::parenthesized!(content in meta.input);
+                        let precision: syn::LitInt = content.parse()?;
+                        if !content.is_empty() {
+                            return Err(syn::Error::new_spanned(
+                                content.parse::<proc_macro2::TokenStream>()?,
+                                format!("{path} takes exactly one precision argument"),
+                            ));
+                        }
+                        let value = precision.base10_parse::<u32>()?;
+                        if value > 6 {
+                            return Err(syn::Error::new_spanned(
+                                precision,
+                                format!("{path} precision must be between 0 and 6"),
+                            ));
+                        }
+                        explicit_type = Some(marked);
+                        type_args.push(value);
                         marker_exprs.push(make_uppercase_path(path_ident, &path));
                     }
                     "SERIAL" => {

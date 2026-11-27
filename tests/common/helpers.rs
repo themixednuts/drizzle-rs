@@ -1388,9 +1388,36 @@ pub mod postgres_sync_setup {
         }
     }
 
+    /// The transaction-mode pooler (such as PgBouncer) in front of the test
+    /// database, when `DRIZZLE_PG_POOLER_URL` names one. Each test's handle
+    /// then runs through it in pooler mode, once its schema was created over
+    /// a direct connection.
+    fn pooler_url() -> Option<String> {
+        std::env::var("DRIZZLE_PG_POOLER_URL").ok()
+    }
+
+    /// A handle in pooler mode on `url`, with `schema_name` as its search path.
+    fn connect_pooled<S: Default>(url: &str, schema_name: &str) -> Drizzle<S> {
+        let mut client = Client::connect(url, NoTls).expect("Failed to connect to PostgreSQL");
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema_name}\""))
+            .expect("Failed to set the search path");
+        let (db, _) = Drizzle::new(client);
+        db.pooler(true)
+    }
+
     impl<S> TestDb<S> {
         pub fn schema_name(&self) -> &str {
             &self.schema_name
+        }
+
+        /// A second handle on this test's schema in pooler mode, connected
+        /// straight to the server.
+        pub fn pooled(&self) -> Drizzle<S>
+        where
+            S: Default,
+        {
+            connect_pooled(&get_database_url(), &self.schema_name)
         }
 
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
@@ -1603,6 +1630,9 @@ pub mod postgres_sync_setup {
                 None,
             );
         }
+        if let Some(url) = pooler_url() {
+            db = connect_pooled(&url, &schema_name);
+        }
 
         let test_db = TestDb {
             db,
@@ -1698,6 +1728,32 @@ pub mod tokio_postgres_setup {
         format!("test_async_{}_{}", thread_num, counter)
     }
 
+    /// The transaction-mode pooler (such as PgBouncer) in front of the test
+    /// database, when `DRIZZLE_PG_POOLER_URL` names one. Each test's handle
+    /// then runs through it in pooler mode, once its schema was created over
+    /// a direct connection.
+    fn pooler_url() -> Option<String> {
+        std::env::var("DRIZZLE_PG_POOLER_URL").ok()
+    }
+
+    /// A handle in pooler mode on `url`, with `schema_name` as its search path.
+    async fn connect_pooled<S: Default>(url: &str, schema_name: &str) -> Drizzle<S> {
+        let (client, connection) = tokio_postgres::connect(url, NoTls)
+            .await
+            .expect("Failed to connect to PostgreSQL");
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("PostgreSQL connection error: {}", e);
+            }
+        });
+        client
+            .batch_execute(&format!("SET search_path TO \"{schema_name}\""))
+            .await
+            .expect("Failed to set the search path");
+        let (db, _) = Drizzle::new(client);
+        db.pooler(true)
+    }
+
     /// Wrapper around Drizzle that automatically cleans up its schema on drop.
     pub struct TestDb<S> {
         pub db: Drizzle<S>,
@@ -1724,6 +1780,15 @@ pub mod tokio_postgres_setup {
     impl<S> TestDb<S> {
         pub fn schema_name(&self) -> &str {
             &self.schema_name
+        }
+
+        /// A second handle on this test's schema in pooler mode, connected
+        /// straight to the server.
+        pub async fn pooled(&self) -> Drizzle<S>
+        where
+            S: Default,
+        {
+            connect_pooled(&get_database_url(), &self.schema_name).await
         }
 
         pub fn record(&self, sql: impl Into<String>, error: Option<String>) {
@@ -1989,6 +2054,9 @@ pub mod tokio_postgres_setup {
                 Some("Schema created successfully"),
                 None,
             );
+        }
+        if let Some(url) = pooler_url() {
+            db = connect_pooled(&url, &schema_name).await;
         }
 
         let test_db = TestDb {

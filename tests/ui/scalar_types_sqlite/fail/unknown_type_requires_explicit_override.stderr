@@ -29,6 +29,8 @@ help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
 note: required by a bound in `drizzle::core::SQLColumn::Type`
  --> core/src/traits/column.rs
   |
+  | pub trait SQLColumn<'a, Value: SQLParam + 'a>:
+...
   |     type Type: TryInto<Value>;
   |                ^^^^^^^^^^^^^^ required by this bound in `SQLColumn::Type`
 
@@ -64,6 +66,8 @@ help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
 note: required by a bound in `drizzle::core::SQLColumn::Type`
  --> core/src/traits/column.rs
   |
+  | pub trait SQLColumn<'a, Value: SQLParam + 'a>:
+...
   |     type Type: TryInto<Value>;
   |                ^^^^^^^^^^^^^^ required by this bound in `SQLColumn::Type`
   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -119,6 +123,8 @@ help: the trait `DrizzleSQLiteColumn` is not implemented for `Opaque`
 note: required by a bound in `get_column`
  --> sqlite/src/traits/value.rs
   |
+  | pub trait DrizzleRowByIndex {
+...
   |     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError>;
   |                      ^^^^^^^^^^^^^^^ required by this bound in `DrizzleRowByIndex::get_column`
 
@@ -138,6 +144,8 @@ help: the trait `FromSQLiteValue` is conditionally implemented for `std::option:
 note: required by a bound in `get_column`
  --> sqlite/src/traits/value.rs
   |
+  | pub trait DrizzleRowByIndex {
+...
   |     fn get_column<T: FromSQLiteValue>(&self, idx: usize) -> Result<T, DrizzleError>;
   |                      ^^^^^^^^^^^^^^^ required by this bound in `DrizzleRowByIndex::get_column`
   = note: this error originates in the attribute macro `SQLiteTable` (in Nightly builds, run with -Z macro-backtrace for more info)

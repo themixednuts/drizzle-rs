@@ -20,7 +20,7 @@
 //!
 //! fn main() -> drizzle::Result<()> {
 //!     let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
-//!     let (mut db, AppSchema { user }) = Drizzle::new(client);
+//!     let (db, AppSchema { user }) = Drizzle::new(client);
 //!     db.create()?;
 //!
 //!     // Insert
@@ -117,6 +117,7 @@
 pub(crate) mod prepared;
 
 use core::marker::PhantomData;
+use std::cell::{Ref, RefCell, RefMut};
 use std::sync::OnceLock;
 
 use drizzle_core::error::{DrizzleError, QueryContext, ResultExt};
@@ -137,6 +138,7 @@ use drizzle_postgres::transaction::{AccessMode, IsolationLevel, TransactionConfi
 use drizzle_postgres::values::PostgresValue;
 use smallvec::SmallVec;
 
+use crate::builder::postgres::bulk::{self, BulkInsertOptions};
 use crate::builder::postgres::common;
 use crate::builder::postgres::rows::DecodeRows;
 use crate::transaction::savepoint::sync_transaction;
@@ -144,12 +146,12 @@ use crate::transaction::savepoint::sync_transaction;
 /// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
 /// `.all()`, `.get()`, or `.rows()`.
 pub type DrizzleBuilder<'a, Schema, Builder, State> =
-    common::DrizzleBuilder<'a, &'a mut Drizzle<Schema>, Schema, Builder, State>;
+    common::DrizzleBuilder<'a, &'a Drizzle<Schema>, Schema, Builder, State>;
 
 use crate::transaction::postgres::postgres_sync::Transaction;
 
 #[cfg(feature = "query")]
-impl<Schema> common::RelationalPreparedDriver for &mut Drizzle<Schema> {
+impl<Schema> common::RelationalPreparedDriver for &Drizzle<Schema> {
     type PreparedDriver = Client;
 }
 
@@ -159,14 +161,18 @@ crate::drizzle_prepare_impl!();
 /// schema's table handles.
 ///
 /// Create it with [`Drizzle::new`], then build queries with `select`,
-/// `insert`, `update`, and `delete`. Query methods take `&mut self`, because
-/// the client needs mutable access to run statements. Statements run through
-/// a per-client statement cache.
+/// `insert`, `update`, and `delete`. As on the async drivers, query methods
+/// take `&self`, so one query can hold another, such as a `count(..)`
+/// subquery: the client is borrowed only while a statement runs.
+/// [`transaction`](Self::transaction), [`bulk_insert`](Self::bulk_insert),
+/// [`migrate`](Self::migrate), and [`conn_mut`](Self::conn_mut) take
+/// `&mut self`. Statements run through a per-client statement cache.
 pub struct Drizzle<Schema = ()> {
-    client: Client,
+    client: RefCell<Client>,
     schema: Schema,
     client_id: OnceLock<u64>,
     statement_cache: OnceLock<prepared::StatementCache>,
+    pooler: bool,
 }
 
 /// Rows returned by `.rows()`: fetched up front, decoded as you iterate.
@@ -213,10 +219,10 @@ impl<Schema: Default> Drizzle<Schema> {
     /// #     Ok(::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?)
     /// # }
     /// # fn main() -> drizzle::Result<()> {
-    /// let (mut db, Schema { users }) = Drizzle::new(connect()?);
+    /// let (db, Schema { users }) = Drizzle::new(connect()?);
     /// db.insert(users).values([InsertUsers::new("Alice")]).execute()?;
     ///
-    /// let (mut db, schema) = Drizzle::<Schema>::new(connect()?);
+    /// let (db, schema) = Drizzle::<Schema>::new(connect()?);
     /// db.insert(schema.users).values([InsertUsers::new("Bob")]).execute()?;
     ///
     /// let (db, ()) = Drizzle::new(connect()?);
@@ -226,10 +232,11 @@ impl<Schema: Default> Drizzle<Schema> {
     #[inline]
     pub fn new(client: Client) -> (Self, Schema) {
         let drizzle = Self {
-            client,
+            client: RefCell::new(client),
             schema: Schema::default(),
             client_id: OnceLock::new(),
             statement_cache: OnceLock::new(),
+            pooler: false,
         };
         (drizzle, Schema::default())
     }
@@ -261,46 +268,92 @@ impl<Schema> Drizzle<Schema> {
             .clone()
     }
 
-    fn cached_statement(
-        &mut self,
-        sql: &str,
-        param_types: &[Type],
-    ) -> Result<Statement, postgres::Error> {
-        let client_id = self.client_id();
-        prepared::register_client(&self.client, client_id);
-        let statement_cache = self.statement_cache();
-        statement_cache.statement(&mut self.client, sql, param_types)
-    }
-
-    /// Runs `run` with the cached statement for `sql`.
+    /// Declares whether the client's connection goes through a
+    /// transaction-mode pooler, such as PgBouncer, Supabase's Supavisor on
+    /// port 6543, or a Neon `-pooler` host.
     ///
-    /// A cached statement goes stale when the connection behind it was
-    /// replaced or the schema changed under it (see
-    /// [`prepared::is_stale_statement`]). The server rejects it while
-    /// planning, before it runs, so the entry is dropped and `run` is retried
-    /// once with a fresh statement.
-    fn run_cached<T>(
-        &mut self,
-        sql: &str,
-        param_types: &[Type],
-        mut run: impl FnMut(&mut Client, &Statement) -> Result<T, postgres::Error>,
-    ) -> Result<T, postgres::Error> {
-        let statement = self.cached_statement(sql, param_types)?;
-        match run(&mut self.client, &statement) {
-            Err(error) if prepared::is_stale_statement(&error) => {
-                self.statement_cache()
-                    .evict(self.client_id(), sql, param_types);
-                let statement = self.cached_statement(sql, param_types)?;
-                run(&mut self.client, &statement)
-            }
-            result => result,
+    /// Such a pooler hands each transaction whichever server connection is
+    /// free, so a named statement prepared on one may be missing on the next.
+    /// With `pooler` set, queries, transactions, and the prepared statements
+    /// run on [`conn_mut`](Self::conn_mut) go out as unnamed statements,
+    /// parsed and run in one round trip, and nothing is cached. drizzle-orm
+    /// detects poolers from the host and port; this handle wraps a client
+    /// that is already connected, so declare it here, right after
+    /// [`new`](Self::new):
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::sync::Drizzle;
+    /// # fn main() -> drizzle::Result<()> {
+    /// let client = ::postgres::Client::connect(
+    ///     "host=localhost port=6432 user=postgres", ::postgres::NoTls,
+    /// )?;
+    /// let (db, ()) = Drizzle::new(client);
+    /// let db = db.pooler(true);
+    /// # let _ = db;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// [`migrate`](Self::migrate), [`push`](Self::push), and the
+    /// introspection methods still need a direct connection: they hold a
+    /// session-level advisory lock or run catalog queries as named statements.
+    /// The driver also prepares a named statement of its own the first time a
+    /// result carries a type it has not seen, such as an enum.
+    #[must_use]
+    pub fn pooler(mut self, pooler: bool) -> Self {
+        self.pooler = pooler;
+        if let Some(client_id) = self.client_id.get() {
+            self.statement_cache().clear_client(*client_id);
         }
+        self
     }
 
-    /// Returns the wrapped client, for calls drizzle does not cover.
+    /// Registers the client, with its pooler mode, for the statement cache
+    /// and the prepared statements run on it.
+    /// Borrows the client while a statement runs.
+    fn registered_client(&self) -> RefMut<'_, Client> {
+        let client = self.client.borrow_mut();
+        prepared::register_client(&client, self.client_id(), self.pooler);
+        client
+    }
+
+    /// Runs the statement and returns the number of rows it changed.
+    fn run_execute(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<u64, postgres::Error> {
+        let statement_cache = self.statement_cache();
+        statement_cache.execute(&mut self.registered_client(), sql, params)
+    }
+
+    /// Runs the query and returns its rows.
+    fn run_query(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Vec<Row>, postgres::Error> {
+        let statement_cache = self.statement_cache();
+        statement_cache.query(&mut self.registered_client(), sql, params)
+    }
+
+    /// Runs the query and returns its row, failing on more than one.
+    fn run_query_opt(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Option<Row>, postgres::Error> {
+        let statement_cache = self.statement_cache();
+        statement_cache.query_opt(&mut self.registered_client(), sql, params)
+    }
+
+    /// Borrows the wrapped client, for calls drizzle does not cover.
+    ///
+    /// The handle's own queries borrow the client while they run, so drop
+    /// this borrow before running one through the handle; a query run while
+    /// it is held panics.
     #[inline]
-    pub const fn conn(&self) -> &Client {
-        &self.client
+    pub fn conn(&self) -> Ref<'_, Client> {
+        self.client.borrow()
     }
 
     /// Returns the wrapped client mutably, for example to run a prepared
@@ -308,8 +361,9 @@ impl<Schema> Drizzle<Schema> {
     #[inline]
     pub fn conn_mut(&mut self) -> &mut Client {
         let client_id = self.client_id();
-        prepared::register_client(&self.client, client_id);
-        &mut self.client
+        let client = self.client.get_mut();
+        prepared::register_client(client, client_id, self.pooler);
+        client
     }
 
     /// Returns the schema value this handle was created with.
@@ -318,7 +372,7 @@ impl<Schema> Drizzle<Schema> {
         &self.schema
     }
 
-    postgres_builder_constructors!(mut);
+    postgres_builder_constructors!();
 
     /// Runs any SQL value, such as a raw [`sql!`](crate::sql) fragment, and
     /// returns the number of rows it changed.
@@ -331,7 +385,7 @@ impl<Schema> Drizzle<Schema> {
     /// Returns an error when the server rejects the statement or the
     /// connection fails. The error carries the SQL and its parameters, as the
     /// builder's do ([`DrizzleError::QueryFailed`](drizzle_core::error::DrizzleError::QueryFailed)).
-    pub fn execute<'a, T>(&'a mut self, query: T) -> drizzle_core::error::Result<u64>
+    pub fn execute<'a, T>(&'a self, query: T) -> drizzle_core::error::Result<u64>
     where
         T: ToSQL<'a, PostgresValue<'a>>,
     {
@@ -344,15 +398,9 @@ impl<Schema> Drizzle<Schema> {
         drizzle_core::drizzle_trace_query!(&sql, params.len());
 
         #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
-        #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.execute.db");
-        self.run_cached(&sql, &param_types, |client, statement| {
-            client.execute(statement, &param_refs[..])
-        })
-        .with_query(|| QueryContext::new(&sql, &params))
+        self.run_execute(&sql, &params)
+            .with_query(|| QueryContext::new(&sql, &params))
     }
 
     /// Runs any SQL value and collects its rows into `C` (for example
@@ -367,7 +415,7 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// Returns an error when the query fails or a row cannot be decoded into
     /// `R`.
-    pub fn all<'a, T, R, C>(&'a mut self, query: T) -> drizzle_core::error::Result<C>
+    pub fn all<'a, T, R, C>(&'a self, query: T) -> drizzle_core::error::Result<C>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -387,7 +435,7 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns an error when the query fails. Decoding errors surface per row.
-    pub fn rows<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<Rows<R>>
+    pub fn rows<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Rows<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -401,14 +449,8 @@ impl<Schema> Drizzle<Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.all.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let rows = self
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
@@ -425,7 +467,7 @@ impl<Schema> Drizzle<Schema> {
     /// Returns an error when the query returns several rows,
     /// when it fails, or when the row cannot be
     /// decoded into `R`.
-    pub fn get<'a, T, R>(&'a mut self, query: T) -> drizzle_core::error::Result<Option<R>>
+    pub fn get<'a, T, R>(&'a self, query: T) -> drizzle_core::error::Result<Option<R>>
     where
         R: for<'r> TryFrom<&'r Row>,
         for<'r> <R as TryFrom<&'r Row>>::Error: Into<drizzle_core::error::DrizzleError>,
@@ -439,14 +481,8 @@ impl<Schema> Drizzle<Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "drizzle.get.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let row = self
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query_opt(statement, &param_refs[..])
-            })
+            .run_query_opt(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         row.map(|row| R::try_from(&row).map_err(Into::into))
@@ -459,10 +495,7 @@ impl<Schema> Drizzle<Schema> {
     /// `Posts::author_id` gives `users.author_posts()` (one-to-many) and
     /// `posts.author()` (many-to-one). Results nest the related rows as fields.
     #[cfg(feature = "query")]
-    pub fn query<'a, T>(
-        &mut self,
-        _table: T,
-    ) -> common::DrizzleQueryBuilder<'_, 'a, &mut Self, Schema, T>
+    pub fn query<'a, T>(&self, _table: T) -> common::DrizzleQueryBuilder<'_, 'a, &Self, Schema, T>
     where
         T: drizzle_core::query::QueryTable,
     {
@@ -492,7 +525,7 @@ impl<Schema> Drizzle<Schema> {
         };
         let client_id = self.client_id();
         let statement_cache = self.statement_cache();
-        let mut builder = self.client.build_transaction();
+        let mut builder = self.client.get_mut().build_transaction();
 
         if let Some(isolation) = applied_config.isolation() {
             builder = builder.isolation_level(match isolation {
@@ -521,6 +554,7 @@ impl<Schema> Drizzle<Schema> {
             self.schema,
             client_id,
             statement_cache,
+            self.pooler,
         ))
     }
 
@@ -579,6 +613,64 @@ impl<Schema> Drizzle<Schema> {
             |transaction| transaction.rollback(),
         )
     }
+
+    /// Inserts `rows` into `table` in bulk, as multi-row `VALUES` statements,
+    /// and returns the number of rows inserted.
+    ///
+    /// The rows are the table's `Insert*` models, so `default_fn` values are
+    /// filled as for [`insert`](Self::insert). A cell a row leaves unset gets
+    /// the column's database default (`DEFAULT`), and a column no row sets is
+    /// left out of the statement. The rows are split into statements of at
+    /// most 65535 parameters, PostgreSQL's limit; by default those run in one
+    /// transaction. [`BulkInsertOptions::atomic`] set to `false` commits each
+    /// statement on its own instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first statement's error. An atomic insert then inserted
+    /// nothing; one that is not keeps the statements before the failing one.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::sync::Drizzle;
+    /// # use drizzle::postgres::BulkInsertOptions;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # fn main() -> drizzle::Result<()> {
+    /// # let client = ::postgres::Client::connect("host=localhost user=postgres", ::postgres::NoTls)?;
+    /// # let (mut db, S { user }) = Drizzle::new(client);
+    /// let rows = (0..100_000).map(|i| InsertUser::new(format!("user {i}")));
+    /// let inserted = db.bulk_insert(user, rows, BulkInsertOptions::default())?;
+    /// # Ok(()) }
+    /// ```
+    pub fn bulk_insert<'b, Table, T>(
+        &mut self,
+        table: Table,
+        rows: impl IntoIterator<Item = Table::Insert<T>>,
+        options: BulkInsertOptions,
+    ) -> drizzle_core::error::Result<u64>
+    where
+        Schema: Copy,
+        Table: PostgresTable<'b> + Copy,
+    {
+        let chunks = bulk::insert_chunks::<Table, T>(rows);
+        if options.atomic && chunks.len() > 1 {
+            return self.transaction(TransactionConfig::default(), |tx| {
+                let mut inserted = 0;
+                for chunk in chunks {
+                    inserted += tx.insert(table).values(chunk).execute()?;
+                }
+                Ok(inserted)
+            });
+        }
+        let mut inserted = 0;
+        for chunk in chunks {
+            inserted += self.insert(table).values(chunk).execute()?;
+        }
+        Ok(inserted)
+    }
 }
 
 impl<Schema> Drizzle<Schema>
@@ -596,12 +688,13 @@ where
     ///
     /// Returns an error when the database rejects one of the statements;
     /// earlier statements stay applied.
-    pub fn create(&mut self) -> drizzle_core::error::Result<()> {
+    pub fn create(&self) -> drizzle_core::error::Result<()> {
         let schema = Schema::default();
         let statements = schema.create_statements()?;
 
+        let mut client = self.client.borrow_mut();
         for statement in statements {
-            self.client.execute(&statement, &[])?;
+            client.batch_execute(&statement)?;
         }
 
         Ok(())
@@ -698,17 +791,17 @@ impl<Schema> Drizzle<Schema> {
         // otherwise race on `CREATE SCHEMA/TABLE IF NOT EXISTS`, which is not
         // safe against concurrent creation in PostgreSQL.
         let lock_key = set.postgres_advisory_lock_key();
-        self.client
-            .query_one("SELECT pg_advisory_lock($1)", &[&lock_key])?;
+        let client = self.client.get_mut();
+        client.query_one("SELECT pg_advisory_lock($1)", &[&lock_key])?;
 
         let result = (|| {
             if let Some(schema_sql) = set.create_schema_sql() {
-                self.client.execute(&schema_sql, &[])?;
+                client.execute(&schema_sql, &[])?;
             }
-            ensure_postgres_migration_table(&mut self.client, &set)?;
-            let mut applied = repair_dirty_migrations(&mut self.client, &set, repair)?;
+            ensure_postgres_migration_table(client, &set)?;
+            let mut applied = repair_dirty_migrations(client, &set, repair)?;
 
-            let rows = self.client.query(&set.applied_names_sql(), &[])?;
+            let rows = client.query(&set.applied_names_sql(), &[])?;
             let applied_names = rows
                 .iter()
                 .map(|row| row.try_get::<_, String>(0))
@@ -727,20 +820,18 @@ impl<Schema> Drizzle<Schema> {
                     // CREATE/DROP INDEX CONCURRENTLY cannot run inside a
                     // transaction; only this migration runs autocommit, so it
                     // needs the dirty marker to stay recoverable.
-                    self.client
-                        .execute(&set.record_migration_started_sql(migration), &[])?;
+                    client.execute(&set.record_migration_started_sql(migration), &[])?;
 
                     let mut executed = 0usize;
                     for statement in migration.statements() {
                         if statement.trim().is_empty() {
                             continue;
                         }
-                        if let Err(error) = self.client.batch_execute(statement) {
+                        if let Err(error) = client.batch_execute(statement) {
                             // Nothing can have been applied yet, so drop the
                             // marker rather than demand a pointless repair.
                             if executed == 0 {
-                                let _ = self
-                                    .client
+                                let _ = client
                                     .execute(&set.clear_migration_started_sql(migration), &[]);
                             }
                             return Err(migration_statement_err(migration, statement, &error));
@@ -748,10 +839,9 @@ impl<Schema> Drizzle<Schema> {
                         executed += 1;
                     }
 
-                    self.client
-                        .execute(&set.record_migration_finished_sql(migration), &[])?;
+                    client.execute(&set.record_migration_finished_sql(migration), &[])?;
                 } else {
-                    let mut tx = self.client.transaction()?;
+                    let mut tx = client.transaction()?;
                     for statement in migration.statements() {
                         if !statement.trim().is_empty() {
                             // Simple-query protocol: a breakpoint chunk runs
@@ -770,8 +860,7 @@ impl<Schema> Drizzle<Schema> {
             Ok(drizzle_migrations::MigrateOutcome::Applied { tags: applied })
         })();
 
-        let unlock_result = self
-            .client
+        let unlock_result = client
             .query_one("SELECT pg_advisory_unlock($1)", &[&lock_key])
             .map(|_| ());
 
@@ -1278,9 +1367,7 @@ impl<Schema> Drizzle<Schema> {
     /// # Errors
     ///
     /// Returns an error when one of the catalog queries fails.
-    pub fn introspect(
-        &mut self,
-    ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
+    pub fn introspect(&self) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
         self.introspect_impl(None)
     }
 
@@ -1296,7 +1383,7 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// Returns an error when one of the catalog queries fails.
     pub fn introspect_schemas<S: AsRef<str>>(
-        &mut self,
+        &self,
         schemas: &[S],
     ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
         let names: Vec<String> = schemas
@@ -1318,30 +1405,31 @@ impl<Schema> Drizzle<Schema> {
     /// `relation_open()` which is not MVCC-protected and can fail when
     /// concurrent DDL drops objects in other schemas.
     fn introspect_impl(
-        &mut self,
+        &self,
         schema_filter: Option<&[String]>,
     ) -> drizzle_core::error::Result<drizzle_migrations::schema::Snapshot> {
         use drizzle_migrations::postgres::ddl::Schema as PgSchema;
         use drizzle_migrations::postgres::introspect::{RawIntrospection, assemble_ddl};
 
-        let schemas: Vec<PgSchema> = pg_sync_query_schemas(&mut self.client)?;
+        let mut client = self.client.borrow_mut();
+        let schemas: Vec<PgSchema> = pg_sync_query_schemas(&mut client)?;
         let accessible_schema_names = schemas
             .iter()
             .map(|schema| schema.name().to_string())
             .collect::<Vec<_>>();
         let effective_schema_filter = schema_filter.or(Some(accessible_schema_names.as_slice()));
-        let raw_tables = pg_sync_query_tables(&mut self.client)?;
-        let raw_columns = pg_sync_query_columns(&mut self.client)?;
-        let raw_enums = pg_sync_query_enums(&mut self.client)?;
-        let raw_sequences = pg_sync_query_sequences(&mut self.client)?;
-        let raw_views = pg_sync_query_views(&mut self.client, effective_schema_filter)?;
-        let raw_indexes = pg_sync_query_indexes(&mut self.client, effective_schema_filter)?;
-        let raw_fks = pg_sync_query_foreign_keys(&mut self.client)?;
-        let raw_primary_keys = pg_sync_query_primary_keys(&mut self.client)?;
-        let raw_uniques = pg_sync_query_uniques(&mut self.client)?;
-        let raw_checks = pg_sync_query_checks(&mut self.client, effective_schema_filter)?;
-        let raw_roles = pg_sync_query_roles(&mut self.client)?;
-        let raw_policies = pg_sync_query_policies(&mut self.client)?;
+        let raw_tables = pg_sync_query_tables(&mut client)?;
+        let raw_columns = pg_sync_query_columns(&mut client)?;
+        let raw_enums = pg_sync_query_enums(&mut client)?;
+        let raw_sequences = pg_sync_query_sequences(&mut client)?;
+        let raw_views = pg_sync_query_views(&mut client, effective_schema_filter)?;
+        let raw_indexes = pg_sync_query_indexes(&mut client, effective_schema_filter)?;
+        let raw_fks = pg_sync_query_foreign_keys(&mut client)?;
+        let raw_primary_keys = pg_sync_query_primary_keys(&mut client)?;
+        let raw_uniques = pg_sync_query_uniques(&mut client)?;
+        let raw_checks = pg_sync_query_checks(&mut client, effective_schema_filter)?;
+        let raw_roles = pg_sync_query_roles(&mut client)?;
+        let raw_policies = pg_sync_query_policies(&mut client)?;
 
         let ddl = assemble_ddl(RawIntrospection {
             schemas,
@@ -1389,7 +1477,7 @@ impl<Schema> Drizzle<Schema> {
     /// statement fails. The statements do not run in a transaction, so the
     /// ones before a failure stay applied.
     pub fn push<S: drizzle_migrations::Schema>(
-        &mut self,
+        &self,
         schema: &S,
     ) -> drizzle_core::error::Result<()> {
         self.push_with(schema, &drizzle_migrations::RenameHints::new())
@@ -1401,7 +1489,7 @@ impl<Schema> Drizzle<Schema> {
     ///
     /// Same as [`push`](Self::push).
     pub fn push_with<S: drizzle_migrations::Schema>(
-        &mut self,
+        &self,
         schema: &S,
         renames: &drizzle_migrations::RenameHints,
     ) -> drizzle_core::error::Result<()> {
@@ -1437,16 +1525,17 @@ impl<Schema> Drizzle<Schema> {
         let mut lost = Vec::with_capacity(generated.data_loss.len());
         for drop in &generated.data_loss {
             let sql = drop.count_sql(drizzle_types::Dialect::PostgreSQL);
-            let rows: i64 = self.client.query_one(&*sql, &[])?.get(0);
+            let rows: i64 = self.client.borrow_mut().query_one(&*sql, &[])?.get(0);
             lost.push((drop.clone(), rows));
         }
         crate::builder::refuse_data_loss(&lost)?;
         // The push changes tables, and PostgreSQL rejects a cached statement
         // whose result columns changed; drop the connection's statements.
         self.statement_cache().clear_client(self.client_id());
+        let mut client = self.client.borrow_mut();
         for stmt in generated.statements {
             if !stmt.trim().is_empty() {
-                self.client.execute(&*stmt, &[])?;
+                client.execute(&*stmt, &[])?;
             }
         }
         Ok(())
@@ -1477,14 +1566,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
         #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-        #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.execute.db");
         self.runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.execute(statement, &param_refs[..])
-            })
+            .run_execute(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
 
@@ -1526,15 +1610,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.all.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let rows = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -1576,15 +1654,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.rows.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let rows = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
         Ok(Rows::new(rows))
@@ -1627,15 +1699,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "builder.get.param_refs");
-        let (param_types, param_refs) = postgres_sync_materialize_params(&params);
-
         let row = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| {
-                client.query_opt(statement, &param_refs[..])
-            })
+            .run_query_opt(&sql_str, &params)
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let row = row
             .map(|row| {
@@ -1661,7 +1727,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
         'db,
         'a,
-        &'db mut Drizzle<Schema>,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -1714,13 +1780,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let (param_types, param_refs) = postgres_sync_materialize_params(&bind_params);
-
         let rows = self
             .runner
-            .run_cached(&sql, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql, &bind_params)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
@@ -1752,7 +1814,7 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
         'db,
         'a,
-        &'db mut Drizzle<Schema>,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -1796,7 +1858,7 @@ impl<'db, 'a, Schema, T, Rels, Cl>
     common::DrizzleQueryBuilder<
         'db,
         'a,
-        &'db mut Drizzle<Schema>,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -1847,13 +1909,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let (param_types, param_refs) = postgres_sync_materialize_params(&bind_params);
-
         let rows = self
             .runner
-            .run_cached(&sql, &param_types, |client, statement| {
-                client.query(statement, &param_refs[..])
-            })
+            .run_query(&sql, &bind_params)
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
 
@@ -1888,7 +1946,7 @@ impl<'db, 'a, Schema, T, Rels, W, Ord>
     common::DrizzleQueryBuilder<
         'db,
         'a,
-        &'db mut Drizzle<Schema>,
+        &'db Drizzle<Schema>,
         Schema,
         T,
         Rels,
@@ -1960,16 +2018,8 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params_vec.len());
-        for param in &params_vec {
-            param_refs.push(param as &(dyn postgres::types::ToSql + Sync));
-        }
-        let param_types =
-            crate::builder::postgres::prepared_common::postgres_sync_param_types(&params_vec);
-
-        let statement = client.prepare_typed(sql_str, &param_types)?;
-        let rows = client.query(&statement, &param_refs)?;
+        let param_refs: SmallVec<[&PostgresValue<'_>; 8]> = params_vec.iter().collect();
+        let rows = prepared::query_uncached(client, sql_str, &param_refs)?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in rows {
@@ -2059,16 +2109,8 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn postgres::types::ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params_vec.len());
-        for param in &params_vec {
-            param_refs.push(param as &(dyn postgres::types::ToSql + Sync));
-        }
-        let param_types =
-            crate::builder::postgres::prepared_common::postgres_sync_param_types(&params_vec);
-
-        let statement = client.prepare_typed(sql_str, &param_types)?;
-        let rows = client.query(&statement, &param_refs)?;
+        let param_refs: SmallVec<[&PostgresValue<'_>; 8]> = params_vec.iter().collect();
+        let rows = prepared::query_uncached(client, sql_str, &param_refs)?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in rows {

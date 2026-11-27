@@ -1093,7 +1093,8 @@ pub const WITH_CHECK: PolicyMarker = PolicyMarker;
 /// Marker struct for `PostgreSQL` column type names.
 ///
 /// `#[PostgresTable]` infers each column's SQL type from its Rust field type.
-/// Of these names, only `VARCHAR(n)` and `CHAR(n)` can be written in
+/// Of these names, only `VARCHAR(n)`, `CHAR(n)`, and the precision forms
+/// `TIMESTAMP(p)`, `TIMESTAMPTZ(p)` and `TIME(p)` can be written in
 /// `#[column(...)]`; the rest document the types the macro can produce.
 #[derive(Debug, Clone, Copy)]
 pub struct TypeMarker;
@@ -1239,6 +1240,8 @@ pub const UUID: TypeMarker = TypeMarker;
 /// The TIMESTAMP column type (without timezone).
 ///
 /// TIMESTAMP stores date and time without timezone.
+/// Write `#[column(TIMESTAMP(3))]` to keep fractional seconds to a precision
+/// of 0 to 6 digits on a field whose type already maps to TIMESTAMP.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
 pub const TIMESTAMP: TypeMarker = TypeMarker;
@@ -1249,6 +1252,8 @@ pub const TIMESTAMP_WITHOUT_TIME_ZONE: TypeMarker = TypeMarker;
 /// The TIMESTAMPTZ column type (with timezone).
 ///
 /// TIMESTAMPTZ stores date and time with timezone.
+/// Write `#[column(TIMESTAMPTZ(3))]` to keep fractional seconds to a precision
+/// of 0 to 6 digits on a field whose type already maps to TIMESTAMPTZ.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
 pub const TIMESTAMPTZ: TypeMarker = TypeMarker;
@@ -1266,6 +1271,8 @@ pub const DATE: TypeMarker = TypeMarker;
 /// The TIME column type (without timezone).
 ///
 /// TIME stores time of day without date or timezone.
+/// Write `#[column(TIME(3))]` to keep fractional seconds to a precision
+/// of 0 to 6 digits on a field whose type already maps to TIME.
 ///
 /// See: <https://www.postgresql.org/docs/current/datatype-datetime.html>
 pub const TIME: TypeMarker = TypeMarker;

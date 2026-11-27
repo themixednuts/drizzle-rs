@@ -22,8 +22,9 @@ help: `Cons<Head, Tail>` implements trait `ListContains<T, Witness>`
 note: required by a bound in `select::<impl QueryBuilder<'a, S, SelectSetOpSet, T, M, R, G>>::order_by`
   --> mysql/src/builder/select.rs
    |
+   | impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectSetOpSet, T, M, R, G> {
+...
    |     pub fn order_by<O, Proof>(self, order: O) -> SelectBuilder<'a, S, SelectOrderSet, T, M, R, G>
-   |            -------- required by a bound in this associated function
    |     where
    |         O: helpers::SetOrderBy<'a, M, T, Proof>,
    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `select::<impl QueryBuilder<'a, S, SelectSetOpSet, T, M, R, G>>::order_by`

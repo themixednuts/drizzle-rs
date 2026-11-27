@@ -836,14 +836,8 @@ where
 {
     /// Adds a LIMIT clause.
     ///
-    /// Pass a non-negative integer or an integer placeholder. Both are sent
+    /// Pass an integer or an integer placeholder. Both are sent
     /// as bound parameters.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a numeric argument is negative or does not fit in
-    /// `usize`.
-    #[track_caller]
     pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
@@ -892,12 +886,6 @@ where
     /// );
     /// # "####;
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics when a numeric argument is negative or does not fit in
-    /// `usize`.
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
@@ -908,12 +896,6 @@ where
 
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
     /// Adds an OFFSET clause after LIMIT.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a numeric argument is negative or does not fit in
-    /// `usize`.
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, MySQLValue<'a>>,
@@ -1230,6 +1212,23 @@ where
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType;
     type Nullable = drizzle_core::expr::Null;
     type Aggregate = drizzle_core::expr::Scalar;
+}
+
+/// A scalar subquery selected as a column decodes as an `Option`: it is NULL
+/// when the subquery returns no row.
+impl<'a, S, State, T, M, R, G> drizzle_core::ExprValueType
+    for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Compound> + ExecutableState,
+    M: drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>> + drizzle_core::SelectSources,
+    <M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType:
+        drizzle_core::SQLTypeToRust<drizzle_core::dialect::MySQLDialect>,
+{
+    type ValueType = Option<
+        <<M as drizzle_core::expr::SubqueryType<'a, MySQLValue<'a>>>::SQLType as drizzle_core::SQLTypeToRust<
+            drizzle_core::dialect::MySQLDialect,
+        >>::RustType,
+    >;
 }
 
 impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>

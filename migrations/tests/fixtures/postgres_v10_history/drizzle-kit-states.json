@@ -1,0 +1,1386 @@
+{
+ "99e697eb-045f-4eba-a129-f5b211c6e532": [
+  {
+   "columns": [
+    "email"
+   ],
+   "entityType": "uniques",
+   "name": "users_email_key",
+   "nameExplicit": false,
+   "nullsNotDistinct": false,
+   "schema": "public",
+   "table": "users"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "posts_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "posts"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "tags_pkey",
+   "nameExplicit": false,
+   "schema": "app",
+   "table": "tags"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "users_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "users"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "columnsTo": [
+    "id"
+   ],
+   "entityType": "fks",
+   "name": "posts_user_id_users_id_fkey",
+   "nameExplicit": false,
+   "onDelete": "CASCADE",
+   "onUpdate": "NO ACTION",
+   "schema": "public",
+   "schemaTo": "public",
+   "table": "posts",
+   "tableTo": "users"
+  },
+  {
+   "columns": [
+    {
+     "value": "name",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": false,
+   "method": "btree",
+   "name": "users_name_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "users",
+   "where": null,
+   "with": ""
+  },
+  {
+   "columns": [
+    {
+     "value": "title",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": true,
+   "method": "btree",
+   "name": "posts_title_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "posts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "default": "'user'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "role",
+   "notNull": false,
+   "schema": "public",
+   "table": "users",
+   "type": "role",
+   "typeSchema": "public"
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "email",
+   "notNull": false,
+   "schema": "public",
+   "table": "users",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "app",
+   "table": "tags",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "posts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "users",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "label",
+   "notNull": false,
+   "schema": "app",
+   "table": "tags",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "name",
+   "notNull": true,
+   "schema": "public",
+   "table": "users",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "title",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "varchar(200)",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "user_id",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "entityType": "checks",
+   "name": "name_len",
+   "schema": "public",
+   "table": "users",
+   "value": "length(\"name\") > 0"
+  },
+  {
+   "entityType": "enums",
+   "name": "role",
+   "schema": "public",
+   "values": [
+    "admin",
+    "user"
+   ]
+  },
+  {
+   "entityType": "schemas",
+   "name": "app"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "posts",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "tags",
+   "schema": "app"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "users",
+   "schema": "public"
+  }
+ ],
+ "b62dc4d6-abeb-4ca9-8478-03aeb3d8eb2a": [
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "posts_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "posts"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "tags_pkey",
+   "nameExplicit": false,
+   "schema": "app",
+   "table": "tags"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "users_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "accounts"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "columnsTo": [
+    "id"
+   ],
+   "entityType": "fks",
+   "name": "posts_user_id_users_id_fkey",
+   "nameExplicit": false,
+   "onDelete": "CASCADE",
+   "onUpdate": "NO ACTION",
+   "schema": "public",
+   "schemaTo": "public",
+   "table": "posts",
+   "tableTo": "accounts"
+  },
+  {
+   "columns": [
+    {
+     "value": "full_name",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": false,
+   "method": "btree",
+   "name": "accounts_name_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "accounts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "columns": [
+    {
+     "value": "title",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": true,
+   "method": "btree",
+   "name": "posts_title_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "posts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "default": "'admin'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "role",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "role",
+   "typeSchema": "public"
+  },
+  {
+   "default": "'hi'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "bio",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "email",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "full_name",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "app",
+   "table": "tags",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "posts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "label",
+   "notNull": false,
+   "schema": "app",
+   "table": "tags",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "title",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "varchar(200)",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "user_id",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "entityType": "checks",
+   "name": "name_len",
+   "schema": "public",
+   "table": "accounts",
+   "value": "length(\"full_name\") > 0"
+  },
+  {
+   "entityType": "enums",
+   "name": "role",
+   "schema": "public",
+   "values": [
+    "admin",
+    "user"
+   ]
+  },
+  {
+   "entityType": "schemas",
+   "name": "app"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "accounts",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "posts",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "tags",
+   "schema": "app"
+  }
+ ],
+ "2b4e8b4c-2a57-4fae-857a-f01bb850cff5": [
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "posts_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "posts"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "users_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "accounts"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "columnsTo": [
+    "id"
+   ],
+   "entityType": "fks",
+   "name": "posts_user_id_users_id_fkey",
+   "nameExplicit": false,
+   "onDelete": "CASCADE",
+   "onUpdate": "NO ACTION",
+   "schema": "public",
+   "schemaTo": "public",
+   "table": "posts",
+   "tableTo": "accounts"
+  },
+  {
+   "columns": [
+    {
+     "value": "full_name",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": false,
+   "method": "btree",
+   "name": "accounts_name_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "accounts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "columns": [
+    {
+     "value": "title",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": true,
+   "method": "btree",
+   "name": "posts_title_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "posts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "default": "'admin'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "role",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "role",
+   "typeSchema": "public"
+  },
+  {
+   "default": "'hi'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "bio",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": "0",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "views",
+   "notNull": true,
+   "schema": "public",
+   "table": "posts",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "email",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "full_name",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "posts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "title",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "varchar(200)",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "user_id",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "entityType": "checks",
+   "name": "name_len",
+   "schema": "public",
+   "table": "accounts",
+   "value": "length(\"full_name\") > 0"
+  },
+  {
+   "entityType": "enums",
+   "name": "role",
+   "schema": "public",
+   "values": [
+    "admin",
+    "user"
+   ]
+  },
+  {
+   "entityType": "schemas",
+   "name": "app"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "accounts",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "posts",
+   "schema": "public"
+  }
+ ],
+ "d23b5315-29a2-4ac2-a22b-2841cbeb6840": [
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "comments_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "comments"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "posts_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "posts"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "tags_pkey",
+   "nameExplicit": false,
+   "schema": "app",
+   "table": "tags"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "users_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "accounts"
+  },
+  {
+   "columns": [
+    "post_id"
+   ],
+   "columnsTo": [
+    "id"
+   ],
+   "entityType": "fks",
+   "name": "comments_post_id_posts_id_fkey",
+   "nameExplicit": false,
+   "onDelete": "NO ACTION",
+   "onUpdate": "NO ACTION",
+   "schema": "public",
+   "schemaTo": "public",
+   "table": "comments",
+   "tableTo": "posts"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "columnsTo": [
+    "id"
+   ],
+   "entityType": "fks",
+   "name": "posts_user_id_users_id_fkey",
+   "nameExplicit": false,
+   "onDelete": "CASCADE",
+   "onUpdate": "NO ACTION",
+   "schema": "public",
+   "schemaTo": "public",
+   "table": "posts",
+   "tableTo": "accounts"
+  },
+  {
+   "columns": [
+    {
+     "value": "full_name",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": false,
+   "method": "btree",
+   "name": "accounts_name_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "accounts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "columns": [
+    {
+     "value": "title",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": true,
+   "method": "btree",
+   "name": "posts_title_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "posts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "default": "'admin'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "role",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "role",
+   "typeSchema": "public"
+  },
+  {
+   "default": "'hi'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "bio",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "body",
+   "notNull": false,
+   "schema": "public",
+   "table": "comments",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "email",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "full_name",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "app",
+   "table": "tags",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "comments",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "posts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "label",
+   "notNull": false,
+   "schema": "app",
+   "table": "tags",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "post_id",
+   "notNull": false,
+   "schema": "public",
+   "table": "comments",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "title",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "varchar(200)",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "user_id",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "entityType": "checks",
+   "name": "name_len",
+   "schema": "public",
+   "table": "accounts",
+   "value": "length(\"full_name\") > 0"
+  },
+  {
+   "entityType": "enums",
+   "name": "role",
+   "schema": "public",
+   "values": [
+    "admin",
+    "user",
+    "guest"
+   ]
+  },
+  {
+   "entityType": "schemas",
+   "name": "app"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "accounts",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "comments",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "posts",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "tags",
+   "schema": "app"
+  }
+ ],
+ "b25dfae7-d985-4b77-bb19-2bc591ca525b": [
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "comments_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "comments"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "posts_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "posts"
+  },
+  {
+   "columns": [
+    "id"
+   ],
+   "entityType": "pks",
+   "name": "users_pkey",
+   "nameExplicit": false,
+   "schema": "public",
+   "table": "accounts"
+  },
+  {
+   "columns": [
+    "post_id"
+   ],
+   "columnsTo": [
+    "id"
+   ],
+   "entityType": "fks",
+   "name": "comments_post_id_posts_id_fkey",
+   "nameExplicit": false,
+   "onDelete": "NO ACTION",
+   "onUpdate": "NO ACTION",
+   "schema": "public",
+   "schemaTo": "public",
+   "table": "comments",
+   "tableTo": "posts"
+  },
+  {
+   "columns": [
+    "user_id"
+   ],
+   "columnsTo": [
+    "id"
+   ],
+   "entityType": "fks",
+   "name": "posts_user_id_users_id_fkey",
+   "nameExplicit": false,
+   "onDelete": "CASCADE",
+   "onUpdate": "NO ACTION",
+   "schema": "public",
+   "schemaTo": "public",
+   "table": "posts",
+   "tableTo": "accounts"
+  },
+  {
+   "columns": [
+    {
+     "value": "full_name",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": false,
+   "method": "btree",
+   "name": "accounts_name_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "accounts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "columns": [
+    {
+     "value": "title",
+     "isExpression": false,
+     "asc": true,
+     "nullsFirst": false,
+     "opclass": null
+    }
+   ],
+   "entityType": "indexes",
+   "isUnique": true,
+   "method": "btree",
+   "name": "posts_title_idx",
+   "nameExplicit": true,
+   "schema": "public",
+   "table": "posts",
+   "where": null,
+   "with": ""
+  },
+  {
+   "default": "'admin'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "role",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "role",
+   "typeSchema": "public"
+  },
+  {
+   "default": "'hi'",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "bio",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": "0",
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "views",
+   "notNull": true,
+   "schema": "public",
+   "table": "posts",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "body",
+   "notNull": false,
+   "schema": "public",
+   "table": "comments",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "email",
+   "notNull": false,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "full_name",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "text",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "accounts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "comments",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "id",
+   "notNull": true,
+   "schema": "public",
+   "table": "posts",
+   "type": "serial",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "post_id",
+   "notNull": false,
+   "schema": "public",
+   "table": "comments",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "score",
+   "notNull": false,
+   "schema": "public",
+   "table": "comments",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "title",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "varchar(200)",
+   "typeSchema": null
+  },
+  {
+   "default": null,
+   "dimensions": 0,
+   "entityType": "columns",
+   "generated": null,
+   "identity": null,
+   "name": "user_id",
+   "notNull": false,
+   "schema": "public",
+   "table": "posts",
+   "type": "integer",
+   "typeSchema": null
+  },
+  {
+   "entityType": "checks",
+   "name": "name_len",
+   "schema": "public",
+   "table": "accounts",
+   "value": "length(\"full_name\") > 0"
+  },
+  {
+   "entityType": "enums",
+   "name": "role",
+   "schema": "public",
+   "values": [
+    "admin",
+    "user",
+    "guest"
+   ]
+  },
+  {
+   "entityType": "schemas",
+   "name": "app"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "accounts",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "comments",
+   "schema": "public"
+  },
+  {
+   "entityType": "tables",
+   "isRlsEnabled": false,
+   "name": "posts",
+   "schema": "public"
+  }
+ ]
+}

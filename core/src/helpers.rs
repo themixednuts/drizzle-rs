@@ -480,12 +480,7 @@ where
 }
 
 /// Renders `LIMIT <value>` (see [`PaginationArg`]).
-///
-/// # Panics
-///
-/// Panics when an integer argument is negative or does not fit in `usize`.
 #[must_use]
-#[track_caller]
 pub fn limit<'a, V, P>(value: P) -> SQL<'a, V>
 where
     V: SQLParam + 'a,
@@ -495,12 +490,7 @@ where
 }
 
 /// Renders `OFFSET <value>` (see [`PaginationArg`]).
-///
-/// # Panics
-///
-/// Panics when an integer argument is negative or does not fit in `usize`.
 #[must_use]
-#[track_caller]
 pub fn offset<'a, V, P>(value: P) -> SQL<'a, V>
 where
     V: SQLParam + 'a,

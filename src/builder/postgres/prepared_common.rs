@@ -70,21 +70,6 @@ pub const fn postgres_sync_param_type(
     }
 }
 
-#[cfg(feature = "postgres-sync")]
-pub fn postgres_sync_param_types(
-    params: &[drizzle_postgres::values::PostgresValue<'_>],
-) -> smallvec::SmallVec<[postgres::types::Type; 8]> {
-    let mut types = smallvec::SmallVec::with_capacity(params.len());
-    for param in params {
-        let Some(ty) = postgres_sync_param_type(param) else {
-            types.clear();
-            break;
-        };
-        types.push(ty);
-    }
-    types
-}
-
 #[cfg(any(feature = "tokio-postgres", feature = "hyperdrive"))]
 pub const fn tokio_postgres_param_type(
     value: &drizzle_postgres::values::PostgresValue<'_>,
@@ -157,23 +142,91 @@ pub const fn tokio_postgres_param_type(
     }
 }
 
-#[cfg(any(feature = "tokio-postgres", feature = "hyperdrive"))]
-pub fn tokio_postgres_param_types(
-    params: &[drizzle_postgres::values::PostgresValue<'_>],
-) -> smallvec::SmallVec<[tokio_postgres::types::Type; 8]> {
-    let mut types = smallvec::SmallVec::with_capacity(params.len());
-    for param in params {
-        let Some(ty) = tokio_postgres_param_type(param) else {
-            types.clear();
-            break;
-        };
-        types.push(ty);
+/// Parameters of unnamed statements, which a handle in pooler mode runs.
+///
+/// An unnamed statement is parsed, bound and run in one round trip, so the
+/// server never describes its parameters: each value carries its type up
+/// front. That is the value's own type, an array type taken from the
+/// elements, or the unspecified type (OID 0) for a `NULL`, an enum label, or
+/// an array of text, enum labels or `NULL`s, which the server infers from the
+/// statement as it would for a named one.
+#[cfg(any(
+    feature = "postgres-sync",
+    feature = "tokio-postgres",
+    feature = "hyperdrive"
+))]
+pub(crate) mod unnamed {
+    use drizzle_postgres::values::PostgresValue;
+    use smallvec::SmallVec;
+
+    #[cfg(feature = "postgres-sync")]
+    use super::postgres_sync_param_type as param_type;
+    #[cfg(not(feature = "postgres-sync"))]
+    use super::tokio_postgres_param_type as param_type;
+    #[cfg(feature = "postgres-sync")]
+    use postgres::types::{Kind, ToSql, Type};
+    #[cfg(not(feature = "postgres-sync"))]
+    use tokio_postgres::types::{Kind, ToSql, Type};
+
+    /// Element types whose arrays `PostgresValue` encodes in binary.
+    const ARRAY_TYPES: [(Type, Type); 18] = [
+        (Type::INT2, Type::INT2_ARRAY),
+        (Type::INT4, Type::INT4_ARRAY),
+        (Type::INT8, Type::INT8_ARRAY),
+        (Type::FLOAT4, Type::FLOAT4_ARRAY),
+        (Type::FLOAT8, Type::FLOAT8_ARRAY),
+        (Type::NUMERIC, Type::NUMERIC_ARRAY),
+        (Type::BYTEA, Type::BYTEA_ARRAY),
+        (Type::BOOL, Type::BOOL_ARRAY),
+        (Type::UUID, Type::UUID_ARRAY),
+        (Type::JSON, Type::JSON_ARRAY),
+        (Type::JSONB, Type::JSONB_ARRAY),
+        (Type::DATE, Type::DATE_ARRAY),
+        (Type::TIME, Type::TIME_ARRAY),
+        (Type::TIMESTAMP, Type::TIMESTAMP_ARRAY),
+        (Type::TIMESTAMPTZ, Type::TIMESTAMPTZ_ARRAY),
+        (Type::INET, Type::INET_ARRAY),
+        (Type::CIDR, Type::CIDR_ARRAY),
+        (Type::VARBIT, Type::VARBIT_ARRAY),
+    ];
+
+    /// Pairs each value with the type its unnamed statement declares.
+    pub(crate) fn params<'p>(
+        params: &[&'p PostgresValue<'_>],
+    ) -> SmallVec<[(&'p (dyn ToSql + Sync), Type); 8]> {
+        params
+            .iter()
+            .map(|&value| (value as &(dyn ToSql + Sync), declared_type(value)))
+            .collect()
     }
-    types
+
+    fn declared_type(value: &PostgresValue<'_>) -> Type {
+        match value {
+            PostgresValue::Array(elements) => array_type(elements),
+            other => param_type(other),
+        }
+        .unwrap_or_else(|| Type::new("unspecified".into(), 0, Kind::Pseudo, "pg_catalog".into()))
+    }
+
+    /// The array type of the first non-`NULL` element, looking through nested
+    /// arrays, which share their element's array type. Text and enum labels
+    /// are left to the server, since either may fill an enum array.
+    fn array_type(elements: &[PostgresValue<'_>]) -> Option<Type> {
+        match elements.iter().find(|element| !element.is_null())? {
+            PostgresValue::Array(inner) => array_type(inner),
+            element => {
+                let element = param_type(element)?;
+                ARRAY_TYPES
+                    .iter()
+                    .find(|(scalar, _)| *scalar == element)
+                    .map(|(_, array)| array.clone())
+            }
+        }
+    }
 }
 
 macro_rules! postgres_prepared_sync_impl {
-    ($client:ty, $row:ty, $to_sql:path) => {
+    ($client:ty, $row:ty) => {
         impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
             /// Binds `params` and runs the statement, returning the number of rows it
             /// changed.
@@ -201,8 +254,6 @@ macro_rules! postgres_prepared_sync_impl {
                 let mut params_vec: smallvec::SmallVec<
                     [drizzle_postgres::values::PostgresValue<'a>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::new();
                 {
                     #[cfg(feature = "profiling")]
                     drizzle_core::drizzle_profile_scope!(
@@ -210,16 +261,9 @@ macro_rules! postgres_prepared_sync_impl {
                         "sync.execute.collect"
                     );
                     params_vec.extend(bound_params);
-                    params_refs.reserve(params_vec.len());
-                    for p in &params_vec {
-                        params_refs.push(p as &(dyn $to_sql + Sync));
-                    }
                 }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::postgres_sync_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.execute.db");
@@ -229,16 +273,7 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                let mut result = client.execute(&statement, &params_refs);
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                    result = client.execute(&statement, &params_refs);
-                }
+                let result = self.statement_cache.execute(client, sql_str, &params_refs);
                 result.with_query(context)
             }
 
@@ -287,16 +322,8 @@ macro_rules! postgres_prepared_sync_impl {
                     [drizzle_postgres::values::PostgresValue<'a>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params);
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::postgres_sync_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -304,16 +331,7 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                let mut result = client.query(&statement, &params_refs);
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                    result = client.query(&statement, &params_refs);
-                }
+                let result = self.statement_cache.query(client, sql_str, &params_refs);
                 let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
@@ -374,16 +392,8 @@ macro_rules! postgres_prepared_sync_impl {
                     [drizzle_postgres::values::PostgresValue<'a>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params);
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::postgres_sync_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -391,16 +401,7 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                let mut result = client.query_opt(&statement, &params_refs);
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                    result = client.query_opt(&statement, &params_refs);
-                }
+                let result = self.statement_cache.query_opt(client, sql_str, &params_refs);
                 let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
@@ -433,8 +434,6 @@ macro_rules! postgres_prepared_sync_impl {
                 let mut params_vec: smallvec::SmallVec<
                     [drizzle_postgres::values::PostgresValue<'_>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::new();
                 {
                     #[cfg(feature = "profiling")]
                     drizzle_core::drizzle_profile_scope!(
@@ -443,16 +442,9 @@ macro_rules! postgres_prepared_sync_impl {
                     );
                     params_vec
                         .extend(bound_params.map(drizzle_postgres::values::PostgresValue::from));
-                    params_refs.reserve(params_vec.len());
-                    for p in &params_vec {
-                        params_refs.push(p as &(dyn $to_sql + Sync));
-                    }
                 }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::postgres_sync_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 #[cfg(feature = "profiling")]
                 drizzle_core::drizzle_profile_scope!("postgres.prepared", "sync.owned_execute.db");
@@ -462,16 +454,7 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                let mut result = client.execute(&statement, &params_refs);
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                    result = client.execute(&statement, &params_refs);
-                }
+                let result = self.statement_cache.execute(client, sql_str, &params_refs);
                 result.with_query(context)
             }
 
@@ -520,16 +503,8 @@ macro_rules! postgres_prepared_sync_impl {
                     [drizzle_postgres::values::PostgresValue<'_>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params.map(drizzle_postgres::values::PostgresValue::from));
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::postgres_sync_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -537,16 +512,7 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                let mut result = client.query(&statement, &params_refs);
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                    result = client.query(&statement, &params_refs);
-                }
+                let result = self.statement_cache.query(client, sql_str, &params_refs);
                 let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
@@ -607,16 +573,8 @@ macro_rules! postgres_prepared_sync_impl {
                     [drizzle_postgres::values::PostgresValue<'_>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params.map(drizzle_postgres::values::PostgresValue::from));
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::postgres_sync_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -624,16 +582,7 @@ macro_rules! postgres_prepared_sync_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                let mut result = client.query_opt(&statement, &params_refs);
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self.driver_statement(client, sql_str, &param_types).with_query(context)?;
-                    result = client.query_opt(&statement, &params_refs);
-                }
+                let result = self.statement_cache.query_opt(client, sql_str, &params_refs);
                 let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
@@ -642,7 +591,7 @@ macro_rules! postgres_prepared_sync_impl {
 }
 
 macro_rules! postgres_prepared_async_impl {
-    ($client:ty, $row:ty, $to_sql:path) => {
+    ($client:ty, $row:ty) => {
         impl<'a, Marker, DecodedRow> PreparedStatement<'a, Marker, DecodedRow> {
             /// Binds `params` and runs the statement, returning the number of rows it
             /// changed.
@@ -673,16 +622,8 @@ macro_rules! postgres_prepared_async_impl {
                     [drizzle_postgres::values::PostgresValue<'a>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params);
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::tokio_postgres_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -690,22 +631,10 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self
-                    .driver_statement(client, sql_str, &param_types)
-                    .await
-                    .with_query(context)?;
-                let mut result = client.execute(&statement, &params_refs).await;
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self
-                        .driver_statement(client, sql_str, &param_types)
-                        .await
-                        .with_query(context)?;
-                    result = client.execute(&statement, &params_refs).await;
-                }
+                let result = self
+                    .statement_cache
+                    .execute(client, sql_str, &params_refs)
+                    .await;
                 result.with_query(context)
             }
 
@@ -754,16 +683,8 @@ macro_rules! postgres_prepared_async_impl {
                     [drizzle_postgres::values::PostgresValue<'a>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params);
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::tokio_postgres_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -771,22 +692,10 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self
-                    .driver_statement(client, sql_str, &param_types)
-                    .await
-                    .with_query(context)?;
-                let mut result = client.query(&statement, &params_refs).await;
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self
-                        .driver_statement(client, sql_str, &param_types)
-                        .await
-                        .with_query(context)?;
-                    result = client.query(&statement, &params_refs).await;
-                }
+                let result = self
+                    .statement_cache
+                    .query(client, sql_str, &params_refs)
+                    .await;
                 let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
@@ -847,16 +756,8 @@ macro_rules! postgres_prepared_async_impl {
                     [drizzle_postgres::values::PostgresValue<'a>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params);
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::tokio_postgres_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -864,22 +765,10 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self
-                    .driver_statement(client, sql_str, &param_types)
-                    .await
-                    .with_query(context)?;
-                let mut result = client.query_opt(&statement, &params_refs).await;
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self
-                        .driver_statement(client, sql_str, &param_types)
-                        .await
-                        .with_query(context)?;
-                    result = client.query_opt(&statement, &params_refs).await;
-                }
+                let result = self
+                    .statement_cache
+                    .query_opt(client, sql_str, &params_refs)
+                    .await;
                 let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }
@@ -918,16 +807,8 @@ macro_rules! postgres_prepared_async_impl {
                     [drizzle_postgres::values::PostgresValue<'_>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params.map(drizzle_postgres::values::PostgresValue::from));
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::tokio_postgres_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -935,22 +816,10 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self
-                    .driver_statement(client, sql_str, &param_types)
-                    .await
-                    .with_query(context)?;
-                let mut result = client.execute(&statement, &params_refs).await;
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self
-                        .driver_statement(client, sql_str, &param_types)
-                        .await
-                        .with_query(context)?;
-                    result = client.execute(&statement, &params_refs).await;
-                }
+                let result = self
+                    .statement_cache
+                    .execute(client, sql_str, &params_refs)
+                    .await;
                 result.with_query(context)
             }
 
@@ -1002,16 +871,8 @@ macro_rules! postgres_prepared_async_impl {
                     [drizzle_postgres::values::PostgresValue<'_>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params.map(drizzle_postgres::values::PostgresValue::from));
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::tokio_postgres_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -1019,22 +880,10 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self
-                    .driver_statement(client, sql_str, &param_types)
-                    .await
-                    .with_query(context)?;
-                let mut result = client.query(&statement, &params_refs).await;
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self
-                        .driver_statement(client, sql_str, &param_types)
-                        .await
-                        .with_query(context)?;
-                    result = client.query(&statement, &params_refs).await;
-                }
+                let result = self
+                    .statement_cache
+                    .query(client, sql_str, &params_refs)
+                    .await;
                 let rows = result.with_query(context)?;
 
                 let mut results = Vec::with_capacity(rows.len());
@@ -1098,16 +947,8 @@ macro_rules! postgres_prepared_async_impl {
                     [drizzle_postgres::values::PostgresValue<'_>; 8],
                 > = smallvec::SmallVec::with_capacity(upper.unwrap_or(lower));
                 params_vec.extend(bound_params.map(drizzle_postgres::values::PostgresValue::from));
-                let mut params_refs: smallvec::SmallVec<[&(dyn $to_sql + Sync); 8]> =
-                    smallvec::SmallVec::with_capacity(params_vec.len());
-                for p in &params_vec {
-                    params_refs.push(p as &(dyn $to_sql + Sync));
-                }
-
-                let param_types =
-                    crate::builder::postgres::prepared_common::tokio_postgres_param_types(
-                        &params_vec,
-                    );
+                let params_refs: smallvec::SmallVec<[&drizzle_postgres::values::PostgresValue<'_>; 8]> =
+                    params_vec.iter().collect();
 
                 let context = || {
                     drizzle_core::error::QueryContext::new(
@@ -1115,22 +956,10 @@ macro_rules! postgres_prepared_async_impl {
                         &params_vec.iter().collect::<Vec<_>>(),
                     )
                 };
-                // A statement cached before the schema changed, or on a connection
-                // that was replaced, is rejected while planning: prepare it again
-                // and retry once.
-                let mut statement = self
-                    .driver_statement(client, sql_str, &param_types)
-                    .await
-                    .with_query(context)?;
-                let mut result = client.query_opt(&statement, &params_refs).await;
-                if result.as_ref().is_err_and(is_stale_statement) {
-                    self.evict_statement(client, sql_str, &param_types);
-                    statement = self
-                        .driver_statement(client, sql_str, &param_types)
-                        .await
-                        .with_query(context)?;
-                    result = client.query_opt(&statement, &params_refs).await;
-                }
+                let result = self
+                    .statement_cache
+                    .query_opt(client, sql_str, &params_refs)
+                    .await;
                 let row = result.with_query(context)?;
                 row.map(|row| <Marker as drizzle_core::row::DecodeSelectedRef<&$row, T>>::decode(&row)).transpose()
             }

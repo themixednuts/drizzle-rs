@@ -31,6 +31,7 @@ use crate::builder::postgres::common;
 use crate::builder::postgres::postgres_sync::{
     Rows, postgres_sync_materialize_params as materialize_params, prepared::StatementCache,
 };
+use crate::builder::postgres::prepared_common::unnamed;
 #[cfg(feature = "query")]
 use drizzle_core::query::{DeserializeStore, FromJsonObject as _};
 
@@ -65,6 +66,7 @@ pub struct Transaction<'conn, Schema = ()> {
     schema: Schema,
     client_id: u64,
     statement_cache: StatementCache,
+    pooler: bool,
 }
 
 impl<Schema> std::fmt::Debug for Transaction<'_, Schema> {
@@ -84,6 +86,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         schema: Schema,
         client_id: u64,
         statement_cache: StatementCache,
+        pooler: bool,
     ) -> Self {
         Self {
             tx: RefCell::new(Some(tx)),
@@ -93,18 +96,67 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
             schema,
             client_id,
             statement_cache,
+            pooler,
         }
     }
 
-    /// Resolves a cached `Statement` for a query running inside this transaction.
-    fn cached_statement(
+    /// Runs the statement and returns the number of rows it changed: an
+    /// unnamed statement in pooler mode, else the connection's cached one.
+    fn run_execute(
         &self,
-        tx: &mut PgTransaction<'_>,
         sql: &str,
-        param_types: &[postgres::types::Type],
-    ) -> Result<postgres::Statement, postgres::Error> {
-        self.statement_cache
-            .transaction_statement(self.client_id, tx, sql, param_types)
+        params: &[&PostgresValue<'_>],
+    ) -> drizzle_core::error::Result<u64> {
+        let mut tx_ref = self.tx.borrow_mut();
+        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
+        let result = if self.pooler {
+            tx.execute_typed(sql, &unnamed::params(params))
+        } else {
+            let (param_types, param_refs) = materialize_params(params);
+            self.statement_cache
+                .transaction_statement(self.client_id, tx, sql, &param_types)
+                .and_then(|statement| tx.execute(&statement, &param_refs[..]))
+        };
+        result.map_err(|error| self.statement_error(error, sql, params))
+    }
+
+    /// Runs the query and returns its rows, like [`Self::run_execute`].
+    fn run_query(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> drizzle_core::error::Result<Vec<Row>> {
+        let mut tx_ref = self.tx.borrow_mut();
+        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
+        let result = if self.pooler {
+            tx.query_typed(sql, &unnamed::params(params))
+        } else {
+            let (param_types, param_refs) = materialize_params(params);
+            self.statement_cache
+                .transaction_statement(self.client_id, tx, sql, &param_types)
+                .and_then(|statement| tx.query(&statement, &param_refs[..]))
+        };
+        result.map_err(|error| self.statement_error(error, sql, params))
+    }
+
+    /// Runs the query and returns its row, failing on more than one, like
+    /// [`Self::run_execute`].
+    fn run_query_opt(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> drizzle_core::error::Result<Option<Row>> {
+        let mut tx_ref = self.tx.borrow_mut();
+        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
+        let result = if self.pooler {
+            tx.query_typed_opt(sql, &unnamed::params(params))
+        } else {
+            let (param_types, param_refs) = materialize_params(params);
+            self.statement_cache
+                .transaction_statement(self.client_id, tx, sql, &param_types)
+                .and_then(|statement| tx.query_opt(&statement, &param_refs[..]))
+        };
+        result.map_err(|error| self.statement_error(error, sql, params))
     }
 
     /// Returns the schema value the database handle was created with.
@@ -271,19 +323,9 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql, params) = query_sql.build();
         drizzle_core::drizzle_trace_query!(&sql, params.len());
 
-        let (param_types, param_refs) = materialize_params(&params);
-
-        let mut tx_ref = self.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.execute.db");
-        let statement = self
-            .cached_statement(tx, &sql, &param_types)
-            .map_err(|error| self.statement_error(error, &sql, &params))?;
-        Ok(tx
-            .execute(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error, &sql, &params))?)
+        self.run_execute(&sql, &params)
     }
 
     /// Runs any SQL value inside the transaction and decodes every row into
@@ -322,19 +364,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.all.param_refs");
-        let (param_types, param_refs) = materialize_params(&params);
-
-        let mut tx_ref = self.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-
-        let statement = self
-            .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
-        let rows = tx
-            .query(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
+        let rows = self.run_query(&sql_str, &params)?;
 
         Ok(Rows::new(rows))
     }
@@ -361,19 +391,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql_str, params) = sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx.get.param_refs");
-        let (param_types, param_refs) = materialize_params(&params);
-
-        let mut tx_ref = self.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-
-        let statement = self
-            .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
-        let row = tx
-            .query_opt(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error, &sql_str, &params))?;
+        let row = self.run_query_opt(&sql_str, &params)?;
 
         row.map(|row| R::try_from(&row).map_err(Into::into))
             .transpose()
@@ -401,15 +419,7 @@ impl<'conn, Schema> Transaction<'conn, Schema> {
         let (sql, params) = query.build();
         drizzle_core::drizzle_trace_query!(&sql, params.len());
 
-        let (param_types, param_refs) = materialize_params(&params);
-        let mut tx_ref = self.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-        let statement = self
-            .cached_statement(tx, &sql, &param_types)
-            .map_err(|error| self.statement_error(error, &sql, &params))?;
-
-        tx.query(&statement, &param_refs[..])
-            .map_err(|error| self.statement_error(error, &sql, &params))
+        self.run_query(&sql, &params)
     }
 
     /// Commits the transaction.
@@ -705,20 +715,9 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        let (param_types, param_refs) = materialize_params(&params);
-
-        let mut tx_ref = self.runner.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-
         #[cfg(feature = "profiling")]
         drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.execute.db");
-        let statement = self
-            .runner
-            .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
-        Ok(tx
-            .execute(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?)
+        self.runner.run_execute(&sql_str, &params)
     }
 
     /// Runs the query inside the transaction and decodes every row into `R`.
@@ -750,19 +749,7 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.all.param_refs");
-        let (param_types, param_refs) = materialize_params(&params);
-
-        let mut tx_ref = self.runner.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-        let statement = self
-            .runner
-            .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
-        let rows = tx
-            .query(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
+        let rows = self.runner.run_query(&sql_str, &params)?;
 
         let mut decoded = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -794,20 +781,7 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.rows.param_refs");
-        let (param_types, param_refs) = materialize_params(&params);
-
-        let mut tx_ref = self.runner.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-
-        let statement = self
-            .runner
-            .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
-        let rows = tx
-            .query(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
+        let rows = self.runner.run_query(&sql_str, &params)?;
 
         Ok(Rows::new(rows))
     }
@@ -843,19 +817,7 @@ impl<'tx, 'q, S, Schema, State, Table, Mk, Rw, Grouped>
         let (sql_str, params) = self.builder.sql.build();
         drizzle_core::drizzle_trace_query!(&sql_str, params.len());
 
-        #[cfg(feature = "profiling")]
-        drizzle_core::drizzle_profile_scope!("postgres.sync", "tx_builder.get.param_refs");
-        let (param_types, param_refs) = materialize_params(&params);
-
-        let mut tx_ref = self.runner.tx.borrow_mut();
-        let tx = tx_ref.as_mut().ok_or_else(tx_consumed_error)?;
-        let statement = self
-            .runner
-            .cached_statement(tx, &sql_str, &param_types)
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
-        let row = tx
-            .query_opt(&statement, &param_refs[..])
-            .map_err(|error| self.runner.statement_error(error, &sql_str, &params))?;
+        let row = self.runner.run_query_opt(&sql_str, &params)?;
 
         let row = row
             .map(|row| {

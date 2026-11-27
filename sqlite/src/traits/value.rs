@@ -9,7 +9,7 @@
 
 use crate::prelude::*;
 use crate::values::{OwnedSQLiteValue, SQLiteValue, SQLiteValueRef};
-use drizzle_core::conv::checked_float_to_int;
+use drizzle_core::conv::{checked_float_to_int, parse_bool_text, parse_number_text};
 use drizzle_core::error::DrizzleError;
 
 /// The `SQLite` type affinity of a SQL type marker such as
@@ -421,9 +421,7 @@ macro_rules! impl_from_sqlite_value_int {
             }
 
             fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-                value.parse().map_err(|e| {
-                    DrizzleError::ConversionError(format!("cannot parse '{}' as i64: {}", value, e).into())
-                })
+                parse_number_text(value, "i64")
             }
 
             fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
@@ -446,11 +444,7 @@ macro_rules! impl_from_sqlite_value_int {
                 }
 
                 fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-                    value.parse().map_err(|e| {
-                        DrizzleError::ConversionError(
-                            format!("cannot parse '{}' as {}: {}", value, stringify!($ty), e).into()
-                        )
-                    })
+                    parse_number_text(value, stringify!($ty))
                 }
 
                 fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
@@ -478,11 +472,7 @@ macro_rules! impl_from_sqlite_value_int {
                 }
 
                 fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-                    value.parse().map_err(|e| {
-                        DrizzleError::ConversionError(
-                            format!("cannot parse '{}' as {}: {}", value, stringify!($ty), e).into()
-                        )
-                    })
+                    parse_number_text(value, stringify!($ty))
                 }
 
                 fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {
@@ -590,13 +580,7 @@ impl FromSQLiteValue for bool {
     }
 
     fn from_sqlite_text(value: &str) -> Result<Self, DrizzleError> {
-        match value.to_lowercase().as_str() {
-            "true" | "1" | "yes" | "on" => Ok(true),
-            "false" | "0" | "no" | "off" => Ok(false),
-            _ => Err(DrizzleError::ConversionError(
-                format!("cannot parse '{value}' as bool").into(),
-            )),
-        }
+        parse_bool_text(value)
     }
 
     fn from_sqlite_real(value: f64) -> Result<Self, DrizzleError> {

@@ -22,8 +22,9 @@ error[E0277]: SQL type `drizzle::mysql::types::BigIntUnsigned` is not assignable
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
+   | impl<'a, Schema, Table, Targets> InsertBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>
+...
    |     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |         Q::Marker: PartialInsertSelectCompatible<'a, MySQLValue<'a>, Targets>
    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
@@ -56,8 +57,9 @@ error[E0277]: SQL type `drizzle::mysql::types::Text` is not assignable from `dri
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
+   | impl<'a, Schema, Table, Targets> InsertBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>
+...
    |     pub fn select<Q, R, RequiredProof, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |         Q::Marker: PartialInsertSelectCompatible<'a, MySQLValue<'a>, Targets>
    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertColumnsSet<Targets>, Table>>::select`

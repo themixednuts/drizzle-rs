@@ -1261,8 +1261,12 @@ pub enum MigratorError {
     UnrepairableMigration(String),
 }
 
-/// Returns `true` if `sql` starts with PostgreSQL `CREATE [UNIQUE] INDEX
-/// CONCURRENTLY` or `DROP INDEX CONCURRENTLY`.
+/// Returns `true` if `sql` holds a PostgreSQL `CREATE [UNIQUE] INDEX
+/// CONCURRENTLY` or `DROP INDEX CONCURRENTLY` statement, which cannot run in
+/// a transaction.
+///
+/// Leading comments are skipped, and SQL with several statements counts
+/// when any of them is such a statement.
 ///
 /// # Examples
 ///
@@ -1270,11 +1274,22 @@ pub enum MigratorError {
 /// use drizzle_migrations::is_postgres_concurrent_index_statement;
 ///
 /// assert!(is_postgres_concurrent_index_statement("CREATE INDEX CONCURRENTLY idx ON t (a);"));
+/// assert!(is_postgres_concurrent_index_statement(
+///     "-- speeds up lookups\nCREATE INDEX CONCURRENTLY idx ON t (a);"
+/// ));
 /// assert!(!is_postgres_concurrent_index_statement("CREATE INDEX idx ON t (a);"));
 /// ```
 #[must_use]
 pub fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
-    let tokens = sql
+    split_on_semicolons(sql, SplitRules::for_dialect(Some(Dialect::PostgreSQL)))
+        .iter()
+        .any(|statement| starts_concurrent_index(statement))
+}
+
+/// Whether one statement starts, after its leading comments, with
+/// `CREATE [UNIQUE] INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY`.
+fn starts_concurrent_index(statement: &str) -> bool {
+    let tokens = skip_leading_comments(statement)
         .split_whitespace()
         .take(4)
         .map(|token| token.trim_matches(|character: char| !character.is_ascii_alphabetic()))
@@ -1297,6 +1312,20 @@ pub fn is_postgres_concurrent_index_statement(sql: &str) -> bool {
         [drop, index, concurrently, ..]
             if drop == "DROP" && index == "INDEX" && concurrently == "CONCURRENTLY"
     )
+}
+
+/// `sql` without its leading whitespace and PostgreSQL comments.
+fn skip_leading_comments(mut sql: &str) -> &str {
+    loop {
+        sql = sql.trim_start();
+        if sql.starts_with("--") {
+            sql = sql.find('\n').map_or("", |index| &sql[index + 1..]);
+        } else if sql.starts_with("/*") {
+            sql = &sql[skip_block_comment(sql, 0, true)..];
+        } else {
+            return sql;
+        }
+    }
 }
 
 // =============================================================================
@@ -1330,8 +1359,9 @@ pub(crate) fn split_statements(sql: &str) -> Vec<String> {
 ///
 /// A file that contains `--> statement-breakpoint` is split on those markers
 /// only, exactly like drizzle-orm's migrator: each chunk is trimmed, empty
-/// chunks are dropped, and a chunk is never split further (runners execute
-/// it whole). A file without markers (hand-written SQL, or generated with
+/// chunks are dropped, and a chunk is not split further (runners execute it
+/// whole), except a chunk that also holds a PostgreSQL `CONCURRENTLY` index
+/// statement (see [`split_concurrent_index_chunk`]). A file without markers (hand-written SQL, or generated with
 /// breakpoints off) is split on top-level semicolons using `dialect`'s
 /// quoting and comment rules; `None` uses rules that are safe across
 /// dialects.
@@ -1341,10 +1371,27 @@ pub(crate) fn split_statements_for(sql: &str, dialect: Option<Dialect>) -> Vec<S
             .split(STATEMENT_BREAKPOINT)
             .map(str::trim)
             .filter(|chunk| !chunk.is_empty())
-            .map(str::to_string)
+            .flat_map(|chunk| split_concurrent_index_chunk(chunk, dialect))
             .collect();
     }
     split_on_semicolons(sql, SplitRules::for_dialect(dialect))
+}
+
+/// The statements of a breakpoint chunk that holds a PostgreSQL `CREATE/DROP
+/// INDEX CONCURRENTLY` among other statements, or the chunk itself.
+///
+/// PostgreSQL runs a multi-statement query in an implicit transaction, where
+/// `CONCURRENTLY` fails, so such a chunk runs statement by statement. Only
+/// PostgreSQL has these statements, so a chunk of unknown dialect is split
+/// too.
+fn split_concurrent_index_chunk(chunk: &str, dialect: Option<Dialect>) -> Vec<String> {
+    if matches!(dialect, None | Some(Dialect::PostgreSQL)) {
+        let statements = split_on_semicolons(chunk, SplitRules::for_dialect(dialect));
+        if statements.len() > 1 && statements.iter().any(|s| starts_concurrent_index(s)) {
+            return statements;
+        }
+    }
+    vec![chunk.to_string()]
 }
 
 /// Lexical rules the semicolon splitter applies for one dialect.
@@ -2397,6 +2444,39 @@ mod tests {
         assert!(!is_postgres_concurrent_index_statement(
             "SELECT 'CREATE INDEX CONCURRENTLY hidden in text'"
         ));
+    }
+
+    #[test]
+    fn concurrent_index_detection_skips_comments_and_reads_every_statement() {
+        assert!(is_postgres_concurrent_index_statement(
+            "-- why\n/* and /* nested */ how */ CREATE INDEX CONCURRENTLY i ON t (a)"
+        ));
+        assert!(is_postgres_concurrent_index_statement(
+            "COMMENT ON TABLE t IS 'x'; DROP INDEX CONCURRENTLY i"
+        ));
+        assert!(!is_postgres_concurrent_index_statement(
+            "-- CREATE INDEX CONCURRENTLY i ON t (a)\nCREATE INDEX i ON t (a)"
+        ));
+    }
+
+    #[test]
+    fn a_postgres_chunk_with_a_concurrent_index_runs_statement_by_statement() {
+        let sql = "CREATE TABLE t (a int);\n--> statement-breakpoint\n\
+                   COMMENT ON TABLE t IS 'a; b';\nCREATE INDEX CONCURRENTLY i ON t (a);\n\
+                   --> statement-breakpoint\nCREATE TABLE u (a int); CREATE INDEX j ON u (a);";
+
+        let statements = split_statements_for(sql, Some(Dialect::PostgreSQL));
+
+        assert_eq!(
+            statements,
+            [
+                "CREATE TABLE t (a int);",
+                "COMMENT ON TABLE t IS 'a; b'",
+                "CREATE INDEX CONCURRENTLY i ON t (a)",
+                // Without CONCURRENTLY a chunk runs whole, as in drizzle-orm.
+                "CREATE TABLE u (a int); CREATE INDEX j ON u (a);",
+            ]
+        );
     }
 
     #[test]

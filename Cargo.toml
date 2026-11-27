@@ -282,7 +282,7 @@ uuid = [
 # Optional Rust value-type integrations shared by dialect crates
 chrono = ["drizzle-core/chrono", "drizzle-seed/chrono", "drizzle-postgres?/chrono", "drizzle-sqlite?/chrono", "drizzle-mysql?/chrono", "drizzle-macros/chrono"]
 time = ["drizzle-core/time", "drizzle-postgres?/time", "drizzle-sqlite?/time", "drizzle-mysql?/time", "drizzle-macros/time"]
-jiff = ["drizzle-core/jiff", "drizzle-postgres?/jiff", "drizzle-sqlite?/jiff", "drizzle-mysql?/jiff", "drizzle-macros/jiff"]
+jiff = ["drizzle-core/jiff", "drizzle-seed/jiff", "drizzle-postgres?/jiff", "drizzle-sqlite?/jiff", "drizzle-mysql?/jiff", "drizzle-macros/jiff"]
 rust-decimal = ["drizzle-core/rust-decimal", "drizzle-postgres?/rust-decimal", "drizzle-sqlite?/rust-decimal", "drizzle-mysql?/rust-decimal", "drizzle-macros/rust-decimal"]
 cidr = ["drizzle-core/cidr", "drizzle-seed/cidr", "drizzle-postgres?/cidr", "drizzle-macros/cidr"]
 geo-types = ["drizzle-core/geo-types", "drizzle-seed/geo-types", "drizzle-postgres?/geo-types", "drizzle-macros/geo-types"]

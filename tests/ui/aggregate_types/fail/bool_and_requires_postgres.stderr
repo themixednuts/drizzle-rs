@@ -16,7 +16,6 @@ note: required by a bound in `bool_and`
  --> core/src/expr/agg.rs
   |
   | pub fn bool_and<'a, V, E>(
-  |        -------- required by a bound in this function
 ...
   |     E::SQLType: BooleanAggregatePolicy<V::DialectMarker>,
   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `bool_and`
@@ -40,7 +39,6 @@ note: required by a bound in `bool_and`
  --> core/src/expr/agg.rs
   |
   | pub fn bool_and<'a, V, E>(
-  |        -------- required by a bound in this function
 ...
   |     V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `bool_and`

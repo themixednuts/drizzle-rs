@@ -48,6 +48,10 @@ pub enum FieldStorageKind {
     /// `Vec<u8>` takes the decoded buffer as is, and `bytes::Bytes` only
     /// converts from a `'static` slice.
     PostgresBytea { owned: bool },
+    /// PostgreSQL date or time, which the JSON projection renders as text
+    /// serde's `chrono`, `time` and `jiff` impls do not all read (years past
+    /// 9999, ` BC` years, offsets with seconds).
+    PostgresTemporal,
     /// Binary MySQL value read from the tagged hexadecimal JSON projection.
     MySQLBlob,
     /// MySQL text decoded through the same checked codec as a wire row.
@@ -346,6 +350,9 @@ fn generate_json_decoder(
                     is_nullable,
                     owned,
                 ),
+                FieldStorageKind::PostgresTemporal => {
+                    generate_postgres_temporal_decode(ident, col_name, &f.base_type, is_nullable)
+                }
                 FieldStorageKind::MySQLBlob => {
                     generate_mysql_blob_decode(ident, col_name, &f.base_type, is_nullable)
                 }
@@ -748,6 +755,24 @@ fn generate_postgres_bytea_decode(
     let decode = quote! {
         let bytes = drizzle::core::query::decode_postgres_bytea::<__A::Error>(raw, #col_name)?;
         #convert
+    };
+
+    generate_raw_json_decode(ident, col_name, is_nullable, &decode)
+}
+
+fn generate_postgres_temporal_decode(
+    ident: &Ident,
+    col_name: &str,
+    base_type: &syn::Type,
+    is_nullable: bool,
+) -> TokenStream {
+    let decode = quote! {
+        drizzle::postgres::values::decode_projected_temporal::<#base_type>(&raw)
+            .map_err(|e| {
+                <__A::Error as drizzle::core::serde::de::Error>::custom(
+                    ::std::format!("field '{}': {e}", #col_name)
+                )
+            })?
     };
 
     generate_raw_json_decode(ident, col_name, is_nullable, &decode)

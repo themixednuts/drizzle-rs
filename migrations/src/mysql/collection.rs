@@ -147,6 +147,9 @@ pub enum ValidationError {
     },
     #[error("MySQL foreign key `{name}` references another database")]
     CrossDatabaseForeignKey { name: String },
+    /// No longer produced: like drizzle-kit, a foreign key may reference a
+    /// table the schema does not declare (drizzle-orm#6534). Kept so code
+    /// that matches on it still compiles.
     #[error("MySQL foreign key `{name}` references missing table `{table}`")]
     MissingReferencedTable { name: String, table: String },
     #[error("MySQL {kind} `{name}` must reference at least one column")]
@@ -677,19 +680,17 @@ impl MySQLDDL {
                     name: foreign_key.name.to_string(),
                 });
             }
-            if !table_keys.contains(&(foreign_database, foreign_key.foreign_table.as_ref())) {
-                return Err(ValidationError::MissingReferencedTable {
-                    name: foreign_key.name.to_string(),
-                    table: foreign_key.foreign_table.to_string(),
-                });
+            // Like drizzle-kit, a foreign key may reference a table the
+            // schema does not declare (drizzle-orm#6534).
+            if table_keys.contains(&(foreign_database, foreign_key.foreign_table.as_ref())) {
+                require_columns(
+                    "foreign key",
+                    foreign_key.name.as_ref(),
+                    foreign_database,
+                    foreign_key.foreign_table.as_ref(),
+                    &foreign_key.foreign_columns,
+                )?;
             }
-            require_columns(
-                "foreign key",
-                foreign_key.name.as_ref(),
-                foreign_database,
-                foreign_key.foreign_table.as_ref(),
-                &foreign_key.foreign_columns,
-            )?;
         }
         Ok(())
     }

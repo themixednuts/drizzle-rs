@@ -426,6 +426,96 @@ impl<Conn, Schema> Drizzle<Conn, Schema> {
         }
     }
 
+    /// Counts the rows of `source`: `SELECT COUNT(*) FROM source`.
+    ///
+    /// `source` is anything [`from`](DrizzleBuilder::from) accepts. Add
+    /// `.r#where(..)` to count only the matching rows; `.get()` returns the
+    /// count as an `i64`. The query is also a scalar subquery: compare
+    /// against it, or select it as a column, where it decodes as
+    /// `Option<i64>` (name it with [`alias`](drizzle_core::expr::alias)). Its
+    /// condition may read the outer query's columns to count per row.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "rusqlite")]
+    /// # fn main() -> drizzle::Result<()> {
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # use drizzle::core::ToSQL;
+    /// # let (db, Schema { users, posts, comments }) = app::database()?;
+    /// # let _ = (&users, &posts, &comments);
+    /// use drizzle::core::expr::{eq, gt};
+    ///
+    /// let adults: i64 = db.count(users).r#where(gt(users.age, 18)).get()?;
+    /// assert_eq!(adults, 2);
+    ///
+    /// let authors: Vec<String> = db
+    ///     .select(users.name)
+    ///     .from(users)
+    ///     .r#where(gt(db.count(posts).r#where(eq(posts.author_id, users.id)), 0))
+    ///     .all()?;
+    /// assert_eq!(authors, ["Alex Smith"]);
+    ///
+    /// use drizzle::core::expr::alias;
+    ///
+    /// let post_counts: Vec<(String, Option<i64>)> = db
+    ///     .select((
+    ///         users.name,
+    ///         alias(db.count(posts).r#where(eq(posts.author_id, users.id)), "posts"),
+    ///     ))
+    ///     .from(users)
+    ///     .r#where(gt(users.age, 18))
+    ///     .all()?;
+    /// assert_eq!(
+    ///     post_counts,
+    ///     [("Alex Smith".to_string(), Some(2)), ("Alice".to_string(), Some(0))]
+    /// );
+    /// # Ok(())
+    /// # }
+    /// # #[cfg(not(feature = "rusqlite"))]
+    /// # fn main() {}
+    /// ```
+    ///
+    /// A subquery selected as a column must select one column:
+    ///
+    /// ```compile_fail
+    /// # mod app { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/readme/sqlite.rs")); }
+    /// # use app::*;
+    /// # fn main() -> drizzle::Result<()> {
+    /// # let (db, Schema { users, posts, .. }) = app::database()?;
+    /// let rows: Vec<(i64, Option<(i64, String)>)> = db
+    ///     .select((users.id, db.select((posts.id, posts.title)).from(posts)))
+    ///     .from(users)
+    ///     .all()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "sqlite")]
+    pub fn count<'a, 'b, Source>(
+        &'a self,
+        source: Source,
+    ) -> DrizzleBuilder<
+        'a,
+        Self,
+        Schema,
+        crate::builder::sqlite::CountSelect<'b, Schema, Source>,
+        SelectFromSet,
+    >
+    where
+        Source: ToSQL<'b, SQLiteValue<'b>> + drizzle_core::ScopeEntry,
+        crate::builder::CountMarker<'b, SQLiteValue<'b>>: drizzle_core::ResolveRow<Source>,
+    {
+        let builder = QueryBuilder::new::<Schema>()
+            .select(drizzle_core::expr::count(()))
+            .from(source);
+        DrizzleBuilder {
+            runner: self,
+            builder,
+            state: PhantomData,
+        }
+    }
+
     /// Starts an `INSERT` into `table`.
     ///
     /// Follow it with [`value`](DrizzleBuilder::value) or
@@ -1285,6 +1375,13 @@ where
     type Sources = T::Sources;
 }
 
+impl<Runner, S, T, State> drizzle_core::ExprValueType for DrizzleBuilder<'_, Runner, S, T, State>
+where
+    T: drizzle_core::ExprValueType,
+{
+    type ValueType = T::ValueType;
+}
+
 impl<'d, 'a, Runner, Schema>
     DrizzleBuilder<'d, Runner, Schema, QueryBuilder<'a, Schema, builder::CTEInit>, builder::CTEInit>
 {
@@ -1621,10 +1718,6 @@ macro_rules! impl_select_methods {
         /// Pass an integer, which is written into the SQL, or an integer
         /// placeholder, which is bound when the query runs.
         ///
-        /// # Panics
-        ///
-        /// Panics when an integer `limit` is negative or does not fit in `usize`.
-        ///
         /// # Examples
         ///
         /// ```
@@ -1657,10 +1750,6 @@ macro_rules! impl_select_methods {
 
     (@method offset) => {
         /// Skips the first `offset` rows (`OFFSET n`).
-        ///
-        /// # Panics
-        ///
-        /// Panics when an integer `offset` is negative or does not fit in `usize`.
         ///
         /// # Examples
         ///

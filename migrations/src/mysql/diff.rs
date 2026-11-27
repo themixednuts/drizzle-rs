@@ -1156,6 +1156,16 @@ fn reconcile_catalog_representations(current: &mut MySQLDDL, desired: &MySQLDDL)
 
 fn validate_foreign_key_targets(ddl: &MySQLDDL) -> Result<(), DiffError> {
     for foreign_key in ddl.fks.list() {
+        // A table the schema does not declare has keys this check cannot
+        // see (drizzle-kit skips it too, drizzle-orm#6534).
+        if !ddl
+            .tables
+            .list()
+            .iter()
+            .any(|table| table.name == foreign_key.foreign_table)
+        {
+            continue;
+        }
         let target: Vec<&str> = foreign_key
             .foreign_columns
             .iter()
@@ -3779,6 +3789,35 @@ mod tests {
             compute_migration(&MySQLDDL::new(), &cur),
             Err(DiffError::NonUniqueForeignKeyTarget { .. })
         ));
+    }
+
+    #[test]
+    fn foreign_key_to_a_table_outside_the_schema_is_generated() {
+        // drizzle-orm#6534: nothing says whether `accounts.id` is unique.
+        let prev = table_with_columns("wallets", &["id"]);
+        let mut cur = table_with_columns("wallets", &["id", "owner"]);
+        cur.fks.push(model::ForeignKey {
+            database: None,
+            table: "wallets".into(),
+            name: "wallets_owner_accounts_id_fkey".into(),
+            columns: vec!["owner".into()],
+            foreign_database: None,
+            foreign_table: "accounts".into(),
+            foreign_columns: vec!["id".into()],
+            on_delete: None,
+            on_update: None,
+        });
+
+        let migration = compute_migration(&prev, &cur).expect("migration");
+        assert_eq!(
+            migration.sql_statements.last().map(String::as_str),
+            Some(
+                "ALTER TABLE `wallets` ADD CONSTRAINT `wallets_owner_accounts_id_fkey` \
+                 FOREIGN KEY (`owner`) REFERENCES `accounts` (`id`);"
+            ),
+            "{:#?}",
+            migration.sql_statements
+        );
     }
 
     #[test]

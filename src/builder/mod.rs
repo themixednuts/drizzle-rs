@@ -10,6 +10,20 @@ pub mod postgres;
 #[macro_use]
 pub mod mysql;
 
+/// The select marker of `select(count(()))`, the query a database handle's
+/// `count(source)` starts.
+#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql"))]
+pub(crate) type CountMarker<'q, V> = drizzle_core::SelectCols<(
+    drizzle_core::expr::SQLExpr<
+        'q,
+        V,
+        <<V as drizzle_core::SQLParam>::DialectMarker as drizzle_core::dialect::DialectTypes>::BigInt,
+        drizzle_core::expr::NonNull,
+        drizzle_core::expr::Agg,
+        drizzle_core::scope::ScopeOnly<()>,
+    >,
+)>;
+
 /// Fails a push whose drops would lose rows, as drizzle-kit's push stops to
 /// ask before them. `lost` pairs each drop with the rows it holds.
 #[cfg(any(

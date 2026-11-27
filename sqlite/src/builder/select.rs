@@ -914,17 +914,11 @@ where
 {
     /// Adds a LIMIT clause.
     ///
-    /// Pass a non-negative integer, which is written into the SQL, or an
+    /// Pass an integer, which is written into the SQL, or an
     /// integer placeholder, which is bound when the query runs. See
     /// [`SelectBuilder`] for an example.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a signed numeric argument is negative or a numeric value
-    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    #[track_caller]
     pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
@@ -987,14 +981,8 @@ where
     /// let query = builder.select(user.name).from(user).offset(5);
     /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."name" FROM "users" LIMIT -1 OFFSET 5"#);
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics when a signed numeric argument is negative or a numeric value
-    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
@@ -1014,14 +1002,8 @@ where
 // OFFSET after LIMIT
 impl<'a, S, T, M, R, G> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G> {
     /// Adds an OFFSET clause after LIMIT.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a signed numeric argument is negative or a numeric value
-    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, SQLiteValue<'a>>,
@@ -1277,6 +1259,23 @@ where
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>>::SQLType;
     type Nullable = drizzle_core::expr::Null;
     type Aggregate = drizzle_core::expr::Scalar;
+}
+
+/// A scalar subquery selected as a column decodes as an `Option`: it is NULL
+/// when the subquery returns no row.
+impl<'a, S, State, T, M, R, G> drizzle_core::ExprValueType
+    for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
+    M: drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>> + drizzle_core::SelectSources,
+    <M as drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>>::SQLType:
+        drizzle_core::SQLTypeToRust<drizzle_core::dialect::SQLiteDialect>,
+{
+    type ValueType = Option<
+        <<M as drizzle_core::expr::SubqueryType<'a, SQLiteValue<'a>>>::SQLType as drizzle_core::SQLTypeToRust<
+            drizzle_core::dialect::SQLiteDialect,
+        >>::RustType,
+    >;
 }
 
 impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>

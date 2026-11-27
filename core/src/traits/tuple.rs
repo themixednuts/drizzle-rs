@@ -94,8 +94,10 @@ use crate::{SQL, SQLParam, ToSQL, Token};
 macro_rules! impl_tosql_tuple {
     ($($T:ident),+; $($idx:tt),+) => {
         impl<'a, V: SQLParam, $($T: ToSQL<'a, V>),+> ToSQL<'a, V> for ($($T,)+) {
+            /// The items joined with commas. A subquery item is wrapped in
+            /// parentheses, as a select list or `VALUES` row needs it.
             fn to_sql(&self) -> SQL<'a, V> {
-                SQL::join([$(self.$idx.to_sql(),)+], Token::COMMA)
+                SQL::join([$(self.$idx.to_sql().parens_if_subquery(),)+], Token::COMMA)
             }
         }
     };

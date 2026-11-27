@@ -93,7 +93,7 @@ fn ps_db() -> (drizzle::postgres::sync::Drizzle<Schema>, User) {
     let mut c = ::postgres::Client::connect(&url(), ::postgres::NoTls).expect("connect");
     c.batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .expect("drop");
-    let (mut db, Schema { user }) = drizzle::postgres::sync::Drizzle::<Schema>::new(c);
+    let (db, Schema { user }) = drizzle::postgres::sync::Drizzle::<Schema>::new(c);
     db.create().expect("create");
     (db, user)
 }
@@ -103,8 +103,7 @@ fn ps_db_blog() -> (drizzle::postgres::sync::Drizzle<BlogSchema>, User, Post) {
     let mut c = ::postgres::Client::connect(&url(), ::postgres::NoTls).expect("connect");
     c.batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .expect("drop");
-    let (mut db, BlogSchema { user, post }) =
-        drizzle::postgres::sync::Drizzle::<BlogSchema>::new(c);
+    let (db, BlogSchema { user, post }) = drizzle::postgres::sync::Drizzle::<BlogSchema>::new(c);
     db.create().expect("create");
     (db, user, post)
 }
@@ -197,11 +196,11 @@ fn bench_sync(c: &mut Criterion) {
     read.bench_function("where", |b| {
         b.iter_batched(
             || {
-                let (mut db, user) = ps_db();
+                let (db, user) = ps_db();
                 db.insert(user).values(users!(100)).execute().expect("seed");
                 (db, user)
             },
-            |(mut db, user)| {
+            |(db, user)| {
                 let out: Vec<(i32, String, String)> = db
                     .select((user.id, user.name, user.email))
                     .from(user)
@@ -219,7 +218,7 @@ fn bench_sync(c: &mut Criterion) {
     write.bench_function("insert", |b| {
         b.iter_batched(
             ps_db,
-            |(mut db, user)| {
+            |(db, user)| {
                 db.insert(user)
                     .values([InsertUser::new("one", "one@x.dev")])
                     .execute()
@@ -231,14 +230,14 @@ fn bench_sync(c: &mut Criterion) {
     write.bench_function("update", |b| {
         b.iter_batched(
             || {
-                let (mut db, user) = ps_db();
+                let (db, user) = ps_db();
                 db.insert(user)
                     .values([InsertUser::new("a", "a@x.dev").with_id(1)])
                     .execute()
                     .expect("seed");
                 (db, user)
             },
-            |(mut db, user)| {
+            |(db, user)| {
                 db.update(user)
                     .set(UpdateUser::default().with_name("b"))
                     .r#where(eq(user.id, 1))
@@ -251,14 +250,14 @@ fn bench_sync(c: &mut Criterion) {
     write.bench_function("delete", |b| {
         b.iter_batched(
             || {
-                let (mut db, user) = ps_db();
+                let (db, user) = ps_db();
                 db.insert(user)
                     .values([InsertUser::new("a", "a@x.dev").with_id(1)])
                     .execute()
                     .expect("seed");
                 (db, user)
             },
-            |(mut db, user)| {
+            |(db, user)| {
                 db.delete(user)
                     .r#where(eq(user.id, 1))
                     .execute()
@@ -273,7 +272,7 @@ fn bench_sync(c: &mut Criterion) {
     query.bench_function("join", |b| {
         b.iter_batched(
             || {
-                let (mut db, user, post) = ps_db_blog();
+                let (db, user, post) = ps_db_blog();
                 db.insert(user)
                     .values(users!(10))
                     .execute()
@@ -284,7 +283,7 @@ fn bench_sync(c: &mut Criterion) {
                     .expect("seed posts");
                 (db, user, post)
             },
-            |(mut db, user, post)| {
+            |(db, user, post)| {
                 let out: Vec<(String, String)> = db
                     .select((user.name, post.title))
                     .from(user)
@@ -299,11 +298,11 @@ fn bench_sync(c: &mut Criterion) {
     query.bench_function("agg", |b| {
         b.iter_batched(
             || {
-                let (mut db, user) = ps_db();
+                let (db, user) = ps_db();
                 db.insert(user).values(users!(100)).execute().expect("seed");
                 (db, user)
             },
-            |(mut db, user)| {
+            |(db, user)| {
                 let out: Vec<(i64,)> = db.select((count(user.id),)).from(user).all().expect("agg");
                 black_box(out);
             },
@@ -313,11 +312,11 @@ fn bench_sync(c: &mut Criterion) {
     query.bench_function("page", |b| {
         b.iter_batched(
             || {
-                let (mut db, user) = ps_db();
+                let (db, user) = ps_db();
                 db.insert(user).values(users!(100)).execute().expect("seed");
                 (db, user)
             },
-            |(mut db, user)| {
+            |(db, user)| {
                 let out: Vec<(i32, String, String)> = db
                     .select((user.id, user.name, user.email))
                     .from(user)
@@ -334,7 +333,7 @@ fn bench_sync(c: &mut Criterion) {
     query.bench_function("relations_json_decode", |b| {
         b.iter_batched(
             || {
-                let (mut db, user, post) = ps_db_blog();
+                let (db, user, post) = ps_db_blog();
                 db.insert(user)
                     .values(users!(25))
                     .execute()
@@ -345,7 +344,7 @@ fn bench_sync(c: &mut Criterion) {
                     .expect("seed posts");
                 (db, user)
             },
-            |(mut db, user)| {
+            |(db, user)| {
                 let out = db
                     .query(user)
                     .with(user.author_posts())
@@ -378,7 +377,7 @@ fn bench_sync(c: &mut Criterion) {
     extra.bench_function("upsert", |b| {
         b.iter_batched(
             ps_db,
-            |(mut db, user)| {
+            |(db, user)| {
                 db.insert(user)
                     .values([InsertUser::new("up", "up@x.dev").with_id(1)])
                     .on_conflict(user.id)
@@ -392,7 +391,7 @@ fn bench_sync(c: &mut Criterion) {
     extra.bench_function("ret", |b| {
         b.iter_batched(
             ps_db,
-            |(mut db, user)| {
+            |(db, user)| {
                 let out: Vec<(i32, String, String)> = db
                     .insert(user)
                     .values([InsertUser::new("ret", "ret@x.dev")])
@@ -407,7 +406,7 @@ fn bench_sync(c: &mut Criterion) {
     extra.bench_function("sql", |b| {
         b.iter_batched(
             ps_db,
-            |(mut db, user)| {
+            |(db, user)| {
                 let sql = db
                     .select((user.id,))
                     .from(user)
@@ -427,11 +426,11 @@ fn bench_sync(c: &mut Criterion) {
         scale.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             b.iter_batched(
                 || {
-                    let (mut db, user) = ps_db();
+                    let (db, user) = ps_db();
                     db.insert(user).values(users!(n)).execute().expect("seed");
                     (db, user)
                 },
-                |(mut db, user)| {
+                |(db, user)| {
                     let out: Vec<(i32, String, String)> = db
                         .select((user.id, user.name, user.email))
                         .from(user)

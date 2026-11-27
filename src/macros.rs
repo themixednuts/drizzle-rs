@@ -370,6 +370,33 @@ macro_rules! sqlite_transaction_constructors {
             }
         }
 
+        /// Counts the rows of `source` inside the transaction:
+        /// `SELECT COUNT(*) FROM source`. See `Drizzle::count`.
+        #[cfg(feature = "sqlite")]
+        pub fn count<'tx, 'q, Source>(
+            &'tx self,
+            source: Source,
+        ) -> TransactionBuilder<
+            'tx,
+            $($conn_lt,)*
+            Schema,
+            crate::builder::sqlite::CountSelect<'q, Schema, Source>,
+            drizzle_sqlite::builder::SelectFromSet,
+        >
+        where
+            Source: ToSQL<'q, SQLiteValue<'q>> + drizzle_core::ScopeEntry,
+            crate::builder::CountMarker<'q, SQLiteValue<'q>>: drizzle_core::ResolveRow<Source>,
+        {
+            let builder = QueryBuilder::new::<Schema>()
+                .select(drizzle_core::expr::count(()))
+                .from(source);
+            TransactionBuilder {
+                runner: self,
+                builder,
+                state: ::core::marker::PhantomData,
+            }
+        }
+
         /// Starts an `INSERT` inside the transaction.
         #[cfg(feature = "sqlite")]
         pub fn insert<'tx, 'q, Table>(
@@ -538,6 +565,34 @@ macro_rules! postgres_transaction_constructors {
 
             let builder = QueryBuilder::new::<Schema>().select_distinct_on(on, columns);
 
+            TransactionBuilder {
+                runner: self,
+                builder,
+                state: ::core::marker::PhantomData,
+            }
+        }
+
+        /// Counts the rows of `source` inside the transaction:
+        /// `SELECT COUNT(*) FROM source`. See `Drizzle::count`.
+        pub fn count<'tx, 'q, Source>(
+            &'tx self,
+            source: Source,
+        ) -> TransactionBuilder<
+            'tx,
+            $($conn_lt,)*
+            Schema,
+            crate::builder::postgres::CountSelect<'q, Schema, Source>,
+            drizzle_postgres::builder::SelectFromSet,
+        >
+        where
+            Source: ToSQL<'q, PostgresValue<'q>> + drizzle_core::ScopeEntry,
+            crate::builder::CountMarker<'q, PostgresValue<'q>>: drizzle_core::ResolveRow<Source>,
+        {
+            use drizzle_postgres::builder::QueryBuilder;
+
+            let builder = QueryBuilder::new::<Schema>()
+                .select(drizzle_core::expr::count(()))
+                .from(source);
             TransactionBuilder {
                 runner: self,
                 builder,

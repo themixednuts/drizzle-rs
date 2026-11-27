@@ -33,11 +33,12 @@ error[E0277]: selected column decodes as `drizzle::core::MaybeNull<i32>`, but th
    = note: 1 redundant requirement hidden
    = note: required for `Cons<i32, Cons<drizzle::core::MaybeNull<i32>, Nil>>` to implement `drizzle_core::row::TypeListCompatible<Row, Cons<i32, Cons<i32, Nil>>>`
    = note: required for `Scoped<SelectCols<(users::Id, ColumnBinOp<posts::Id, i32, drizzle::core::types::AddOp, PostgresDialect, Int4, drizzle::core::expr::NonNull>)>, Cons<OuterJoined<Posts>, Cons<Users, Nil>>, (((), ()), At<Cons<OuterJoined<Posts>, Cons<Users, Nil>>, ((drizzle::core::expr::NonNull, Src<Posts>), (drizzle::core::expr::NonNull, Src<Users>))>)>` to implement `MarkerColumnCountValid<Row, (i32, i32), (i32, i32), ((((), ()), (((), ScopeFound), ((), ScopeFound))), (ScopeFound, ((ScopeFound, ()), ())))>`
-note: required by a bound in `drizzle::builder::postgres::postgres_sync::<impl drizzle::builder::postgres::common::DrizzleBuilder<'_, &mut Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+note: required by a bound in `drizzle::builder::postgres::postgres_sync::<impl drizzle::builder::postgres::common::DrizzleBuilder<'_, &Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
   --> src/builder/postgres/postgres_sync/mod.rs
    |
+   | impl<S, Schema, State, Table, Mk, Rw, Grouped>
+...
    |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
-   |            --- required by a bound in this associated function
 ...
    |             + drizzle_core::row::MarkerColumnCountValid<::postgres::Row, Rw, R, Proof>,
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::postgres::postgres_sync::<impl DrizzleBuilder<'_, &mut Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::postgres::postgres_sync::<impl DrizzleBuilder<'_, &Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

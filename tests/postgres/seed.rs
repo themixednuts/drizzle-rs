@@ -251,6 +251,56 @@ fn schema_qualified_tables_with_the_same_name_keep_distinct_counts() {
 
 /// Seeds the column shapes that used to fail on a real server and reads the
 /// rows back through the typed models.
+/// With jiff and not chrono, seeded dates and times are bound as jiff
+/// values, and the inline seed writes the same rows.
+#[cfg(all(feature = "jiff", not(feature = "chrono")))]
+mod jiff_values {
+    use super::*;
+
+    #[PostgresTable(NAME = "seed_jiff")]
+    pub struct SeedJiff {
+        #[column(PRIMARY)]
+        pub id: i32,
+        pub day: jiff::civil::Date,
+        pub at: jiff::civil::Time,
+        pub local: jiff::civil::DateTime,
+        pub instant: jiff::Timestamp,
+    }
+
+    #[derive(PostgresSchema)]
+    pub struct SeedJiffSchema {
+        pub events: SeedJiff,
+    }
+
+    #[drizzle::test]
+    fn date_time_columns_seed_with_jiff_values(db: &mut TestDb<SeedJiffSchema>) {
+        let SeedJiffSchema { events } = schema;
+        let config = SeedConfig::postgres(&schema).seed(5).count(&events, 12);
+        for statement in config.generate() {
+            assert!(
+                statement.build().1.iter().any(|value| matches!(
+                    value,
+                    drizzle::postgres::values::OwnedPostgresValue::JiffTimestamp(_)
+                )),
+                "{}",
+                statement.sql()
+            );
+            db.execute(statement);
+        }
+        let bound: Vec<SelectSeedJiff> = db.select(()).from(events).all();
+        assert_eq!(bound.len(), 12);
+
+        for statement in config.reset_plan().unwrap() {
+            db.execute(statement);
+        }
+        for statement in config.generate() {
+            db.execute(SQL::raw(statement.inline_sql().unwrap()));
+        }
+        let inline: Vec<SelectSeedJiff> = db.select(()).from(events).all();
+        assert_eq!(format!("{inline:?}"), format!("{bound:?}"));
+    }
+}
+
 #[cfg(all(feature = "uuid", feature = "serde", feature = "chrono"))]
 mod executed {
     use drizzle::postgres::prelude::*;

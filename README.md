@@ -141,7 +141,7 @@ pub struct Schema {
 
 Each table also gets a module of column types named after it: `users::Name` is the type of `Users::name`, should you need to name it. The module keeps these types apart from your own, so a `User` table can have a `role: UserRole` column.
 
-If you already have a database, run `drizzle introspect` to reverse-engineer the schema instead of writing it by hand.
+If you already have a database, run `drizzle introspect` to reverse-engineer the schema instead of writing it by hand. PostgreSQL date and time columns come out as `chrono` types; to get `jiff` types (`jiff::civil::Date`, `jiff::civil::Time`, `jiff::civil::DateTime`, `jiff::Timestamp`) instead, set `datetime = "jiff"` under `[introspect]` in `drizzle.config.toml` or pass `--datetime jiff` (`drizzle import` and `drizzle new` take the same choice), and enable the matching `drizzle` feature. Arrays of jiff types have no mapping yet and are flagged in the output.
 
 ### 4. Connect & Query
 

@@ -34,7 +34,6 @@ note: required by a bound in `require_derived_selection`
   --> tests/ui/derived_tables/fail/alias_joined_select_star.rs:22:16
    |
 20 | fn require_derived_selection<'a, Selection>()
-   |    ------------------------- required by a bound in this function
 21 | where
 22 |     Selection: DerivedSelection<'a, SQLiteValue<'a>, SQLiteSchemaType, Posts>,
    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_derived_selection`

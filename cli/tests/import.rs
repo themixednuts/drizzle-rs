@@ -3,6 +3,8 @@
 //! `fixtures/import/{stable,beta}/<dialect>` were written by drizzle-kit
 //! 0.31.11 (journal layout) and 1.0.0-rc.4 (folder layout) from the schemas
 //! in `fixtures/import/ts`, each with two migrations (`init`, then `full`).
+//! `fixtures/import/rc/postgres` was written the same way by drizzle-kit
+//! 1.0.0-rc.6, whose format 10 stores the second snapshot as deltas.
 //!
 //! The round-trip tests import the newest snapshot, compare the Rust with
 //! `fixtures/import/expected/*.rs` (which the root crate's
@@ -15,6 +17,7 @@
 use assert_cmd::Command;
 use assert_cmd::cargo::cargo_bin_cmd;
 use drizzle_migrations::parser::SchemaParser;
+use drizzle_migrations::postgres::reconstruct;
 use drizzle_migrations::schema::Snapshot;
 use drizzle_migrations::upgrade::upgrade_to_latest;
 use drizzle_types::Dialect;
@@ -65,6 +68,10 @@ fn newest_snapshot(dir: &Path, dialect: Dialect) -> Snapshot {
     };
     let json: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&path).expect("read snapshot")).expect("json");
+    if reconstruct::is_delta_snapshot(&json) {
+        let id = json["id"].as_str().expect("snapshot id");
+        return Snapshot::Postgres(reconstruct::reconstruct_folder(dir, id).expect("reconstructs"));
+    }
     let upgraded = upgrade_to_latest(json, dialect);
     match dialect {
         Dialect::SQLite => Snapshot::Sqlite(serde_json::from_value(upgraded).expect("sqlite")),
@@ -79,8 +86,15 @@ fn newest_snapshot(dir: &Path, dialect: Dialect) -> Snapshot {
 /// file, and asserts that the generated schema diffs clean against the
 /// imported snapshot.
 fn assert_round_trip(rel: &str, dialect: Dialect) {
+    assert_round_trip_with(rel, dialect, &[], &rel.replace('/', "_"));
+}
+
+/// [`assert_round_trip`] with extra `import` arguments, against
+/// `fixtures/import/expected/<expected>.rs`.
+fn assert_round_trip_with(rel: &str, dialect: Dialect, args: &[&str], expected: &str) {
     let output = drizzle(&fixtures())
         .args(["import", rel, "--out", "-"])
+        .args(args)
         .output()
         .expect("run drizzle import");
     assert!(
@@ -90,9 +104,7 @@ fn assert_round_trip(rel: &str, dialect: Dialect) {
     );
     let code = String::from_utf8(output.stdout).expect("utf-8 schema");
 
-    let expected_path = fixtures()
-        .join("expected")
-        .join(format!("{}.rs", rel.replace('/', "_")));
+    let expected_path = fixtures().join("expected").join(format!("{expected}.rs"));
     if std::env::var_os("UPDATE_IMPORT_GOLDEN").is_some() {
         fs::write(&expected_path, &code).expect("write expected schema");
     }
@@ -136,6 +148,55 @@ fn postgres_stable_round_trips() {
 #[test]
 fn postgres_folder_layout_round_trips() {
     assert_round_trip("beta/postgres", Dialect::PostgreSQL);
+}
+
+#[test]
+fn postgres_delta_snapshots_round_trip() {
+    assert_round_trip("rc/postgres", Dialect::PostgreSQL);
+}
+
+#[test]
+fn postgres_delta_snapshots_hold_the_same_schema_as_full_snapshots() {
+    // Both folders hold the same two migrations of the same schema.
+    let delta = newest_snapshot(&fixtures().join("rc/postgres"), Dialect::PostgreSQL);
+    let full = newest_snapshot(&fixtures().join("beta/postgres"), Dialect::PostgreSQL);
+
+    let plan = drizzle_migrations::diff(&full, &delta).expect("diff");
+
+    assert!(
+        plan.statements.is_empty(),
+        "planned: {:#?}",
+        plan.statements
+    );
+}
+
+#[test]
+fn postgres_round_trips_with_jiff_date_time_types() {
+    assert_round_trip_with(
+        "stable/postgres",
+        Dialect::PostgreSQL,
+        &["--datetime", "jiff"],
+        "stable_postgres_jiff",
+    );
+}
+
+#[test]
+fn a_lone_diff_snapshot_needs_its_folder() {
+    let dir = tempdir().expect("tempdir");
+    let full = fs::read_dir(fixtures().join("rc/postgres"))
+        .expect("read fixture")
+        .map(|e| e.expect("entry").path())
+        .find(|p| p.to_string_lossy().ends_with("_full"))
+        .expect("full migration");
+    fs::copy(full.join("snapshot.json"), dir.path().join("snapshot.json")).expect("copy");
+
+    drizzle(dir.path())
+        .args(["import", "snapshot.json", "--out", "-"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "pass its migrations folder instead",
+        ));
 }
 
 #[test]

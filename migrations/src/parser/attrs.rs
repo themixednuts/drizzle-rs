@@ -333,6 +333,7 @@ pub(crate) fn infer_sqlite_type(ty: &Type) -> Option<SQLiteType> {
         "Time",
         "PrimitiveDateTime",
         "OffsetDateTime",
+        "Timestamp",
     ]
     .iter()
     .any(|name| last_ident_is(ty, name))
@@ -387,15 +388,18 @@ pub(crate) fn infer_postgres_scalar_type(ty: &Type) -> Option<&'static str> {
     if is_json_value(ty) {
         return Some("JSONB");
     }
+    if let Some(zoned) = date_time_has_zone(ty) {
+        return Some(if zoned { "TIMESTAMPTZ" } else { "TIMESTAMP" });
+    }
     for (name, sql) in [
         ("NaiveDate", "DATE"),
         ("NaiveTime", "TIME"),
         ("NaiveDateTime", "TIMESTAMP"),
-        ("DateTime", "TIMESTAMPTZ"),
         ("Date", "DATE"),
         ("Time", "TIME"),
         ("PrimitiveDateTime", "TIMESTAMP"),
         ("OffsetDateTime", "TIMESTAMPTZ"),
+        ("Timestamp", "TIMESTAMPTZ"),
         ("Point", "POINT"),
         ("Rect", "BOX"),
         ("LineString", "PATH"),
@@ -449,23 +453,33 @@ fn postgres_array_element_type(ty: &Type) -> Option<&'static str> {
         ("NaiveDate", "DATE"),
         ("NaiveTime", "TIME"),
         ("NaiveDateTime", "TIMESTAMP"),
-        ("DateTime", "TIMESTAMPTZ"),
     ] {
         if last_ident_is(ty, name) {
             return Some(sql);
         }
     }
-    None
+    // jiff's `civil::DateTime` is not an array element type.
+    (date_time_has_zone(ty) == Some(true)).then_some("TIMESTAMPTZ")
+}
+
+/// For a `DateTime` type, whether it has a time zone: chrono's
+/// `DateTime<Tz>` does, jiff's `civil::DateTime` (no type parameter) does
+/// not, like the macros' `type_is_datetime_tz`. `None` for other types.
+fn date_time_has_zone(ty: &Type) -> Option<bool> {
+    let Type::Path(path) = ty else { return None };
+    let segment = path.path.segments.last()?;
+    (segment.ident == "DateTime").then(|| !segment.arguments.is_empty())
 }
 
 /// `Vec<T>` array detection mirroring `postgres::field::postgres_array_info`
-/// (rejects `Vec<u8>` and nested `Vec<Vec<T>>`).
+/// (rejects `Vec<u8>` and nested `Vec<Vec<T>>`). `Vec<Option<T>>` is the
+/// same array with NULL elements.
 pub(crate) fn infer_postgres_array(ty: &Type) -> Option<&'static str> {
     let ty = unwrap_option(ty);
     if is_vec_u8(ty) {
         return None;
     }
-    let inner = vec_inner_type(ty)?;
+    let inner = unwrap_option(vec_inner_type(ty)?);
     if vec_inner_type(inner).is_some() {
         return None;
     }
@@ -1782,6 +1796,33 @@ pub(crate) fn postgres_column_spec(
                         "{}({length})",
                         key.to_ascii_uppercase()
                     ));
+                }
+                marker @ ("TIMESTAMP" | "TIMESTAMPTZ" | "TIME") => {
+                    if infer_postgres_scalar_type(&base_type) != Some(marker) {
+                        return Err(meta.error(format!(
+                            "{marker}(p) requires a field type that maps to {marker}"
+                        )));
+                    }
+                    if explicit_pg_type.is_some() {
+                        return Err(meta.error(
+                            "a PostgreSQL column may specify only one SQL type",
+                        ));
+                    }
+                    let content;
+                    syn::parenthesized!(content in meta.input);
+                    let precision: syn::LitInt = content.parse()?;
+                    if !content.is_empty() {
+                        return Err(meta.error(format!(
+                            "{marker} takes exactly one precision argument"
+                        )));
+                    }
+                    let precision = precision.base10_parse::<u32>()?;
+                    if precision > 6 {
+                        return Err(meta.error(format!(
+                            "{marker} precision must be between 0 and 6"
+                        )));
+                    }
+                    explicit_pg_type = Some(format!("{marker}({precision})"));
                 }
                 "SERIAL" | "BIGSERIAL" | "SMALLSERIAL" => {
                     let (kind, required) = match key.to_ascii_uppercase().as_str() {
@@ -3831,6 +3872,12 @@ mod tests {
         let (blob, _) = pg_spec("data: Vec<u8>");
         assert_eq!(blob.pg_type.as_deref(), Some("BYTEA"));
         assert_eq!(blob.pg_dimensions, None);
+
+        let (nullable_elements, diags) = pg_spec("scores: Option<Vec<Option<i32>>>");
+        assert!(diags.errors.is_empty(), "{:#?}", diags.errors);
+        assert_eq!(nullable_elements.pg_type.as_deref(), Some("INTEGER"));
+        assert_eq!(nullable_elements.pg_dimensions, Some(1));
+        assert!(nullable_elements.nullable);
     }
 
     #[test]
@@ -3849,6 +3896,51 @@ mod tests {
         assert!(array_diags.errors.is_empty(), "{:#?}", array_diags.errors);
         assert_eq!(array.pg_type.as_deref(), Some("VARCHAR(64)"));
         assert_eq!(array.pg_dimensions, Some(1));
+    }
+
+    #[test]
+    fn pg_timestamp_and_time_precision() {
+        for (field, expected) in [
+            (
+                "#[column(TIMESTAMP(3))] at: chrono::NaiveDateTime",
+                "TIMESTAMP(3)",
+            ),
+            (
+                "#[column(TIMESTAMPTZ(0))] at: chrono::DateTime<chrono::Utc>",
+                "TIMESTAMPTZ(0)",
+            ),
+            (
+                "#[column(TIMESTAMPTZ(6))] at: jiff::Timestamp",
+                "TIMESTAMPTZ(6)",
+            ),
+            ("#[column(TIME(2))] at: Option<time::Time>", "TIME(2)"),
+        ] {
+            let (spec, diags) = pg_spec(field);
+            assert!(diags.errors.is_empty(), "{field}: {:#?}", diags.errors);
+            assert_eq!(spec.pg_type.as_deref(), Some(expected), "{field}");
+        }
+
+        for (field, error) in [
+            (
+                "#[column(TIMESTAMP(3))] at: chrono::DateTime<chrono::Utc>",
+                "TIMESTAMP(p) requires a field type that maps to TIMESTAMP",
+            ),
+            (
+                "#[column(TIME(3))] at: Vec<chrono::NaiveTime>",
+                "TIME(p) requires a field type that maps to TIME",
+            ),
+            (
+                "#[column(TIMESTAMP(7))] at: chrono::NaiveDateTime",
+                "TIMESTAMP precision must be between 0 and 6",
+            ),
+        ] {
+            let (_, diags) = pg_spec(field);
+            assert!(
+                diags.errors.iter().any(|message| message.contains(error)),
+                "{field}: {:#?}",
+                diags.errors
+            );
+        }
     }
 
     #[test]
@@ -3890,6 +3982,8 @@ mod tests {
             ("bytes::Bytes", "BLOB"),
             ("smallvec::SmallVec<[u8; 16]>", "BLOB"),
             ("chrono::NaiveDateTime", "TEXT"),
+            ("jiff::civil::DateTime", "TEXT"),
+            ("jiff::Timestamp", "TEXT"),
         ] {
             let (spec, _) = sqlite_spec(&format!("v: {ty}"));
             assert_eq!(spec.sqlite_type.as_deref(), Some(expected), "type {ty}");
@@ -3919,6 +4013,10 @@ mod tests {
             ("compact_str::CompactString", "VARCHAR"),
             ("arrayvec::ArrayString<32>", "VARCHAR"),
             ("chrono::DateTime<chrono::Utc>", "TIMESTAMPTZ"),
+            ("jiff::civil::Date", "DATE"),
+            ("jiff::civil::Time", "TIME"),
+            ("jiff::civil::DateTime", "TIMESTAMP"),
+            ("jiff::Timestamp", "TIMESTAMPTZ"),
         ] {
             let (spec, _) = pg_spec(&format!("v: {ty}"));
             assert_eq!(spec.pg_type.as_deref(), Some(expected), "type {ty}");

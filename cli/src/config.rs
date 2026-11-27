@@ -56,12 +56,61 @@ impl std::str::FromStr for IntrospectCasing {
     }
 }
 
+/// Crate whose types generated code uses for PostgreSQL `date`, `time`,
+/// `timestamp` and `timestamptz` columns (`introspect` / `pull`, `import`,
+/// `new`). The schema then needs the `drizzle` feature of the same name.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum DateTimeCrate {
+    /// chrono types (`chrono::NaiveDate`, `chrono::DateTime<chrono::Utc>`, ...)
+    #[default]
+    Chrono,
+    /// jiff types (`jiff::civil::Date`, `jiff::Timestamp`, ...)
+    Jiff,
+}
+
+impl DateTimeCrate {
+    /// Returns the config spelling (`"chrono"` or `"jiff"`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Chrono => "chrono",
+            Self::Jiff => "jiff",
+        }
+    }
+}
+
+impl std::fmt::Display for DateTimeCrate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for DateTimeCrate {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "chrono" => Ok(Self::Chrono),
+            "jiff" => Ok(Self::Jiff),
+            _ => Err(format!(
+                "invalid date/time crate '{s}', expected 'chrono' or 'jiff'"
+            )),
+        }
+    }
+}
+
 /// The `[introspect]` config section.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct IntrospectConfig {
     /// Casing mode for introspected identifiers
     #[serde(default)]
     pub casing: IntrospectCasing,
+    /// Crate for PostgreSQL date and time column types (default `chrono`)
+    #[serde(default)]
+    pub datetime: DateTimeCrate,
 }
 
 // ============================================================================
@@ -1403,6 +1452,16 @@ impl DatabaseConfig {
             .unwrap_or_default()
     }
 
+    /// Returns `introspect.datetime`, or `chrono` when unset.
+    #[inline]
+    #[must_use]
+    pub fn effective_introspect_datetime(&self) -> DateTimeCrate {
+        self.introspect
+            .as_ref()
+            .map(|i| i.datetime)
+            .unwrap_or_default()
+    }
+
     /// Returns the `entities` filter, or the default when unset.
     #[inline]
     #[must_use]
@@ -2167,6 +2226,25 @@ mod tests {
         .unwrap();
         let db = cfg.default_database().unwrap();
         assert_eq!(db.effective_introspect_casing(), IntrospectCasing::Preserve);
+        assert_eq!(db.effective_introspect_datetime(), DateTimeCrate::Chrono);
+    }
+
+    #[test]
+    fn introspect_datetime() {
+        let cfg = Config::load_from_str(
+            r#"
+            dialect = "postgresql"
+            [introspect]
+            datetime = "jiff"
+            [dbCredentials]
+            url = "postgres://localhost/db"
+        "#,
+            Path::new("test.toml"),
+        )
+        .unwrap();
+        let db = cfg.default_database().unwrap();
+        assert_eq!(db.effective_introspect_datetime(), DateTimeCrate::Jiff);
+        assert_eq!(db.effective_introspect_casing(), IntrospectCasing::Camel);
     }
 
     #[test]

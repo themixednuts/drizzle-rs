@@ -17,6 +17,21 @@ pub mod common;
 pub mod prepared_common;
 pub mod rows;
 
+/// The `SELECT COUNT(*) FROM source` query that `count(source)` starts.
+pub(crate) type CountSelect<'q, Schema, Source> = drizzle_sqlite::builder::select::SelectBuilder<
+    'q,
+    Schema,
+    drizzle_sqlite::builder::SelectFromSet,
+    Source,
+    drizzle_core::FromMarker<
+        super::CountMarker<'q, drizzle_sqlite::values::SQLiteValue<'q>>,
+        Source,
+    >,
+    <super::CountMarker<'q, drizzle_sqlite::values::SQLiteValue<'q>> as drizzle_core::ResolveRow<
+        Source,
+    >>::Row,
+>;
+
 pub(super) fn finish_foreign_key_scope<T>(
     result: drizzle_core::error::Result<T>,
     restore: drizzle_core::error::Result<()>,

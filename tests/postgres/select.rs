@@ -198,6 +198,51 @@ fn select_limit_offset_with_placeholders(db: &mut TestDb<SimpleSchema>) {
 }
 
 #[drizzle::test]
+fn non_positive_pagination_is_sent_to_the_database(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+        ])
+        .execute();
+
+    let none = db.select(simple.id).from(simple).limit(0);
+    assert_eq!(
+        none.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT $1"#
+    );
+    let ids: Vec<i32> = none.all();
+    assert!(ids.is_empty());
+
+    let from_start = db.select(simple.id).from(simple).offset(0);
+    assert_eq!(
+        from_start.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" OFFSET $1"#
+    );
+    let ids: Vec<i32> = from_start.all();
+    assert_eq!(ids.len(), 2);
+
+    // A negative value is written as a literal, and PostgreSQL rejects it.
+    let negative_limit = db.select(simple.id).from(simple).limit(-1);
+    assert_eq!(
+        negative_limit.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" LIMIT -1"#
+    );
+    let rows: Result<Vec<i32>, _> = result!(negative_limit.all());
+    assert!(rows.is_err(), "LIMIT must not be negative");
+
+    let negative_offset = db.select(simple.id).from(simple).offset(-1_i64);
+    assert_eq!(
+        negative_offset.to_sql().sql(),
+        r#"SELECT "simple"."id" FROM "simple" OFFSET -1"#
+    );
+    let rows: Result<Vec<i32>, _> = result!(negative_offset.all());
+    assert!(rows.is_err(), "OFFSET must not be negative");
+}
+
+#[drizzle::test]
 fn select_all_columns(db: &mut TestDb<SimpleSchema>) {
     let SimpleSchema { simple } = schema;
 
@@ -1108,4 +1153,105 @@ fn get_without_a_matching_row_is_none(db: &mut TestDb<SimpleSchema>) {
         .execute();
     let several: drizzle::Result<Option<SelectSimple>> = result!(db.select(()).from(simple).get());
     assert!(several.is_err(), "{several:?}");
+}
+
+#[drizzle::test]
+fn count_runs_and_nests_as_a_subquery(db: &mut TestDb<SimpleSchema>) {
+    let SimpleSchema { simple } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+            InsertSimple::new("gamma").with_id(3),
+        ])
+        .execute();
+
+    let all = db.count(simple);
+    assert_eq!(all.to_sql().sql(), r#"SELECT COUNT(*) FROM "simple""#);
+    let total: i64 = all.get();
+    assert_eq!(total, 3);
+
+    let filtered = db.count(simple).r#where(gt(simple.id, 1));
+    assert_eq!(
+        filtered.to_sql().sql(),
+        r#"SELECT COUNT(*) FROM "simple" WHERE "simple"."id" > $1"#
+    );
+    let above_one: i64 = filtered.get();
+    assert_eq!(above_one, 2);
+
+    let below_total: Vec<String> = db
+        .select(simple.name)
+        .from(simple)
+        .r#where(lt(simple.id, db.count(simple)))
+        .order_by(asc(simple.id))
+        .all();
+    assert_eq!(below_total, ["alpha", "beta"]);
+
+    let in_tx: Result<Vec<String>, _> = result!(db.transaction(
+        drizzle::postgres::TransactionConfig::default(),
+        |tx| result!(
+            tx.select(simple.name)
+                .from(simple)
+                .r#where(lt(simple.id, tx.count(simple)))
+                .order_by(asc(simple.id))
+                .all()
+        )
+    ));
+    assert_eq!(
+        in_tx.expect("count inside a transaction"),
+        ["alpha", "beta"]
+    );
+}
+
+/// A scalar subquery selected as a column is parenthesized and decodes as an
+/// `Option`, like drizzle-orm's `| null`; a correlated one is evaluated per
+/// row.
+#[cfg(feature = "uuid")]
+#[drizzle::test]
+fn count_is_selectable_as_a_column(db: &mut TestDb<SimpleComplexSchema>) {
+    let SimpleComplexSchema {
+        simple, complex, ..
+    } = schema;
+
+    db.insert(simple)
+        .values([
+            InsertSimple::new("alpha").with_id(1),
+            InsertSimple::new("beta").with_id(2),
+        ])
+        .execute();
+    db.insert(complex)
+        .values([
+            InsertComplex::new("alpha", true, Role::User),
+            InsertComplex::new("alpha", true, Role::User),
+        ])
+        .execute();
+
+    let totals = db
+        .select((simple.id, db.count(complex)))
+        .from(simple)
+        .order_by(asc(simple.id));
+    assert_eq!(
+        totals.to_sql().sql(),
+        r#"SELECT "simple"."id", (SELECT COUNT(*) FROM "complex") FROM "simple" ORDER BY "simple"."id" ASC"#
+    );
+    let rows: Vec<(i32, Option<i64>)> = totals.all();
+    assert_eq!(rows, [(1, Some(2)), (2, Some(2))]);
+
+    let per_name = db
+        .select((
+            simple.id,
+            alias(
+                db.count(complex).r#where(eq(complex.name, simple.name)),
+                "same_name",
+            ),
+        ))
+        .from(simple)
+        .order_by(asc(simple.id));
+    assert_eq!(
+        per_name.to_sql().sql(),
+        r#"SELECT "simple"."id", (SELECT COUNT(*) FROM "complex" WHERE "complex"."name" = "simple"."name") AS "same_name" FROM "simple" ORDER BY "simple"."id" ASC"#
+    );
+    let rows: Vec<(i32, Option<i64>)> = per_name.all();
+    assert_eq!(rows, [(1, Some(2)), (2, Some(0))]);
 }

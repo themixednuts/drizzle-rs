@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::commands::overrides::ResolvedConnection;
 #[cfg(any(feature = "postgres-sync", feature = "tokio-postgres"))]
 use crate::config::PostgresCreds;
-use crate::config::{Credentials, Dialect, Driver, Extension, IntrospectCasing};
+use crate::config::{Credentials, DateTimeCrate, Dialect, Driver, Extension, IntrospectCasing};
 use crate::error::CliError;
 use crate::output;
 use drizzle_migrations::Migrations;
@@ -226,7 +226,11 @@ pub fn plan_push_with_renames(
     apply_snapshot_filters(&mut current, connection.dialect, filters)?;
     // PostgreSQL rewrites stored expressions into its own form; compare them
     // the way drizzle-kit's push does, or every push would recreate them.
+    // A `serial` column comes back as an integer defaulting to its owned
+    // sequence; read it as `serial` again, or every push would recreate the
+    // sequence.
     if let (Snapshot::Postgres(live), Snapshot::Postgres(wanted)) = (&mut current, desired) {
+        live.normalize_columns_for_push();
         live.align_push_insensitive_fields(wanted);
     }
     let mut options = drizzle_migrations::DiffOptions::new();
@@ -3648,6 +3652,7 @@ pub fn run_introspection(
     init_metadata: bool,
     breakpoints: bool,
     introspect_casing: Option<IntrospectCasing>,
+    datetime: DateTimeCrate,
     filters: &SnapshotFilters,
     migrations_table: &str,
     migrations_schema: &str,
@@ -3658,8 +3663,13 @@ pub fn run_introspection(
     let mut result = introspect_database(connection)?;
     exclude_tracking_table(&mut result.snapshot, connection.dialect, migrations_table)?;
     apply_snapshot_filters(&mut result.snapshot, connection.dialect, filters)?;
-    if !filters.is_empty() || introspect_casing.is_some() {
-        regenerate_schema_from_snapshot(&mut result, connection.dialect, introspect_casing);
+    if !filters.is_empty() || introspect_casing.is_some() || datetime != DateTimeCrate::Chrono {
+        regenerate_schema_from_snapshot(
+            &mut result,
+            connection.dialect,
+            introspect_casing,
+            datetime,
+        );
     }
 
     // Write schema file
@@ -4131,6 +4141,7 @@ fn regenerate_schema_from_snapshot(
     result: &mut IntrospectResult,
     dialect: Dialect,
     introspect_casing: Option<IntrospectCasing>,
+    datetime: DateTimeCrate,
 ) {
     if result.snapshot.dialect() != dialect.to_base() {
         return;
@@ -4139,6 +4150,7 @@ fn regenerate_schema_from_snapshot(
         &result.snapshot,
         &crate::codegen::SchemaCodeOptions {
             casing: introspect_casing,
+            datetime,
             module_doc: "Schema introspected from filtered database objects",
             schema_name: "Schema",
         },
@@ -5543,7 +5555,7 @@ fn finalize_postgres_introspection(
     url: &str,
 ) -> IntrospectResult {
     use drizzle_migrations::postgres::codegen::{
-        CodegenOptions, FieldCasing, generate_rust_schema,
+        CodegenOptions, DateTimeCrate, FieldCasing, generate_rust_schema,
     };
 
     let options = CodegenOptions {
@@ -5555,6 +5567,7 @@ fn finalize_postgres_introspection(
         schema_name: "Schema".to_string(),
         use_pub: true,
         field_casing: FieldCasing::default(),
+        date_time: DateTimeCrate::default(),
     };
     let generated = generate_rust_schema(ddl, &options);
 
@@ -6613,6 +6626,7 @@ pub struct AuditLogs {
             &mut camel,
             crate::config::Dialect::Sqlite,
             Some(IntrospectCasing::Camel),
+            DateTimeCrate::Chrono,
         );
 
         assert_eq!(
@@ -6652,6 +6666,7 @@ pub struct Schema {
             &mut preserve,
             crate::config::Dialect::Sqlite,
             Some(IntrospectCasing::Preserve),
+            DateTimeCrate::Chrono,
         );
 
         assert_eq!(
@@ -6711,6 +6726,7 @@ pub struct AuditLogs {
             &mut camel,
             crate::config::Dialect::Postgresql,
             Some(IntrospectCasing::Camel),
+            DateTimeCrate::Chrono,
         );
 
         assert_eq!(
@@ -6750,6 +6766,7 @@ pub struct Schema {
             &mut preserve,
             crate::config::Dialect::Postgresql,
             Some(IntrospectCasing::Preserve),
+            DateTimeCrate::Chrono,
         );
 
         assert_eq!(
@@ -6773,6 +6790,51 @@ pub struct Schema {
     pub audit_logs: AuditLogs,
 }
 "
+        );
+    }
+
+    #[test]
+    fn regenerate_postgres_schema_applies_introspect_datetime() {
+        use crate::config::Casing;
+        use drizzle_migrations::parser::SchemaParser;
+        use drizzle_types::Dialect as BaseDialect;
+
+        let code = r#"
+#[PostgresTable]
+pub struct Events {
+    #[column(primary)]
+    pub id: i32,
+    pub day: chrono::NaiveDate,
+    pub at: Option<chrono::DateTime<chrono::Utc>>,
+}
+"#;
+        let parsed = SchemaParser::parse(code);
+        let snapshot =
+            Snapshot::from_parse_result(&parsed, BaseDialect::PostgreSQL, Some(Casing::SnakeCase));
+        let mut result = IntrospectResult {
+            schema_code: String::new(),
+            table_count: 0,
+            index_count: 0,
+            view_count: 0,
+            warnings: Vec::new(),
+            mysql_catalog_defaults: None,
+            snapshot,
+            snapshot_path: std::path::PathBuf::new(),
+        };
+        regenerate_schema_from_snapshot(
+            &mut result,
+            crate::config::Dialect::Postgresql,
+            None,
+            DateTimeCrate::Jiff,
+        );
+
+        assert!(
+            result.schema_code.contains("pub day: jiff::civil::Date,")
+                && result
+                    .schema_code
+                    .contains("pub at: Option<jiff::Timestamp>,"),
+            "{}",
+            result.schema_code
         );
     }
 

@@ -22,8 +22,9 @@ error[E0277]: `std::option::Option<i32>` cannot bind to a `drizzle::sqlite::type
 note: required by a bound in `TypedPlaceholder::<T, N>::bind`
   --> core/src/placeholder.rs
    |
+   | impl<T: DataType, N: Nullability> TypedPlaceholder<T, N> {
+...
    |     pub fn bind<'a, V, R>(self, value: R) -> ParamBind<'a, V>
-   |            ---- required by a bound in this associated function
 ...
    |         R: BindValue<'a, V, T>,
    |            ^^^^^^^^^^^^^^^^^^^ required by this bound in `TypedPlaceholder::<T, N>::bind`

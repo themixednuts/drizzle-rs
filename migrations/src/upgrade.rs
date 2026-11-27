@@ -1554,7 +1554,7 @@ fn patch_view_with_nulls(mut value: Value) -> Value {
 /// treats an absent field as a hard `missing field` error there, while an
 /// explicit `null` decodes as `None` — so the emitted document carries the
 /// `null`s to stay loadable via `PostgresSnapshot::from_json`.
-fn patch_postgres_required_nulls(snapshot: &mut Value) {
+pub(crate) fn patch_postgres_required_nulls(snapshot: &mut Value) {
     let Some(ddl) = snapshot.get_mut("ddl").and_then(Value::as_array_mut) else {
         return;
     };

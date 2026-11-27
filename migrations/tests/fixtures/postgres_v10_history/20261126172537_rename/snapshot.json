@@ -1,0 +1,207 @@
+{
+  "type": "diff",
+  "version": "10",
+  "dialect": "postgres",
+  "id": "b62dc4d6-abeb-4ca9-8478-03aeb3d8eb2a",
+  "prevIds": [
+    "99e697eb-045f-4eba-a129-f5b211c6e532"
+  ],
+  "footprints": [
+    {
+      "statementType": "rename_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "users"
+      ],
+      "writes": [
+        "s|tbl|public.users",
+        "n|tbl|public.users",
+        "n|rel|public.users",
+        "n|type|public.users",
+        "s|tbl|public.accounts",
+        "n|tbl|public.accounts",
+        "n|rel|public.accounts",
+        "n|type|public.accounts"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "rename_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "accounts",
+        "name"
+      ],
+      "writes": [
+        "s|col|public.accounts.name",
+        "n|col|public.accounts.name",
+        "s|col|public.accounts.full_name",
+        "n|col|public.accounts.full_name"
+      ],
+      "reads": [
+        "n|tbl|public.accounts",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_unique",
+      "statementTarget": [
+        "table",
+        "public",
+        "accounts"
+      ],
+      "writes": [
+        "s|uq|public.accounts.users_email_key",
+        "n|uq|public.accounts.users_email_key",
+        "e|uq|public.accounts.users_email_key",
+        "n|con|public.accounts.users_email_key",
+        "n|rel|public.users_email_key"
+      ],
+      "reads": [
+        "n|tbl|public.accounts",
+        "n|sch|public",
+        "e|col|public.accounts.email"
+      ],
+      "sharedWrites": [
+        "e|uniqueness|public.accounts.email"
+      ]
+    },
+    {
+      "statementType": "rename_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "accounts",
+        "users_name_idx"
+      ],
+      "writes": [
+        "s|idx|public.users_name_idx",
+        "n|idx|public.users_name_idx",
+        "n|rel|public.users_name_idx",
+        "s|idx|public.accounts_name_idx",
+        "n|idx|public.accounts_name_idx",
+        "n|rel|public.accounts_name_idx"
+      ],
+      "reads": [
+        "e|tbl|public.accounts",
+        "n|sch|public",
+        "e|col|public.accounts.full_name"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "accounts",
+        "bio"
+      ],
+      "writes": [
+        "s|col|public.accounts.bio",
+        "n|col|public.accounts.bio",
+        "e|col|public.accounts.bio"
+      ],
+      "reads": [
+        "n|tbl|public.accounts",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "accounts",
+        "role"
+      ],
+      "writes": [
+        "s|colprop|public.accounts.role.default"
+      ],
+      "reads": [
+        "n|tbl|public.accounts",
+        "n|sch|public",
+        "n|col|public.accounts.role",
+        "n|enum|public.role"
+      ],
+      "sqlHash": "ea4cfea85b6a61cd"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "accounts"
+      ],
+      "writes": [
+        "s|ck|public.accounts.name_len"
+      ],
+      "reads": [
+        "n|tbl|public.accounts",
+        "n|sch|public",
+        "n|col|public.accounts.full_name"
+      ],
+      "sqlHash": "a876e3a398dc186f"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "rename",
+      "key": "tables\u0000[\"public\",\"users\"]",
+      "set": {
+        "name": "accounts"
+      }
+    },
+    {
+      "op": "rename",
+      "key": "columns\u0000[\"public\",\"accounts\",\"name\"]",
+      "set": {
+        "name": "full_name"
+      }
+    },
+    {
+      "op": "rename",
+      "key": "indexes\u0000[\"public\",\"users_name_idx\"]",
+      "set": {
+        "name": "accounts_name_idx"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "accounts",
+        "name": "bio",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": "'hi'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "uniques\u0000[\"public\",\"accounts\",\"users_email_key\"]"
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"accounts\",\"role\"]",
+      "set": {
+        "default": "'admin'"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"accounts\",\"name_len\"]",
+      "set": {
+        "value": "length(\"full_name\") > 0"
+      }
+    }
+  ]
+}

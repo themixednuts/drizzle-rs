@@ -1,0 +1,81 @@
+{
+  "type": "diff",
+  "version": "10",
+  "dialect": "postgres",
+  "id": "2b4e8b4c-2a57-4fae-857a-f01bb850cff5",
+  "prevIds": [
+    "b62dc4d6-abeb-4ca9-8478-03aeb3d8eb2a"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_table",
+      "statementTarget": [
+        "table",
+        "app",
+        "tags"
+      ],
+      "writes": [
+        "s|tbl|app.tags",
+        "n|tbl|app.tags",
+        "e|tbl|app.tags",
+        "n|rel|app.tags",
+        "n|type|app.tags"
+      ],
+      "reads": [
+        "n|sch|app"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "posts",
+        "views"
+      ],
+      "writes": [
+        "s|col|public.posts.views",
+        "n|col|public.posts.views",
+        "e|col|public.posts.views"
+      ],
+      "reads": [
+        "n|tbl|public.posts",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "posts",
+        "name": "views",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"app\",\"tags\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"app\",\"tags\",\"id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"app\",\"tags\",\"label\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"app\",\"tags\",\"tags_pkey\"]"
+    }
+  ]
+}

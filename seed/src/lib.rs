@@ -1638,6 +1638,10 @@ fn seed_value_to_postgres_sql(
             if let Some(value) = text_to_typed_postgres_value(v, col) {
                 return SQL::param(Cow::Owned(value));
             }
+            #[cfg(feature = "jiff")]
+            if let Some(value) = text_to_jiff_postgres_value(v, col) {
+                return SQL::param(Cow::Owned(value));
+            }
 
             let param = SQL::param(Cow::Owned(OwnedPostgresValue::Text(v.clone())));
             // Parameters are sent with their own type, and PostgreSQL does
@@ -1718,6 +1722,34 @@ fn text_to_typed_postgres_value(value: &str, col: &ColumnRef) -> Option<OwnedPos
         return NaiveTime::parse_from_str(value, "%H:%M:%S")
             .ok()
             .map(OwnedPostgresValue::Time);
+    }
+
+    None
+}
+
+/// [`text_to_typed_postgres_value`] with jiff values, for builds without
+/// chrono.
+#[cfg(all(feature = "postgres", feature = "jiff"))]
+fn text_to_jiff_postgres_value(value: &str, col: &ColumnRef) -> Option<OwnedPostgresValue> {
+    let ty = normalize_pg_type(col.sql_type);
+
+    if ty.contains("DATE") && !ty.contains("TIME") {
+        return value.parse().ok().map(OwnedPostgresValue::JiffDate);
+    }
+
+    if ty.contains("TIMESTAMP") {
+        let timestamp: jiff::civil::DateTime = value.parse().ok()?;
+        if ty.contains("TIME ZONE") || ty.contains("TIMESTAMPTZ") {
+            return jiff::tz::Offset::UTC
+                .to_timestamp(timestamp)
+                .ok()
+                .map(OwnedPostgresValue::JiffTimestamp);
+        }
+        return Some(OwnedPostgresValue::JiffDateTime(timestamp));
+    }
+
+    if ty == "TIME" || ty.starts_with("TIME(") || ty.starts_with("TIME ") {
+        return value.parse().ok().map(OwnedPostgresValue::JiffTime);
     }
 
     None
@@ -2152,6 +2184,59 @@ mod tests {
         let (_, params) = sql.build();
 
         assert!(matches!(params[0], OwnedPostgresValue::Date(_)));
+    }
+
+    // chrono's values win when both crates are enabled.
+    #[cfg(all(feature = "postgres", feature = "jiff", not(feature = "chrono")))]
+    #[test]
+    fn postgres_date_time_text_binds_as_jiff_params() {
+        use drizzle_core::{ColumnDialect, ColumnFlags};
+
+        let column = |sql_type: &'static str| ColumnRef {
+            table: "events",
+            name: "at",
+            sql_type,
+            flags: ColumnFlags::empty(),
+            dialect: ColumnDialect::PostgreSQL {
+                postgres_type: sql_type,
+                dimensions: None,
+                is_serial: false,
+                is_bigserial: false,
+                is_generated_identity: false,
+                is_identity_always: false,
+                default: None,
+                generated_expression: None,
+                generated_stored: false,
+                collate: None,
+                comment: None,
+                enum_variants: None,
+            },
+        };
+        let bound = |text: &str, sql_type: &'static str| {
+            let sql =
+                seed_value_to_postgres_sql(&SeedValue::Text(text.to_string()), &column(sql_type));
+            sql.build()
+                .1
+                .into_iter()
+                .next()
+                .expect("one parameter")
+                .clone()
+        };
+
+        let date = bound("2024-03-09", "DATE");
+        let time = bound("12:30:00", "TIME");
+        let local = bound("2024-03-09 12:30:00", "TIMESTAMP");
+        let instant = bound("2024-03-09 12:30:00", "TIMESTAMP WITH TIME ZONE");
+        assert!(matches!(date, OwnedPostgresValue::JiffDate(_)));
+        assert!(matches!(time, OwnedPostgresValue::JiffTime(_)));
+        assert!(matches!(local, OwnedPostgresValue::JiffDateTime(_)));
+        assert!(
+            matches!(instant, OwnedPostgresValue::JiffTimestamp(at) if at.to_string() == "2024-03-09T12:30:00Z")
+        );
+        assert_eq!(
+            crate::literal::postgres(&instant).expect("literal"),
+            "'2024-03-09T12:30:00Z'::timestamptz"
+        );
     }
 
     #[cfg(feature = "postgres")]

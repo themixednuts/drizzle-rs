@@ -39,6 +39,8 @@ help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
 note: required by a bound in `drizzle::core::SQLColumn::Type`
  --> core/src/traits/column.rs
   |
+  | pub trait SQLColumn<'a, Value: SQLParam + 'a>:
+...
   |     type Type: TryInto<Value>;
   |                ^^^^^^^^^^^^^^ required by this bound in `SQLColumn::Type`
 
@@ -84,6 +86,8 @@ help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
 note: required by a bound in `drizzle::core::SQLColumn::Type`
  --> core/src/traits/column.rs
   |
+  | pub trait SQLColumn<'a, Value: SQLParam + 'a>:
+...
   |     type Type: TryInto<Value>;
   |                ^^^^^^^^^^^^^^ required by this bound in `SQLColumn::Type`
   = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -111,6 +115,8 @@ help: the trait `DrizzleMySQLColumn` is implemented for `drizzle::core::Json<T>`
 note: required by a bound in `MySQLRow::<'row, R>::decode_column`
  --> mysql/src/driver.rs
   |
+  | impl<'row, R: MySQLRowAccess + ?Sized> MySQLRow<'row, R> {
+...
   |     pub fn decode_column<T: DrizzleMySQLColumn>(&self, offset: usize) -> Result<T, DrizzleError> {
   |                             ^^^^^^^^^^^^^^^^^^ required by this bound in `MySQLRow::<'row, R>::decode_column`
 

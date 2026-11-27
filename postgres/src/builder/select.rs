@@ -1336,7 +1336,7 @@ where
 {
     /// Adds `LIMIT n`, returning at most `n` rows.
     ///
-    /// `n` is a non-negative integer (bound as a parameter) or a placeholder.
+    /// `n` is an integer (bound as a parameter) or a placeholder.
     ///
     /// # Examples
     ///
@@ -1407,14 +1407,8 @@ where
     /// assert_eq!(query.to_sql().sql(), r#"SELECT "users"."id" FROM "users" LIMIT $1"#);
     /// # }
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics when a signed numeric argument is negative or a numeric value
-    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    #[track_caller]
     pub fn limit<P>(self, limit: P) -> SelectBuilder<'a, S, SelectLimitSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
@@ -1438,7 +1432,7 @@ where
 {
     /// Adds `OFFSET n`, skipping the first `n` rows.
     ///
-    /// `n` is a non-negative integer (bound as a parameter) or a placeholder.
+    /// `n` is an integer (bound as a parameter) or a placeholder.
     ///
     /// # Examples
     ///
@@ -1512,14 +1506,8 @@ where
     /// );
     /// # }
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics when a signed numeric argument is negative or a numeric value
-    /// does not fit in `usize`.
     #[inline]
     #[must_use]
-    #[track_caller]
     pub fn offset<P>(self, offset: P) -> SelectBuilder<'a, S, SelectOffsetSet, T, M, R, G>
     where
         P: drizzle_core::PaginationArg<'a, PostgresValue<'a>>,
@@ -1839,6 +1827,23 @@ where
     type SQLType = <M as drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>>>::SQLType;
     type Nullable = drizzle_core::expr::Null;
     type Aggregate = drizzle_core::expr::Scalar;
+}
+
+/// A scalar subquery selected as a column decodes as an `Option`: it is NULL
+/// when the subquery returns no row.
+impl<'a, S, State, T, M, R, G> drizzle_core::ExprValueType
+    for SelectBuilder<'a, S, State, T, M, R, G>
+where
+    State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>,
+    M: drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>> + drizzle_core::SelectSources,
+    <M as drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>>>::SQLType:
+        drizzle_core::SQLTypeToRust<drizzle_core::dialect::PostgresDialect>,
+{
+    type ValueType = Option<
+        <<M as drizzle_core::expr::SubqueryType<'a, PostgresValue<'a>>>::SQLType as drizzle_core::SQLTypeToRust<
+            drizzle_core::dialect::PostgresDialect,
+        >>::RustType,
+    >;
 }
 
 impl<S, State: drizzle_core::ClauseAllowed<drizzle_core::clause::Source>, T, M, R, G>

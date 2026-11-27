@@ -170,7 +170,9 @@ use drizzle_postgres::builder::{
 use drizzle_postgres::transaction::{AccessMode, IsolationLevel, TransactionConfig};
 use drizzle_postgres::values::PostgresValue;
 
+use crate::builder::postgres::bulk::{self, BulkInsertOptions};
 use crate::builder::postgres::common;
+use crate::builder::postgres::prepared_common::unnamed;
 use crate::builder::postgres::rows::DecodeRows;
 
 /// A query attached to a [`Drizzle`] handle, ready to run with `.execute()`,
@@ -203,6 +205,7 @@ pub struct Drizzle<Schema = ()> {
     client: Arc<Client>,
     schema: Schema,
     statement_cache: prepared::ClientStatementCache,
+    pooler: bool,
     // Registers the client for the prepared-statement cache; unregisters when
     // the last clone drops.
     registration: Arc<prepared::ClientRegistration>,
@@ -215,6 +218,7 @@ impl<S: Clone> Clone for Drizzle<S> {
             client: self.client.clone(),
             schema: self.schema.clone(),
             statement_cache: self.statement_cache.clone(),
+            pooler: self.pooler,
             registration: self.registration.clone(),
         }
     }
@@ -286,6 +290,7 @@ impl<Schema: Default> Drizzle<Schema> {
             client,
             schema: Schema::default(),
             statement_cache: prepared::ClientStatementCache::default(),
+            pooler: false,
             registration,
         };
         (drizzle, Schema::default())
@@ -317,6 +322,103 @@ impl<Schema> Drizzle<Schema> {
     #[inline]
     pub const fn schema(&self) -> &Schema {
         &self.schema
+    }
+
+    /// Declares whether the client's connection goes through a
+    /// transaction-mode pooler, such as PgBouncer, Supabase's Supavisor on
+    /// port 6543, or a Neon `-pooler` host.
+    ///
+    /// Such a pooler hands each transaction whichever server connection is
+    /// free, so a named statement prepared on one may be missing on the next.
+    /// With `pooler` set, queries, transactions, and the prepared statements
+    /// run on [`conn`](Self::conn) go out as unnamed statements, parsed and
+    /// run in one round trip, and nothing is cached. drizzle-orm detects
+    /// poolers from the host and port; this handle wraps a client that is
+    /// already connected, so declare it here, right after
+    /// [`new`](Self::new):
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::tokio::Drizzle;
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// let (client, connection) = ::tokio_postgres::connect(
+    ///     "host=localhost port=6432 user=postgres", ::tokio_postgres::NoTls,
+    /// ).await?;
+    /// tokio::spawn(async move { connection.await.unwrap() });
+    ///
+    /// let (db, ()) = Drizzle::new(client);
+    /// let db = db.pooler(true);
+    /// # let _ = db;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// [`migrate`](Self::migrate), [`push`](Self::push), and the
+    /// introspection methods still need a direct connection: they hold a
+    /// session-level advisory lock or run catalog queries as named statements.
+    /// tokio-postgres also prepares a named statement of its own the first
+    /// time a result carries a type it has not seen, such as an enum.
+    #[must_use]
+    pub fn pooler(mut self, pooler: bool) -> Self {
+        self.pooler = pooler;
+        self.statement_cache.clear();
+        self.registration.set_pooler(pooler);
+        self
+    }
+
+    /// Runs the statement and returns the number of rows it changed.
+    async fn run_execute(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<u64, tokio_postgres::Error> {
+        if self.pooler {
+            return self
+                .client
+                .execute_typed(sql, &unnamed::params(params))
+                .await;
+        }
+        let (param_types, param_refs) = tokio_postgres_materialize_params(params);
+        let param_refs = &param_refs[..];
+        self.run_cached(sql, &param_types, |client, statement| async move {
+            client.execute(&statement, param_refs).await
+        })
+        .await
+    }
+
+    /// Runs the query and returns its rows.
+    async fn run_query(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Vec<Row>, tokio_postgres::Error> {
+        if self.pooler {
+            return self.client.query_typed(sql, &unnamed::params(params)).await;
+        }
+        let (param_types, param_refs) = tokio_postgres_materialize_params(params);
+        let param_refs = &param_refs[..];
+        self.run_cached(sql, &param_types, |client, statement| async move {
+            client.query(&statement, param_refs).await
+        })
+        .await
+    }
+
+    /// Runs the query and returns its row, failing on more than one.
+    async fn run_query_opt(
+        &self,
+        sql: &str,
+        params: &[&PostgresValue<'_>],
+    ) -> Result<Option<Row>, tokio_postgres::Error> {
+        if self.pooler {
+            return self
+                .client
+                .query_typed_opt(sql, &unnamed::params(params))
+                .await;
+        }
+        let (param_types, param_refs) = tokio_postgres_materialize_params(params);
+        let param_refs = &param_refs[..];
+        self.run_cached(sql, &param_types, |client, statement| async move {
+            client.query_opt(&statement, param_refs).await
+        })
+        .await
     }
 
     async fn cached_statement(
@@ -383,13 +485,9 @@ impl<Schema> Drizzle<Schema> {
             (sql, params)
         };
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
-        let param_refs = &param_refs[..];
-        self.run_cached(&sql, &param_types, |client, statement| async move {
-            client.execute(&statement, param_refs).await
-        })
-        .await
-        .with_query(|| QueryContext::new(&sql, &params))
+        self.run_execute(&sql, &params)
+            .await
+            .with_query(|| QueryContext::new(&sql, &params))
     }
 
     /// Runs any SQL value and collects its rows into `C` (for example
@@ -440,13 +538,8 @@ impl<Schema> Drizzle<Schema> {
             (sql_str, params)
         };
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
-        let param_refs = &param_refs[..];
-
         let rows = self
-            .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.query(&statement, param_refs).await
-            })
+            .run_query(&sql_str, &params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
@@ -479,13 +572,8 @@ impl<Schema> Drizzle<Schema> {
             (sql_str, params)
         };
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
-        let param_refs = &param_refs[..];
-
         let row = self
-            .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.query_opt(&statement, param_refs).await
-            })
+            .run_query_opt(&sql_str, &params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
@@ -559,6 +647,7 @@ impl<Schema> Drizzle<Schema> {
             applied_config,
             self.schema,
             self.statement_cache.clone(),
+            self.pooler,
         ))
     }
 
@@ -634,6 +723,71 @@ impl<Schema> Drizzle<Schema> {
             }
         }
     }
+
+    /// Inserts `rows` into `table` in bulk, as multi-row `VALUES` statements,
+    /// and returns the number of rows inserted.
+    ///
+    /// The rows are the table's `Insert*` models, so `default_fn` values are
+    /// filled as for [`insert`](Self::insert). A cell a row leaves unset gets
+    /// the column's database default (`DEFAULT`), and a column no row sets is
+    /// left out of the statement. The rows are split into statements of at
+    /// most 65535 parameters, PostgreSQL's limit; by default those run in one
+    /// transaction, which needs the only handle, as
+    /// [`transaction`](Self::transaction) does.
+    /// [`BulkInsertOptions::atomic`] set to `false` commits each statement on
+    /// its own instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first statement's error. An atomic insert then inserted
+    /// nothing; one that is not keeps the statements before the failing one.
+    /// Also fails when an atomic insert needs a transaction while clones of
+    /// this handle exist.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use drizzle::postgres::prelude::*;
+    /// # use drizzle::postgres::tokio::Drizzle;
+    /// # use drizzle::postgres::BulkInsertOptions;
+    /// # #[PostgresTable] struct User { #[column(serial, primary)] id: i32, name: String }
+    /// # #[derive(PostgresSchema)] struct S { user: User }
+    /// # #[tokio::main] async fn main() -> drizzle::Result<()> {
+    /// # let (client, conn) = ::tokio_postgres::connect("host=localhost user=postgres", ::tokio_postgres::NoTls).await?;
+    /// # tokio::spawn(async move { conn.await.unwrap() });
+    /// # let (mut db, S { user }) = Drizzle::new(client);
+    /// let rows = (0..100_000).map(|i| InsertUser::new(format!("user {i}")));
+    /// let inserted = db.bulk_insert(user, rows, BulkInsertOptions::default()).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn bulk_insert<'b, Table, T>(
+        &mut self,
+        table: Table,
+        rows: impl IntoIterator<Item = Table::Insert<T>>,
+        options: BulkInsertOptions,
+    ) -> drizzle_core::error::Result<u64>
+    where
+        Schema: Copy,
+        Table: PostgresTable<'b> + Copy,
+    {
+        let chunks = bulk::insert_chunks::<Table, T>(rows);
+        if options.atomic && chunks.len() > 1 {
+            return self
+                .transaction(TransactionConfig::default(), async |tx| {
+                    let mut inserted = 0;
+                    for chunk in chunks {
+                        inserted += tx.insert(table).values(chunk).execute().await?;
+                    }
+                    Ok(inserted)
+                })
+                .await;
+        }
+        let mut inserted = 0;
+        for chunk in chunks {
+            inserted += self.insert(table).values(chunk).execute().await?;
+        }
+        Ok(inserted)
+    }
 }
 
 impl<Schema> Drizzle<Schema>
@@ -656,7 +810,7 @@ where
         let statements = schema.create_statements()?;
 
         for statement in statements {
-            self.client.execute(&statement, &[]).await?;
+            self.client.batch_execute(&statement).await?;
         }
 
         Ok(())
@@ -1574,12 +1728,8 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             (sql_str, params)
         };
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
-        let param_refs = &param_refs[..];
         self.runner
-            .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.execute(&statement, param_refs).await
-            })
+            .run_execute(&sql_str, &params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))
     }
@@ -1625,14 +1775,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             (sql_str, params)
         };
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
-        let param_refs = &param_refs[..];
-
         let rows = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.query(&statement, param_refs).await
-            })
+            .run_query(&sql_str, &params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let mut decoded = Vec::with_capacity(rows.len());
@@ -1678,14 +1823,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             (sql_str, params)
         };
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
-        let param_refs = &param_refs[..];
-
         let rows = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.query(&statement, param_refs).await
-            })
+            .run_query(&sql_str, &params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
 
@@ -1732,14 +1872,9 @@ impl<S, Schema, State, Table, Mk, Rw, Grouped>
             (sql_str, params)
         };
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&params);
-        let param_refs = &param_refs[..];
-
         let row = self
             .runner
-            .run_cached(&sql_str, &param_types, |client, statement| async move {
-                client.query_opt(&statement, param_refs).await
-            })
+            .run_query_opt(&sql_str, &params)
             .await
             .with_query(|| QueryContext::new(&sql_str, &params))?;
         let row = row
@@ -1821,14 +1956,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&bind_params);
-        let param_refs = &param_refs[..];
-
         let rows = self
             .runner
-            .run_cached(&sql, &param_types, |client, statement| async move {
-                client.query(&statement, param_refs).await
-            })
+            .run_query(&sql, &bind_params)
             .await
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
@@ -1956,14 +2086,9 @@ impl<'db, 'a, Schema, T, Rels, Cl>
 
         drizzle_core::drizzle_trace_query!(&sql, bind_params.len());
 
-        let (param_types, param_refs) = tokio_postgres_materialize_params(&bind_params);
-        let param_refs = &param_refs[..];
-
         let rows = self
             .runner
-            .run_cached(&sql, &param_types, |client, statement| async move {
-                client.query(&statement, param_refs).await
-            })
+            .run_query(&sql, &bind_params)
             .await
             .with_query(|| QueryContext::new(&sql, &bind_params))?;
         let mut results = Vec::with_capacity(rows.len());
@@ -2071,16 +2196,8 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params_vec.len());
-        for param in &params_vec {
-            param_refs.push(param as &(dyn ToSql + Sync));
-        }
-        let param_types =
-            crate::builder::postgres::prepared_common::tokio_postgres_param_types(&params_vec);
-
-        let statement = client.prepare_typed(sql_str, &param_types).await?;
-        let rows = client.query(&statement, &param_refs).await?;
+        let param_refs: SmallVec<[&PostgresValue<'_>; 8]> = params_vec.iter().collect();
+        let rows = prepared::query_uncached(client, sql_str, &param_refs).await?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in rows {
@@ -2170,16 +2287,8 @@ impl<'a, T, Rels>
         let mut params_vec: SmallVec<[PostgresValue<'a>; 8]> =
             SmallVec::with_capacity(upper.unwrap_or(lower));
         params_vec.extend(bound_params);
-        let mut param_refs: SmallVec<[&(dyn ToSql + Sync); 8]> =
-            SmallVec::with_capacity(params_vec.len());
-        for param in &params_vec {
-            param_refs.push(param as &(dyn ToSql + Sync));
-        }
-        let param_types =
-            crate::builder::postgres::prepared_common::tokio_postgres_param_types(&params_vec);
-
-        let statement = client.prepare_typed(sql_str, &param_types).await?;
-        let rows = client.query(&statement, &param_refs).await?;
+        let param_refs: SmallVec<[&PostgresValue<'_>; 8]> = params_vec.iter().collect();
+        let rows = prepared::query_uncached(client, sql_str, &param_refs).await?;
         let mut results = Vec::with_capacity(rows.len());
 
         for row in rows {

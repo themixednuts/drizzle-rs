@@ -115,7 +115,7 @@ fn postgres_sync_push_creates_table() {
 #[cfg(feature = "postgres-sync")]
 #[test]
 fn postgres_sync_push_is_idempotent() {
-    let (mut db, schema) = crate::common::helpers::postgres_sync_setup::setup_empty_named_db(
+    let (db, schema) = crate::common::helpers::postgres_sync_setup::setup_empty_named_db(
         "push_idempotent_test",
         PushIdempotentSchema::default(),
     );
@@ -663,6 +663,74 @@ fn postgres_sync_concurrent_migration_uses_two_phase_tracking() {
 
     let outcome = db.migrate(&[migration], tracking).expect("second migrate");
     assert!(outcome.is_up_to_date());
+}
+
+/// A `CONCURRENTLY` index behind a comment, and one sharing a breakpoint
+/// chunk with other statements: both must run outside a transaction.
+fn hidden_concurrent_index_migration(schema_name: &str) -> Migration {
+    Migration::new(
+        "20260801000000_hidden_concurrent",
+        &format!(
+            "CREATE TABLE \"{schema_name}\".hidden_items (id INTEGER PRIMARY KEY, a TEXT, b TEXT);\n\
+             --> statement-breakpoint\n\
+             -- speeds up lookups by a\n\
+             CREATE INDEX CONCURRENTLY hidden_items_a_idx ON \"{schema_name}\".hidden_items (a);\n\
+             --> statement-breakpoint\n\
+             COMMENT ON TABLE \"{schema_name}\".hidden_items IS 'items';\n\
+             CREATE INDEX CONCURRENTLY hidden_items_b_idx ON \"{schema_name}\".hidden_items (b);"
+        ),
+    )
+}
+
+const HIDDEN_INDEXES_SQL: &str = "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = $1 AND tablename = 'hidden_items' \
+     AND indexname IN ('hidden_items_a_idx', 'hidden_items_b_idx')";
+
+#[cfg(feature = "postgres-sync")]
+#[test]
+fn postgres_sync_finds_concurrent_indexes_behind_comments_and_in_shared_chunks() {
+    let mut db = crate::common::helpers::postgres_sync_setup::setup_empty_named(
+        "hidden_concurrent_sync_test",
+    );
+    let schema_name = db.schema_name().to_string();
+    let migration = hidden_concurrent_index_migration(&schema_name);
+    assert!(migration.has_postgres_concurrent_index());
+
+    let outcome = db
+        .migrate(&[migration], Tracking::POSTGRES.schema(schema_name.clone()))
+        .expect("CONCURRENTLY statements run outside a transaction");
+
+    assert_eq!(outcome.applied_tags(), ["20260801000000_hidden_concurrent"]);
+    let indexes: i64 = db
+        .conn_mut()
+        .query_one(HIDDEN_INDEXES_SQL, &[&schema_name])
+        .expect("count indexes")
+        .get(0);
+    assert_eq!(indexes, 2);
+}
+
+#[cfg(feature = "tokio-postgres")]
+#[tokio::test]
+async fn tokio_postgres_finds_concurrent_indexes_behind_comments_and_in_shared_chunks() {
+    let mut db = crate::common::helpers::tokio_postgres_setup::setup_empty_named(
+        "hidden_concurrent_tokio_test",
+    )
+    .await;
+    let schema_name = db.schema_name().to_string();
+    let migration = hidden_concurrent_index_migration(&schema_name);
+
+    let outcome = db
+        .migrate(&[migration], Tracking::POSTGRES.schema(schema_name.clone()))
+        .await
+        .expect("CONCURRENTLY statements run outside a transaction");
+
+    assert_eq!(outcome.applied_tags(), ["20260801000000_hidden_concurrent"]);
+    let indexes: i64 = db
+        .conn()
+        .query_one(HIDDEN_INDEXES_SQL, &[&schema_name])
+        .await
+        .expect("count indexes")
+        .get(0);
+    assert_eq!(indexes, 2);
 }
 
 #[cfg(feature = "postgres-sync")]

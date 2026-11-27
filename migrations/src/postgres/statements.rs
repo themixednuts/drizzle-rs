@@ -562,6 +562,15 @@ impl<'a> GenContext<'a> {
             {
                 JsonStatement::CreateFk { fk: new_fk }
             }
+            JsonStatement::RecreateCheck { new_check, .. }
+                if self.implicitly_dropped(
+                    EntityKind::CheckConstraint,
+                    &new_check.schema,
+                    &new_check.name,
+                ) =>
+            {
+                JsonStatement::AddCheck { check: new_check }
+            }
             other => other,
         })
     }
@@ -895,6 +904,12 @@ impl<'a> GenContext<'a> {
                         fk.columns.iter().map(|c| &**c).collect(),
                     ),
                 ),
+                Some(PostgresEntity::CheckConstraint(check)) => (
+                    EntityKind::CheckConstraint,
+                    &check.schema,
+                    &check.name,
+                    uses_dropped(&check.schema, &check.table, sql_identifiers(&check.value)),
+                ),
                 _ => continue,
             };
             if removed {
@@ -904,6 +919,39 @@ impl<'a> GenContext<'a> {
             }
         }
     }
+}
+
+/// The identifiers in a SQL expression, quoted (`"a b"`) or bare (`a_b`),
+/// the way drizzle-kit finds the columns a check references: matched against
+/// the table's columns, so keywords and function names never count.
+fn sql_identifiers(expression: &str) -> Vec<&str> {
+    let bytes = expression.as_bytes();
+    let mut identifiers = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' {
+            let start = i + 1;
+            match expression[start..].find('"') {
+                Some(len) if len > 0 => {
+                    identifiers.push(&expression[start..start + len]);
+                    i = start + len + 1;
+                }
+                _ => i = start,
+            }
+        } else if b.is_ascii_alphabetic() || b == b'_' {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$')
+            {
+                i += 1;
+            }
+            identifiers.push(&expression[start..i]);
+        } else {
+            i += 1;
+        }
+    }
+    identifiers
 }
 
 // =============================================================================
@@ -2566,6 +2614,14 @@ impl Generator {
             |clause: &str| format!("ALTER TABLE {table_key} ALTER COLUMN {column} {clause};");
         let mut stmts = Vec::new();
 
+        let identity_changed = diff.contains_key("identity")
+            && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial();
+        // An identity column rejects a new default and most type changes, so
+        // dropping the identity comes before everything else.
+        if identity_changed && to.identity.is_none() {
+            stmts.push(alter("DROP IDENTITY"));
+        }
+
         let type_changed = diff.contains_key("type");
         let collate_changed = diff.contains_key("collate");
         // PostgreSQL cannot cast a default across enum types: drop it,
@@ -2677,9 +2733,7 @@ impl Generator {
             stmts.push(alter("DROP EXPRESSION"));
         }
 
-        if diff.contains_key("identity")
-            && !super::grammar::PgTypeCategory::from_sql_type(&to.sql_type).is_serial()
-        {
+        if identity_changed {
             let old_identity = diff
                 .get("identity")
                 .and_then(|change| change.get("from"))
@@ -2703,8 +2757,8 @@ impl Generator {
                         stmts.push(alter(&set_sql));
                     }
                 }
-                // Some -> None: DROP IDENTITY.
-                (None, _) => stmts.push(alter("DROP IDENTITY")),
+                // Some -> None: DROP IDENTITY, emitted first above.
+                (None, _) => {}
             }
         }
 

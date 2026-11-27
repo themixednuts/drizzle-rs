@@ -105,6 +105,14 @@ pub(crate) fn postgres(
             "'{}'::timestamptz",
             timestamp.format("%Y-%m-%d %H:%M:%S%.f%:z")
         ),
+        #[cfg(feature = "jiff")]
+        V::JiffDate(date) => format!("'{date}'::date"),
+        #[cfg(feature = "jiff")]
+        V::JiffTime(time) => format!("'{time}'::time"),
+        #[cfg(feature = "jiff")]
+        V::JiffDateTime(timestamp) => format!("'{timestamp}'::timestamp"),
+        #[cfg(feature = "jiff")]
+        V::JiffTimestamp(timestamp) => format!("'{timestamp}'::timestamptz"),
         #[allow(unreachable_patterns)]
         other => return Err(format!("no SQL literal for the PostgreSQL value {other:?}")),
     })

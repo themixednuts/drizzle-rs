@@ -1,13 +1,35 @@
-//! `SQLite` JSON functions and conditions.
+//! `SQLite`-only expressions: the row id ([`row_id`]) and JSON functions
+//! and conditions.
 //!
-//! These helpers build untyped [`SQL`] fragments for JSON stored in TEXT or
-//! BLOB columns. JSON paths, keys and values are sent as bound parameters.
-//! For standard, typed expressions use `drizzle_core::expr`.
+//! The JSON helpers build untyped [`SQL`] fragments for JSON stored in TEXT
+//! or BLOB columns. JSON paths, keys and values are sent as bound
+//! parameters. For standard, typed expressions use `drizzle_core::expr`.
 
 #[cfg(not(feature = "std"))]
 use crate::prelude::*;
 use crate::values::SQLiteValue;
+use drizzle_core::expr::{NonNull, SQLExpr, Scalar};
 use drizzle_core::{SQL, ToSQL};
+use drizzle_types::sqlite::types::Integer;
+
+/// The `rowid` of a row, an `INTEGER` that decodes as `i64`.
+///
+/// Every table has a row id unless it is declared `WITHOUT ROWID`; in a
+/// table with an `INTEGER PRIMARY KEY`, the row id is that column. Use it
+/// in a select, a condition or an ordering. `SQLite` rejects a bare `rowid`
+/// as ambiguous when the query reads more than one table.
+///
+/// # Examples
+///
+/// ```
+/// # use drizzle_sqlite::expr::row_id;
+/// # use drizzle_core::ToSQL;
+/// assert_eq!(row_id().to_sql().sql(), "rowid");
+/// ```
+#[must_use]
+pub fn row_id<'a>() -> SQLExpr<'a, SQLiteValue<'a>, Integer, NonNull, Scalar, ()> {
+    SQLExpr::new(SQL::raw("rowid"))
+}
 
 /// Wraps `value` in `json(..)`, which checks that it is valid JSON and
 /// returns it as minified JSON text.

@@ -311,3 +311,132 @@ fn left_join_matched_row_with_null_first_column(db: &mut TestDb<ProbeSchema>) {
     assert_eq!(note.owner_id, 1);
     assert!(rows[1].1.is_none());
 }
+
+#[drizzle::test]
+fn non_positive_pagination_is_sent_to_the_database(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0),
+            InsertUser::new("Bob", true, Role::Member, vec![], 0, 0.0),
+        ])
+        .execute();
+
+    let none = db.select(users.id).from(users).limit(0);
+    assert_eq!(
+        none.to_sql().sql(),
+        "SELECT `test_users`.`id` FROM `test_users` LIMIT ?"
+    );
+    let ids: Vec<u64> = none.all();
+    assert!(ids.is_empty());
+
+    let from_start = db.select(users.id).from(users).offset(0);
+    assert_eq!(
+        from_start.to_sql().sql(),
+        "SELECT `test_users`.`id` FROM `test_users` LIMIT 9223372036854775807 OFFSET ?"
+    );
+    let ids: Vec<u64> = from_start.all();
+    assert_eq!(ids.len(), 2);
+
+    // A negative value is written as a literal, and MySQL rejects it.
+    let negative = db.select(users.id).from(users).limit(-1);
+    assert_eq!(
+        negative.to_sql().sql(),
+        "SELECT `test_users`.`id` FROM `test_users` LIMIT -1"
+    );
+    let rows: Result<Vec<u64>, _> = result!(negative.all());
+    assert!(rows.is_err(), "LIMIT must not be negative");
+}
+
+/// A scalar subquery selected as a column is parenthesized and decodes as an
+/// `Option`, like drizzle-orm's `| null`; a correlated one is evaluated per
+/// row.
+#[drizzle::test]
+fn count_is_selectable_as_a_column(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, posts, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0),
+            InsertUser::new("Bob", false, Role::Member, vec![], 0, 0.0),
+        ])
+        .execute();
+    let ids: Vec<u64> = db
+        .select(users.id)
+        .from(users)
+        .r#where(eq(users.name, "Alice"))
+        .all();
+    let alice = ids[0];
+    db.insert(posts)
+        .values([InsertPost::new(alice, "one"), InsertPost::new(alice, "two")])
+        .execute();
+
+    // A handle that runs SQL through `&mut self` cannot also be borrowed for
+    // a subquery; a transaction can, as it takes `&self`.
+    let rows: Result<Vec<(String, Option<i64>)>, _> = result!(db.transaction(
+        drizzle::mysql::TransactionConfig::default(),
+        |tx| {
+            let query = tx
+                .select((
+                    users.name,
+                    drizzle::core::expr::alias(
+                        tx.count(posts).r#where(eq(posts.user_id, users.id)),
+                        "post_count",
+                    ),
+                ))
+                .from(users)
+                .order_by(asc(users.id));
+            assert_eq!(
+                query.to_sql().sql(),
+                "SELECT `test_users`.`name`, (SELECT COUNT(*) FROM `test_posts` WHERE \
+                 `test_posts`.`user_id` = `test_users`.`id`) AS `post_count` FROM `test_users` \
+                 ORDER BY `test_users`.`id` ASC"
+            );
+            result!(query.all())
+        }
+    ));
+    assert_eq!(
+        rows.expect("count as a column"),
+        [("Alice".to_string(), Some(2)), ("Bob".to_string(), Some(0))]
+    );
+}
+
+#[drizzle::test]
+fn count_runs_and_nests_as_a_subquery(db: &mut TestDb<TestSchema>) {
+    let TestSchema { users, .. } = schema;
+    db.insert(users)
+        .values([
+            InsertUser::new("Alice", true, Role::Admin, vec![], 0, 0.0),
+            InsertUser::new("Bob", false, Role::Member, vec![], 2, 0.0),
+            InsertUser::new("Carol", true, Role::Member, vec![], 10, 0.0),
+        ])
+        .execute();
+
+    let all = db.count(users);
+    assert_eq!(all.to_sql().sql(), "SELECT COUNT(*) FROM `test_users`");
+    let total: i64 = all.get();
+    assert_eq!(total, 3);
+
+    let filtered = db.count(users).r#where(eq(users.active, true));
+    assert_eq!(
+        filtered.to_sql().sql(),
+        "SELECT COUNT(*) FROM `test_users` WHERE `test_users`.`active` = ?"
+    );
+    let active: i64 = filtered.get();
+    assert_eq!(active, 2);
+
+    // A handle that runs SQL through `&mut self` cannot also be borrowed for
+    // a subquery; a transaction's `count` can, as it takes `&self`.
+    let below_total: Result<Vec<String>, _> = result!(db.transaction(
+        drizzle::mysql::TransactionConfig::default(),
+        |tx| {
+            result!(
+                tx.select(users.name)
+                    .from(users)
+                    .r#where(drizzle::core::expr::lt(users.balance, tx.count(users)))
+                    .order_by(asc(users.id))
+                    .all()
+            )
+        }
+    ));
+    assert_eq!(below_total.expect("count as a subquery"), ["Alice", "Bob"]);
+}

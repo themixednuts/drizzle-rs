@@ -23,7 +23,6 @@ note: required by a bound in `drizzle::postgres::expr::array_contains`
   --> postgres/src/expr/array_ops.rs
    |
    | pub fn array_contains<'a, L, R>(
-   |        -------------- required by a bound in this function
 ...
    |     L::SQLType: ArrayOperand<R::SQLType>,
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `array_contains`
@@ -51,7 +50,6 @@ note: required by a bound in `drizzle::postgres::expr::array_contains`
   --> postgres/src/expr/array_ops.rs
    |
    | pub fn array_contains<'a, L, R>(
-   |        -------------- required by a bound in this function
 ...
    |     L::SQLType: ArrayOperand<R::SQLType>,
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `array_contains`
@@ -82,7 +80,6 @@ note: required by a bound in `drizzle::postgres::expr::array_overlaps`
   --> postgres/src/expr/array_ops.rs
    |
    | pub fn array_overlaps<'a, L, R>(
-   |        -------------- required by a bound in this function
 ...
    |     L::SQLType: ArrayOperand<R::SQLType>,
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `array_overlaps`

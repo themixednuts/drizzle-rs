@@ -689,6 +689,14 @@ pub mod postgres {
         helpers, traits, transaction, types, values,
     };
 
+    #[cfg(any(
+        feature = "postgres-sync",
+        feature = "tokio-postgres",
+        feature = "hyperdrive"
+    ))]
+    #[doc(inline)]
+    pub use crate::builder::postgres::bulk::BulkInsertOptions;
+
     #[cfg(all(
         feature = "postgres-sync",
         not(any(feature = "tokio-postgres", feature = "hyperdrive"))

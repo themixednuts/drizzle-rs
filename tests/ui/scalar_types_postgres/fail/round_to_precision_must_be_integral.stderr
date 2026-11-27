@@ -22,7 +22,6 @@ note: required by a bound in `round_to`
  --> core/src/expr/math.rs
   |
   | pub fn round_to<'a, V, E, P>(
-  |        -------- required by a bound in this function
 ...
   |     P::SQLType: Integral,
   |                 ^^^^^^^^ required by this bound in `round_to`

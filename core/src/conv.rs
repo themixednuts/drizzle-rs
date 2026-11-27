@@ -66,3 +66,61 @@ where
         )
     })
 }
+
+/// Parses a database text value as the number type `T`.
+///
+/// `type_name` (for example `"i32"`) is used in the error message.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::conv::parse_number_text;
+///
+/// assert_eq!(parse_number_text::<i32>("42", "i32").unwrap(), 42);
+/// assert!(parse_number_text::<u8>("300", "u8").is_err());
+/// ```
+///
+/// # Errors
+///
+/// Returns [`DrizzleError::ConversionError`] when `value` does not parse as
+/// `T`.
+pub fn parse_number_text<T>(value: &str, type_name: &str) -> Result<T, DrizzleError>
+where
+    T: core::str::FromStr,
+    T::Err: core::fmt::Display,
+{
+    value.parse().map_err(|e| {
+        DrizzleError::ConversionError(format!("cannot parse '{value}' as {type_name}: {e}").into())
+    })
+}
+
+/// Parses a database text value as a boolean.
+///
+/// Accepts `true`, `1`, `yes` and `on` as `true` and `false`, `0`, `no` and
+/// `off` as `false`, ignoring case.
+///
+/// # Examples
+///
+/// ```
+/// use drizzle_core::conv::parse_bool_text;
+///
+/// assert!(parse_bool_text("TRUE").unwrap());
+/// assert!(!parse_bool_text("0").unwrap());
+/// assert!(parse_bool_text("maybe").is_err());
+/// ```
+///
+/// # Errors
+///
+/// Returns [`DrizzleError::ConversionError`] for any other text.
+pub fn parse_bool_text(value: &str) -> Result<bool, DrizzleError> {
+    let is_one_of = |words: &[&str]| words.iter().any(|word| value.eq_ignore_ascii_case(word));
+    if is_one_of(&["true", "1", "yes", "on"]) {
+        Ok(true)
+    } else if is_one_of(&["false", "0", "no", "off"]) {
+        Ok(false)
+    } else {
+        Err(DrizzleError::ConversionError(
+            format!("cannot parse '{value}' as bool").into(),
+        ))
+    }
+}

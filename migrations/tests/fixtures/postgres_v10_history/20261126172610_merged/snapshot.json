@@ -1,0 +1,48 @@
+{
+  "type": "diff",
+  "version": "10",
+  "dialect": "postgres",
+  "id": "b25dfae7-d985-4b77-bb19-2bc591ca525b",
+  "prevIds": [
+    "d23b5315-29a2-4ac2-a22b-2841cbeb6840",
+    "2b4e8b4c-2a57-4fae-857a-f01bb850cff5"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "comments",
+        "score"
+      ],
+      "writes": [
+        "s|col|public.comments.score",
+        "n|col|public.comments.score",
+        "e|col|public.comments.score"
+      ],
+      "reads": [
+        "n|tbl|public.comments",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "comments",
+        "name": "score",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

@@ -81,3 +81,44 @@ fn partial_unique_index_is_a_complete_conflict_target(db: &mut TestDb<PartialInd
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].email, "first@example.com");
 }
+
+#[drizzle::test]
+fn partial_conflict_target_where_precedes_do_nothing(db: &mut TestDb<PartialIndexSchema>) {
+    let PartialIndexSchema {
+        user,
+        active_user_idx,
+    } = schema;
+
+    let typed = db
+        .insert(user)
+        .values([InsertUser::new("second@example.com", "active")])
+        .on_conflict(active_user_idx)
+        .do_nothing();
+    assert_eq!(
+        typed.to_sql().sql(),
+        r#"INSERT INTO "user" ("email", "username") VALUES (?, ?) ON CONFLICT ("username") WHERE username <> '' DO NOTHING"#
+    );
+
+    // An explicit predicate replaces the declared one in the same position.
+    // SQLite only accepts it at run time when it implies the index's own
+    // predicate, which a bound parameter cannot, so this one is not run.
+    let explicit = db
+        .insert(user)
+        .values([InsertUser::new("third@example.com", "active")])
+        .on_conflict(active_user_idx)
+        .r#where(drizzle::core::expr::neq(user.username, ""))
+        .do_nothing();
+    assert_eq!(
+        explicit.to_sql().sql(),
+        r#"INSERT INTO "user" ("email", "username") VALUES (?, ?) ON CONFLICT ("username") WHERE "user"."username" <> ? DO NOTHING"#
+    );
+
+    db.insert(user)
+        .values([InsertUser::new("first@example.com", "active")])
+        .execute();
+    typed.execute();
+
+    let rows: Vec<SelectUser> = db.select(()).from(user).all();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].email, "first@example.com");
+}

@@ -24,7 +24,6 @@ note: required by a bound in `drizzle::core::expr::any`
   --> core/src/expr/cond.rs
    |
    | pub fn any<'a, V, L>(
-   |        --- required by a bound in this function
 ...
    |     L: ConditionList<'a, V>,
    |        ^^^^^^^^^^^^^^^^^^^^ required by this bound in `any`

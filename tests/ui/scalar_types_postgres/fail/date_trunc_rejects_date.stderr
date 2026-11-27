@@ -19,7 +19,6 @@ note: required by a bound in `date_trunc`
  --> core/src/expr/datetime.rs
   |
   | pub fn date_trunc<'a, V, P, E>(
-  |        ---------- required by a bound in this function
 ...
   |     E::SQLType: DateTruncPolicy<V::DialectMarker>,
   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `date_trunc`

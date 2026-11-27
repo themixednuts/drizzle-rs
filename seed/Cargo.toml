@@ -16,6 +16,7 @@ drizzle-sqlite = { workspace = true, optional = true, features = ["std"] }
 drizzle-postgres = { workspace = true, optional = true, features = ["std"] }
 drizzle-mysql = { workspace = true, optional = true, features = ["std"] }
 chrono = { workspace = true, optional = true, features = ["alloc"] }
+jiff = { workspace = true, optional = true }
 rand = { workspace = true }
 
 [features]
@@ -37,6 +38,7 @@ migrations = ["dep:drizzle-migrations"]
 serde = ["drizzle-postgres?/serde", "drizzle-sqlite?/serde", "drizzle-mysql?/serde"]
 uuid = ["drizzle-postgres?/uuid", "drizzle-sqlite?/uuid", "drizzle-mysql?/uuid"]
 chrono = ["dep:chrono", "drizzle-postgres?/chrono", "drizzle-sqlite?/chrono", "drizzle-mysql?/chrono"]
+jiff = ["dep:jiff", "drizzle-postgres?/jiff", "drizzle-sqlite?/jiff", "drizzle-mysql?/jiff"]
 cidr = ["drizzle-postgres?/cidr"]
 geo-types = ["drizzle-postgres?/geo-types"]
 bit-vec = ["drizzle-postgres?/bit-vec"]

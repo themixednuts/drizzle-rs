@@ -28,6 +28,8 @@
 
 use crate::prelude::*;
 use crate::values::PostgresValue;
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+use crate::values::temporal_text::{self, FromTemporalText};
 use aws_sdk_rdsdata::primitives::Blob;
 use aws_sdk_rdsdata::types::{ArrayValue, ColumnMetadata, Field, SqlParameter, TypeHint};
 use drizzle_core::error::DrizzleError;
@@ -476,162 +478,104 @@ mod serde_impls {
     }
 }
 
+// =============================================================================
+// Dates and times
+// =============================================================================
+
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+const TIMETZ_REASON: &str = "Data API converts `timetz` values to UTC dropping their offset and \
+                             accepts no per-query result formats";
+
+/// The error for a column type the Data API returns with its data already
+/// lost.
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+fn unsupported_column_type(type_name: &str, reason: &str) -> DrizzleError {
+    DrizzleError::ConversionError(
+        format!(
+            "Column type \"{type_name}\" is not supported with the aws-data-api driver: {reason}"
+        )
+        .into(),
+    )
+}
+
+/// Decodes a date or time column, which the Data API returns as
+/// `PostgreSQL` text: a year past 9999 with more digits, a year before 1 AD
+/// with a ` BC` suffix.
+///
+/// The Data API returns a `timestamptz` converted to UTC without an offset,
+/// which reads as UTC. Two of its quirks are decoded as returned: it drops
+/// ` BC` from a `timestamp` with fractional seconds, which then reads as the
+/// AD year, and it cuts `time` fractions to milliseconds. A `timetz` column
+/// is an error: the Data API has already converted it to UTC and dropped its
+/// offset.
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+fn temporal_at<T: FromTemporalText>(row: &Row, offset: usize) -> Result<T, DrizzleError> {
+    let column_type = row
+        .metadata
+        .get(offset)
+        .and_then(|column| column.type_name.as_deref());
+    if column_type == Some("timetz") {
+        return Err(unsupported_column_type(
+            "time with time zone",
+            TIMETZ_REASON,
+        ));
+    }
+    T::from_temporal_text(expect_string(field_at(row, offset)?)?)
+        .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API: {e}").into()))
+}
+
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+macro_rules! temporal_row_impls {
+    ($($ty:ty),+ $(,)?) => {$(
+        impl FromDrizzleRow<Row> for $ty {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                temporal_at(row, offset)
+            }
+        }
+
+        impl FromDrizzleRow<Row> for Option<$ty> {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                if field_is_null(field_at(row, offset)?) {
+                    return Ok(None);
+                }
+                temporal_at(row, offset).map(Some)
+            }
+        }
+    )+};
+}
+
+#[cfg(feature = "chrono")]
+temporal_row_impls!(
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime,
+    chrono::DateTime<chrono::Utc>,
+    chrono::DateTime<chrono::FixedOffset>,
+);
+
+#[cfg(feature = "time")]
+temporal_row_impls!(
+    time::Date,
+    time::Time,
+    time::PrimitiveDateTime,
+    time::OffsetDateTime,
+);
+
+#[cfg(feature = "jiff")]
+temporal_row_impls!(
+    jiff::civil::Date,
+    jiff::civil::Time,
+    jiff::civil::DateTime,
+    jiff::Timestamp,
+);
+
 #[cfg(feature = "chrono")]
 mod chrono_impls {
     use super::{
-        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
-        parse_interval,
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, parse_interval,
     };
-    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-
-    fn parse<T, E>(
-        s: &str,
-        kind: &'static str,
-        f: impl FnOnce(&str) -> Result<T, E>,
-    ) -> Result<T, DrizzleError>
-    where
-        E: core::fmt::Display,
-    {
-        f(s).map_err(|e| DrizzleError::ConversionError(format!("AWS Data API {kind}: {e}").into()))
-    }
-
-    impl FromDrizzleRow<Row> for NaiveDate {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let s = expect_string(field_at(row, offset)?)?;
-            parse(s, "date", |v| Self::parse_from_str(v, "%Y-%m-%d"))
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<NaiveDate> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            let s = expect_string(field)?;
-            parse(s, "date", |v| NaiveDate::parse_from_str(v, "%Y-%m-%d")).map(Some)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for NaiveTime {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let s = expect_string(field_at(row, offset)?)?;
-            parse(s, "time", |v| Self::parse_from_str(v, "%H:%M:%S%.f"))
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<NaiveTime> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            let s = expect_string(field)?;
-            parse(s, "time", |v| NaiveTime::parse_from_str(v, "%H:%M:%S%.f")).map(Some)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for NaiveDateTime {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let s = expect_string(field_at(row, offset)?)?;
-            // AWS Data API returns timestamps without TZ as "YYYY-MM-DD HH:MM:SS[.fff]"
-            parse(s, "timestamp", |v| {
-                Self::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f")
-                    .or_else(|_| Self::parse_from_str(v, "%Y-%m-%d %H:%M:%S"))
-            })
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<NaiveDateTime> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            let s = expect_string(field)?;
-            parse(s, "timestamp", |v| {
-                NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f")
-                    .or_else(|_| NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S"))
-            })
-            .map(Some)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for DateTime<Utc> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let s = expect_string(field_at(row, offset)?)?;
-            // AWS returns ISO-8601 for timestamptz. Fall back to naive + assume UTC
-            // when no timezone is present (mirroring tokio-postgres behaviour).
-            if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
-                return Ok(dt.with_timezone(&Utc));
-            }
-            if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f") {
-                return Ok(naive.and_utc());
-            }
-            Err(DrizzleError::ConversionError(
-                format!("AWS Data API timestamptz: unparseable {s:?}").into(),
-            ))
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<DateTime<Utc>> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            <DateTime<Utc> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
-        }
-    }
-
-    use chrono::FixedOffset;
-
-    impl FromDrizzleRow<Row> for DateTime<FixedOffset> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let s = expect_string(field_at(row, offset)?)?;
-            if let Ok(dt) = Self::parse_from_rfc3339(s) {
-                return Ok(dt);
-            }
-            // Postgres can return "YYYY-MM-DD HH:MM:SS[.fff]+HH" — try common forms.
-            for fmt in &[
-                "%Y-%m-%d %H:%M:%S%.f%:z",
-                "%Y-%m-%d %H:%M:%S%.f%z",
-                "%Y-%m-%d %H:%M:%S%:z",
-                "%Y-%m-%d %H:%M:%S%z",
-            ] {
-                if let Ok(dt) = Self::parse_from_str(s, fmt) {
-                    return Ok(dt);
-                }
-            }
-            // Tz-less fallback → assume UTC (mirrors tokio-postgres behaviour).
-            if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f") {
-                return Ok(naive.and_utc().fixed_offset());
-            }
-            Err(DrizzleError::ConversionError(
-                format!("AWS Data API timestamptz: unparseable {s:?}").into(),
-            ))
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<DateTime<FixedOffset>> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            <DateTime<FixedOffset> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
-        }
-    }
 
     impl FromDrizzleRow<Row> for chrono::Duration {
         const COLUMN_COUNT: usize = 1;
@@ -766,188 +710,9 @@ fn format_interval(secs: i64, nanos: i32) -> String {
 
 #[cfg(feature = "time")]
 mod time_impls {
-    //! Hand-rolled parsers for `time` types. We intentionally avoid
-    //! `time::macros::format_description!` so we don't have to depend on the
-    //! optional `macros` feature of the `time` crate — the workspace only
-    //! enables `formatting` + `parsing`. The formats AWS emits are simple
-    //! enough that manual digit-splitting is fine.
     use super::{
-        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
-        parse_interval,
+        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, parse_interval,
     };
-    use time::format_description::well_known::Rfc3339;
-    use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time};
-
-    fn digits<T>(s: &str, kind: &'static str) -> Result<T, DrizzleError>
-    where
-        T: core::str::FromStr,
-        T::Err: core::fmt::Display,
-    {
-        s.parse::<T>()
-            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API {kind}: {e}").into()))
-    }
-
-    fn month_from_u8(m: u8) -> Result<Month, DrizzleError> {
-        Month::try_from(m)
-            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API month: {e}").into()))
-    }
-
-    /// Parse `YYYY-MM-DD`.
-    fn parse_date(s: &str) -> Result<Date, DrizzleError> {
-        let mut parts = s.splitn(3, '-');
-        let y = digits::<i32>(
-            parts
-                .next()
-                .ok_or_else(|| DrizzleError::ConversionError("date: empty".into()))?,
-            "date year",
-        )?;
-        let m = digits::<u8>(
-            parts
-                .next()
-                .ok_or_else(|| DrizzleError::ConversionError("date: missing month".into()))?,
-            "date month",
-        )?;
-        let d = digits::<u8>(
-            parts
-                .next()
-                .ok_or_else(|| DrizzleError::ConversionError("date: missing day".into()))?,
-            "date day",
-        )?;
-        Date::from_calendar_date(y, month_from_u8(m)?, d)
-            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API date: {e}").into()))
-    }
-
-    /// Parse `HH:MM:SS[.fff]`.
-    fn parse_time(s: &str) -> Result<Time, DrizzleError> {
-        let mut parts = s.splitn(3, ':');
-        let h = digits::<u8>(
-            parts
-                .next()
-                .ok_or_else(|| DrizzleError::ConversionError("time: empty".into()))?,
-            "time hour",
-        )?;
-        let m = digits::<u8>(
-            parts
-                .next()
-                .ok_or_else(|| DrizzleError::ConversionError("time: missing minute".into()))?,
-            "time minute",
-        )?;
-        let sec_field = parts
-            .next()
-            .ok_or_else(|| DrizzleError::ConversionError("time: missing second".into()))?;
-        let (sec_str, nanos) = match sec_field.split_once('.') {
-            Some((sec, frac)) => {
-                // Pad/truncate fractional to 9 digits (nanoseconds).
-                let mut buf = [b'0'; 9];
-                for (i, b) in frac.bytes().take(9).enumerate() {
-                    buf[i] = b;
-                }
-                let nanos: u32 = core::str::from_utf8(&buf)
-                    .map_err(|e| {
-                        DrizzleError::ConversionError(format!("time frac utf8: {e}").into())
-                    })?
-                    .parse()
-                    .map_err(|e: core::num::ParseIntError| {
-                        DrizzleError::ConversionError(format!("time frac: {e}").into())
-                    })?;
-                (sec, nanos)
-            }
-            None => (sec_field, 0u32),
-        };
-        let sec = digits::<u8>(sec_str, "time second")?;
-        Time::from_hms_nano(h, m, sec, nanos)
-            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API time: {e}").into()))
-    }
-
-    /// Parse `YYYY-MM-DD HH:MM:SS[.fff]`.
-    fn parse_primitive(s: &str) -> Result<PrimitiveDateTime, DrizzleError> {
-        let (date, time) = s.split_once(' ').ok_or_else(|| {
-            DrizzleError::ConversionError(format!("timestamp: missing space in {s:?}").into())
-        })?;
-        Ok(PrimitiveDateTime::new(parse_date(date)?, parse_time(time)?))
-    }
-
-    impl FromDrizzleRow<Row> for Date {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            parse_date(expect_string(field_at(row, offset)?)?)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<Date> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            parse_date(expect_string(field)?).map(Some)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Time {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            parse_time(expect_string(field_at(row, offset)?)?)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<Time> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            parse_time(expect_string(field)?).map(Some)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for PrimitiveDateTime {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            parse_primitive(expect_string(field_at(row, offset)?)?)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<PrimitiveDateTime> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            parse_primitive(expect_string(field)?).map(Some)
-        }
-    }
-
-    impl FromDrizzleRow<Row> for OffsetDateTime {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let s = expect_string(field_at(row, offset)?)?;
-            if let Ok(dt) = Self::parse(s, &Rfc3339) {
-                return Ok(dt);
-            }
-            // No TZ → assume UTC, mirroring tokio-postgres behaviour.
-            if let Ok(naive) = parse_primitive(s) {
-                return Ok(naive.assume_utc());
-            }
-            Err(DrizzleError::ConversionError(
-                format!("AWS Data API timestamptz: unparseable {s:?}").into(),
-            ))
-        }
-    }
-
-    impl FromDrizzleRow<Row> for Option<OffsetDateTime> {
-        const COLUMN_COUNT: usize = 1;
-        fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-            let field = field_at(row, offset)?;
-            if field_is_null(field) {
-                return Ok(None);
-            }
-            <OffsetDateTime as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
-        }
-    }
 
     impl FromDrizzleRow<Row> for time::Duration {
         const COLUMN_COUNT: usize = 1;
@@ -967,62 +732,6 @@ mod time_impls {
             }
             <time::Duration as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
         }
-    }
-}
-
-#[cfg(feature = "jiff")]
-mod jiff_impls {
-    //! jiff reads the Data API's text directly: `YYYY-MM-DD`,
-    //! `HH:MM:SS[.fraction]` and `YYYY-MM-DD HH:MM:SS[.fraction]`.
-    use super::{
-        DrizzleError, FromDrizzleRow, Row, expect_string, field_at, field_is_null, format,
-    };
-
-    fn parse<T: core::str::FromStr<Err = jiff::Error>>(
-        s: &str,
-        kind: &'static str,
-    ) -> Result<T, DrizzleError> {
-        s.parse()
-            .map_err(|e| DrizzleError::ConversionError(format!("AWS Data API {kind}: {e}").into()))
-    }
-
-    /// RFC 3339, or a date and time without an offset, which is UTC.
-    fn parse_timestamp(s: &str) -> Result<jiff::Timestamp, DrizzleError> {
-        s.parse().or_else(|_| {
-            let utc: jiff::civil::DateTime = parse(s, "timestamptz")?;
-            jiff::tz::Offset::UTC.to_timestamp(utc).map_err(|e| {
-                DrizzleError::ConversionError(format!("AWS Data API timestamptz: {e}").into())
-            })
-        })
-    }
-
-    macro_rules! jiff_row_impls {
-        ($($ty:ty => $parse:expr;)+) => {$(
-            impl FromDrizzleRow<Row> for $ty {
-                const COLUMN_COUNT: usize = 1;
-                fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-                    $parse(expect_string(field_at(row, offset)?)?)
-                }
-            }
-
-            impl FromDrizzleRow<Row> for Option<$ty> {
-                const COLUMN_COUNT: usize = 1;
-                fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-                    let field = field_at(row, offset)?;
-                    if field_is_null(field) {
-                        return Ok(None);
-                    }
-                    $parse(expect_string(field)?).map(Some)
-                }
-            }
-        )+};
-    }
-
-    jiff_row_impls! {
-        jiff::civil::Date => |s| parse(s, "date");
-        jiff::civil::Time => |s| parse(s, "time");
-        jiff::civil::DateTime => |s| parse(s, "timestamp");
-        jiff::Timestamp => parse_timestamp;
     }
 }
 
@@ -1062,111 +771,111 @@ mod decimal_impls {
 // Array impls — decode Field::ArrayValue into Vec<T>
 // =============================================================================
 
-/// Decode a single `ArrayValue` variant into `Vec<T>`. Nested arrays are not
-/// supported here (flat arrays only — the common case for Aurora Data API).
-/// The SDK models elements as `Option<T>`; a null element in a non-nullable
-/// `Vec<T>` target is a conversion error, matching scalar null handling.
-fn require_non_null_elements<T: Clone>(
-    values: &[Option<T>],
+/// The elements of a flat array returned as the `ArrayValue` variant
+/// `variant` (nested arrays are not supported here; flat arrays are the
+/// common case for the Aurora Data API). The SDK models elements as
+/// `Option<T>`.
+fn array_elements<'a, T>(
+    array: &'a ArrayValue,
     variant: &'static str,
-) -> Result<Vec<T>, DrizzleError> {
-    values
-        .iter()
-        .map(|v| {
-            v.clone().ok_or_else(|| {
-                DrizzleError::ConversionError(
-                    format!("AWS Data API array: null element in {variant}").into(),
-                )
-            })
-        })
-        .collect()
+    elements: impl FnOnce(&'a ArrayValue) -> Option<&'a [Option<T>]>,
+) -> Result<&'a [Option<T>], DrizzleError> {
+    elements(array).ok_or_else(|| {
+        DrizzleError::ConversionError(
+            format!("AWS Data API array: expected {variant}, got {array:?}").into(),
+        )
+    })
 }
 
-fn decode_array_i64(array: &ArrayValue) -> Result<Vec<i64>, DrizzleError> {
-    match array {
-        ArrayValue::LongValues(v) => require_non_null_elements(v, "LongValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected LongValues, got {other:?}").into(),
-        )),
-    }
+/// A null element in a non-nullable `Vec<T>` target is a conversion error,
+/// matching scalar null handling.
+fn non_null_element<T>(value: Option<T>, variant: &'static str) -> Result<T, DrizzleError> {
+    value.ok_or_else(|| {
+        DrizzleError::ConversionError(
+            format!("AWS Data API array: null element in {variant}").into(),
+        )
+    })
 }
 
-fn decode_array_f64(array: &ArrayValue) -> Result<Vec<f64>, DrizzleError> {
-    match array {
-        ArrayValue::DoubleValues(v) => require_non_null_elements(v, "DoubleValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected DoubleValues, got {other:?}").into(),
-        )),
-    }
-}
-
-fn decode_array_bool(array: &ArrayValue) -> Result<Vec<bool>, DrizzleError> {
-    match array {
-        ArrayValue::BooleanValues(v) => require_non_null_elements(v, "BooleanValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected BooleanValues, got {other:?}").into(),
-        )),
-    }
-}
-
-fn decode_array_string(array: &ArrayValue) -> Result<Vec<String>, DrizzleError> {
-    match array {
-        ArrayValue::StringValues(v) => require_non_null_elements(v, "StringValues"),
-        other => Err(DrizzleError::ConversionError(
-            format!("AWS Data API array: expected StringValues, got {other:?}").into(),
-        )),
-    }
-}
-
+/// Decodes `Vec<$ty>` and `Vec<Option<$ty>>` (and their `Option`s) from the
+/// `$variant` array, converting each element with `$transform`.
+///
+/// The Data API drops NULL elements from the arrays it returns, so a
+/// `Vec<Option<$ty>>` reads the array without them.
 macro_rules! impl_array_leaf {
-    ($ty:ty, $decode:ident, $transform:expr) => {
+    ($ty:ty, $variant:ident, $transform:expr) => {
         impl FromDrizzleRow<Row> for Vec<$ty> {
             const COLUMN_COUNT: usize = 1;
             fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-                let field = field_at(row, offset)?;
-                if field_is_null(field) {
-                    return null_error::<Self>("array");
-                }
-                let arr = expect_array(field)?;
-                let raw = $decode(arr)?;
-                raw.into_iter().map($transform).collect()
+                <Vec<Option<$ty>> as FromDrizzleRow<Row>>::from_row_at(row, offset)?
+                    .into_iter()
+                    .map(|value| non_null_element(value, stringify!($variant)))
+                    .collect()
             }
         }
 
         impl FromDrizzleRow<Row> for Option<Vec<$ty>> {
             const COLUMN_COUNT: usize = 1;
             fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
-                let field = field_at(row, offset)?;
-                if field_is_null(field) {
+                if field_is_null(field_at(row, offset)?) {
                     return Ok(None);
                 }
-                let arr = expect_array(field)?;
-                let raw = $decode(arr)?;
-                let out: Result<Vec<$ty>, DrizzleError> = raw.into_iter().map($transform).collect();
-                out.map(Some)
+                <Vec<$ty> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
+            }
+        }
+
+        impl FromDrizzleRow<Row> for Vec<Option<$ty>> {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                let field = field_at(row, offset)?;
+                if field_is_null(field) {
+                    return null_error::<Self>("array");
+                }
+                let elements = array_elements(
+                    expect_array(field)?,
+                    stringify!($variant),
+                    |array| match array {
+                        ArrayValue::$variant(values) => Some(values.as_slice()),
+                        _ => None,
+                    },
+                )?;
+                elements
+                    .iter()
+                    .cloned()
+                    .map(|value| value.map($transform).transpose())
+                    .collect()
+            }
+        }
+
+        impl FromDrizzleRow<Row> for Option<Vec<Option<$ty>>> {
+            const COLUMN_COUNT: usize = 1;
+            fn from_row_at(row: &Row, offset: usize) -> Result<Self, DrizzleError> {
+                if field_is_null(field_at(row, offset)?) {
+                    return Ok(None);
+                }
+                <Vec<Option<$ty>> as FromDrizzleRow<Row>>::from_row_at(row, offset).map(Some)
             }
         }
     };
 }
 
-// Narrowed integer arrays reuse decode_array_i64 + TryFrom
-impl_array_leaf!(i64, decode_array_i64, |v: i64| Ok::<i64, DrizzleError>(v));
-impl_array_leaf!(i32, decode_array_i64, |v: i64| i32::try_from(v).map_err(
-    |e| DrizzleError::ConversionError(format!("i32 narrow: {e}").into())
-));
-impl_array_leaf!(i16, decode_array_i64, |v: i64| i16::try_from(v).map_err(
-    |e| DrizzleError::ConversionError(format!("i16 narrow: {e}").into())
-));
+// Narrowed integer arrays read `LongValues` + TryFrom
+impl_array_leaf!(i64, LongValues, |v: i64| Ok::<i64, DrizzleError>(v));
+impl_array_leaf!(i32, LongValues, |v: i64| i32::try_from(v).map_err(|e| {
+    DrizzleError::ConversionError(format!("i32 narrow: {e}").into())
+}));
+impl_array_leaf!(i16, LongValues, |v: i64| i16::try_from(v).map_err(|e| {
+    DrizzleError::ConversionError(format!("i16 narrow: {e}").into())
+}));
 
-impl_array_leaf!(f64, decode_array_f64, |v: f64| Ok::<f64, DrizzleError>(v));
-impl_array_leaf!(f32, decode_array_f64, |v: f64| double_to_f32(v));
-impl_array_leaf!(bool, decode_array_bool, |v: bool| Ok::<bool, DrizzleError>(
-    v
-));
-impl_array_leaf!(String, decode_array_string, |v: String| Ok::<
+impl_array_leaf!(f64, DoubleValues, |v: f64| Ok::<f64, DrizzleError>(v));
+impl_array_leaf!(f32, DoubleValues, double_to_f32);
+impl_array_leaf!(bool, BooleanValues, |v: bool| Ok::<bool, DrizzleError>(v));
+impl_array_leaf!(
     String,
-    DrizzleError,
->(v));
+    StringValues,
+    |v: String| Ok::<String, DrizzleError>(v)
+);
 
 // =============================================================================
 // Wrapper-type leaf impls — delegate through String / Vec<u8>
@@ -1624,19 +1333,51 @@ pub fn encode_param(name: impl Into<String>, value: &PostgresValue<'_>) -> SqlPa
     builder.build()
 }
 
+/// A date, as [`temporal_text`] writes it.
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+fn date_field(date: temporal_text::Ymd) -> Option<(Field, Option<TypeHint>)> {
+    Some((
+        Field::StringValue(temporal_text::format_date(date)),
+        Some(TypeHint::Date),
+    ))
+}
+
+/// A time of day, as [`temporal_text`] writes it.
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+fn time_field(time: temporal_text::Hms) -> Option<(Field, Option<TypeHint>)> {
+    Some((
+        Field::StringValue(temporal_text::format_time(time)),
+        Some(TypeHint::Time),
+    ))
+}
+
+/// A date and time as `YYYY-MM-DD HH:MM:SS[.fraction]`, the text the
+/// TIMESTAMP type hint reads. A `timestamptz` value is sent as its UTC date
+/// and time.
+#[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+fn timestamp_field(
+    date: temporal_text::Ymd,
+    time: temporal_text::Hms,
+) -> Option<(Field, Option<TypeHint>)> {
+    Some((
+        Field::StringValue(temporal_text::format_timestamp(date, time)),
+        Some(TypeHint::Timestamp),
+    ))
+}
+
 #[cfg(feature = "chrono")]
 fn encode_chrono_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    use temporal_text::{chrono_hms, chrono_ymd};
     match value {
-        PostgresValue::Date(d) => Some((Field::StringValue(d.to_string()), Some(TypeHint::Date))),
-        PostgresValue::Time(t) => Some((Field::StringValue(t.to_string()), Some(TypeHint::Time))),
-        PostgresValue::Timestamp(ts) => Some((
-            Field::StringValue(ts.format("%Y-%m-%d %H:%M:%S%.f").to_string()),
-            Some(TypeHint::Timestamp),
-        )),
-        PostgresValue::TimestampTz(ts) => Some((
-            Field::StringValue(ts.to_rfc3339()),
-            Some(TypeHint::Timestamp),
-        )),
+        PostgresValue::Date(d) => date_field(chrono_ymd(*d)),
+        PostgresValue::Time(t) => time_field(chrono_hms(*t)),
+        PostgresValue::Timestamp(ts) => {
+            timestamp_field(chrono_ymd(ts.date()), chrono_hms(ts.time()))
+        }
+        PostgresValue::TimestampTz(ts) => {
+            let utc = ts.naive_utc();
+            timestamp_field(chrono_ymd(utc.date()), chrono_hms(utc.time()))
+        }
         PostgresValue::Interval(dur) => Some((
             Field::StringValue(format_interval(dur.num_seconds(), dur.subsec_nanos())),
             None,
@@ -1647,21 +1388,22 @@ fn encode_chrono_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeH
 
 #[cfg(feature = "time")]
 fn encode_time_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
+    use temporal_text::{time_hms, time_ymd};
     match value {
-        PostgresValue::TimeDate(d) => {
-            Some((Field::StringValue(d.to_string()), Some(TypeHint::Date)))
+        PostgresValue::TimeDate(d) => date_field(time_ymd(*d)),
+        PostgresValue::TimeTime(t) => time_field(time_hms(*t)),
+        PostgresValue::TimeTimestamp(ts) => {
+            timestamp_field(time_ymd(ts.date()), time_hms(ts.time()))
         }
-        PostgresValue::TimeTime(t) => {
-            Some((Field::StringValue(t.to_string()), Some(TypeHint::Time)))
+        PostgresValue::TimeTimestampTz(ts) => {
+            // `time` holds years up to 9999, which its UTC value can pass.
+            let (date, time) = temporal_text::to_utc(
+                time_ymd(ts.date()),
+                time_hms(ts.time()),
+                ts.offset().whole_seconds(),
+            );
+            timestamp_field(date, time)
         }
-        PostgresValue::TimeTimestamp(ts) => Some((
-            Field::StringValue(ts.to_string()),
-            Some(TypeHint::Timestamp),
-        )),
-        PostgresValue::TimeTimestampTz(ts) => Some((
-            Field::StringValue(ts.to_string()),
-            Some(TypeHint::Timestamp),
-        )),
         PostgresValue::TimeInterval(dur) => Some((
             Field::StringValue(format_interval(
                 dur.whole_seconds(),
@@ -1673,26 +1415,19 @@ fn encode_time_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHin
     }
 }
 
-/// jiff values bind as text with a type hint. The Data API reads DATE,
-/// TIME and TIMESTAMP text as `YYYY-MM-DD HH:MM:SS[.fraction]`, and a
-/// TIMESTAMPTZ as its UTC date and time.
 #[cfg(feature = "jiff")]
 fn encode_jiff_field(value: &PostgresValue<'_>) -> Option<(Field, Option<TypeHint>)> {
-    let civil = |dt: jiff::civil::DateTime| format!("{} {}", dt.date(), dt.time());
+    use temporal_text::{jiff_hms, jiff_ymd};
     match value {
-        PostgresValue::JiffDate(d) => {
-            Some((Field::StringValue(d.to_string()), Some(TypeHint::Date)))
-        }
-        PostgresValue::JiffTime(t) => {
-            Some((Field::StringValue(t.to_string()), Some(TypeHint::Time)))
-        }
+        PostgresValue::JiffDate(d) => date_field(jiff_ymd(*d)),
+        PostgresValue::JiffTime(t) => time_field(jiff_hms(*t)),
         PostgresValue::JiffDateTime(dt) => {
-            Some((Field::StringValue(civil(*dt)), Some(TypeHint::Timestamp)))
+            timestamp_field(jiff_ymd(dt.date()), jiff_hms(dt.time()))
         }
-        PostgresValue::JiffTimestamp(ts) => Some((
-            Field::StringValue(civil(jiff::tz::Offset::UTC.to_datetime(*ts))),
-            Some(TypeHint::Timestamp),
-        )),
+        PostgresValue::JiffTimestamp(ts) => {
+            let utc = jiff::tz::Offset::UTC.to_datetime(*ts);
+            timestamp_field(jiff_ymd(utc.date()), jiff_hms(utc.time()))
+        }
         _ => None,
     }
 }
@@ -1928,7 +1663,12 @@ mod tests {
     use super::*;
     use std::borrow::Cow;
 
-    #[cfg(any(feature = "geo-types", feature = "chrono", feature = "time"))]
+    #[cfg(any(
+        feature = "geo-types",
+        feature = "chrono",
+        feature = "time",
+        feature = "jiff"
+    ))]
     fn text_row(text: &str) -> Row {
         Row::new(
             vec![Field::StringValue(text.to_string())],
@@ -2011,6 +1751,187 @@ mod tests {
                 <time::Duration as FromDrizzleRow<Row>>::from_row_at(&text_row(&text), 0).unwrap();
             assert_eq!(decoded, duration, "{text}");
         }
+    }
+
+    #[cfg(any(feature = "chrono", feature = "time", feature = "jiff"))]
+    fn encoded(value: &PostgresValue<'_>) -> (String, Option<TypeHint>) {
+        let (Field::StringValue(text), hint) = encode_field(value) else {
+            panic!("expected text for {value:?}");
+        };
+        (text, hint)
+    }
+
+    // PostgreSQL writes a year past 9999 with more digits and a year before
+    // 1 AD as `<year> BC` (year 0 is 1 BC); a value outside years 1 to 9999
+    // is sent and read in those forms.
+    #[cfg(feature = "chrono")]
+    #[test]
+    fn chrono_dates_outside_years_1_to_9999_round_trip() {
+        use chrono::{NaiveDate, NaiveDateTime};
+
+        for (date, text) in [
+            (NaiveDate::from_ymd_opt(1, 1, 1).unwrap(), "0001-01-01"),
+            (NaiveDate::from_ymd_opt(99, 12, 31).unwrap(), "0099-12-31"),
+            (NaiveDate::from_ymd_opt(9999, 12, 31).unwrap(), "9999-12-31"),
+            (NaiveDate::from_ymd_opt(10000, 1, 1).unwrap(), "10000-01-01"),
+            (NaiveDate::from_ymd_opt(0, 1, 1).unwrap(), "0001-01-01 BC"),
+            (NaiveDate::from_ymd_opt(-1, 6, 30).unwrap(), "0002-06-30 BC"),
+        ] {
+            assert_eq!(
+                encoded(&PostgresValue::Date(date)),
+                (text.to_string(), Some(TypeHint::Date))
+            );
+            let decoded = <NaiveDate as FromDrizzleRow<Row>>::from_row_at(&text_row(text), 0);
+            assert_eq!(decoded.unwrap(), date, "{text}");
+        }
+
+        let bc = NaiveDate::from_ymd_opt(0, 1, 1)
+            .unwrap()
+            .and_hms_micro_opt(12, 0, 0, 5)
+            .unwrap();
+        assert_eq!(
+            encoded(&PostgresValue::Timestamp(bc)),
+            (
+                "0001-01-01 12:00:00.000005 BC".to_string(),
+                Some(TypeHint::Timestamp)
+            )
+        );
+        let decoded = <NaiveDateTime as FromDrizzleRow<Row>>::from_row_at(
+            &text_row("0001-01-01 12:00:00.000005 BC"),
+            0,
+        );
+        assert_eq!(decoded.unwrap(), bc);
+    }
+
+    // The TIMESTAMP type hint reads `YYYY-MM-DD HH:MM:SS[.fraction]`, so a
+    // `timestamptz` goes as its UTC date and time, not RFC 3339.
+    #[cfg(feature = "chrono")]
+    #[test]
+    fn chrono_timestamptz_sends_utc_date_and_time() {
+        use chrono::{DateTime, FixedOffset, Utc};
+
+        let zoned: DateTime<FixedOffset> = "2020-01-01T05:30:00.25+05:30".parse().unwrap();
+        assert_eq!(
+            encoded(&PostgresValue::TimestampTz(zoned)),
+            (
+                "2020-01-01 00:00:00.25".to_string(),
+                Some(TypeHint::Timestamp)
+            )
+        );
+        // The Data API returns a `timestamptz` in UTC without an offset.
+        let decoded = <DateTime<Utc> as FromDrizzleRow<Row>>::from_row_at(
+            &text_row("2020-01-01 00:00:00.25"),
+            0,
+        );
+        assert_eq!(decoded.unwrap(), zoned.with_timezone(&Utc));
+        let lmt = <DateTime<FixedOffset> as FromDrizzleRow<Row>>::from_row_at(
+            &text_row("1800-01-01 05:53:28+05:53:28"),
+            0,
+        );
+        assert_eq!(
+            lmt.unwrap().with_timezone(&Utc),
+            "1800-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap()
+        );
+    }
+
+    #[cfg(feature = "time")]
+    #[test]
+    fn time_values_send_padded_utc_text() {
+        use time::macros::{date, datetime, time};
+
+        assert_eq!(
+            encoded(&PostgresValue::TimeTime(time!(1:02:03.000004))),
+            ("01:02:03.000004".to_string(), Some(TypeHint::Time))
+        );
+        assert_eq!(
+            encoded(&PostgresValue::TimeTimestampTz(
+                datetime!(2020-01-01 5:30 +05:30)
+            )),
+            ("2020-01-01 00:00:00".to_string(), Some(TypeHint::Timestamp))
+        );
+        assert_eq!(
+            encoded(&PostgresValue::TimeTimestampTz(
+                datetime!(9999-12-31 23:00 -05:00)
+            )),
+            (
+                "10000-01-01 04:00:00".to_string(),
+                Some(TypeHint::Timestamp)
+            )
+        );
+        assert_eq!(
+            encoded(&PostgresValue::TimeDate(date!(0000 - 03 - 15))),
+            ("0001-03-15 BC".to_string(), Some(TypeHint::Date))
+        );
+        assert_eq!(
+            <time::Date as FromDrizzleRow<Row>>::from_row_at(&text_row("0001-03-15 BC"), 0)
+                .unwrap(),
+            date!(0000 - 03 - 15)
+        );
+        assert_eq!(
+            <time::OffsetDateTime as FromDrizzleRow<Row>>::from_row_at(
+                &text_row("2020-01-01 00:00:00"),
+                0
+            )
+            .unwrap(),
+            datetime!(2020-01-01 0:00 UTC)
+        );
+    }
+
+    #[cfg(feature = "jiff")]
+    #[test]
+    fn jiff_dates_before_1_ad_send_bc_text() {
+        use jiff::civil::{Date, Time, date};
+
+        assert_eq!(
+            encoded(&PostgresValue::JiffDate(date(-1, 1, 1))),
+            ("0002-01-01 BC".to_string(), Some(TypeHint::Date))
+        );
+        assert_eq!(
+            <Date as FromDrizzleRow<Row>>::from_row_at(&text_row("0002-01-01 BC"), 0).unwrap(),
+            date(-1, 1, 1)
+        );
+        // A time of day with an offset is a `timetz`, whose offset `Time`
+        // would drop.
+        assert!(<Time as FromDrizzleRow<Row>>::from_row_at(&text_row("12:34:56+05"), 0).is_err());
+    }
+
+    // The Data API returns `timetz` converted to UTC with its offset
+    // dropped: reading one is an error rather than a different time.
+    #[cfg(feature = "chrono")]
+    #[test]
+    fn timetz_columns_are_not_supported() {
+        let row = Row::new(
+            vec![Field::StringValue("07:34:56".to_string())],
+            Arc::from(vec![ColumnMetadata::builder().type_name("timetz").build()]),
+        );
+        let error = <chrono::NaiveTime as FromDrizzleRow<Row>>::from_row_at(&row, 0).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Type conversion error: Column type \"time with time zone\" is not supported with \
+             the aws-data-api driver: Data API converts `timetz` values to UTC dropping their \
+             offset and accepts no per-query result formats"
+        );
+    }
+
+    #[test]
+    fn arrays_decode_into_nullable_elements() {
+        let row = Row::new(
+            vec![
+                Field::ArrayValue(ArrayValue::LongValues(vec![Some(1), None, Some(3)])),
+                Field::IsNull(true),
+            ],
+            Arc::from(Vec::new()),
+        );
+
+        let scores = <Vec<Option<i32>> as FromDrizzleRow<Row>>::from_row_at(&row, 0).unwrap();
+        assert_eq!(scores, [Some(1), None, Some(3)]);
+        let missing =
+            <Option<Vec<Option<String>>> as FromDrizzleRow<Row>>::from_row_at(&row, 1).unwrap();
+        assert_eq!(missing, None);
+        // A NULL element has no place in `Vec<i32>`.
+        assert!(<Vec<i32> as FromDrizzleRow<Row>>::from_row_at(&row, 0).is_err());
+        assert!(<Vec<Option<i32>> as FromDrizzleRow<Row>>::from_row_at(&row, 1).is_err());
+        assert!(<Vec<Option<bool>> as FromDrizzleRow<Row>>::from_row_at(&row, 0).is_err());
     }
 
     #[test]

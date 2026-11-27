@@ -4,6 +4,7 @@
 
 pub mod array_ops;
 pub mod async_edge_cases;
+pub mod bulk;
 pub mod codecs;
 pub mod conditions;
 pub mod custom_column;
@@ -21,6 +22,7 @@ pub mod joins;
 #[cfg(feature = "postgres-sync")]
 pub mod migration_apply;
 pub mod migrations;
+pub mod pooler;
 pub mod push_roundtrip;
 #[cfg(feature = "query")]
 pub mod query;

@@ -1063,6 +1063,17 @@ fn test_string_substr(db: &mut TestDb<SimpleSchema>) {
         .from(simple)
         .all();
     assert_eq!(result[0].result, "World");
+
+    // Without a length: everything from the seventh character on
+    let tail = db
+        .select(alias(substr(simple.name, 7, ()), "result"))
+        .from(simple);
+    assert_eq!(
+        tail.to_sql().sql(),
+        r#"SELECT SUBSTR ("simple"."name", ?) AS "result" FROM "simple""#
+    );
+    let result: Vec<StringResult> = tail.all();
+    assert_eq!(result[0].result, "World");
 }
 
 #[drizzle::test]
@@ -1923,4 +1934,33 @@ fn test_timediff(db: &mut TestDb<SimpleSchema>) {
         .from(simple)
         .all();
     assert!(result[0].result.contains("1"));
+}
+
+#[drizzle::test]
+fn row_id_selects_filters_and_orders(db: &mut TestDb<SimpleSchema>) {
+    use drizzle::sqlite::expr::row_id;
+    let SimpleSchema { simple } = schema;
+
+    // `id` is an INTEGER PRIMARY KEY, so it is the row id.
+    db.insert(simple)
+        .values([
+            InsertSimple::new("first").with_id(3),
+            InsertSimple::new("second").with_id(9_007_199),
+        ])
+        .execute();
+
+    let query = db
+        .select((row_id(), simple.name))
+        .from(simple)
+        .r#where(gt(row_id(), 1))
+        .order_by(desc(row_id()));
+    assert_eq!(
+        query.to_sql().sql(),
+        r#"SELECT rowid, "simple"."name" FROM "simple" WHERE rowid > ? ORDER BY rowid DESC"#
+    );
+    let rows: Vec<(i64, String)> = query.all();
+    assert_eq!(
+        rows,
+        [(9_007_199, "second".to_string()), (3, "first".to_string())]
+    );
 }

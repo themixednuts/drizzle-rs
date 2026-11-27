@@ -26,8 +26,9 @@ help: the trait `drizzle::core::scope::FindTable<Table>` is implemented for `Con
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
+   | impl<'a, Schema, State, Table> InsertBuilder<'a, Schema, State, Table>
+...
    |     pub fn select<Q, R, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |             + drizzle_core::MarkerScopeValidFor<ScopeProof>
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`

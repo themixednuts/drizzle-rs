@@ -17,7 +17,6 @@ note: required by a bound in `drizzle::postgres::expr::jsonb_contains`
   --> postgres/src/expr/json_ops.rs
    |
    | pub fn jsonb_contains<'a, L, R>(
-   |        -------------- required by a bound in this function
 ...
    |     R::SQLType: JsonbOperand,
    |                 ^^^^^^^^^^^^ required by this bound in `jsonb_contains`
@@ -41,7 +40,6 @@ note: required by a bound in `drizzle::postgres::expr::jsonb_contains`
   --> postgres/src/expr/json_ops.rs
    |
    | pub fn jsonb_contains<'a, L, R>(
-   |        -------------- required by a bound in this function
 ...
    |     R::SQLType: JsonbOperand,
    |                 ^^^^^^^^^^^^ required by this bound in `jsonb_contains`

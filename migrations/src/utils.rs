@@ -367,7 +367,283 @@ pub(crate) fn default_expression_with(sql: &str, backslash_escapes: bool) -> Opt
         }
     }
 
-    syn::parse_str::<syn::Expr>(&rust).ok().map(|_| rust)
+    let expr = syn::parse_str::<syn::Expr>(&rust).ok()?;
+    renders_as_written(&expr).then_some(rust)
+}
+
+/// Whether the `#[column(default = ...)]` renderer accepts `expr` and writes
+/// back the SQL it was copied from.
+///
+/// [`default_expression`] copies SQL operators into Rust syntax, and the
+/// renderer reads the Rust ones: `&&` and `||` become `AND` and `OR`, and
+/// `!` becomes `NOT`, so a pulled PostgreSQL or SQLite `'a' || 'b'` (string
+/// concatenation) or `a && b` (array overlap) would come back as a logical
+/// operator. A bare `=` parses as an assignment, which the renderer rejects.
+fn renders_as_written(expr: &syn::Expr) -> bool {
+    use syn::{BinOp, Expr, UnOp};
+    match expr {
+        Expr::Lit(_) => true,
+        Expr::Path(path) => {
+            path.qself.is_none()
+                && path
+                    .path
+                    .segments
+                    .iter()
+                    .all(|segment| segment.arguments.is_empty())
+        }
+        Expr::Call(call) => {
+            renders_as_written(&call.func) && call.args.iter().all(renders_as_written)
+        }
+        Expr::MethodCall(call) => {
+            call.turbofish.is_none()
+                && renders_as_written(&call.receiver)
+                && call.args.iter().all(renders_as_written)
+        }
+        Expr::Paren(paren) => renders_as_written(&paren.expr),
+        Expr::Group(group) => renders_as_written(&group.expr),
+        Expr::Unary(unary) => matches!(unary.op, UnOp::Neg(_)) && renders_as_written(&unary.expr),
+        // The operators the renderer writes as the same SQL operator (`!=`
+        // as `<>`).
+        Expr::Binary(binary) => {
+            matches!(
+                binary.op,
+                BinOp::Add(_)
+                    | BinOp::Sub(_)
+                    | BinOp::Mul(_)
+                    | BinOp::Div(_)
+                    | BinOp::Rem(_)
+                    | BinOp::BitXor(_)
+                    | BinOp::BitAnd(_)
+                    | BinOp::BitOr(_)
+                    | BinOp::Shl(_)
+                    | BinOp::Shr(_)
+                    | BinOp::Eq(_)
+                    | BinOp::Lt(_)
+                    | BinOp::Le(_)
+                    | BinOp::Ne(_)
+                    | BinOp::Ge(_)
+                    | BinOp::Gt(_)
+            ) && renders_as_written(&binary.left)
+                && renders_as_written(&binary.right)
+        }
+        Expr::Tuple(tuple) => tuple.elems.iter().all(renders_as_written),
+        _ => false,
+    }
+}
+
+/// `sql` without its PostgreSQL `::type` casts, which [`default_expression`]
+/// leaves out of generated code. String literals and quoted identifiers are
+/// kept as they are.
+pub(crate) fn strip_postgres_casts(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut rest = sql;
+    while let Some(ch) = rest.chars().next() {
+        if ch == '\'' || ch == '"' {
+            // A quoted run ends at the next unpaired quote (`''` / `""`).
+            let mut end = 1;
+            loop {
+                let Some(offset) = rest[end..].find(ch) else {
+                    end = rest.len();
+                    break;
+                };
+                end += offset + 1;
+                if !rest[end..].starts_with(ch) {
+                    break;
+                }
+                end += 1;
+            }
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+        } else if let Some(tail) = rest.strip_prefix("::") {
+            rest = skip_cast_type(tail);
+        } else {
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+        }
+    }
+    out
+}
+
+/// Whether every `::type` cast in the PostgreSQL expression `sql` can be
+/// left out without changing what the expression means, as generated code
+/// leaves them out (drizzle-orm#6493). That holds for a cast of a literal
+/// that is the whole expression (the column type then gives the literal its
+/// type), for a number cast to a numeric type, and for a string cast to a
+/// text type or `regclass` (a bare string literal resolves to text, and the
+/// sequence functions take only `regclass`), as well as for an interval
+/// added to `now()`. Any other cast may pick a
+/// different function or operator, or none: `md5(random()::text)` has no
+/// `md5(double precision)`, and `trunc('…'::macaddr)` cannot choose between
+/// the `trunc` overloads without it.
+pub(crate) fn postgres_casts_are_redundant(sql: &str) -> bool {
+    let sql = sql.trim();
+    let mut out = String::with_capacity(sql.len());
+    // Start and end in `out` of the last quoted string literal.
+    let mut last_string: Option<(usize, usize)> = None;
+    let mut rest = sql;
+    while let Some(ch) = rest.chars().next() {
+        if ch == '\'' || ch == '"' {
+            let mut end = 1;
+            loop {
+                let Some(offset) = rest[end..].find(ch) else {
+                    end = rest.len();
+                    break;
+                };
+                end += offset + 1;
+                if !rest[end..].starts_with(ch) {
+                    break;
+                }
+                end += 1;
+            }
+            if ch == '\'' {
+                last_string = Some((out.len(), out.len() + end));
+            }
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+        } else if let Some(tail) = rest.strip_prefix("::") {
+            let after = skip_cast_type(tail);
+            let target = tail[..tail.len() - after.len()].trim();
+            let Some((operand_start, literal)) = cast_operand(&out, last_string) else {
+                return false;
+            };
+            let remainder = after.trim_start_matches(|c: char| c == ')' || c.is_whitespace());
+            let whole = out[..operand_start]
+                .chars()
+                .all(|c| matches!(c, '(' | '+' | '-') || c.is_whitespace())
+                && (remainder.is_empty() || remainder.starts_with("::"));
+            if !(whole
+                || cast_keeps_literal_meaning(literal, target)
+                || interval_added_to_now(&out[..operand_start], literal, target))
+            {
+                return false;
+            }
+            rest = after;
+        } else {
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+        }
+    }
+    true
+}
+
+/// `now() + '1 day'::interval`: a timestamp has one `+` operator, which
+/// takes an interval, so the string resolves to an interval without the cast.
+/// (`now() - '1 day'` would read it as a timestamp.)
+fn interval_added_to_now(before: &str, literal: CastLiteral, target: &str) -> bool {
+    let Some(left) = before.trim_end().strip_suffix('+') else {
+        return false;
+    };
+    let left = left.trim_end().to_ascii_lowercase();
+    matches!(literal, CastLiteral::String)
+        && target.to_ascii_lowercase().starts_with("interval")
+        && [
+            "now()",
+            "current_timestamp",
+            "localtimestamp",
+            "transaction_timestamp()",
+            "statement_timestamp()",
+            "clock_timestamp()",
+        ]
+        .iter()
+        .any(|call| left.ends_with(call))
+}
+
+/// The kind of literal a cast applies to.
+#[derive(Clone, Copy)]
+enum CastLiteral {
+    Number,
+    String,
+}
+
+/// Where in `out` the operand of a cast that follows `out` starts, and what
+/// literal it is, or `None` when it is not a literal.
+fn cast_operand(out: &str, last_string: Option<(usize, usize)>) -> Option<(usize, CastLiteral)> {
+    let operand = out.trim_end();
+    if operand.ends_with('\'') {
+        let (start, end) = last_string?;
+        return (end == operand.len()).then_some((start, CastLiteral::String));
+    }
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '"' || c == '$';
+    let (start, number) = if operand.ends_with(')') {
+        // `(10)` or `(-1)`, not a function call such as `random()`.
+        let mut depth = 0usize;
+        let open = operand.char_indices().rev().find_map(|(index, c)| {
+            match c {
+                ')' => depth += 1,
+                '(' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                }
+                _ => {}
+            }
+            None
+        })?;
+        let inner = operand[open + 1..operand.len() - 1].trim();
+        (open, inner.strip_prefix(['-', '+']).unwrap_or(inner).trim())
+    } else {
+        let start = operand
+            .char_indices()
+            .rev()
+            .take_while(|(_, c)| c.is_ascii_digit() || *c == '.')
+            .last()
+            .map(|(index, _)| index)?;
+        (start, &operand[start..])
+    };
+    let before_word = operand[..start]
+        .trim_end()
+        .chars()
+        .last()
+        .is_some_and(is_word);
+    let numeric = !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && number.chars().any(|c| c.is_ascii_digit());
+    (numeric && !before_word).then_some((start, CastLiteral::Number))
+}
+
+/// Whether dropping a cast of `literal` to `target` inside a larger
+/// expression keeps its meaning (see [`postgres_casts_are_redundant`]).
+fn cast_keeps_literal_meaning(literal: CastLiteral, target: &str) -> bool {
+    let target = target.to_ascii_lowercase();
+    let base = target
+        .split(['(', '['])
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches("pg_catalog.");
+    if target.contains('[') {
+        return false;
+    }
+    match literal {
+        CastLiteral::Number => matches!(
+            base,
+            "smallint"
+                | "integer"
+                | "int"
+                | "bigint"
+                | "int2"
+                | "int4"
+                | "int8"
+                | "numeric"
+                | "decimal"
+                | "real"
+                | "double precision"
+                | "float4"
+                | "float8"
+        ),
+        CastLiteral::String => matches!(
+            base,
+            "text"
+                | "character varying"
+                | "varchar"
+                | "character"
+                | "char"
+                | "bpchar"
+                | "name"
+                | "regclass"
+        ),
+    }
 }
 
 /// Comment emitted in generated schema code when a database default cannot be
@@ -870,10 +1146,59 @@ mod tests {
             ("'{}'::jsonb", r#""{}""#),
             ("'active'::public.\"Status\"", r#""active""#),
             ("'1'::numeric(10,2) + 1", r#""1" + 1"#),
-            ("('a'::text || 'b'::text)", r#"("a" || "b")"#),
             ("(now() + '1 day'::interval)", r#"(now() + "1 day")"#),
         ] {
             assert_eq!(default_expression(sql).as_deref(), Some(expected), "{sql}");
+        }
+    }
+
+    #[test]
+    fn postgres_casts_are_stripped_outside_quotes() {
+        for (sql, expected) in [
+            ("(random() * (10)::double precision)", "(random() * (10))"),
+            ("'a''::b'::text", "'a''::b'"),
+            ("'ok'::\"app\".\"Mood Kind\"[]", "'ok'"),
+            ("\"a::b\"::text || 'x'", "\"a::b\" || 'x'"),
+            ("'unterminated::text", "'unterminated::text"),
+        ] {
+            assert_eq!(strip_postgres_casts(sql), expected, "{sql}");
+        }
+    }
+
+    #[test]
+    fn postgres_casts_that_carry_meaning_are_detected() {
+        for sql in [
+            "(random() * (10)::double precision)",
+            "(random() * (-1)::integer)",
+            "(10)::bigint",
+            "'anon'::character varying",
+            "'{}'::jsonb",
+            "'{}'::text[]",
+            "'active'::public.\"Status\"",
+            "'a'::text::character varying(20)",
+            "nextval('users_id_seq'::regclass)",
+            "('a'::text || 'b'::text)",
+            "md5('x'::text)",
+            "now()",
+            "'a''::b'",
+            "(now() + '1 day'::interval)",
+        ] {
+            assert!(postgres_casts_are_redundant(sql), "{sql}");
+        }
+        for sql in [
+            "md5(random()::text)::uuid",
+            "md5((random())::text)",
+            "trunc('08:00:2b:01:02:03'::macaddr)",
+            "(now() - '1 day'::interval)",
+            "(CURRENT_DATE + '1 day'::interval)",
+            "now()::date",
+            "ARRAY[]::text[]",
+            "x1::integer",
+            "\"col\"::text",
+            "'1'::numeric(10,2) + 1",
+            "coalesce(null, ARRAY['a'::text])::text[] || '{}'::text[]",
+        ] {
+            assert!(!postgres_casts_are_redundant(sql), "{sql}");
         }
     }
 
@@ -883,5 +1208,22 @@ mod tests {
         assert_eq!(default_expression("x'00'"), None);
         assert_eq!(default_expression("ARRAY[]::text[]"), None);
         assert_eq!(default_expression("CAST(1 AS int)"), None);
+    }
+
+    #[test]
+    fn defaults_whose_operators_mean_something_else_in_rust_are_rejected() {
+        // String concatenation and array overlap would render as OR and AND.
+        assert_eq!(default_expression("'a'::text || 'b'::text"), None);
+        assert_eq!(default_expression("'{1}'::int[] && '{2}'::int[]"), None);
+        // `=` parses as an assignment.
+        assert_eq!(default_expression("a = b"), None);
+        // Operators the renderer writes back as they are.
+        assert_eq!(
+            default_expression("(random() * (10)::double precision)").as_deref(),
+            Some("(random() * (10))")
+        );
+        assert_eq!(default_expression("1 << 4").as_deref(), Some("1 << 4"));
+        assert_eq!(default_expression("1 != 2").as_deref(), Some("1 != 2"));
+        assert_eq!(default_expression("-1").as_deref(), Some("-1"));
     }
 }
