@@ -103,8 +103,7 @@ fn ps_db_blog() -> (drizzle::postgres::sync::Drizzle<BlogSchema>, User, Post) {
     let mut c = ::postgres::Client::connect(&url(), ::postgres::NoTls).expect("connect");
     c.batch_execute("DROP TABLE IF EXISTS bench_posts; DROP TABLE IF EXISTS bench_users")
         .expect("drop");
-    let (db, BlogSchema { user, post }) =
-        drizzle::postgres::sync::Drizzle::<BlogSchema>::new(c);
+    let (db, BlogSchema { user, post }) = drizzle::postgres::sync::Drizzle::<BlogSchema>::new(c);
     db.create().expect("create");
     (db, user, post)
 }
