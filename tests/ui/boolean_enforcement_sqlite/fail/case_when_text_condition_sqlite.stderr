@@ -24,8 +24,9 @@ help: the following other types implement trait `BooleanLike`
 note: required by a bound in `CaseInit::<'a, V>::when`
   --> core/src/expr/case.rs
    |
+   | impl<'a, V: SQLParam + 'a> CaseInit<'a, V> {
+...
    |     pub fn when<C, R>(
-   |            ---- required by a bound in this associated function
 ...
    |         C::SQLType: BooleanLike,
    |                     ^^^^^^^^^^^ required by this bound in `CaseInit::<'a, V>::when`

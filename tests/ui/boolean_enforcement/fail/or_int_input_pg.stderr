@@ -28,7 +28,6 @@ note: required by a bound in `or`
   --> core/src/expr/logical.rs
    |
    | pub fn or<'a, V, L, R>(
-   |        -- required by a bound in this function
 ...
    |     L: Expr<'a, V>,
    |        ^^^^^^^^^^^ required by this bound in `or`

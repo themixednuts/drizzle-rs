@@ -28,7 +28,6 @@ note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
    | ^^^^^^^^^^^^^ required by this bound in `UpdateUsers::<'a, S>::with_visits`
  7 | struct Users {
  8 |     visits: i64,
-   |     ------ required by a bound in this associated function
    = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: a nullable expression cannot be assigned to a non-null column
@@ -56,5 +55,4 @@ note: required by a bound in `UpdateUsers::<'a, S>::with_visits`
    | ^^^^^^^^^^^^^ required by this bound in `UpdateUsers::<'a, S>::with_visits`
  7 | struct Users {
  8 |     visits: i64,
-   |     ------ required by a bound in this associated function
    = note: this error originates in the attribute macro `MySQLTable` (in Nightly builds, run with -Z macro-backtrace for more info)

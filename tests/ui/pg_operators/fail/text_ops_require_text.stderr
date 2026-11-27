@@ -21,7 +21,6 @@ note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
    | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
-   |        ----- required by a bound in this function
 ...
    |     E::SQLType: Compatible<P::SQLType> + Textual,
    |                                          ^^^^^^^ required by this bound in `ilike`
@@ -49,7 +48,6 @@ note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
    | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
-   |        ----- required by a bound in this function
 ...
    |     E::SQLType: Compatible<P::SQLType> + Textual,
    |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
@@ -78,7 +76,6 @@ note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
    | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
-   |        ----- required by a bound in this function
 ...
    |     P: ComparisonOperand<'a, PostgresValue<'a>, E>,
    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
@@ -108,7 +105,6 @@ note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
    | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
-   |        ----- required by a bound in this function
 ...
    |     E::SQLType: Compatible<P::SQLType> + Textual,
    |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
@@ -136,7 +132,6 @@ note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
    | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
-   |        ----- required by a bound in this function
 ...
    |     P::SQLType: Textual,
    |                 ^^^^^^^ required by this bound in `ilike`
@@ -167,7 +162,6 @@ note: required by a bound in `ilike`
   --> postgres/src/expr/ilike.rs
    |
    | pub fn ilike<'a, E, P>(expr: E, pattern: P) -> IlikeExpr<'a, E, P>
-   |        ----- required by a bound in this function
 ...
    |     P: ComparisonOperand<'a, PostgresValue<'a>, E>,
    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ilike`
@@ -195,7 +189,6 @@ note: required by a bound in `drizzle::postgres::expr::regex_match`
   --> postgres/src/expr/regex.rs
    |
    | pub fn regex_match<'a, E>(
-   |        ----------- required by a bound in this function
 ...
    |     E::SQLType: drizzle_types::Textual,
    |                 ^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `regex_match`

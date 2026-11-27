@@ -21,7 +21,6 @@ note: required by a bound in `group_concat`
   --> core/src/expr/agg.rs
    |
    | pub fn group_concat<'a, V, E>(
-   |        ------------ required by a bound in this function
 ...
    |     E::SQLType: crate::types::Textual,
    |                 ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `group_concat`

@@ -2,14 +2,11 @@ error[E0599]: the method `force_index` exists for struct `QueryBuilder<'_, Schem
   --> tests/ui/mysql_builder/fail/mixed_index_hint_kinds.rs:25:10
    |
 21 |       let _ = builder
-   |  _____________-
-22 | |         .select(users.id)
-23 | |         .from(users)
-24 | |         .use_index(UsersNameIdx::new())
-25 | |         .force_index(UsersNameIdx::new());
-   | |         -^^^^^^^^^^^ method cannot be called due to unsatisfied trait bounds
-   | |_________|
-   |
+22 |           .select(users.id)
+23 |           .from(users)
+24 |           .use_index(UsersNameIdx::new())
+25 |           .force_index(UsersNameIdx::new());
+   |            ^^^^^^^^^^^ method cannot be called due to unsatisfied trait bounds
    |
   ::: mysql/src/builder/mod.rs
    |

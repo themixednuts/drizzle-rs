@@ -1,12 +1,11 @@
 error[E0599]: no method named `left_join_using` found for struct `QueryBuilder<'a, Schema, State, Table, Marker, Row, Grouped>` in the current scope
   --> tests/ui/mysql_builder/fail/join_using_absent.rs:27:10
    |
-24 |       let _ = builder
-   |  _____________-
-25 | |         .select(users.id)
-26 | |         .from(users)
-27 | |         .left_join_using(posts, posts.id);
-   | |_________-^^^^^^^^^^^^^^^
+24 |     let _ = builder
+25 |         .select(users.id)
+26 |         .from(users)
+27 |         .left_join_using(posts, posts.id);
+   |          ^^^^^^^^^^^^^^^
    |
 help: there is a method `left_join` with a similar name, but with different arguments
   --> mysql/src/builder/select.rs

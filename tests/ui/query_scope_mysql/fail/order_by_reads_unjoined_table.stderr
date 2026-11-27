@@ -33,8 +33,9 @@ help: the trait `drizzle::core::scope::FindTable<Table>` is implemented for `Con
 note: required by a bound in `drizzle::builder::mysql::mysql_sync::<impl drizzle::builder::mysql::common::DrizzleBuilder<'db, &'db mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
   --> src/builder/mysql/mysql_sync/mod.rs
    |
+   | impl<'db, 'q, Connection, Schema, State, Table, Mk, Rw, Grouped>
+...
    |     pub fn all<R, ScopeProof, AggProof>(self) -> Result<Vec<R>>
-   |            --- required by a bound in this associated function
 ...
    |             + MarkerScopeValidFor<ScopeProof>
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::mysql::mysql_sync::<impl DrizzleBuilder<'db, &mut Drizzle<Connection, Schema>, Schema, QueryBuilder<'q, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

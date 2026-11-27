@@ -17,7 +17,6 @@ note: required by a bound in `drizzle::core::expr::sqrt`
   --> core/src/expr/math.rs
    |
    | pub fn sqrt<'a, V, E>(
-   |        ---- required by a bound in this function
 ...
    |     V::DialectMarker: MathExt,
    |                       ^^^^^^^ required by this bound in `sqrt`

@@ -24,8 +24,9 @@ help: the following other types implement trait `BooleanLike`
 note: required by a bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg, S>>::filter`
   --> core/src/expr/window.rs
    |
+   | impl<'a, V, T, N, S> SQLExpr<'a, V, T, N, Agg, S>
+...
    |     pub fn filter<C>(self, condition: C) -> SQLExpr<'a, V, T, N, Agg, (S, ScopeOnly<C::Sources>)>
-   |            ------ required by a bound in this associated function
 ...
    |         C::SQLType: BooleanLike,
    |                     ^^^^^^^^^^^ required by this bound in `drizzle::core::expr::window::<impl SQLExpr<'a, V, T, N, Agg, S>>::filter`

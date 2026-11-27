@@ -17,7 +17,6 @@ note: required by a bound in `array_agg`
  --> core/src/expr/agg.rs
   |
   | pub fn array_agg<'a, V, E>(expr: E) -> SQLExpr<'a, V, Array<E::SQLType>, Null, Agg, E::Sources>
-  |        --------- required by a bound in this function
 ...
   |     V::DialectMarker: DialectSupports<feature::PostgresAggregate>,
   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `array_agg`

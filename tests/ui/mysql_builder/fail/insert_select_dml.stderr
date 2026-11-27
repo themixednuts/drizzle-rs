@@ -43,8 +43,9 @@ help: the following other types implement trait `drizzle_core::builder::insert_s
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
+   | impl<'a, Schema, State, Table> InsertBuilder<'a, Schema, State, Table>
+...
    |     pub fn select<Q, R, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |         Q::Marker: InsertSelectCompatible<'a, MySQLValue<'a>, Table, R>
    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
@@ -86,8 +87,9 @@ help: the following other types implement trait `MarkerScopeValidFor<Proof>`
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
+   | impl<'a, Schema, State, Table> InsertBuilder<'a, Schema, State, Table>
+...
    |     pub fn select<Q, R, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |             + drizzle_core::MarkerScopeValidFor<ScopeProof>
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
@@ -117,8 +119,9 @@ error[E0277]: builder state `DeleteWhereSet` does not allow `drizzle_core::build
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`
   --> mysql/src/builder/insert.rs
    |
+   | impl<'a, Schema, State, Table> InsertBuilder<'a, Schema, State, Table>
+...
    |     pub fn select<Q, R, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |         Q: IntoSelectQuery<'a, Schema, R>,
    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, State, Table>>::select`

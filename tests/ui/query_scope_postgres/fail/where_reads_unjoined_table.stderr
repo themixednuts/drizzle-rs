@@ -25,8 +25,9 @@ help: the trait `drizzle::core::scope::FindTable<Table>` is implemented for `Con
 note: required by a bound in `drizzle::builder::postgres::postgres_sync::<impl drizzle::builder::postgres::common::DrizzleBuilder<'_, &Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`
   --> src/builder/postgres/postgres_sync/mod.rs
    |
+   | impl<S, Schema, State, Table, Mk, Rw, Grouped>
+...
    |     pub fn all<R, Proof, AggProof>(self) -> drizzle_core::error::Result<Vec<R>>
-   |            --- required by a bound in this associated function
 ...
    |             + drizzle_core::row::MarkerScopeValidFor<Proof>
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `drizzle::builder::postgres::postgres_sync::<impl DrizzleBuilder<'_, &Drizzle<S>, S, QueryBuilder<'_, Schema, State, Table, Mk, Rw, Grouped>, State>>::all`

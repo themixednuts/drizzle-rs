@@ -26,8 +26,9 @@ help: the trait `drizzle_core::row::SingleColGroupCheck<Cons<sources::Name, Nil>
 note: required by a bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`
   --> sqlite/src/builder/insert.rs
    |
+   | impl<'a, Schema, Table> InsertBuilder<'a, Schema, InsertInitial, Table>
+...
    |     pub fn select<Q, R, ScopeProof, AggProof>(
-   |            ------ required by a bound in this associated function
 ...
    |             + drizzle_core::MarkerAggValidFor<Q::Grouped, AggProof>,
    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `insert::<impl QueryBuilder<'a, Schema, InsertInitial, Table>>::select`
